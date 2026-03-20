@@ -112,8 +112,9 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* ── Persistent iframe — always mounted when playing, never unmounts ── */}
+      {/* Must be 480x270 off-screen — YouTube refuses to play in sub-100px containers */}
       {currentVideo && (
-        <div style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, overflow: "hidden", pointerEvents: "none" }}
+        <div style={{ position: "fixed", left: -9999, top: -9999, width: 480, height: 270, pointerEvents: "none", opacity: 0 }}
           aria-hidden="true">
           <iframe
             key={iframeKey}
