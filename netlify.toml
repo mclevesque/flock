@@ -6,6 +6,10 @@
   command   = "npm run build"
   publish   = ".next"
 
+# R2_BUCKET="flock" triggers false positives (app name appears everywhere)
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "R2_BUCKET"
+
 # Next.js adapter — handles SSR, API routes, image optimization on Netlify Edge
 [[plugins]]
   package = "@netlify/plugin-nextjs"
