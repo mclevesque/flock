@@ -15,6 +15,7 @@
     "@capacitor/core": "^8.2.0",
     "@neondatabase/serverless": "^1.0.2",
     "@netlify/plugin-nextjs": "^5.15.9",
+    "@tensorflow/tfjs": "^4.22.0",
     "@types/bcryptjs": "^2.4.6",
     "@vercel/blob": "^2.3.1",
     "@vercel/postgres": "^0.10.0",
