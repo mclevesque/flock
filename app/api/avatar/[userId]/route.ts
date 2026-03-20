@@ -21,15 +21,24 @@ export async function GET(
       // Skip old Vercel Blob URLs — broken after migration to R2
       const isVercelBlob = url.includes("vercel-storage.com");
       if (!isVercelBlob) {
-        // Handle relative URLs (e.g. /api/generate-image?...) by making them absolute
         const absoluteUrl = url.startsWith("/")
           ? `${new URL(_req.url).origin}${url}`
           : url;
         if (absoluteUrl.startsWith("http://") || absoluteUrl.startsWith("https://")) {
-          return NextResponse.redirect(absoluteUrl, {
-            status: 302,
-            headers: { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" },
-          });
+          // Proxy the image — avoids CORS issues when Phaser loads canvas textures
+          try {
+            const img = await fetch(absoluteUrl);
+            if (img.ok) {
+              const contentType = img.headers.get("content-type") ?? "image/jpeg";
+              return new NextResponse(img.body, {
+                headers: {
+                  "Content-Type": contentType,
+                  "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+                  "Access-Control-Allow-Origin": "*",
+                },
+              });
+            }
+          } catch { /* fall through to dicebear */ }
         }
       }
     }
