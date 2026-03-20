@@ -574,7 +574,7 @@ function GifPicker({ onPick, onClose }: { onPick: (url: string) => void; onClose
 }
 
 function ChatView({
-  messages, sessionUserId, onSend, onUnsend, placeholder, headerContent, onBack, isMobile, opponentId, onCall, isInCall
+  messages, sessionUserId, onSend, onUnsend, placeholder, headerContent, onBack, isMobile, opponentId, onCall, isInCall, groupId
 }: {
   messages: ChatMessage[];
   sessionUserId: string;
@@ -587,6 +587,7 @@ function ChatView({
   opponentId?: string;
   onCall?: () => void;
   isInCall?: boolean;
+  groupId?: number;
 }) {
   const [input, setInput] = useState("");
   const [showGif, setShowGif] = useState(false);
@@ -745,8 +746,9 @@ function ChatView({
                       className="unsend-btn"
                       title="Unsend"
                       onClick={async () => {
-                        onUnsend?.(msg.id);
-                        await fetch("/api/messages", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: msg.id }) }).catch(() => {});
+                        const endpoint = groupId ? `/api/groups/${groupId}/messages` : "/api/messages";
+                        const res = await fetch(endpoint, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: msg.id }) });
+                        if (res.ok) onUnsend?.(msg.id);
                       }}
                       style={{
                         position: "absolute", top: "50%", right: -26, transform: "translateY(-50%)",
@@ -1223,7 +1225,7 @@ function MessagesInner() {
           <ChatView messages={groupMessages} sessionUserId={session.user?.id ?? ""} onSend={sendGroupMsg}
             onUnsend={(id) => { deletedGroupMsgIds.current.add(id); setGroupMessages(prev => prev.filter(m => m.id !== id)); }}
             placeholder={`Message ${activeGroup.name}... (/imagine for AI art)`}
-            isMobile={isMobile} onBack={() => setShowChat(false)}
+            isMobile={isMobile} onBack={() => setShowChat(false)} groupId={activeGroup.id}
             headerContent={
               <>
                 <span style={{ fontSize: 16 }}>👥</span>
