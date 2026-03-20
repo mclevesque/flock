@@ -111,7 +111,8 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const [wallInput, setWallInput] = useState("");
   const [wallError, setWallError] = useState("");
   const [vibeInterests, setVibeInterests] = useState<string[]>([]);
-  const { setInterests: setMyVibe, play: playVibe } = useVibe();
+  const { setInterests: setMyVibe, play: playVibe, playlist: vibePlaylist, playing: vibePlaying, pause: vibePause, stop: vibeStop } = useVibe();
+  const [profileTab, setProfileTab] = useState<"videos" | "vibe" | "wall">("videos");
   // replies: map of postId → replies array (seeded from SSR batch load, refreshed client-side)
   const [replies, setReplies] = useState<Record<number, WallReply[]>>(initialReplies ?? {});
   // which posts have their replies expanded (Set of postIds)
@@ -888,9 +889,26 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Videos — only shown when profile has actual uploaded videos */}
-          {displayVideos.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Tab bar */}
+          <div style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--border)", paddingBottom: 0 }}>
+            {[
+              { key: "videos", label: `🎬 Videos (${videos.length})` },
+              { key: "vibe", label: "⚡ Vibe" },
+              { key: "wall", label: "💬 Wall" },
+            ].map(t => (
+              <button key={t.key} onClick={() => setProfileTab(t.key as "videos" | "vibe" | "wall")}
+                style={{
+                  background: "none", border: "none", borderBottom: profileTab === t.key ? "2px solid var(--accent-purple-bright)" : "2px solid transparent",
+                  marginBottom: -1, padding: "8px 16px", fontSize: 13, fontWeight: profileTab === t.key ? 800 : 500,
+                  color: profileTab === t.key ? "var(--accent-purple-bright)" : "var(--text-muted)", cursor: "pointer",
+                }}
+              >{t.label}</button>
+            ))}
+          </div>
+
+          {/* Videos tab */}
+          {profileTab === "videos" && displayVideos.length > 0 && (
             <div className="panel">
               <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Videos <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>({videos.length})</span></span>
@@ -924,8 +942,70 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
             </div>
           )}
 
+          {/* Vibe tab */}
+          {profileTab === "vibe" && (() => {
+            const customInterests = vibeInterests.filter(id => id.startsWith("custom:"));
+            const curatedInterests = vibeInterests.filter(id => !id.startsWith("custom:"));
+            return (
+              <div className="panel">
+                <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>⚡ {isOwn ? "My" : `${user?.display_name ?? username}'s`} Vibe Mix</span>
+                  {isOwn && (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {vibePlaying && (
+                        <button onClick={() => vibePause()} style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "#c084fc", cursor: "pointer", fontWeight: 700 }}>⏸ Pause</button>
+                      )}
+                      <button onClick={() => vibeStop()} style={{ background: "rgba(255,100,100,0.1)", border: "1px solid rgba(255,100,100,0.3)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "#f87171", cursor: "pointer", fontWeight: 700 }}>✕ Stop</button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: 14 }}>
+                  {vibeInterests.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "24px 0" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>⚡</div>
+                      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
+                        {isOwn ? "You haven't set up your Vibe mix yet." : `${user?.display_name ?? username} hasn't set up their Vibe mix yet.`}
+                      </div>
+                      {isOwn && (
+                        <Link href="/vibe" style={{ display: "inline-block", background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "#fff", textDecoration: "none", borderRadius: 10, padding: "8px 20px", fontSize: 13, fontWeight: 800 }}>⚡ Set Up My Vibe</Link>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                        {curatedInterests.map(id => {
+                          const tag = VIBE_TAGS.find(t => t.id === id);
+                          return tag ? (
+                            <span key={id} style={{ background: `${tag.color}22`, border: `1px solid ${tag.color}55`, borderRadius: 20, padding: "3px 10px", fontSize: 12, color: tag.color, fontWeight: 700 }}>{tag.emoji} {tag.label}</span>
+                          ) : null;
+                        })}
+                        {customInterests.map(id => (
+                          <span key={id} style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 20, padding: "3px 10px", fontSize: 12, color: "#c084fc", fontWeight: 700 }}>✨ {id.slice("custom:".length)}</span>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {!vibePlaying && (
+                          <button
+                            onClick={() => { setMyVibe(vibeInterests); playVibe(); }}
+                            style={{ flex: 1, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 10, padding: "10px", fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer" }}
+                          >▶ {isOwn ? "Play My Mix" : `Play ${user?.display_name ?? username}'s Mix`}</button>
+                        )}
+                        {vibePlaying && vibePlaylist.length > 0 && (
+                          <div style={{ flex: 1, background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 10, padding: "10px", textAlign: "center", fontSize: 13, color: "#c084fc", fontWeight: 700 }}>⚡ Playing in mini player</div>
+                        )}
+                        {isOwn && (
+                          <Link href="/vibe" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "var(--text-muted)", textDecoration: "none", fontWeight: 600, display: "flex", alignItems: "center" }}>Edit</Link>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Wall */}
-          <div className="panel">
+          {profileTab === "wall" && <div className="panel">
             <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>Wall</span>
               {isOwn && (
@@ -1148,7 +1228,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
                 );
               })}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
 

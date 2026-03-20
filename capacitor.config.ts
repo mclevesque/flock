@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Flock',
   // Points to the deployed web app — no local build needed
   server: {
-    url: 'https://flock-two.vercel.app',
+    url: 'https://flocksocial.netlify.app',
     cleartext: false,
   },
   android: {

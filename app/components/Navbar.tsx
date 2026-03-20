@@ -12,9 +12,7 @@ const navItems = [
   { href: "/friends", label: "Friends", short: "👥" },
   { href: "/messages", label: "Messages", short: "💬" },
   { href: "/town", label: "🏘️ Town", short: "🏘️" },
-  { href: "/draw", label: "🎨 Draw", short: "🎨" },
   { href: "/stremio", label: "🎬 Stream", short: "🎬" },
-  { href: "/vibe",    label: "⚡ Vibe",   short: "⚡" },
 ];
 
 // Top-level routes that do NOT get a back button
@@ -30,6 +28,7 @@ const gameItems = [
   { href: "/emulator", label: "🎮 SNES", desc: "Classic games" },
   { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
   { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
+  { href: "/draw", label: "🎨 Draw", desc: "Free canvas drawing" },
 ];
 
 export default function Navbar() {

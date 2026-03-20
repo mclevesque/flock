@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { buildPlaylist, VIBE_TAGS, VibeVideo } from "@/app/vibe/vibeData";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,7 @@ interface VibeContextType {
   setInterests: (tags: string[]) => void;
   play: () => void;
   pause: () => void;
+  stop: () => void;
   next: () => void;
   prev: () => void;
   toggleMute: () => void;
@@ -25,7 +26,7 @@ interface VibeContextType {
 
 const VibeContext = createContext<VibeContextType>({
   playlist: [], currentIndex: 0, playing: false, muted: false, expanded: false, interests: [],
-  setInterests: () => {}, play: () => {}, pause: () => {}, next: () => {}, prev: () => {},
+  setInterests: () => {}, play: () => {}, pause: () => {}, stop: () => {}, next: () => {}, prev: () => {},
   toggleMute: () => {}, setExpanded: () => {}, jumpTo: () => {}, loadInterests: async () => {},
 });
 
@@ -68,6 +69,7 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
 
   const play = useCallback(() => setPlaying(true), []);
   const pause = useCallback(() => setPlaying(false), []);
+  const stop = useCallback(() => { setPlaying(false); setPlaylist([]); setCurrentIndex(0); }, []);
 
   const next = useCallback(() => {
     setCurrentIndex(i => {
@@ -98,13 +100,14 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
   const currentVideo = playlist[currentIndex];
   const onVibePage = pathname === "/vibe";
 
-  // Don't render mini player on the vibe page itself (full player is shown there)
-  const showMini = playing && currentVideo && !onVibePage;
+  // Show mini player when playing and not on a profile page (profile has its own Vibe tab)
+  const onProfilePage = pathname.startsWith("/profile");
+  const showMini = currentVideo && !onVibePage && !onProfilePage;
 
   return (
     <VibeContext.Provider value={{
       playlist, currentIndex, playing, muted, expanded, interests,
-      setInterests, play, pause, next, prev, toggleMute, setExpanded, jumpTo, loadInterests,
+      setInterests, play, pause, stop, next, prev, toggleMute, setExpanded, jumpTo, loadInterests,
     }}>
       {children}
 
@@ -133,11 +136,12 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
           onToggleMute={toggleMute}
           onNext={next}
           onPrev={prev}
-          onExpand={() => { /* navigate handled by router in MiniPlayer */ }}
+          onExpand={() => {}}
           iframeKey={iframeKey}
           playing={playing}
           onPause={pause}
           onPlay={play}
+          onStop={stop}
         />
       )}
     </VibeContext.Provider>
@@ -146,7 +150,7 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
 
 // ── Mini Player Pill ──────────────────────────────────────────────────────────
 
-function MiniPlayer({ video, muted, onToggleMute, onNext, onPrev, iframeKey, playing, onPause, onPlay }: {
+function MiniPlayer({ video, muted, onToggleMute, onNext, onPrev, playing, onPause, onPlay, onStop }: {
   video: VibeVideo;
   muted: boolean;
   onToggleMute: () => void;
@@ -157,8 +161,8 @@ function MiniPlayer({ video, muted, onToggleMute, onNext, onPrev, iframeKey, pla
   playing: boolean;
   onPause: () => void;
   onPlay: () => void;
+  onStop: () => void;
 }) {
-  const router = useRouter();
   const [hovered, setHovered] = useState(false);
   const tagEmojis = VIBE_TAGS.filter(t => video.tags.includes(t.id)).map(t => t.emoji).join("");
 
@@ -208,15 +212,15 @@ function MiniPlayer({ video, muted, onToggleMute, onNext, onPrev, iframeKey, pla
 
       {/* Controls */}
       <button onClick={e => { e.stopPropagation(); onPrev(); }}
-        style={miniBtn}title="Previous">⏮</button>
+        style={miniBtn} title="Previous">⏮</button>
       <button onClick={e => { e.stopPropagation(); playing ? onPause() : onPlay(); }}
         style={miniBtn} title={playing ? "Pause" : "Play"}>{playing ? "⏸" : "▶"}</button>
       <button onClick={e => { e.stopPropagation(); onNext(); }}
         style={miniBtn} title="Next">⏭</button>
       <button onClick={e => { e.stopPropagation(); onToggleMute(); }}
         style={miniBtn} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
-      <button onClick={e => { e.stopPropagation(); router.push("/vibe"); }}
-        style={{ ...miniBtn, color: "#a855f7" }} title="Open Vibe">⚡</button>
+      <button onClick={e => { e.stopPropagation(); onStop(); }}
+        style={{ ...miniBtn, color: "rgba(255,100,100,0.8)", fontSize: 12 }} title="Close player">✕</button>
 
       <style>{`
         @keyframes vibe-pulse {

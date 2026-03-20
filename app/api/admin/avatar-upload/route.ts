@@ -1,4 +1,4 @@
-import { put, list, del } from "@vercel/blob";
+import { storagePut, storageDel, storageList } from "@/lib/storage";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { updateUser } from "@/lib/db";
@@ -29,19 +29,15 @@ export async function POST(req: Request) {
   const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
   const path = `avatars/${targetUserId}_${Date.now()}.${ext}`;
 
-  // Rotate old blobs (keep max 5)
-  const { blobs } = await list({ prefix: `avatars/${targetUserId}_` });
-  if (blobs.length >= MAX_AVATAR_SLOTS) {
-    const sorted = blobs.sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
-    for (let i = 0; i <= blobs.length - MAX_AVATAR_SLOTS; i++) {
-      await del(sorted[i].url);
+  const existing = await storageList(`avatars/${targetUserId}_`);
+  if (existing.length >= MAX_AVATAR_SLOTS) {
+    const sorted = existing.sort((a, b) => a.uploadedAt.getTime() - b.uploadedAt.getTime());
+    for (let i = 0; i <= existing.length - MAX_AVATAR_SLOTS; i++) {
+      await storageDel(sorted[i].url);
     }
   }
 
-  const blob = await put(path, buffer, { access: "public", contentType });
-
-  // Persist to users table
-  await updateUser(targetUserId, { avatar_url: blob.url });
-
-  return NextResponse.json({ url: blob.url });
+  const { url } = await storagePut(path, buffer, { contentType });
+  await updateUser(targetUserId, { avatar_url: url });
+  return NextResponse.json({ url });
 }

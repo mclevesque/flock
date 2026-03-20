@@ -4,32 +4,25 @@ This file is automatically read by Claude at the start of every session. Follow 
 
 ---
 
-## 🚀 Deployment — Vercel CLI (`vercel deploy --prod`)
+## 🚀 Deployment — Netlify
 
-This project deploys via **Vercel CLI**. After editing files, commit and deploy:
+This project deploys via **Netlify** (git push to main triggers auto-deploy).
 
-```bash
-cd /c/Users/Thehu/flock
-git add <files>
-git commit -m "feat/fix: description"
-vercel deploy --prod
-```
+- **Production URL**: https://flocksocial.netlify.app
+- **Storage**: Cloudflare R2 (`flock` bucket) — avatars, audio, shares
+- **Database**: Neon Postgres (direct, not Vercel-managed)
 
 **Rules:**
 - ✅ Edit files in `C:\Users\Thehu\flock\` directly
 - ✅ Run `npx tsc --noEmit` to verify TypeScript before deploying
-- ✅ Run `git commit` + `vercel deploy --prod` after each task
-- ❌ NEVER run `git push` to remote GitHub (Vercel CLI is the deploy path)
+- ❌ NEVER deploy to Netlify without the user saying the code word **Quest**
+- ❌ NEVER run `git push` without explicit user permission
 - ❌ NEVER touch `.github/`, CI/CD configs, or deployment workflows
 
-## 🔍 Verification — Use Vercel Production, NOT local preview_start
+## 🔍 Verification — Use preview_start for local dev
 
-**Do NOT use `preview_start` or local dev server for verification.** Port 3000 may already be in use and `preview_start` cannot attach to an existing process.
-
-Instead, after deploying with `vercel deploy --prod`, verify on the live production URL:
-- **Production**: https://flock-two.vercel.app
-
-Use Chrome MCP tools to check the deployed site if visual verification is needed.
+Use `preview_start` with the `flock-dev` config to spin up a local dev server on port 3000/3001.
+Check for errors with `preview_logs` before reporting success.
 
 ---
 
@@ -99,4 +92,4 @@ Use Chrome MCP tools to check the deployed site if visual verification is needed
 
 1. Run `npx tsc --noEmit` — must pass with zero errors
 2. Check that no API uses paid AI services (OpenAI, Anthropic) — use GROQ/HuggingFace/free APIs
-3. Do NOT push, commit, or deploy — hand back to user to review and push to Vercel
+3. Do NOT push, commit, or deploy — hand back to user to review. Ask for code word "Quest" before any Netlify deploy.

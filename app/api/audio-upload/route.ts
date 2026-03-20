@@ -1,4 +1,4 @@
-import { put, del } from "@vercel/blob";
+import { storagePut, storageDel } from "@/lib/storage";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
@@ -15,19 +15,18 @@ export async function POST(req: Request) {
   const oldUrl = form.get("oldUrl") as string | null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
 
-  // Accept audio/* MIME type or common audio extensions (some OS don't set MIME properly)
   const isAudio = file.type.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|flac|aac|opus|weba)$/i.test(file.name);
   if (!isAudio) return NextResponse.json({ error: "Audio files only" }, { status: 400 });
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "Max 20 MB" }, { status: 400 });
 
   const ext = file.name.split(".").pop() ?? "mp3";
-  // Use a fixed path per user (overwrite) to store only one song at a time
-  const blob = await put(`songs/${session.user.id}.${ext}`, file, { access: "public", allowOverwrite: true });
+  const path = `songs/${session.user.id}.${ext}`;
 
-  // Delete old blob if it's a different Vercel Blob URL (different extension)
-  if (oldUrl && oldUrl.includes("vercel-storage.com") && oldUrl !== blob.url) {
-    try { await del(oldUrl); } catch { /* ignore if already gone */ }
+  const { url } = await storagePut(path, file, { contentType: file.type });
+
+  if (oldUrl && oldUrl !== url) {
+    await storageDel(oldUrl).catch(() => {});
   }
 
-  return NextResponse.json({ url: blob.url });
+  return NextResponse.json({ url });
 }

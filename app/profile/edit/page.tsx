@@ -763,7 +763,7 @@ export default function EditProfilePage() {
             {field("DISPLAY NAME", displayName, setDisplayName, { placeholder: "How your name appears" })}
             {field("USERNAME", username, v => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, "")), {
               placeholder: "yourname",
-              hint: "Letters, numbers, underscores only. Your URL: flock-two.vercel.app/profile/" + (username || "yourname"),
+              hint: `Letters, numbers, underscores only. Your URL: ${process.env.NEXT_PUBLIC_SITE_URL ?? "https://flocksocial.netlify.app"}/profile/${username || "yourname"}`,
             })}
             {field("BIO", bio, setBio, { placeholder: "Tell people about yourself...", multiline: true })}
           </div>

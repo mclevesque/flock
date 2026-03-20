@@ -1,7 +1,7 @@
 const { app, BrowserWindow, session, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 
-const FLOCK_URL = 'https://flock-two.vercel.app';
+const FLOCK_URL = 'https://flocksocial.netlify.app';
 const isMac = process.platform === 'darwin';
 
 function createWindow() {

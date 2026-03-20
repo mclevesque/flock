@@ -1774,7 +1774,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
   async function inviteFriend(friendId: string, friendUsername: string) {
     await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ receiverId: friendId, content: `🏘️ Come hang out with me in Town Square! flock-two.vercel.app/town` }) }).catch(() => {});
+      body: JSON.stringify({ receiverId: friendId, content: `🏘️ Come hang out with me in Town Square! ${process.env.NEXT_PUBLIC_SITE_URL ?? "https://flocksocial.netlify.app"}/town` }) }).catch(() => {});
     setTagMsg(`✅ Invite sent to @${friendUsername}!`);
     setTimeout(() => setTagMsg(null), 3000);
     setShowInvite(false);
