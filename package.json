@@ -1,0 +1,45 @@
+{
+  "name": "flock",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
+    "@neondatabase/serverless": "^1.0.2",
+    "@netlify/plugin-nextjs": "^5.15.9",
+    "@types/bcryptjs": "^2.4.6",
+    "@vercel/blob": "^2.3.1",
+    "@vercel/postgres": "^0.10.0",
+    "bcryptjs": "^3.0.3",
+    "chess.js": "^1.4.0",
+    "kokoro-js": "^1.2.1",
+    "next": "16.1.6",
+    "next-auth": "^5.0.0-beta.30",
+    "nsfwjs": "^4.2.1",
+    "partysocket": "^1.1.16",
+    "phaser": "^3.90.0",
+    "react": "19.2.3",
+    "react-chessboard": "^5.10.0",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/youtube": "^0.1.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "partykit": "^0.0.115",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

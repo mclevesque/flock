@@ -1,0 +1,51 @@
+# ── Netlify config for Flock (Next.js 16) ─────────────────────────────────────
+# Deploy: npm run build && netlify deploy --prod
+# Or push to main branch → Netlify auto-builds from GitHub
+
+[build]
+  command   = "npm run build"
+  publish   = ".next"
+
+# Next.js adapter — handles SSR, API routes, image optimization on Netlify Edge
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# ── Environment variables ──────────────────────────────────────────────────────
+# Set these in the Netlify dashboard (Site settings → Environment variables)
+# or via: netlify env:set KEY "value"
+# Reference: .env.netlify for the full list of required vars
+
+# ── Headers ───────────────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+    Permissions-Policy     = "camera=(), microphone=(self), geolocation=()"
+
+# Allow screen capture API for stream rooms (requires explicit permission policy)
+[[headers]]
+  for = "/stremio/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=(self), display-capture=(self)"
+
+# ── Redirects ─────────────────────────────────────────────────────────────────
+# /watch → /stremio (decommissioned page)
+[[redirects]]
+  from   = "/watch"
+  to     = "/stremio"
+  status = 301
+
+[[redirects]]
+  from   = "/watch/*"
+  to     = "/stremio"
+  status = 301
+
+# ── Edge functions ─────────────────────────────────────────────────────────────
+# Next.js middleware runs as Netlify Edge Functions automatically via the plugin
+
+# ── Build cache ────────────────────────────────────────────────────────────────
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS    = "--legacy-peer-deps"

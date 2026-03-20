@@ -1,0 +1,11 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "flock",
+  "main": "party/index.ts",
+  "parties": {
+    "theater": "party/theater.ts",
+    "draw": "party/draw.ts",
+    "town": "party/town.ts"
+  },
+  "compatibilityDate": "2024-09-23"
+}

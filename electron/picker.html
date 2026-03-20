@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Choose what to share</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0f14;
+      color: #e8eaf6;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 20px;
+      user-select: none;
+    }
+    h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #a78bfa;
+      margin-bottom: 6px;
+    }
+    p {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tab {
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #2a2d3a;
+      background: transparent;
+      color: #8890a4;
+      transition: all 0.15s;
+    }
+    .tab.active {
+      background: rgba(124,58,237,0.2);
+      border-color: #7c3aed;
+      color: #a78bfa;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+      max-height: 340px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .grid::-webkit-scrollbar { width: 4px; }
+    .grid::-webkit-scrollbar-track { background: #1a1d2e; }
+    .grid::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 4px; }
+    .source {
+      cursor: pointer;
+      border: 2px solid #1e2130;
+      border-radius: 8px;
+      padding: 8px;
+      transition: all 0.15s;
+      background: #131520;
+      position: relative;
+    }
+    .source:hover { border-color: #7c3aed; background: rgba(124,58,237,0.08); }
+    .source.selected { border-color: #7c3aed; background: rgba(124,58,237,0.15); }
+    .source.selected::after {
+      content: '✓';
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 18px;
+      height: 18px;
+      background: #7c3aed;
+      border-radius: 50%;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      line-height: 18px;
+      text-align: center;
+    }
+    .thumb-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #0a0b10;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .thumb-wrap img.thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    /* App icon overlay — shown on top of thumbnail, bottom-left */
+    .thumb-wrap .app-icon {
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.6);
+      padding: 2px;
+      display: none;
+    }
+    .thumb-wrap .app-icon.visible { display: block; }
+    /* For windows with black/empty thumbnails — show big app icon centered */
+    .thumb-wrap.dark-thumb .app-icon-center {
+      display: flex;
+    }
+    .app-icon-center {
+      display: none;
+      position: absolute;
+      inset: 0;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .app-icon-center img {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+    }
+    .app-icon-center span {
+      font-size: 9px;
+      color: #6b7280;
+    }
+    .source .name {
+      font-size: 11px;
+      margin-top: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #94a3b8;
+    }
+    .footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .btn {
+      padding: 7px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid #2a2d3a;
+      color: #8890a4;
+    }
+    .btn-cancel:hover { background: #1e2130; }
+    .btn-share {
+      background: linear-gradient(135deg, #7c3aed, #5b21b6);
+      color: #fff;
+    }
+    .btn-share:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-share:not(:disabled):hover { background: linear-gradient(135deg, #6d28d9, #4c1d95); }
+    .audio-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #131520;
+      border-radius: 8px;
+      border: 1px solid #1e2130;
+    }
+    .audio-row label { font-size: 12px; color: #94a3b8; cursor: pointer; }
+    .audio-row input[type=checkbox] { accent-color: #7c3aed; width: 15px; height: 15px; cursor: pointer; }
+    .search-row {
+      display: flex;
+      margin-bottom: 12px;
+    }
+    .search-row input {
+      width: 100%;
+      background: #131520;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #e8eaf6;
+      font-size: 12px;
+      outline: none;
+      font-family: inherit;
+    }
+    .search-row input:focus { border-color: #7c3aed; }
+    .search-row input::placeholder { color: #4b5563; }
+  </style>
+</head>
+<body>
+  <h2>📺 Choose what to share</h2>
+  <p>Select a window or screen — minimized apps are included.</p>
+
+  <div class="tabs">
+    <button class="tab" onclick="showTab('screen')">🖥️ Screens</button>
+    <button class="tab active" onclick="showTab('window')">🪟 Windows</button>
+  </div>
+
+  <div class="search-row" id="searchRow">
+    <input type="text" id="searchInput" placeholder="🔍 Search windows (e.g. Stremio)..." oninput="renderGrid()" />
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="audio-row">
+    <input type="checkbox" id="includeAudio" checked />
+    <label for="includeAudio">🔊 Share audio (recommended for movies)</label>
+  </div>
+
+  <div class="footer">
+    <button class="btn btn-cancel" onclick="cancel()">Cancel</button>
+    <button class="btn btn-share" id="shareBtn" disabled onclick="share()">Share</button>
+  </div>
+
+  <script>
+    let allSources = [];
+    let selectedId = null;
+    let currentTab = 'window';
+
+    function showTab(type) {
+      currentTab = type;
+      document.querySelectorAll('.tab').forEach((t, i) => {
+        t.classList.toggle('active', (i === 0 && type === 'screen') || (i === 1 && type === 'window'));
+      });
+      // Show search only for windows tab
+      document.getElementById('searchRow').style.display = type === 'window' ? 'flex' : 'none';
+      renderGrid();
+    }
+
+    // Check if a thumbnail is mostly black/empty
+    function isDarkThumbnail(dataUrl) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 32; canvas.height = 18;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 32, 18);
+          const data = ctx.getImageData(0, 0, 32, 18).data;
+          let total = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            total += data[i] + data[i+1] + data[i+2];
+          }
+          const avg = total / (data.length / 4 * 3);
+          resolve(avg < 20); // very dark = black thumbnail
+        };
+        img.onerror = () => resolve(true);
+        img.src = dataUrl;
+      });
+    }
+
+    async function renderGrid() {
+      const grid = document.getElementById('grid');
+      const query = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+
+      let filtered = allSources.filter(s =>
+        currentTab === 'screen' ? s.id.startsWith('screen:') : !s.id.startsWith('screen:')
+      );
+
+      if (query) {
+        filtered = filtered.filter(s => s.name.toLowerCase().includes(query));
+      }
+
+      grid.innerHTML = '';
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div style="color:#4b5563;font-size:13px;padding:20px;grid-column:1/-1">No windows found. Try a different search or make sure the app is open.</div>';
+        return;
+      }
+
+      for (const source of filtered) {
+        const dark = await isDarkThumbnail(source.thumbnail);
+        const div = document.createElement('div');
+        div.className = 'source' + (source.id === selectedId ? ' selected' : '');
+
+        const thumbWrap = document.createElement('div');
+        thumbWrap.className = 'thumb-wrap' + (dark && source.appIcon ? ' dark-thumb' : '');
+
+        // Thumbnail image
+        const thumbImg = document.createElement('img');
+        thumbImg.className = 'thumb';
+        thumbImg.src = source.thumbnail;
+        thumbWrap.appendChild(thumbImg);
+
+        if (source.appIcon) {
+          // Small icon overlay (bottom-left) always visible
+          const iconSmall = document.createElement('img');
+          iconSmall.className = 'app-icon visible';
+          iconSmall.src = source.appIcon;
+          thumbWrap.appendChild(iconSmall);
+
+          // Big centered icon for dark/black thumbnails
+          if (dark) {
+            const centered = document.createElement('div');
+            centered.className = 'app-icon-center';
+            const bigIcon = document.createElement('img');
+            bigIcon.src = source.appIcon;
+            const label = document.createElement('span');
+            label.textContent = 'minimized';
+            centered.appendChild(bigIcon);
+            centered.appendChild(label);
+            thumbWrap.appendChild(centered);
+          }
+        }
+
+        div.appendChild(thumbWrap);
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.title = source.name;
+        name.textContent = source.name;
+        div.appendChild(name);
+
+        div.onclick = () => select(source.id);
+        grid.appendChild(div);
+      }
+    }
+
+    function select(id) {
+      selectedId = id;
+      document.getElementById('shareBtn').disabled = false;
+      renderGrid();
+    }
+
+    function share() {
+      if (!selectedId) return;
+      const audio = document.getElementById('includeAudio').checked;
+      window.electronPicker.selectSource(selectedId, audio);
+    }
+
+    function cancel() {
+      window.electronPicker.cancel();
+    }
+
+    window.electronPicker.onSources((sources) => {
+      allSources = sources;
+      renderGrid();
+    });
+  </script>
+</body>
+</html>
