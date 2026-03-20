@@ -47,3 +47,6 @@ electron/node_modules
 electron/dist
 
 .env*.local
+
+# Local Netlify folder
+.netlify

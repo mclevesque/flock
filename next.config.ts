@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
 
 const nextConfig: NextConfig = {
   // Bake build timestamp into the client bundle — readable on mclevesque's profile
