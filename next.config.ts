@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
       // Phaser is browser-only, used via dynamic import with ssr:false — skip server analysis
       config.externals = [...(Array.isArray(config.externals) ? config.externals : []), "phaser"];
     }
+    // nsfwjs uses buffer/ — polyfill for both server and client builds
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      buffer: require.resolve("buffer/"),
+    };
     return config;
   },
 };
