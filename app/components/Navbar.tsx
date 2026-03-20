@@ -330,7 +330,7 @@ export default function Navbar() {
     <header style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100 }}>
 
       {/* ── DESKTOP header row ───────────────────────────────────────────────── */}
-      <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 12px", height: 52, alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 12px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         {isSubpage && (
           <button onClick={() => router.back()} title="Go back"
             style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 16, color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 1 }}>

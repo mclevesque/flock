@@ -204,7 +204,7 @@ function ShareCard({ share, onLike, onDelete, isOwn, isAdmin, onFlag, onShare, o
             <button onClick={handleFlag} title="Report post" style={{ background: "transparent", border: "none", color: flagged ? "rgba(255,80,80,0.5)" : "var(--text-muted)", cursor: flagged ? "default" : "pointer", fontSize: 15, padding: "7px 8px", opacity: flagged ? 0.5 : 0.55 }}>🚩</button>
           )}
           {(isOwn || isAdmin) && (
-            <button onClick={() => { if (confirm("Delete this post?")) onDelete(share.id); }} title="Delete post" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, padding: "7px 10px", opacity: 0.6 }}>🗑</button>
+            <button onClick={() => { if (confirm("Delete this post?")) onDelete(share.id); }} title="Delete post" style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "7px 10px", opacity: 0.8 }}>🗑</button>
           )}
         </div>
       </div>

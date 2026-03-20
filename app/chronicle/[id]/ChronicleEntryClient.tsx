@@ -249,7 +249,7 @@ export default function ChronicleEntryClient({
                     <Link href={`/profile/${c.username}`} style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{c.username}</Link>
                     <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{timeAgo(c.created_at)}</span>
                     {sessionUserId === c.author_id && (
-                      <button onClick={() => deleteComment(c.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, padding: "2px 6px", opacity: 0.6 }}>×</button>
+                      <button onClick={() => deleteComment(c.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: "2px 6px", opacity: 0.8 }}>×</button>
                     )}
                   </div>
                   <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.content}</p>

@@ -1035,7 +1035,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
                               onClick={() => handleDeletePost(post.id)}
                               disabled={deletingPost === post.id}
                               title="Delete post"
-                              style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: 0, opacity: 0.5, marginLeft: "auto" }}
+                              style={{ background: "none", border: "none", color: "#ef4444", fontSize: 11, cursor: "pointer", padding: 0, opacity: 0.7, marginLeft: "auto" }}
                             >{deletingPost === post.id ? "…" : "🗑"}</button>
                           )}
                         </div>
@@ -1084,7 +1084,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
                                         <button
                                           onClick={() => handleDeleteReply(r.id, post.id)}
                                           disabled={deletingReply === r.id}
-                                          style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: "1px 4px", opacity: 0.4 }}
+                                          style={{ background: "none", border: "none", color: "#ef4444", fontSize: 10, cursor: "pointer", padding: "1px 4px", opacity: 0.7 }}
                                           title="Delete"
                                         >{deletingReply === r.id ? "…" : "🗑"}</button>
                                       )}

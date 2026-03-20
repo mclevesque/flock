@@ -78,7 +78,7 @@ function EntryCard({ entry, sessionUserId, onDelete }: { entry: Entry; sessionUs
           </div>
         </div>
         {sessionUserId === entry.user_id && (
-          <button onClick={handleDelete} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, padding: "4px", opacity: 0.5 }}>🗑</button>
+          <button onClick={handleDelete} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "4px", opacity: 0.8 }}>🗑</button>
         )}
       </div>
 
