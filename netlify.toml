@@ -6,18 +6,16 @@
   command   = "npm run build"
   publish   = ".next"
 
-# R2_BUCKET="flock" triggers false positives (app name appears everywhere)
-[build.environment]
-  SECRETS_SCAN_OMIT_KEYS = "R2_BUCKET"
-
 # Next.js adapter — handles SSR, API routes, image optimization on Netlify Edge
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# ── Environment variables ──────────────────────────────────────────────────────
-# Set these in the Netlify dashboard (Site settings → Environment variables)
-# or via: netlify env:set KEY "value"
-# Reference: .env.netlify for the full list of required vars
+# ── Build environment ──────────────────────────────────────────────────────────
+# R2_BUCKET="flock" triggers false positives (app name appears everywhere in source)
+[build.environment]
+  NODE_VERSION           = "20"
+  NPM_FLAGS              = "--legacy-peer-deps"
+  SECRETS_SCAN_OMIT_KEYS = "R2_BUCKET"
 
 # ── Headers ───────────────────────────────────────────────────────────────────
 [[headers]]
@@ -45,11 +43,3 @@
   from   = "/watch/*"
   to     = "/stremio"
   status = 301
-
-# ── Edge functions ─────────────────────────────────────────────────────────────
-# Next.js middleware runs as Netlify Edge Functions automatically via the plugin
-
-# ── Build cache ────────────────────────────────────────────────────────────────
-[build.environment]
-  NODE_VERSION = "20"
-  NPM_FLAGS    = "--legacy-peer-deps"
