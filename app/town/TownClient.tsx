@@ -561,6 +561,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const townHpRef = useRef(100);
   const [isDead, setIsDead] = useState(false);
   const isDeadRef = useRef(false);
+  const [eventSpecialCooldown, setEventSpecialCooldown] = useState(0);
+  const eventSpecialCooldownRef = useRef(0);
+  const [eventPotions, setEventPotions] = useState(3);
+  const eventPotionsRef = useRef(3);
+  const [eventActionPending, setEventActionPending] = useState(false);
   const [victoryData, setVictoryData] = useState<{ loot: unknown[]; participants: number; eventType: string } | null>(null);
   const [seenVictoryEventId, setSeenVictoryEventId] = useState<string | null>(null);
   const seenVictoryEventIdRef = useRef<string | null>(null);
@@ -568,6 +573,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const activeEventRef = useRef<TownEvent | null>(null);
   const dragonContainerRef = useRef<import("phaser").GameObjects.Container | null>(null);
   const dragonHpFillRef = useRef<import("phaser").GameObjects.Graphics | null>(null);
+  const dragonLabelRef = useRef<import("phaser").GameObjects.Text | null>(null);
   const spawnDragonRef = useRef<(() => void) | null>(null);
   const despawnDragonRef = useRef<(() => void) | null>(null);
   const victoryCelebrationRef = useRef<(() => void) | null>(null);
@@ -577,6 +583,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // Bandit raid entities
   const banditContainersRef = useRef<(import("phaser").GameObjects.Container | null)[]>([null, null, null]);
   const banditHpFillsRef = useRef<(import("phaser").GameObjects.Graphics | null)[]>([null, null, null]);
+  const banditLabelsRef = useRef<(import("phaser").GameObjects.Text | null)[]>([null, null, null]);
   const spawnBanditsRef = useRef<(() => void) | null>(null);
   const despawnBanditsRef = useRef<(() => void) | null>(null);
   // Merchant visit entity
@@ -826,13 +833,40 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     } catch { /* ignore */ }
   }
 
-  async function handleEventAction(action: "fight" | "defend" | "flee") {
-    if (!activeEvent || isDeadRef.current) return;
+  async function handleEventAction(action: "fight" | "special" | "potion" | "defend" | "flee") {
+    if (!activeEvent || isDeadRef.current || eventActionPending) return;
+
+    // Potion: heal locally, no server call
+    if (action === "potion") {
+      if (eventPotionsRef.current <= 0) return;
+      const newPotions = eventPotionsRef.current - 1;
+      eventPotionsRef.current = newPotions;
+      setEventPotions(newPotions);
+      const healAmt = Math.floor(Math.random() * 20) + 25; // 25-44
+      const newHp = Math.min(100, townHpRef.current + healAmt);
+      townHpRef.current = newHp;
+      setTownHp(newHp);
+      return;
+    }
+
+    // Special: check cooldown
+    if (action === "special" && eventSpecialCooldownRef.current > 0) return;
+
+    setEventActionPending(true);
     try {
       const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "event-action", eventId: activeEvent.id, eventAction: action }) });
       const d = await r.json();
       if (d.ok) {
+        // Update special cooldown
+        if (action === "special") {
+          eventSpecialCooldownRef.current = 3;
+          setEventSpecialCooldown(3);
+        } else if (eventSpecialCooldownRef.current > 0) {
+          eventSpecialCooldownRef.current--;
+          setEventSpecialCooldown(eventSpecialCooldownRef.current);
+        }
+
         if (d.bossHp !== undefined) {
           setActiveEvent(prev => prev ? { ...prev, state: { ...prev.state, bossHp: d.bossHp, bossMaxHp: d.bossMaxHp ?? prev.state.bossMaxHp ?? 1500 } } : prev);
           activeEventRef.current = activeEvent ? { ...activeEvent, state: { ...activeEvent.state, bossHp: d.bossHp } } : null;
@@ -843,15 +877,13 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           const newHp = Math.max(0, townHpRef.current - counterDmg);
           townHpRef.current = newHp;
           setTownHp(newHp);
-          if (counterDmg > 0 && newHp <= 0 && !isDeadRef.current) {
+          if (newHp <= 0 && !isDeadRef.current) {
             isDeadRef.current = true;
             setIsDead(true);
             setTimeout(() => {
-              // Respawn at graveyard
               respawnToGraveyardRef.current?.();
-              const respawnHp = 100;
-              townHpRef.current = respawnHp;
-              setTownHp(respawnHp);
+              townHpRef.current = 100;
+              setTownHp(100);
               isDeadRef.current = false;
               setIsDead(false);
             }, 2500);
@@ -874,18 +906,20 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           else if (eType === "merchant_visit") despawnMerchantRef.current?.();
           else if (eType === "festival") despawnFestivalRef.current?.();
           setVictoryData({ loot: d.yourLoot ?? [], participants: d.participantCount ?? 1, eventType: eType });
-          // Victory celebration: all NPCs cheer then return to their spots
           if (eType === "dragon_attack" || eType === "bandit_raid") victoryCelebrationRef.current?.();
-          // Award XP for participation
           if (adventureStatsRef.current) {
             const newXp = (adventureStatsRef.current.xp ?? 0) + 250;
             adventureStatsRef.current = { ...adventureStatsRef.current, xp: newXp };
             setAdventureStats({ ...adventureStatsRef.current });
             markDirty();
           }
+          // Reset event combat state for next event
+          eventSpecialCooldownRef.current = 0; setEventSpecialCooldown(0);
+          eventPotionsRef.current = 3; setEventPotions(3);
         }
       }
     } catch { /* ignore */ }
+    setEventActionPending(false);
   }
 
   async function handleFrogHex(targetIds: string[]) {
@@ -2650,6 +2684,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             dragonContainer.add([dragonGlow, dragonText, hpBg, hpFill, dragonLabel]);
             dragonContainerRef.current = dragonContainer;
             dragonHpFillRef.current = hpFill;
+            dragonLabelRef.current = dragonLabel;
 
             // Fire particles layer (separate from container for world-space effect)
             const fireLayer = this.add.graphics().setDepth(54);
@@ -2863,6 +2898,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               bHpFills.push(hpFill);
               banditContainersRef.current[i] = bc;
               banditHpFillsRef.current[i] = hpFill;
+              banditLabelsRef.current[i] = nameLabel;
             }
 
             spawnBanditsRef.current = () => {
@@ -3804,6 +3840,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               // Flip dragon to face direction of travel
               const ddx = next.x - curr.x;
               dc.scaleX = ddx > 0 ? 1 : -1;
+              // Counter-flip label so it always reads left-to-right
+              if (dragonLabelRef.current) dragonLabelRef.current.scaleX = dc.scaleX;
               // Bob up/down slightly
               dc.y = newY + Math.sin(t * 0.002) * 4;
 
@@ -3862,6 +3900,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               bc.x = curr.x + (next.x - curr.x) * ease;
               bc.y = curr.y + (next.y - curr.y) * ease + Math.sin(t * 0.003 + i * 1.2) * 3;
               bc.scaleX = next.x >= curr.x ? 1 : -1;
+              const nl = banditLabelsRef.current[i]; if (nl) nl.scaleX = bc.scaleX;
               const hpFill = banditHpFillsRef.current[i];
               if (hpFill) {
                 const bossHp = Number(activeEventRef.current?.state?.bossHp ?? 2000) / 3;
@@ -4488,24 +4527,32 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             </div>
           )}
 
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            {activeEvent.type === "dragon_attack" && (
+          {/* Action buttons — full combat bar for battle events */}
+          {(activeEvent.type === "dragon_attack" || activeEvent.type === "bandit_raid") ? (
+            <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
               <button
                 onClick={() => handleEventAction("fight")}
-                style={{ background: "rgba(255,60,60,0.35)", border: "1px solid rgba(255,80,80,0.8)", color: "#ff9966", padding: "5px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}
-              >⚔️ Attack Dragon!</button>
-            )}
-            {activeEvent.type === "bandit_raid" && (
+                disabled={eventActionPending}
+                style={{ flex: 1, minWidth: 72, background: "rgba(255,80,80,0.2)", border: "1px solid rgba(255,80,80,0.5)", borderRadius: 10, padding: "8px 6px", fontSize: 13, color: "#ff8888", cursor: eventActionPending ? "not-allowed" : "pointer", fontWeight: 700, opacity: eventActionPending ? 0.5 : 1 }}
+              >⚔️ Attack</button>
               <button
-                onClick={() => handleEventAction("fight")}
-                style={{ background: "rgba(200,50,200,0.3)", border: "1px solid rgba(200,80,200,0.8)", color: "#ff99ff", padding: "5px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}
-              >🗡️ Fight Bandits!</button>
-            )}
-            {activeEvent.type === "festival" && (
-              <button onClick={() => handleEventAction("flee")} style={{ background: "rgba(255,215,0,0.2)", border: "1px solid rgba(255,215,0,0.5)", color: "#ffd700", padding: "5px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🎊 Join Festival!</button>
-            )}
-          </div>
+                onClick={() => handleEventAction("special")}
+                disabled={eventActionPending || eventSpecialCooldown > 0}
+                style={{ flex: 1, minWidth: 72, background: eventSpecialCooldown > 0 ? "rgba(100,100,100,0.1)" : "rgba(168,85,247,0.2)", border: `1px solid ${eventSpecialCooldown > 0 ? "rgba(100,100,100,0.3)" : "rgba(168,85,247,0.5)"}`, borderRadius: 10, padding: "8px 6px", fontSize: 13, color: eventSpecialCooldown > 0 ? "rgba(255,255,255,0.3)" : "#c084fc", cursor: (eventActionPending || eventSpecialCooldown > 0) ? "not-allowed" : "pointer", fontWeight: 700 }}
+              >✨ {eventSpecialCooldown > 0 ? `(${eventSpecialCooldown})` : "Special"}</button>
+              <button
+                onClick={() => handleEventAction("potion")}
+                disabled={eventActionPending || eventPotions <= 0}
+                style={{ flex: 1, minWidth: 72, background: eventPotions <= 0 ? "rgba(100,100,100,0.1)" : "rgba(80,255,120,0.15)", border: `1px solid ${eventPotions <= 0 ? "rgba(100,100,100,0.3)" : "rgba(80,255,120,0.4)"}`, borderRadius: 10, padding: "8px 6px", fontSize: 13, color: eventPotions <= 0 ? "rgba(255,255,255,0.3)" : "#80ff99", cursor: (eventActionPending || eventPotions <= 0) ? "not-allowed" : "pointer", fontWeight: 700 }}
+              >🧪 Potion ({eventPotions})</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              {activeEvent.type === "festival" && (
+                <button onClick={() => handleEventAction("flee")} style={{ background: "rgba(255,215,0,0.2)", border: "1px solid rgba(255,215,0,0.5)", color: "#ffd700", padding: "5px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🎊 Join Festival!</button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

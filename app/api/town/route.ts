@@ -539,8 +539,10 @@ export async function POST(req: NextRequest) {
       const state = (event.state as Record<string, unknown>) ?? {};
       const eventType = event.type as string;
 
-      if (eventType === "dragon_attack" && eventAction === "fight") {
-        const playerDmg = Math.floor(Math.random() * 20) + 12; // 12-31
+      if (eventType === "dragon_attack" && (eventAction === "fight" || eventAction === "special")) {
+        const isSpecial = eventAction === "special";
+        const baseDmg = Math.floor(Math.random() * 20) + 12; // 12-31
+        const playerDmg = isSpecial ? Math.floor(baseDmg * 1.8) : baseDmg;
         const currentHp = Number(state.bossHp ?? 1500);
         const newBossHp = Math.max(0, currentHp - playerDmg);
 
@@ -601,8 +603,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, playerDmg, bossHp: finalBossHp, npcAttacks, dragonDmg });
       }
 
-      if (eventType === "bandit_raid" && (eventAction === "defend" || eventAction === "fight")) {
-        const playerDmg = Math.floor(Math.random() * 22) + 10; // 10-31
+      if (eventType === "bandit_raid" && (eventAction === "defend" || eventAction === "fight" || eventAction === "special")) {
+        const isSpecial = eventAction === "special";
+        const baseDmg = Math.floor(Math.random() * 22) + 10; // 10-31
+        const playerDmg = isSpecial ? Math.floor(baseDmg * 1.8) : baseDmg;
         const currentHp = Number(state.bossHp ?? 600);
         let newBossHp = Math.max(0, currentHp - playerDmg);
 

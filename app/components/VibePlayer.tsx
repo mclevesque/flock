@@ -115,7 +115,9 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
           <iframe
             key={iframeKey}
             ref={iframeRef}
-            src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1`}
+            src={currentVideo.searchQuery
+              ? `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentVideo.searchQuery)}&autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0`
+              : `https://www.youtube.com/embed/${currentVideo.id}?autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1`}
             allow="autoplay; encrypted-media"
             style={{ width: 480, height: 270, border: "none" }}
             title="vibe-player"

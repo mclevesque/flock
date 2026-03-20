@@ -859,6 +859,7 @@ function ChatView({
           value={input}
           onChange={e => handleInput(e.target.value)}
           onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          onFocus={() => { setTimeout(() => { textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, 300); }}
           placeholder={isMobile ? "Message..." : placeholder}
           autoComplete="off"
           style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 13px", color: "var(--text-primary)", fontSize: 16, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 42, maxHeight: 100 }}
@@ -1243,6 +1244,7 @@ function MessagesInner() {
     // When keyboard is open, vpHeight shrinks — use it directly (no bottom nav visible)
     // When keyboard is closed, vpHeight ≈ full screen — add 52px padding for bottom nav
     const keyboardOpen = vpHeight !== null && vpHeight < (typeof window !== "undefined" ? window.innerHeight * 0.75 : 9999);
+    // vpHeight already excludes the sticky navbar height; subtract remaining chrome
     const containerHeight = vpHeight ? `${vpHeight - 52}px` : "calc(100svh - 52px)";
     return (
       <div style={{

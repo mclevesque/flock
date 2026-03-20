@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useVibe } from "@/app/components/VibePlayer";
-import { VIBE_TAGS, VIBE_VIDEOS, buildPlaylist } from "./vibeData";
+import { VIBE_TAGS, buildPlaylist } from "./vibeData";
 
 export default function VibePage() {
   const { data: session } = useSession();
@@ -15,6 +15,17 @@ export default function VibePage() {
   const [draft, setDraft] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [customInput, setCustomInput] = useState("");
+
+  function addCustomInterest() {
+    const val = customInput.trim();
+    if (!val) return;
+    const key = `custom:${val}`;
+    if (!draft.includes(key) && draft.length < 10) {
+      setDraft(d => [...d, key]);
+    }
+    setCustomInput("");
+  }
 
   useEffect(() => {
     loadInterests().then(() => setLoaded(true));
@@ -58,19 +69,68 @@ export default function VibePage() {
           <h1 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
             Your Vibe Mix
           </h1>
-          <p style={{ margin: "0 0 32px", color: "rgba(255,255,255,0.5)", fontSize: 15 }}>
-            Pick 2–5 things that speak to you. We'll build you a playlist you'll actually want to play.
+          <p style={{ margin: "0 0 20px", color: "rgba(255,255,255,0.5)", fontSize: 15 }}>
+            Pick categories or type anything — Taylor Swift, Breaking Bad, F1, your gym playlist. We'll find it.
           </p>
 
+          {/* Custom text input */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <input
+              value={customInput}
+              onChange={e => setCustomInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomInterest(); } }}
+              placeholder="Type anything: Taylor Swift, Breaking Bad, Formula 1…"
+              style={{
+                flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={addCustomInterest}
+              disabled={!customInput.trim() || draft.length >= 10}
+              style={{
+                background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 10,
+                padding: "10px 18px", color: "#fff", fontSize: 14, fontWeight: 800, cursor: customInput.trim() ? "pointer" : "default",
+                opacity: customInput.trim() ? 1 : 0.4,
+              }}
+            >+ Add</button>
+          </div>
+
+          {/* Custom interest chips */}
+          {draft.filter(d => d.startsWith("custom:")).length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16, justifyContent: "center" }}>
+              {draft.filter(d => d.startsWith("custom:")).map(key => {
+                const label = key.slice("custom:".length);
+                return (
+                  <span key={key} style={{
+                    background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)",
+                    borderRadius: 20, padding: "4px 12px", fontSize: 13, color: "#c084fc",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    ✨ {label}
+                    <button
+                      onClick={() => setDraft(d => d.filter(x => x !== key))}
+                      style={{ background: "none", border: "none", color: "rgba(168,85,247,0.7)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}
+                    >×</button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginBottom: 20, textAlign: "center" }}>
+            Or pick from popular categories below
+          </div>
+
           <div style={{
-            display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 32,
+            display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 24,
           }}>
             {VIBE_TAGS.map(tag => {
               const selected = draft.includes(tag.id);
               return (
                 <button
                   key={tag.id}
-                  onClick={() => setDraft(d => selected ? d.filter(x => x !== tag.id) : d.length < 5 ? [...d, tag.id] : d)}
+                  onClick={() => setDraft(d => selected ? d.filter(x => x !== tag.id) : d.length < 10 ? [...d, tag.id] : d)}
                   style={{
                     background: selected ? `${tag.color}22` : "rgba(255,255,255,0.04)",
                     border: `2px solid ${selected ? tag.color : "rgba(255,255,255,0.1)"}`,
@@ -92,8 +152,8 @@ export default function VibePage() {
           </div>
 
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginBottom: 20 }}>
-            {draft.length === 0 ? "Pick at least 2 to continue" :
-             draft.length === 1 ? "Pick one more…" :
+            {draft.length === 0 ? "Pick or type at least 2 to continue" :
+             draft.length === 1 ? "Add one more…" :
              `${draft.length} selected — `}
             {draft.length >= 2 && (
               <span style={{ color: "#a855f7" }}>
@@ -132,8 +192,17 @@ export default function VibePage() {
           <span style={{ fontSize: 22 }}>⚡</span>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff" }}>Vibe</h1>
           {interests.length > 0 && (
-            <div style={{ display: "flex", gap: 4 }}>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {interests.map(id => {
+                if (id.startsWith("custom:")) {
+                  const label = id.slice("custom:".length);
+                  return (
+                    <span key={id} style={{
+                      background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)",
+                      borderRadius: 20, padding: "2px 8px", fontSize: 11, color: "#c084fc", fontWeight: 700,
+                    }}>✨ {label}</span>
+                  );
+                }
                 const tag = VIBE_TAGS.find(t => t.id === id);
                 return tag ? (
                   <span key={id} style={{
@@ -185,7 +254,9 @@ export default function VibePage() {
               }}>
                 <iframe
                   key={`${currentIndex}-${playing}`}
-                  src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&iv_load_policy=3`}
+                  src={currentVideo.searchQuery
+                    ? `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentVideo.searchQuery)}&autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0`
+                    : `https://www.youtube.com/embed/${currentVideo.id}?autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&iv_load_policy=3`}
                   allow="autoplay; encrypted-media; fullscreen"
                   allowFullScreen
                   style={{ width: "100%", height: "100%", border: "none" }}

@@ -67,16 +67,6 @@ interface Props {
 }
 
 
-const BANNER_PRESETS = [
-  { label: "Cosmic",    value: "linear-gradient(135deg, #0d0030 0%, #2d0060 40%, #001a50 100%)" },
-  { label: "Aurora",    value: "linear-gradient(135deg, #003322 0%, #00aa66 50%, #001133 100%)" },
-  { label: "Sunset",    value: "linear-gradient(135deg, #1a0010 0%, #aa2244 40%, #ff6633 100%)" },
-  { label: "Ocean",     value: "linear-gradient(135deg, #000d1a 0%, #003366 50%, #006699 100%)" },
-  { label: "Neon",      value: "linear-gradient(135deg, #0a001a 0%, #6600aa 50%, #00ccff 100%)" },
-  { label: "Forest",    value: "linear-gradient(135deg, #001a00 0%, #1a4d00 50%, #003322 100%)" },
-  { label: "Ember",     value: "linear-gradient(135deg, #1a0a00 0%, #cc4400 50%, #ff9900 100%)" },
-  { label: "Obsidian",  value: "linear-gradient(135deg, #050505 0%, #1a1a2e 50%, #16213e 100%)" },
-];
 
 const VIDEO_GRADIENTS = [
   "linear-gradient(135deg, #1a0a2e, #3d1b6e)",
@@ -149,8 +139,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
 
   // They sent ME a request (I can accept it)
   const theyRequestedMe = friendStatus === "pending" && friendship?.requester_id === user?.id;
-  const [bannerUrl, setBannerUrl] = useState(user?.banner_url ?? "");
-  const [showBannerPicker, setShowBannerPicker] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState(2);
@@ -231,13 +219,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
     url: user.profile_song_url,
   } : undefined;
 
-  async function handleBannerPreset(gradient: string) {
-    setBannerUrl(gradient);
-    pop();
-    // Persist to profile
-    await fetch("/api/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ banner_url: gradient }) }).catch(() => {});
-    setShowBannerPicker(false);
-  }
 
   async function handleAdminAvatarUpload(file: File) {
     if (!user?.id) return;
@@ -428,57 +409,11 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
     setDragOver(null);
   }
 
-  // Banner: handle both CSS gradient strings and image URLs
-  const bannerValue = bannerUrl || "";
-  const isGradient = bannerValue.startsWith("linear-gradient") || bannerValue.startsWith("radial-gradient");
-
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 80px" }}>
 
-      {/* ── Banner strip ─────────────────────────────────────────────────── */}
-      <div style={{
-        position: "relative", height: 160, overflow: "hidden",
-        background: isGradient ? bannerValue : bannerValue ? undefined : "linear-gradient(135deg, #1a0a3a 0%, #0d1a40 40%, #0a2a3a 100%)",
-        backgroundImage: !isGradient && bannerValue ? `url(${bannerValue})` : undefined,
-        backgroundSize: "cover", backgroundPosition: "center",
-      }}>
-        {isOwn && (
-          <button
-            onClick={() => setShowBannerPicker(true)}
-            style={{
-              position: "absolute", bottom: 10, right: 12,
-              background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8,
-              color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
-            }}
-          >
-            🎨 Edit Banner
-          </button>
-        )}
-      </div>
-
-      {/* Banner picker modal — presets only */}
-      {showBannerPicker && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setShowBannerPicker(false)}>
-          <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-bright)", borderRadius: 20, padding: 28, width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 20 }}>🎨 Choose Banner</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-              {BANNER_PRESETS.map(p => (
-                <button key={p.value} onClick={() => handleBannerPreset(p.value)}
-                  title={p.label}
-                  style={{ height: 52, borderRadius: 10, border: bannerUrl === p.value ? "2px solid var(--accent-purple-bright)" : "2px solid transparent", background: p.value, cursor: "pointer", position: "relative", overflow: "hidden", transition: "border-color 0.15s" }}>
-                  <span style={{ position: "absolute", bottom: 4, left: 0, right: 0, textAlign: "center", fontSize: 9, color: "rgba(255,255,255,0.7)", fontWeight: 700 }}>{p.label}</span>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setShowBannerPicker(false)} style={{ marginTop: 20, width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 10, padding: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}>Close</button>
-          </div>
-        </div>
-      )}
-
       {/* Profile header */}
-      <div className="profile-header-row" style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "16px 8px", position: "relative", zIndex: 1, flexWrap: "wrap", marginTop: -32 }}>
+      <div className="profile-header-row" style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "16px 8px", position: "relative", zIndex: 1, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flexShrink: 0 }}>
           <img
             src={`/api/avatar/${user?.id ?? username}?v=${avatarVersion}`}

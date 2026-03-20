@@ -26,10 +26,11 @@ export const VIBE_TAGS: VibeTag[] = [
 ];
 
 export interface VibeVideo {
-  id: string;       // YouTube video ID
+  id: string;       // YouTube video ID (or unique key for search entries)
   title: string;
   tags: string[];   // which interest tags this belongs to
-  type: "motivation" | "music" | "funny" | "cinematic" | "speech";
+  type: "motivation" | "music" | "funny" | "cinematic" | "speech" | "search";
+  searchQuery?: string;  // if set, use YouTube search embed instead of specific video
 }
 
 export const VIBE_VIDEOS: VibeVideo[] = [
@@ -121,23 +122,45 @@ export const VIBE_VIDEOS: VibeVideo[] = [
   { id: "IHNzOHi8sJs", title: "Goblin OST — Stay With Me",                tags: ["kdrama","fantasy"],  type: "music"      },
 ];
 
-/** Build a shuffled playlist from selected tag IDs */
+/** Build search entries for a custom interest (multiple queries for variety) */
+function buildCustomEntries(interest: string): VibeVideo[] {
+  const tag = `custom:${interest}`;
+  const queries = [
+    `${interest} motivation`,
+    `${interest} best moments`,
+    `${interest} highlights`,
+    `${interest} epic scenes`,
+  ];
+  return queries.map((q, i) => ({
+    id: `custom-${interest.toLowerCase().replace(/\s+/g, "-")}-${i}`,
+    title: i === 0 ? interest : `${interest} — ${["Best Moments", "Highlights", "Epic Scenes"][i - 1]}`,
+    tags: [tag],
+    type: "search" as const,
+    searchQuery: q,
+  }));
+}
+
+/** Build a shuffled playlist from selected tag IDs (curated + custom) */
 export function buildPlaylist(selectedTags: string[]): VibeVideo[] {
   if (selectedTags.length === 0) return [];
 
-  // Bucket videos by tag
+  // Separate curated tags from custom free-text tags
+  const curatedTags = selectedTags.filter(t => !t.startsWith("custom:"));
+  const customTags = selectedTags.filter(t => t.startsWith("custom:"));
+
+  // Bucket curated videos by tag
   const buckets: Map<string, VibeVideo[]> = new Map();
-  for (const tag of selectedTags) {
+  for (const tag of curatedTags) {
     buckets.set(tag, VIBE_VIDEOS.filter(v => v.tags.includes(tag)));
   }
 
-  // Round-robin interleave so every tag gets representation
+  // Round-robin interleave curated videos
   const result: VibeVideo[] = [];
   const seen = new Set<string>();
   let changed = true;
   while (changed) {
     changed = false;
-    for (const tag of selectedTags) {
+    for (const tag of curatedTags) {
       const bucket = buckets.get(tag) ?? [];
       const next = bucket.find(v => !seen.has(v.id));
       if (next) {
@@ -148,7 +171,24 @@ export function buildPlaylist(selectedTags: string[]): VibeVideo[] {
     }
   }
 
-  // Fisher-Yates shuffle within each "round" to avoid predictability
+  // Add custom search entries (interleaved)
+  const customEntries: VibeVideo[] = [];
+  for (const tag of customTags) {
+    const interest = tag.slice("custom:".length);
+    customEntries.push(...buildCustomEntries(interest));
+  }
+
+  // Interleave custom entries into result
+  if (customEntries.length > 0 && result.length > 0) {
+    const step = Math.max(1, Math.floor(result.length / customEntries.length));
+    for (let i = 0; i < customEntries.length; i++) {
+      result.splice(Math.min(step * (i + 1) + i, result.length), 0, customEntries[i]);
+    }
+  } else if (customEntries.length > 0) {
+    result.push(...customEntries);
+  }
+
+  // Fisher-Yates shuffle
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];

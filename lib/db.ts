@@ -3538,7 +3538,9 @@ export async function checkAndTriggerTownEvent(): Promise<Record<string, unknown
   const pseudoRandom = ((epochSlot * 2654435761) % 2147483648) / 2147483648;
   if (pseudoRandom >= 0.25) return null; // ~25% of windows have an event
 
-  const typeIndex = epochSlot % EVENT_TYPES.length;
+  // Use a secondary hash so event types aren't strictly sequential (more variety)
+  const typeRng = ((epochSlot * 1664525 + 1013904223) % 2147483648) / 2147483648;
+  const typeIndex = Math.floor(typeRng * EVENT_TYPES.length);
   const eventType = EVENT_TYPES[typeIndex];
   const initialState = EVENT_INITIAL_STATE[eventType];
 
