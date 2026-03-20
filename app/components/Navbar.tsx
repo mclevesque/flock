@@ -14,13 +14,14 @@ const navItems = [
   { href: "/town", label: "🏘️ Town", short: "🏘️" },
   { href: "/draw", label: "🎨 Draw", short: "🎨" },
   { href: "/stremio", label: "🎬 Stream", short: "🎬" },
+  { href: "/vibe",    label: "⚡ Vibe",   short: "⚡" },
 ];
 
 // Top-level routes that do NOT get a back button
-const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi"];
+const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe"];
 
 // Major sections where Town/Share should always show (signed-in top bar)
-const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin"];
+const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe"];
 
 const gameItems = [
   { href: "/chess", label: "♟️ Chess", desc: "Play 1v1 chess" },

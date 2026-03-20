@@ -4624,3 +4624,32 @@ export async function cleanupIdleWaddabiRooms() {
       AND updated_at < NOW() - INTERVAL '30 minutes'
   `.catch(() => {});
 }
+
+// ── Vibe ─────────────────────────────────────────────────────────────────────
+
+export async function ensureVibeColumn() {
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS vibe_interests JSONB DEFAULT '[]'`.catch(() => {});
+}
+
+export async function getVibeInterests(userId: string): Promise<string[]> {
+  await ensureVibeColumn();
+  const rows = await sql`SELECT vibe_interests FROM users WHERE id = ${userId}`;
+  const raw = rows[0]?.vibe_interests;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as string[];
+  try { return JSON.parse(raw as string) as string[]; } catch { return []; }
+}
+
+export async function setVibeInterests(userId: string, interests: string[]): Promise<void> {
+  await ensureVibeColumn();
+  await sql`UPDATE users SET vibe_interests = ${JSON.stringify(interests)}::jsonb WHERE id = ${userId}`;
+}
+
+export async function getVibeInterestsByUsername(username: string): Promise<string[]> {
+  await ensureVibeColumn();
+  const rows = await sql`SELECT vibe_interests FROM users WHERE username = ${username}`;
+  const raw = rows[0]?.vibe_interests;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as string[];
+  try { return JSON.parse(raw as string) as string[]; } catch { return []; }
+}

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { actionSendFriendRequest, actionAcceptFriendRequest, actionPostWallComment } from "@/lib/actions";
 import ProfileMusicPlayer from "@/app/components/ProfileMusicPlayer";
 import { useVoice } from "@/app/components/VoiceWidget";
+import { VIBE_TAGS } from "@/app/vibe/vibeData";
+import { useVibe } from "@/app/components/VibePlayer";
 import { friendAdded, drop as dropSound, pop, swoosh, click as clickSound } from "@/app/components/sounds";
 
 interface User {
@@ -118,6 +120,8 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const [wallPosts, setWallPosts] = useState(initialWallPosts);
   const [wallInput, setWallInput] = useState("");
   const [wallError, setWallError] = useState("");
+  const [vibeInterests, setVibeInterests] = useState<string[]>([]);
+  const { setInterests: setMyVibe, play: playVibe } = useVibe();
   // replies: map of postId → replies array (seeded from SSR batch load, refreshed client-side)
   const [replies, setReplies] = useState<Record<number, WallReply[]>>(initialReplies ?? {});
   // which posts have their replies expanded (Set of postIds)
@@ -184,6 +188,14 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallPosts.length]);
+
+  // Load vibe interests for this profile
+  useEffect(() => {
+    fetch(`/api/vibe?username=${encodeURIComponent(username)}`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.interests)) setVibeInterests(d.interests); })
+      .catch(() => {});
+  }, [username]);
 
   // Native (non-passive) touchmove so preventDefault() actually works and stops page scroll
   useEffect(() => {
@@ -608,6 +620,48 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
               </div>
             </div>
           </div>
+
+          {/* ── Vibe Mix ─────────────────────────────────────────────────── */}
+          {vibeInterests.length > 0 && (
+            <div className="panel">
+              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>⚡ Vibe Mix</span>
+                {isOwn && (
+                  <Link href="/vibe" style={{ fontSize: 11, color: "var(--accent-purple-bright)", textDecoration: "none", fontWeight: 600 }}>Edit →</Link>
+                )}
+              </div>
+              <div style={{ padding: "10px 14px" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {vibeInterests.map(id => {
+                    const tag = VIBE_TAGS.find(t => t.id === id);
+                    return tag ? (
+                      <span key={id} style={{
+                        background: `${tag.color}18`, border: `1px solid ${tag.color}44`,
+                        borderRadius: 20, padding: "3px 10px", fontSize: 12, color: tag.color, fontWeight: 700,
+                      }}>{tag.emoji} {tag.label}</span>
+                    ) : null;
+                  })}
+                </div>
+                {isOwn ? (
+                  <Link href="/vibe" style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    background: "linear-gradient(135deg,#7c3aed,#a855f7)", border: "none",
+                    borderRadius: 8, padding: "7px 16px", color: "#fff", fontSize: 13,
+                    fontWeight: 700, textDecoration: "none",
+                  }}>▶ Open My Vibe</Link>
+                ) : (
+                  <button
+                    onClick={() => { setMyVibe(vibeInterests); playVibe(); }}
+                    style={{
+                      background: "linear-gradient(135deg,#7c3aed,#a855f7)", border: "none",
+                      borderRadius: 8, padding: "7px 16px", color: "#fff", fontSize: 13,
+                      fontWeight: 700, cursor: "pointer",
+                    }}
+                  >▶ Play {user?.display_name || username}&apos;s Vibe</button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Friends */}
           <div className="panel">

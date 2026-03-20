@@ -5,6 +5,7 @@ import Navbar from "./components/Navbar";
 import SessionWrapper from "./components/SessionWrapper";
 import ChallengePopup from "./components/ChallengePopup";
 import { VoiceProvider } from "./components/VoiceWidget";
+import { VibeProvider } from "./components/VibePlayer";
 import GlobalNotifications from "./components/GlobalNotifications";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
@@ -34,10 +35,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geist.variable} antialiased`}>
         <SessionWrapper>
           <VoiceProvider>
-            <Navbar />
-            <main className="min-h-screen">{children}</main>
-            <ChallengePopup />
-            <GlobalNotifications />
+            <VibeProvider>
+              <Navbar />
+              <main className="min-h-screen">{children}</main>
+              <ChallengePopup />
+              <GlobalNotifications />
+            </VibeProvider>
           </VoiceProvider>
         </SessionWrapper>
       </body>
