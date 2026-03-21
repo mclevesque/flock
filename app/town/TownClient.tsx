@@ -536,12 +536,14 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [showVendor, setShowVendor] = useState(false);
   const showVendorRef = useRef(false);
   const [vendorStock, setVendorStock] = useState<unknown[]>([]);
+  const [merchantDiscount, setMerchantDiscount] = useState(false);
   const [vendorCoins, setVendorCoins] = useState(0);
   const [showHerald, setShowHerald] = useState(false);
   const showHeraldRef = useRef(false);
   const [heraldChapters, setHeraldChapters] = useState<unknown[]>([]);
   // Town events
   const [activeEvent, setActiveEvent] = useState<TownEvent | null>(null);
+  const [dismissedEventId, setDismissedEventId] = useState<string | null>(null);
   const [eventCooldown, setEventCooldown] = useState(false);
   const eventCooldownRef = useRef(false);
 
@@ -582,6 +584,12 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [theaterState, setTheaterState] = useState<{ videoUrl: string | null; startedAt: number | null; hostId: string | null; seats: Record<string, { userId: string; username: string }>; isPaused?: boolean; pausedAt?: number | null; jukeboxUrl?: string | null; jukeboxStartedAt?: number | null; jukeboxBy?: string | null } | null>(null);
   const theaterStateRef = useRef<typeof theaterState>(null);
   const [theaterChat, setTheaterChat] = useState<Array<{ userId: string; username: string; avatarUrl: string; message: string; createdAt: number }>>([]);
+
+  // ── Jukebox NPC (Seraphina by fountain) ─────────────────────────────────
+  const [showJukeboxDialog, setShowJukeboxDialog] = useState(false);
+  const [jukeboxInput, setJukeboxInput] = useState("");
+  const [jukeboxDialogLoading, setJukeboxDialogLoading] = useState(false);
+  const openJukeboxDialogRef = useRef<(() => void) | null>(null);
 
   // ── Party system ────────────────────────────────────────────────────────
   interface PartyMember { userId: string; username: string; avatarUrl: string; isLeader: boolean; }
@@ -827,6 +835,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       const d = await r.json();
       setVendorStock(d.stock ?? []);
       setVendorCoins(d.coins ?? myCoins);
+      setMerchantDiscount(!!d.merchantDiscount);
     } catch { /* ignore */ }
     showVendorRef.current = true;
     setShowVendor(true);
@@ -1013,6 +1022,20 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     setTimeout(() => startAmbientMusic(), 300);
   }
 
+  // Stop ambient music when jukebox is playing; resume when it stops
+  const prevJukeboxUrlRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const jUrl = theaterState?.jukeboxUrl ?? null;
+    if (prevJukeboxUrlRef.current === jUrl) return;
+    prevJukeboxUrlRef.current = jUrl;
+    if (jUrl) {
+      stopAmbientMusic();
+    } else if (!theaterOpen) {
+      startAmbientMusic();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theaterState?.jukeboxUrl, theaterOpen]);
+
   // ── Party polling ─────────────────────────────────────────────────────────
   useEffect(() => {
     const pollParty = async () => {
@@ -1114,7 +1137,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // Block movement and Phaser input while any overlay is open.
   // Also saves/restores player position so they return to the same spot.
   useEffect(() => {
-    const blocked = showCaptainDialog || caveOpen || adventureOverlayOpen || showInventory || !!npcDialogue || showStash || showVendor || showHerald || theaterOpen;
+    const blocked = showCaptainDialog || caveOpen || adventureOverlayOpen || showInventory || !!npcDialogue || showStash || showVendor || showHerald || theaterOpen || showJukeboxDialog;
     npcDialogueRef.current = !!npcDialogue;
     overlayOpenRef.current = blocked;
 
@@ -3097,6 +3120,27 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             (this as unknown as Record<string, unknown>)._stashPos = { x: SX, y: SY, hint: stashHint };
           }
 
+          // ── Seraphina — Jukebox Lady (north of fountain) ───────────────────
+          {
+            const JX = 2800, JY = 430; // north of fountain
+            const jScene = this;
+            // Glowing music aura
+            const jGlow = jScene.add.graphics();
+            jGlow.fillStyle(0xff88cc, 0.22); jGlow.fillCircle(JX, JY, 32);
+            jGlow.setDepth(5);
+            // Lady emoji
+            const jBody = jScene.add.text(JX, JY, "🎵", { fontSize: "30px", fontFamily: "monospace" }).setOrigin(0.5).setDepth(6);
+            jScene.tweens.add({ targets: jBody, y: JY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.InOut" });
+            jScene.add.text(JX, JY + 22, "Seraphina", { fontSize: "8px", color: "#ffaadd", fontFamily: "monospace", backgroundColor: "rgba(0,0,0,0.6)", padding: { x: 3, y: 1 } }).setOrigin(0.5, 0).setDepth(6);
+            const jHint = jScene.add.text(JX, JY - 44, "Click to play music 🎶", { fontSize: "10px", color: "#ff88cc", fontFamily: "monospace", backgroundColor: "rgba(0,0,0,0.78)", padding: { x: 5, y: 2 } }).setOrigin(0.5, 1).setAlpha(0).setDepth(20);
+            const jZone = jScene.add.zone(JX, JY, 58, 62).setInteractive({ cursor: "pointer" });
+            openJukeboxDialogRef.current = () => { setShowJukeboxDialog(true); };
+            jZone.on("pointerover", () => jHint.setAlpha(1));
+            jZone.on("pointerout", () => jHint.setAlpha(0));
+            jZone.on("pointerdown", () => { if (abilityTargetModeRef.current) { abilityTargetModeRef.current = null; setAbilityTargetMode(null); return; } openJukeboxDialogRef.current?.(); });
+            (this as unknown as Record<string, unknown>)._jukeboxPos = { x: JX, y: JY, hint: jHint };
+          }
+
           // ── Vendor NPC (west of stash) ─────────────────────────────────────
           {
             const VX = 1850, VY = 490;
@@ -3797,7 +3841,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
               // Sync ground items and event
               groundItemsRef.current = groundItems;
-              setActiveEvent(townEvent);
+              setActiveEvent(prev => {
+                // Auto-undismiss when a new event starts
+                if (townEvent && prev?.id !== townEvent.id) setDismissedEventId(null);
+                return townEvent;
+              });
               activeEventRef.current = townEvent;
               // Spawn/despawn event entities based on active event type
               const evType = townEvent?.type ?? null;
@@ -4612,7 +4660,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       </div>
 
       {/* ── Active Town Event Banner / Boss Fight HUD ─────────────────────── */}
-      {activeEvent && !isDead && (
+      {activeEvent && !isDead && dismissedEventId !== activeEvent.id && (
         <div style={{
           position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
           background: "rgba(0,0,0,0.92)",
@@ -4624,6 +4672,9 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           animation: "pulse 1.5s infinite",
           fontFamily: "monospace", minWidth: 340,
         }}>
+          {/* Close button */}
+          <button onClick={() => setDismissedEventId(activeEvent.id as string)}
+            style={{ position: "absolute", top: 6, right: 8, background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
           {/* Title row */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
             <span style={{ fontSize: 22 }}>
@@ -5592,6 +5643,93 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           </div>
         </div>
       )}
+
+      {/* ── Seraphina Jukebox Dialog ────────────────────────────────────────── */}
+      {showJukeboxDialog && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9500, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowJukeboxDialog(false); }}>
+          <div style={{ background: "linear-gradient(135deg, #1a0a28, #0d0620)", border: "2px solid rgba(255,136,204,0.45)", borderRadius: 20, padding: "22px 26px", width: "min(440px, 92vw)", boxShadow: "0 0 40px rgba(255,100,200,0.2)" }}>
+            <button onClick={() => setShowJukeboxDialog(false)} style={{ position: "absolute", right: 16, top: 14, background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <span style={{ fontSize: 36 }}>🎵</span>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#ffaadd" }}>Seraphina</div>
+                <div style={{ fontSize: 10, color: "rgba(255,136,204,0.55)", fontFamily: "monospace" }}>Town Minstrel · 🪙 Free</div>
+              </div>
+            </div>
+
+            {/* Now playing */}
+            {theaterState?.jukeboxUrl && (
+              <div style={{ background: "rgba(255,136,204,0.08)", border: "1px solid rgba(255,136,204,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>🎶</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: "#ffaadd", fontWeight: 700 }}>Now Playing</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{theaterState.jukeboxUrl}</div>
+                  {theaterState.jukeboxBy && <div style={{ fontSize: 9, color: "rgba(255,136,204,0.5)", fontFamily: "monospace" }}>by {theaterState.jukeboxBy}</div>}
+                </div>
+                <button
+                  onClick={async () => {
+                    await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-jukebox-stop", partyId: partyIdRef.current }) });
+                  }}
+                  style={{ background: "rgba(255,60,80,0.2)", border: "1px solid rgba(255,60,80,0.4)", borderRadius: 6, padding: "4px 10px", color: "#ff6080", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>
+                  ⏹ Stop
+                </button>
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 10 }}>
+              {theaterState?.jukeboxUrl ? "Change the song for everyone in town:" : "Play a YouTube video for everyone in town:"}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={jukeboxInput}
+                onChange={e => setJukeboxInput(e.target.value)}
+                onKeyDown={e => { e.stopPropagation(); if (e.key === "Escape") setShowJukeboxDialog(false); }}
+                placeholder="youtube.com/watch?v=... or youtu.be/..."
+                autoFocus
+                style={{ flex: 1, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,136,204,0.3)", borderRadius: 10, padding: "9px 12px", color: "#fff", fontSize: 12, outline: "none", fontFamily: "monospace" }}
+              />
+              <button
+                onClick={async () => {
+                  const url = jukeboxInput.trim();
+                  if (!url) return;
+                  setJukeboxDialogLoading(true);
+                  try {
+                    await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-jukebox-play", jukeboxUrl: url, partyId: partyIdRef.current }) });
+                    setJukeboxInput("");
+                    setShowJukeboxDialog(false);
+                  } finally { setJukeboxDialogLoading(false); }
+                }}
+                disabled={!jukeboxInput.trim() || jukeboxDialogLoading}
+                style={{ background: "rgba(255,136,204,0.25)", border: "1px solid rgba(255,136,204,0.5)", borderRadius: 10, padding: "9px 18px", color: "#ffaadd", fontSize: 12, cursor: "pointer", fontWeight: 700, opacity: (!jukeboxInput.trim() || jukeboxDialogLoading) ? 0.45 : 1 }}>
+                {jukeboxDialogLoading ? "…" : "▶ Play"}
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,136,204,0.3)", marginTop: 10, fontFamily: "monospace" }}>Music plays for all players in town · Esc to close</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Jukebox hidden audio iframe ──────────────────────────────────────── */}
+      {(() => {
+        const jUrl = theaterState?.jukeboxUrl ?? null;
+        const jStartedAt = theaterState?.jukeboxStartedAt ?? null;
+        if (!jUrl) return null;
+        const ytId = jUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/)
+          ?? jUrl.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/)
+          ?? jUrl.match(/embed\/([a-zA-Z0-9_-]{11})/);
+        const videoId = ytId?.[1] ?? jUrl;
+        const elapsed = jStartedAt ? Math.max(0, Math.floor((Date.now() - jStartedAt) / 1000)) : 0;
+        return (
+          <div key={`jukebox-${jUrl}-${jStartedAt}`} style={{ position: "fixed", left: -9999, top: -9999, width: 480, height: 270, pointerEvents: "none", opacity: 0 }} aria-hidden="true">
+            <iframe
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&start=${elapsed}&rel=0&enablejsapi=1`}
+              allow="autoplay; fullscreen"
+              style={{ width: "100%", height: "100%", border: "none" }}
+            />
+          </div>
+        );
+      })()}
 
       {/* ── Character Panel (C key) — Diablo-style: equipment slots left, backpack right ── */}
       {showInventory && (

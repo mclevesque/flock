@@ -223,6 +223,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const [micStatus, setMicStatus] = useState<"idle" | "granted" | "denied">("idle");
   const [pillPos, setPillPos] = useState<{ x: number; y: number } | null>(null);
   const pillDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const pillWasDraggedRef = useRef(false);
   const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [selectedVoiceName, setSelectedVoiceName] = useState<string | null>(null); // kokoro voice ID, null = use bot default
   const [kokoroStatus, setKokoroStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -2035,20 +2036,22 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
             {/* ── Voice pill ── */}
             <button
-              onClick={() => { if (!pillDragRef.current) setOpen(v => !v); }}
+              onClick={() => { if (!pillWasDraggedRef.current) setOpen(v => !v); pillWasDraggedRef.current = false; }}
               onMouseDown={e => {
                 if (e.button !== 0) return;
+                pillWasDraggedRef.current = false;
                 pillDragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: pillPos?.x ?? 0, startPosY: pillPos?.y ?? 0 };
                 const onMove = (ev: MouseEvent) => {
                   if (!pillDragRef.current) return;
                   const dx = ev.clientX - pillDragRef.current.startX;
                   const dy = ev.clientY - pillDragRef.current.startY;
                   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+                    pillWasDraggedRef.current = true;
                     setPillPos({ x: pillDragRef.current.startPosX + dx, y: pillDragRef.current.startPosY + dy });
                   }
                 };
                 const onUp = () => {
-                  setTimeout(() => { pillDragRef.current = null; }, 50);
+                  pillDragRef.current = null;
                   window.removeEventListener("mousemove", onMove);
                   window.removeEventListener("mouseup", onUp);
                 };
@@ -2057,6 +2060,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
               }}
               onTouchStart={e => {
                 const t = e.touches[0];
+                pillWasDraggedRef.current = false;
                 pillDragRef.current = { startX: t.clientX, startY: t.clientY, startPosX: pillPos?.x ?? 0, startPosY: pillPos?.y ?? 0 };
                 const onMove = (ev: TouchEvent) => {
                   if (!pillDragRef.current) return;
@@ -2064,10 +2068,11 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                   const touch = ev.touches[0];
                   const dx = touch.clientX - pillDragRef.current.startX;
                   const dy = touch.clientY - pillDragRef.current.startY;
+                  pillWasDraggedRef.current = true;
                   setPillPos({ x: pillDragRef.current.startPosX + dx, y: pillDragRef.current.startPosY + dy });
                 };
                 const onEnd = () => {
-                  setTimeout(() => { pillDragRef.current = null; }, 50);
+                  pillDragRef.current = null;
                   window.removeEventListener("touchmove", onMove);
                   window.removeEventListener("touchend", onEnd);
                 };

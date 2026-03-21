@@ -675,10 +675,16 @@ export async function POST(req: NextRequest) {
       const stats = await getOrCreateAdventureStats(u.id) as Record<string, unknown>;
       const level = Number(stats.level ?? 1);
       const daySeed = Math.floor(Date.now() / 86400000);
-      const stock = getVendorStock(level, daySeed);
+      let stock = getVendorStock(level, daySeed) as Record<string, unknown>[];
       const coinRows = (await getActiveTownPlayers() as Record<string, unknown>[]).find(p => p.user_id === u.id);
       const coins = Number((coinRows as Record<string, unknown> | undefined)?.coins ?? 0);
-      return NextResponse.json({ stock, coins });
+      // Apply merchant visit discount (50% off)
+      const activeEvt = await getActiveEvent().catch(() => null);
+      const merchantDiscount = (activeEvt as Record<string, unknown> | null)?.type === "merchant_visit";
+      if (merchantDiscount) {
+        stock = stock.map(item => ({ ...item, price: Math.floor(Number(item.price) * 0.5), discounted: true }));
+      }
+      return NextResponse.json({ stock, coins, merchantDiscount });
     }
 
     const { x, y, direction, chatMsg, partyId: posPartyId } = body;
