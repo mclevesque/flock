@@ -8,6 +8,8 @@ import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
 import CharacterPanel from "@/app/components/CharacterPanel";
 import TheaterRoom from "./TheaterRoom";
+import HouseInterior from "@/app/components/HouseInterior";
+import { EXTERIOR_STYLES, NPC_HOUSE_NAMES, NPC_EXTERIORS } from "@/app/components/houseData";
 
 interface TownPlayer {
   user_id: string;
@@ -213,7 +215,15 @@ function ArcadeModal({ userId, onClose }: { userId: string; onClose: () => void 
   );
 }
 
-const W = 4400, H = 1120, TILE = 32;
+const W = 6400, H = 1120, TILE = 32;
+// Housing district starts right of market
+const HOUSE_DISTRICT_X = 4500;
+const HOUSE_COLS = 4, HOUSE_ROWS = 2, HOUSE_W = 200, HOUSE_H = 160, HOUSE_GAP = 60;
+const HOUSE_SLOTS = Array.from({ length: HOUSE_COLS * HOUSE_ROWS }, (_, i) => ({
+  col: i % HOUSE_COLS, row: Math.floor(i / HOUSE_COLS),
+  x: HOUSE_DISTRICT_X + 80 + (i % HOUSE_COLS) * (HOUSE_W + HOUSE_GAP),
+  y: Math.floor(i / HOUSE_COLS) === 0 ? 180 : 620,
+}));
 const PLAYER_SPEED = 228;
 const TAG_SPEED = 336; // faster during tag game
 const NEARBY_DIST = 220;
@@ -539,6 +549,33 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [confirmLeave, setConfirmLeave] = useState<{ label: string; href: string } | null>(null);
 
   // ── Theater ─────────────────────────────────────────────────────────────
+  // ── Housing district ──────────────────────────────────────────────────────
+  interface DistrictSlot { userId: string | null; username: string; exteriorStyle: string; isNpc: boolean; }
+  const [districtSlots, setDistrictSlots] = useState<DistrictSlot[]>([]);
+  const [openHouse, setOpenHouse] = useState<{ userId: string; username: string } | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/house?district=1&partyId=${partyId ?? ""}`)
+      .then(r => r.json())
+      .then(({ houses }) => {
+        const real: DistrictSlot[] = (houses ?? []).map((h: Record<string, unknown>) => ({
+          userId: h.id as string,
+          username: h.username as string,
+          exteriorStyle: (h.exterior_style as string) ?? "cottage",
+          isNpc: false,
+        }));
+        const npcCount = Math.max(0, 8 - real.length);
+        const npcs: DistrictSlot[] = Array.from({ length: npcCount }, (_, i) => ({
+          userId: null,
+          username: NPC_HOUSE_NAMES[i % NPC_HOUSE_NAMES.length],
+          exteriorStyle: NPC_EXTERIORS[i % NPC_EXTERIORS.length],
+          isNpc: true,
+        }));
+        setDistrictSlots([...real, ...npcs]);
+      })
+      .catch(() => {});
+  }, [partyId]);
+
   const [theaterOpen, setTheaterOpen] = useState(false);
   const theaterOpenRef = useRef(false);
   const openTheaterRef = useRef<(() => void) | null>(null);
@@ -3161,6 +3198,142 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           this.player.add(this.playerBubble);
           this.player.setDepth(10);
 
+          // ── Housing District (x=4500–6200) ────────────────────────────────────
+          {
+            // Ground — warm cobblestone neighbourhood feel
+            const hg = this.add.graphics();
+            hg.fillStyle(0xc8a87a, 1);
+            hg.fillRect(4400, 0, 1800, H);
+            // cobblestone texture
+            hg.lineStyle(1, 0xaa8855, 0.3);
+            for (let hy = 0; hy < H; hy += 36) {
+              for (let hx = 4400; hx < 6200; hx += 48) {
+                hg.strokeRoundedRect(hx + (hy % 2 === 0 ? 0 : 24), hy, 46, 34, 4);
+              }
+            }
+            // Border wall between market and housing
+            const hw = this.add.graphics();
+            hw.fillStyle(0x7a6040, 1); hw.fillRect(4400, 0, 14, H);
+            hw.fillStyle(0x9a8060, 1);
+            for (let hy = 0; hy < H; hy += 40) hw.fillRect(4400, hy, 14, 18);
+
+            // District sign
+            this.add.text(4800, H / 2, "🏘️  Neighbourhood", {
+              fontSize: "20px", color: "#4a2800", fontFamily: "monospace", fontStyle: "bold",
+              backgroundColor: "rgba(240,210,150,0.85)", padding: { x: 14, y: 7 },
+            }).setOrigin(0.5).setDepth(5);
+            this.add.text(4800, H / 2 + 36, "Your party's homes", {
+              fontSize: "12px", color: "#7a5030", fontFamily: "monospace",
+              backgroundColor: "rgba(240,210,150,0.7)", padding: { x: 10, y: 4 },
+            }).setOrigin(0.5).setDepth(5);
+
+            // Central path between rows
+            const pathG = this.add.graphics();
+            pathG.fillStyle(0xd4b07a, 1); pathG.fillRect(4420, 430, 1780, 160);
+            pathG.lineStyle(2, 0xb89060, 0.5);
+            for (let px = 4420; px < 6200; px += 40) pathG.strokeRect(px, 430, 38, 158);
+
+            // Trees lining the path
+            [[4470, 420],[4690, 420],[4910, 420],[5130, 420],[5350, 420],[5570, 420],
+             [4470, 600],[4690, 600],[4910, 600],[5130, 600],[5350, 600],[5570, 600]].forEach(([tx, ty]) => {
+              const tg = this.add.graphics();
+              tg.fillStyle(0x6a3a12, 1); tg.fillRect(tx-3, ty+4, 6, 18);
+              tg.fillStyle(0x0e6622, 1); tg.fillTriangle(tx, ty-22, tx-18, ty+6, tx+18, ty+6);
+              tg.fillStyle(0x1a9030, 1); tg.fillCircle(tx, ty-8, 11);
+            });
+
+            // Draw houses from districtSlots state
+            const slotsSnap = districtSlots;
+            HOUSE_SLOTS.forEach((slot, i) => {
+              const info = slotsSnap[i];
+              if (!info) return;
+              const ext = EXTERIOR_STYLES.find(e => e.id === info.exteriorStyle) ?? EXTERIOR_STYLES[0];
+              const hx = slot.x, hy = slot.y;
+              const hw2 = HOUSE_W, hh = HOUSE_H;
+
+              const houseG = this.add.graphics();
+              houseG.setDepth(4);
+
+              // Shadow
+              houseG.fillStyle(0x000000, 0.18);
+              houseG.fillRoundedRect(hx + 8, hy + 8, hw2, hh, 6);
+
+              // Foundation
+              houseG.fillStyle(0x8a7a5a, 1);
+              houseG.fillRect(hx - 4, hy + hh - 4, hw2 + 8, 10);
+
+              // Walls
+              const wc = parseInt(ext.wallColor.replace("#",""), 16);
+              houseG.fillStyle(wc, 1);
+              houseG.fillRoundedRect(hx, hy + 28, hw2, hh - 28, { tl: 0, tr: 0, bl: 6, br: 6 });
+
+              // Roof
+              const rc = parseInt(ext.roofColor.replace("#",""), 16);
+              houseG.fillStyle(rc, 1);
+              houseG.fillTriangle(hx - 8, hy + 32, hx + hw2/2, hy - 18, hx + hw2 + 8, hy + 32);
+              // Chimney
+              const tc = parseInt(ext.trimColor.replace("#",""), 16);
+              houseG.fillStyle(wc, 1);
+              houseG.fillRect(hx + hw2 * 0.7, hy - 28, 18, 38);
+              houseG.fillStyle(0x333333, 0.6); houseG.fillRect(hx + hw2 * 0.7 - 2, hy - 32, 22, 6);
+
+              // Windows (2)
+              houseG.fillStyle(0xffd880, 0.9);
+              houseG.fillRoundedRect(hx + 14, hy + 44, 38, 30, 3);
+              houseG.fillRoundedRect(hx + hw2 - 52, hy + 44, 38, 30, 3);
+              houseG.lineStyle(2, 0x8a6a30, 0.4);
+              houseG.strokeRoundedRect(hx + 14, hy + 44, 38, 30, 3);
+              houseG.strokeRoundedRect(hx + hw2 - 52, hy + 44, 38, 30, 3);
+              // Window cross
+              houseG.lineStyle(1, 0x8a6a30, 0.4);
+              houseG.lineBetween(hx + 33, hy + 44, hx + 33, hy + 74);
+              houseG.lineBetween(hx + 14, hy + 59, hx + 52, hy + 59);
+              houseG.lineBetween(hx + hw2 - 33, hy + 44, hx + hw2 - 33, hy + 74);
+              houseG.lineBetween(hx + hw2 - 52, hy + 59, hx + hw2 - 14, hy + 59);
+
+              // Door
+              const dc = parseInt(ext.doorColor.replace("#",""), 16);
+              houseG.fillStyle(dc, 1);
+              houseG.fillRoundedRect(hx + hw2/2 - 16, hy + hh - 52, 32, 52, { tl: 6, tr: 6, bl: 0, br: 0 });
+              // Door knob
+              houseG.fillStyle(0xffcc44, 1); houseG.fillCircle(hx + hw2/2 + 8, hy + hh - 28, 3);
+              // Door step
+              houseG.fillStyle(0x8a7a5a, 1); houseG.fillRect(hx + hw2/2 - 20, hy + hh - 4, 40, 8);
+
+              // Trim accent
+              houseG.fillStyle(tc, 0.8);
+              houseG.fillRect(hx, hy + 26, hw2, 4);
+              houseG.fillRoundedRect(hx, hy + hh - 4, hw2, 4, 2);
+
+              // Nameplate
+              const label = info.isNpc
+                ? `${ext.emoji} ${info.username}`
+                : `${ext.emoji} ${info.username}`;
+              const nameText = this.add.text(hx + hw2/2, hy - 30, label, {
+                fontSize: "10px", color: "#fff", fontFamily: "monospace", fontStyle: "bold",
+                backgroundColor: "rgba(0,0,0,0.65)", padding: { x: 6, y: 3 },
+              }).setOrigin(0.5, 1).setDepth(8);
+
+              // "Your house" indicator
+              if (!info.isNpc && info.userId === userId) {
+                this.add.text(hx + hw2/2, hy - 46, "🏠 Your Home", {
+                  fontSize: "9px", color: "#ffd700", fontFamily: "monospace",
+                  backgroundColor: "rgba(0,0,0,0.5)", padding: { x: 5, y: 2 },
+                }).setOrigin(0.5, 1).setDepth(8);
+              }
+
+              // Click zone (for all non-NPC houses, or own house)
+              if (!info.isNpc && info.userId) {
+                const clickZone = this.add.zone(hx + hw2/2, hy + hh/2, hw2, hh).setInteractive({ cursor: "pointer" }).setDepth(9);
+                clickZone.on("pointerover", () => { nameText.setStyle({ color: "#ffd700" }); });
+                clickZone.on("pointerout", () => { nameText.setStyle({ color: "#fff" }); });
+                clickZone.on("pointerdown", () => {
+                  setOpenHouse({ userId: info.userId!, username: info.username });
+                });
+              }
+            });
+          }
+
           // ── Camera ───────────────────────────────────────────────────────────
           this.cameras.main.setBounds(0, 0, W, H);
           this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
@@ -5754,6 +5927,16 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             </div>
           )}
         </div>
+      )}
+
+      {/* ── House Interior Overlay ── */}
+      {openHouse && (
+        <HouseInterior
+          userId={openHouse.userId}
+          viewerId={userId}
+          username={openHouse.username}
+          onClose={() => setOpenHouse(null)}
+        />
       )}
 
       {/* ── Theater Room ────────────────────────────────────────────────────────── */}

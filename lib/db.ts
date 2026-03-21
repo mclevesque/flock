@@ -4655,3 +4655,73 @@ export async function getVibeInterestsByUsername(username: string): Promise<stri
   if (Array.isArray(raw)) return raw as string[];
   try { return JSON.parse(raw as string) as string[]; } catch { return []; }
 }
+
+// ── House System ──────────────────────────────────────────────────────────────
+
+export async function ensureHouseTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS house_configs (
+      user_id TEXT PRIMARY KEY,
+      exterior_style TEXT NOT NULL DEFAULT 'cottage',
+      wallpaper TEXT NOT NULL DEFAULT 'cream',
+      floor_type TEXT NOT NULL DEFAULT 'hardwood',
+      furniture JSONB NOT NULL DEFAULT '[]',
+      pets JSONB NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `.catch(() => {});
+}
+
+export async function getHouseConfig(userId: string): Promise<Record<string, unknown> | null> {
+  await ensureHouseTable();
+  const rows = await sql`SELECT * FROM house_configs WHERE user_id = ${userId}`;
+  return rows[0] ?? null;
+}
+
+export async function saveHouseConfig(
+  userId: string,
+  config: { exteriorStyle?: string; wallpaper?: string; floorType?: string; furniture?: unknown[]; pets?: unknown[] }
+): Promise<void> {
+  await ensureHouseTable();
+  await sql`
+    INSERT INTO house_configs (user_id, exterior_style, wallpaper, floor_type, furniture, pets, updated_at)
+    VALUES (
+      ${userId},
+      ${config.exteriorStyle ?? 'cottage'},
+      ${config.wallpaper ?? 'cream'},
+      ${config.floorType ?? 'hardwood'},
+      ${JSON.stringify(config.furniture ?? [])}::jsonb,
+      ${JSON.stringify(config.pets ?? [])}::jsonb,
+      NOW()
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      exterior_style = COALESCE(EXCLUDED.exterior_style, house_configs.exterior_style),
+      wallpaper      = COALESCE(EXCLUDED.wallpaper, house_configs.wallpaper),
+      floor_type     = COALESCE(EXCLUDED.floor_type, house_configs.floor_type),
+      furniture      = COALESCE(EXCLUDED.furniture, house_configs.furniture),
+      pets           = COALESCE(EXCLUDED.pets, house_configs.pets),
+      updated_at     = NOW()
+  `;
+}
+
+export async function getDistrictHouses(userId: string, partyId: string | null): Promise<Record<string, unknown>[]> {
+  await ensureHouseTable();
+  // Get own house
+  const own = await sql`
+    SELECT u.id, u.username, u.avatar_url, hc.exterior_style, hc.wallpaper, hc.floor_type, hc.furniture, hc.pets
+    FROM users u LEFT JOIN house_configs hc ON hc.user_id = u.id
+    WHERE u.id = ${userId}
+  `;
+  if (!partyId) return own;
+  // Get party members' houses (excluding self)
+  const party = await sql`
+    SELECT u.id, u.username, u.avatar_url, hc.exterior_style, hc.wallpaper, hc.floor_type, hc.furniture, hc.pets
+    FROM users u LEFT JOIN house_configs hc ON hc.user_id = u.id
+    WHERE u.id IN (
+      SELECT CASE WHEN leader_id = ${userId} THEN member_id ELSE leader_id END
+      FROM party_members WHERE ${userId} IN (leader_id, member_id) AND status = 'active'
+    ) AND u.id != ${userId}
+    LIMIT 7
+  `;
+  return [...own, ...party];
+}
