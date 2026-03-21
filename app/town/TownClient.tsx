@@ -554,6 +554,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // ── Housing district ──────────────────────────────────────────────────────
   interface DistrictSlot { userId: string | null; username: string; exteriorStyle: string; isNpc: boolean; }
   const [districtSlots, setDistrictSlots] = useState<DistrictSlot[]>([]);
+  const districtSlotsRef = useRef<DistrictSlot[]>([]);
+  const redrawHousesRef = useRef<(() => void) | null>(null);
   const [openHouse, setOpenHouse] = useState<{ userId: string; username: string } | null>(null);
 
   useEffect(() => {
@@ -573,7 +575,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           exteriorStyle: NPC_EXTERIORS[i % NPC_EXTERIORS.length],
           isNpc: true,
         }));
-        setDistrictSlots([...real, ...npcs]);
+        const slots = [...real, ...npcs];
+        districtSlotsRef.current = slots;
+        setDistrictSlots(slots);
+        // Redraw Phaser houses if scene already created
+        redrawHousesRef.current?.();
       })
       .catch(() => {});
   }, [partyId]);
@@ -3286,10 +3292,13 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               tg.fillStyle(0x1a9030, 1); tg.fillCircle(tx, ty-8, 11);
             });
 
-            // Draw houses from districtSlots state
-            const slotsSnap = districtSlots;
-            HOUSE_SLOTS.forEach((slot, i) => {
-              const info = slotsSnap[i];
+            // Draw houses — uses ref so redraw works after async API load
+            const houseGraphicsGroup: import("phaser").GameObjects.GameObject[] = [];
+            const drawHouses = () => {
+              houseGraphicsGroup.forEach(g => g.destroy());
+              houseGraphicsGroup.length = 0;
+              HOUSE_SLOTS.forEach((slot, i) => {
+              const info = districtSlotsRef.current[i];
               if (!info) return;
               const ext = EXTERIOR_STYLES.find(e => e.id === info.exteriorStyle) ?? EXTERIOR_STYLES[0];
               const hx = slot.x, hy = slot.y;
@@ -3360,10 +3369,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
               // "Your house" indicator
               if (!info.isNpc && info.userId === userId) {
-                this.add.text(hx + hw2/2, hy - 46, "🏠 Your Home", {
+                const homeLabel = this.add.text(hx + hw2/2, hy - 46, "🏠 Your Home", {
                   fontSize: "9px", color: "#ffd700", fontFamily: "monospace",
                   backgroundColor: "rgba(0,0,0,0.5)", padding: { x: 5, y: 2 },
                 }).setOrigin(0.5, 1).setDepth(8);
+                houseGraphicsGroup.push(homeLabel);
               }
 
               // Click zone (for all non-NPC houses, or own house)
@@ -3374,8 +3384,13 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
                 clickZone.on("pointerdown", () => {
                   setOpenHouse({ userId: info.userId!, username: info.username });
                 });
+                houseGraphicsGroup.push(clickZone);
               }
-            });
+              houseGraphicsGroup.push(houseG, nameText);
+              });
+            };
+            redrawHousesRef.current = drawHouses;
+            drawHouses();
           }
 
           // ── Camera ───────────────────────────────────────────────────────────

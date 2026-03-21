@@ -50,3 +50,4 @@ electron/dist
 
 # Local Netlify folder
 .netlify
+NETLIFY-MISSING.ENV\nAPI_KEYS_REFERENCE.txt

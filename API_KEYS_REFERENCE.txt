@@ -1,0 +1,51 @@
+========================================
+FLOCK — API KEYS & SERVICES REFERENCE
+========================================
+Keep this file safe. Never commit to git.
+
+--- DATABASE (Neon) ---
+DATABASE_URL=postgresql://neondb_owner:npg_thkDCL64uBKl@ep-small-tree-amphheod-pooler.c-5.us-east-1.aws.neon.tech/neondb?channel_binding=require&sslmode=require
+DATABASE_URL_UNPOOLED=postgresql://neondb_owner:npg_thkDCL64uBKl@ep-small-tree-amphheod.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require
+NEON_PROJECT_ID=frosty-dream-01398888
+Dashboard: https://console.neon.tech
+
+--- CLOUDFLARE R2 (Storage) ---
+R2_ACCOUNT_ID=0fa2bba703fd5c042628246fb108fbdf
+R2_ACCESS_KEY_ID=2728ab13420bd798c6fb523b278e4d00
+R2_SECRET_ACCESS_KEY=27b4b7665058894c212baecc1bf25c6709d60eb7848bf1458dd387cc78588777
+R2_BUCKET=flock
+R2_PUBLIC_URL=https://pub-f23e0ee09ad043688726c13516077b5d.r2.dev
+Dashboard: https://dash.cloudflare.com
+
+--- AUTH ---
+AUTH_SECRET=f7k2mXpQ9nRvLwT4sYbDhJeUcA3gN8oZ
+AUTH_TRUST_HOST=true
+
+--- NETLIFY ---
+Site URL: https://flocksocial.netlify.app
+NEXT_PUBLIC_SITE_URL=https://flocksocial.netlify.app
+NEXTAUTH_URL=https://flocksocial.netlify.app
+Dashboard: https://app.netlify.com/projects/flocksocial
+
+--- GROQ (AI Quiz Questions) ---
+GROQ_API_KEY=FILL_IN — get free key at https://console.groq.com
+Model used: llama-3.3-70b-versatile
+Free tier: 14,400 requests/day
+
+--- GIPHY ---
+GIPHY_API_KEY=VSJsFuUQpmJlxVg15pu1haFesFUz4ial
+Dashboard: https://developers.giphy.com
+
+--- HUGGING FACE (AI Image Gen) ---
+HUGGINGFACE_TOKEN=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
+Dashboard: https://huggingface.co/settings/tokens
+
+--- PARTYKIT (Realtime) ---
+NEXT_PUBLIC_PARTYKIT_HOST=FILL_IN from partykit dashboard
+Dashboard: https://partykit.io
+
+--- KEYS TO REVOKE AFTER VERCEL CANCEL ---
+- BLOB_READ_WRITE_TOKEN (Vercel Blob — no longer used, revoke in Vercel dashboard)
+- VERCEL_OIDC_TOKEN (auto-invalidates on Vercel cancel)
+
+========================================
