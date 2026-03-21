@@ -687,9 +687,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ stock, coins, merchantDiscount });
     }
 
+    // Position update (no action field) — upsert position AND return full town state
     const { x, y, direction, chatMsg, partyId: posPartyId } = body;
-    await upsertTownPlayer(u.id, u.name ?? "player", u.image ?? "", x ?? 800, y ?? 600, direction ?? "down", chatMsg ?? null, (posPartyId as string) || null);
-    return NextResponse.json({ ok: true });
+    const pollPartyId = (posPartyId as string) || null;
+    cleanupExpiredGroundItems().catch(() => {});
+    checkAndTriggerTownEvent().catch(() => {});
+    await upsertTownPlayer(u.id, u.name ?? "player", u.image ?? "", x ?? 800, y ?? 600, direction ?? "down", chatMsg ?? null, pollPartyId);
+    const [players, ground_items, active_event, recent_victory, theater_state, theater_chat] = await Promise.all([
+      getActiveTownPlayers(pollPartyId),
+      getGroundItems().catch(() => []),
+      getActiveEvent().catch(() => null),
+      getRecentlyCompletedEvent().catch(() => null),
+      getTheaterState(pollPartyId).catch(() => null),
+      getTheaterChat(pollPartyId).catch(() => []),
+    ]);
+    return NextResponse.json({ players, ground_items, active_event, recent_victory, theater_state, theater_chat });
   } catch {
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }

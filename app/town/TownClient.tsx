@@ -1892,7 +1892,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         loadingTextures: Set<string> = new Set(); // prevent duplicate loads
         cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
         wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
-        posTimer = 0; pollTimer = 0;
+        pollTimer = 0;
         direction = "down";
         chatBubbleTimer = 0;
 
@@ -3830,25 +3830,19 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             container.y = Phaser.Math.Linear(container.y, clampedY, 0.28);
           });
 
-          this.posTimer += delta;
           this.pollTimer += delta;
 
-          // Idle throttle: stop sending after 1 min of no keyboard/mouse input
+          // Merged poll: single POST every 2s (active) / 12s (idle) — sends position + gets full town state
           const afkMs = Date.now() - _lastActivityTime;
-          const isIdle = afkMs > 60 * 1000; // 1 min AFK
-          const posThreshold  = isIdle ? 999999 : 1500; // stop position sends when idle
-          const pollThreshold = isIdle ? 25000 : 3000;  // 25s poll when idle, 3s when active
-
-          if (this.posTimer >= posThreshold) {
-            this.posTimer = 0;
-            const pos = myPosRef.current;
-            fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ x: Math.round(pos.x), y: Math.round(pos.y), direction: this.direction, partyId: partyIdRef.current }) }).catch(() => {});
-          }
+          const isIdle = afkMs > 180 * 1000; // 3 min AFK
+          const pollThreshold = isIdle ? 12000 : 2000;
 
           if (this.pollTimer >= pollThreshold) {
             this.pollTimer = 0;
-            fetch(partyIdRef.current ? `/api/town?partyId=${encodeURIComponent(partyIdRef.current)}` : "/api/town").then(r => r.json()).then((resp: { players?: TownPlayer[]; ground_items?: GroundItem[]; active_event?: TownEvent | null; recent_victory?: Record<string, unknown> | null }) => {
+            const pos = myPosRef.current;
+            fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ x: Math.round(pos.x), y: Math.round(pos.y), direction: this.direction, partyId: partyIdRef.current })
+            }).then(r => r.json()).then((resp: { players?: TownPlayer[]; ground_items?: GroundItem[]; active_event?: TownEvent | null; recent_victory?: Record<string, unknown> | null }) => {
               // Support both old (array) and new (object) response shapes
               const players: TownPlayer[] = Array.isArray(resp) ? resp : (resp.players ?? []);
               const groundItems = Array.isArray(resp) ? [] : (resp.ground_items ?? []);
