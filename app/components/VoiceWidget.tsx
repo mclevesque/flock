@@ -1025,18 +1025,22 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
   // ── Mute ──────────────────────────────────────────────────────────────────────
   async function toggleMute() {
-    const stream = localStreamRef.current;
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    // Apply to live stream if available; if stream is gone, re-acquire it
+    let stream = localStreamRef.current?.active ? localStreamRef.current : null;
+    if (!stream && currentRoomRef.current) {
+      try { stream = await getLocalStream(); } catch { /* mic denied — muted state still saved */ }
+    }
     if (stream) {
-      const newMuted = !isMuted;
       stream.getAudioTracks().forEach(t => { t.enabled = !newMuted; });
-      setIsMuted(newMuted);
-      if (currentRoomRef.current && userId) {
-        fetch(`/api/voice/${currentRoomRef.current}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "mute", muted: newMuted }),
-        }).catch(() => {});
-      }
+    }
+    if (currentRoomRef.current && userId) {
+      fetch(`/api/voice/${currentRoomRef.current}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mute", muted: newMuted }),
+      }).catch(() => {});
     }
   }
 

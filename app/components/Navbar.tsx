@@ -327,7 +327,7 @@ export default function Navbar() {
   );
 
   return (
-    <header style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100 }}>
+    <header style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 1000 }}>
 
       {/* ── DESKTOP header row ───────────────────────────────────────────────── */}
       <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 12px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -366,7 +366,7 @@ export default function Navbar() {
               <span style={{ fontSize: 9, opacity: 0.7, transition: "transform 0.15s ease", display: "inline-block", transform: gamesOpen ? "rotate(180deg)" : "none" }}>▼</span>
             </button>
             {gamesOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 12, padding: 8, minWidth: 200, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 200 }}>
+              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 12, padding: 8, minWidth: 200, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 10000 }}>
                 {visibleGameItems.map(g => {
                   const active = path.startsWith(g.href);
                   return (
