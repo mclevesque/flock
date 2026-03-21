@@ -3293,7 +3293,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             });
 
             // Draw houses — uses ref so redraw works after async API load
-            const houseGraphicsGroup: import("phaser").GameObjects.GameObject[] = [];
+            const houseGraphicsGroup: { destroy(): void }[] = [];
             const drawHouses = () => {
               houseGraphicsGroup.forEach(g => g.destroy());
               houseGraphicsGroup.length = 0;
