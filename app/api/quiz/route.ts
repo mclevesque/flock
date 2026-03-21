@@ -77,8 +77,9 @@ export async function POST(req: NextRequest) {
 
   // Generate questions now so accepting is instant; always fall back to hardcoded set
   let questions: QuizQuestion[] = [];
+  let resolvedTopic = topic || "General Knowledge";
   try {
-    questions = await generateQuestions(topic || "General Knowledge");
+    ({ questions, resolvedTopic } = await generateQuestions(resolvedTopic));
   } catch {
     // Both AI and opentdb failed — use hardcoded fallback so DM game always starts
   }
@@ -94,12 +95,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const id = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
-    const challenge = await createQuizChallenge(id, session.user.id, challengedId, topic || "General Knowledge", questions, !!dmGame);
+    const challenge = await createQuizChallenge(id, session.user.id, challengedId, resolvedTopic, questions, !!dmGame);
 
     // DM quizzes start immediately — no acceptance required
     if (dmGame) {
       const gameId = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
-      await createQuizGame(gameId, id, session.user.id, challengedId, topic || "General Knowledge", questions, true);
+      await createQuizGame(gameId, id, session.user.id, challengedId, resolvedTopic, questions, true);
       await updateQuizChallengeStatus(id, "accepted");
       return NextResponse.json({ ...challenge, gameId });
     }

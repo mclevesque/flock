@@ -11,14 +11,14 @@ export async function POST(req: NextRequest) {
   const { topic } = await req.json();
   const topicStr = (topic ?? "General Knowledge").trim() || "General Knowledge";
 
-  let questions;
+  let questions, resolvedTopic;
   try {
-    questions = await generateQuestions(topicStr);
+    ({ questions, resolvedTopic } = await generateQuestions(topicStr));
   } catch {
     return NextResponse.json({ error: "Could not generate questions" }, { status: 500 });
   }
 
   const gameId = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
-  await createBotQuizGame(gameId, session.user.id, topicStr, questions);
+  await createBotQuizGame(gameId, session.user.id, resolvedTopic, questions);
   return NextResponse.json({ gameId });
 }

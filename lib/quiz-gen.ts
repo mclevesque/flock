@@ -78,13 +78,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-export async function generateQuestions(topic: string): Promise<QuizQuestion[]> {
+export async function generateQuestions(topic: string): Promise<{ questions: QuizQuestion[]; resolvedTopic: string }> {
   try {
-    return await withTimeout(generateQuestionsAI(topic), 45000);
+    const questions = await withTimeout(generateQuestionsAI(topic), 45000);
+    return { questions, resolvedTopic: topic };
   } catch (aiErr) {
     console.error("AI question generation failed, trying opentdb:", aiErr);
     try {
-      return await withTimeout(generateQuestionsOpentdb(), 8000);
+      const questions = await withTimeout(generateQuestionsOpentdb(), 8000);
+      // opentdb is topic-agnostic — tell the game it's general knowledge
+      return { questions, resolvedTopic: "General Knowledge" };
     } catch (fallbackErr) {
       console.error("opentdb fallback also failed:", fallbackErr);
       throw new Error("Could not generate questions");
