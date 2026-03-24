@@ -11,6 +11,7 @@ interface Run {
   damage_dealt: number;
   survived: boolean;
   weapons: { id: string; lvl: number }[];
+  passives: { id: string; lvl: number }[];
   created_at: string;
 }
 

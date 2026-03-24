@@ -745,7 +745,7 @@ const META_CATEGORIES=['all','combat','survival','utility'];
 // Max player HP ramps to ~260 with passives. Boss hits ~30-50 = 5-8 hits to die = intense
 const ENEMY_DEFS={
 shambler:{name:'Shambler',hp:28,spd:2.4,dmg:10,size:14,color:'#558855',xp:2,emoji:'🧟'},
-raven:{name:'Zombie Raven',hp:18,spd:4.2,dmg:8,size:10,color:'#226622',xp:2,emoji:'🪶'},
+raven:{name:'Zombie Raven',hp:18,spd:4.2,dmg:8,size:10,color:'#111111',xp:2,emoji:'🪶'},
 bloated:{name:'Bloated Zombie',hp:110,spd:1.5,dmg:25,size:22,color:'#33aa33',xp:5,emoji:'🧟‍♂️',defPct:0.15},
 risen_bandit:{name:'Risen Bandit',hp:60,spd:3.0,dmg:18,size:16,color:'#885533',xp:4,emoji:'💀'},
 runner:{name:'Runner',hp:35,spd:6.0,dmg:12,size:12,color:'#226622',xp:3,emoji:'🏃'},
@@ -1522,6 +1522,10 @@ if(gs.spawnTimer>=spawnRate){
 gs.spawnTimer=0;
 // Volume scales aggressively over time — more enemies, not just harder ones
 const batch=Math.ceil((1+Math.floor(gs.gameTime/80))*partyMult);
+// Wolf howl: play once per 30s when schedule includes werewolves
+if(sched.types.includes('werewolf')&&(!gs._lastHowl||gs.gameTime-gs._lastHowl>=30)){
+  gs._lastHowl=gs.gameTime;snd('wolf_howl');
+}
 for(let b=0;b<batch;b++){
 const t=sched.types[Math.floor(Math.random()*sched.types.length)];
 spawnEnemy(t,false);
@@ -3447,7 +3451,7 @@ X.fillStyle='#44ff88';X.fillText('FLOCK: OUTBREAK',0,0);
 X.restore();
 // Subtitle
 X.font='14px monospace';X.fillStyle='rgba(100,220,120,0.55)';X.textAlign='center';
-X.fillText('Survive 10 minutes • Your Flock avatar vs the undead',C.width/2,C.height/2-30);
+X.fillText('Survive 6 minutes • Your Flock avatar vs the undead',C.width/2,C.height/2-30);
 // Avatar preview
 if(avatarImg){
 X.save();X.beginPath();X.arc(C.width/2,C.height/2+40,32,0,Math.PI*2);X.clip();
