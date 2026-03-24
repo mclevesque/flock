@@ -423,17 +423,17 @@ gp.axes=[pad.axes[0]||0,pad.axes[1]||0];
 const vJoy={active:false,id:-1,bx:0,by:0,dx:0,dy:0,tapFired:false};
 const VJOY_DEAD=12; // deadzone pixels
 // Click on level-up cards or meta shop tabs
+function getCanvasXY(e){const r=C.getBoundingClientRect();return{x:(e.clientX-r.left)*(C.width/r.width),y:(e.clientY-r.top)*(C.height/r.height)};}
 C.addEventListener('click',e=>{
-  const scaleX=C.width/C.offsetWidth,scaleY=C.height/C.offsetHeight;
-  const mx2=e.offsetX*scaleX,my2=e.offsetY*scaleY;
+  const{x:mx2,y:my2}=getCanvasXY(e);
   // Audio toggle buttons (always clickable, top-right)
-  if(mx2>=C.width-88&&mx2<=C.width-52&&my2>=26&&my2<=50){
+  if(mx2>=C.width-96&&mx2<=C.width-44&&my2>=18&&my2<=58){
     musicEnabled=!musicEnabled;
     if(!musicEnabled)stopMusic();
     else if(gs.state==='game'||gs.state==='levelup'){if(AX)startMusic();}
     return;
   }
-  if(mx2>=C.width-46&&mx2<=C.width-10&&my2>=26&&my2<=50){
+  if(mx2>=C.width-54&&mx2<=C.width-2&&my2>=18&&my2<=58){
     voiceEnabled=!voiceEnabled;return;
   }
   if(gs.state==='levelup'&&gs.lvlChoices.length>0){
@@ -756,7 +756,6 @@ skeleton_wall:{name:'Bone Wall',hp:110,spd:0,dmg:14,size:19,color:'#c8b870',xp:8
 };
 const BOSS_DEFS={
 bandit_warlord:{name:'BANDIT WARLORD',hp:800,spd:2.4,dmg:45,size:40,color:'#cc4411',xp:80,emoji:'💣',defPct:0.28},
-undead_dragon:{name:'UNDEAD DRAGON',hp:2800,spd:3.0,dmg:58,size:52,color:'#553311',xp:280,emoji:'💀',defPct:0.38},
 zombie_dragon:{name:'ZOMBIE DRAGON',hp:4000,spd:3.2,dmg:70,size:55,color:'#116622',xp:350,emoji:'🐉',defPct:0.42},
 moon_wraith:{name:'MOON WRAITH',hp:6000,spd:4.2,dmg:90,size:60,color:'#2222aa',xp:500,emoji:'👻',defPct:0.45},
 };
@@ -783,8 +782,7 @@ const SPAWN_SCHEDULE=[
 ];
 const BOSS_SCHEDULE=[
 {t:120,type:'bandit_warlord'},
-{t:240,type:'undead_dragon'},
-{t:390,type:'zombie_dragon'},
+{t:300,type:'zombie_dragon'},
 {t:570,type:'moon_wraith'},
 ];
 
@@ -846,7 +844,7 @@ if(isBoss){
   snd('boss');
   // Boss-specific entrance sounds
   if(type==='moon_wraith')playSFX('wolf_howl',0.7);
-  else if(type==='zombie_dragon'||type==='undead_dragon')playSFX('wolf_attack',0.8);
+  else if(type==='zombie_dragon')playSFX('wolf_attack',0.8);
   else playSFX('shatter',0.65);
 }
 // Werewolf: occasional distant howl on spawn
@@ -2115,122 +2113,6 @@ X.beginPath();X.moveTo(ex+Math.cos(ca-0.1)*s*0.75,ey-s*0.18+Math.sin(ca-0.1)*s*0
 X.lineTo(ex+Math.cos(ca)*cl,ey-s*0.18+Math.sin(ca)*cl);
 X.lineTo(ex+Math.cos(ca+0.1)*s*0.75,ey-s*0.18+Math.sin(ca+0.1)*s*0.75);
 X.closePath();X.fill();}
-X.restore();
-}else if(e.type==='undead_dragon'){
-// ── UNDEAD DRAGON: full skeletal dragon — massive membrane wings, serpentine body ──
-X.save();X.shadowColor='#8822ff';X.shadowBlur=32+Math.sin(ph*0.8)*14;
-const wf=Math.sin(e.bob*0.55)*0.3;
-const fc2=e.flash>0?'#ffffff':null;
-
-// === WINGS (drawn first, behind everything) ===
-// Left wing membrane — huge swept bat-like shape
-const lWx=ex-s*0.38,lWy=ey-s*0.05;
-X.fillStyle=fc2||'#1e0e2e';
-X.beginPath();
-X.moveTo(lWx,lWy);
-X.bezierCurveTo(lWx-s*0.85,lWy-s*0.95+wf*s*0.55,lWx-s*1.7,lWy-s*0.55+wf*s*0.75,lWx-s*2.3,lWy-s*0.05+wf*s*0.65);
-X.bezierCurveTo(lWx-s*1.85,lWy+s*0.55+wf*s*0.25,lWx-s*1.1,lWy+s*0.6,lWx-s*0.1,lWy+s*0.35);
-X.closePath();X.fill();
-// Right wing membrane
-const rWx=ex+s*0.38,rWy=ey-s*0.05;
-X.beginPath();
-X.moveTo(rWx,rWy);
-X.bezierCurveTo(rWx+s*0.85,rWy-s*0.95+wf*s*0.55,rWx+s*1.7,rWy-s*0.55+wf*s*0.75,rWx+s*2.3,rWy-s*0.05+wf*s*0.65);
-X.bezierCurveTo(rWx+s*1.85,rWy+s*0.55+wf*s*0.25,rWx+s*1.1,rWy+s*0.6,rWx+s*0.1,rWy+s*0.35);
-X.closePath();X.fill();
-// Wing finger bones (veins)
-X.strokeStyle=fc2||'#4a1e6a';X.lineWidth=s*0.045;X.lineCap='round';X.globalAlpha=0.75;
-for(let vi=0;vi<3;vi++){
-  X.beginPath();X.moveTo(lWx,lWy);
-  X.lineTo(lWx-s*(0.75+vi*0.55),lWy-s*(0.6-vi*0.05)+wf*s*(0.45+vi*0.12));X.stroke();
-  X.beginPath();X.moveTo(rWx,rWy);
-  X.lineTo(rWx+s*(0.75+vi*0.55),rWy-s*(0.6-vi*0.05)+wf*s*(0.45+vi*0.12));X.stroke();
-}
-// Wing edge highlight (subtle bone-rim)
-X.strokeStyle=fc2||'#6a3a8a';X.lineWidth=s*0.025;X.globalAlpha=0.5;
-X.beginPath();X.moveTo(lWx-s*2.3,lWy-s*0.05+wf*s*0.65);X.bezierCurveTo(lWx-s*1.85,lWy+s*0.55+wf*s*0.25,lWx-s*1.1,lWy+s*0.6,lWx-s*0.1,lWy+s*0.35);X.stroke();
-X.beginPath();X.moveTo(rWx+s*2.3,rWy-s*0.05+wf*s*0.65);X.bezierCurveTo(rWx+s*1.85,rWy+s*0.55+wf*s*0.25,rWx+s*1.1,rWy+s*0.6,rWx+s*0.1,rWy+s*0.35);X.stroke();
-X.globalAlpha=1;
-
-// === TAIL — serpentine S-curve with taper ===
-const tbx=ex-s*0.18,tby=ey+s*0.62;
-X.strokeStyle=fc2||'#2e1808';X.lineWidth=s*0.36;X.lineCap='round';
-X.shadowColor='#8822ff';X.shadowBlur=10;
-X.beginPath();X.moveTo(tbx,tby);
-X.bezierCurveTo(tbx-s*0.9,tby+s*0.45+Math.sin(e.bob*0.42)*s*0.22,tbx-s*1.75,tby+s*0.1+Math.sin(e.bob*0.42+1.1)*s*0.28,tbx-s*2.25,tby+s*0.75+Math.sin(e.bob*0.42+2)*s*0.2);X.stroke();
-X.lineWidth=s*0.14;
-X.beginPath();X.moveTo(tbx-s*2.25,tby+s*0.75);
-X.bezierCurveTo(tbx-s*2.65,tby+s*1.1,tbx-s*2.9,tby+s*0.9,tbx-s*3.1,tby+s*1.25);X.stroke();
-// Tail diamond-spike
-X.fillStyle=fc2||'#aa7730';
-X.beginPath();X.moveTo(tbx-s*3.1,tby+s*1.25);X.lineTo(tbx-s*3.45,tby+s*1.05);X.lineTo(tbx-s*3.0,tby+s*1.5);X.lineTo(tbx-s*2.8,tby+s*1.2);X.closePath();X.fill();
-
-// === BODY ===
-X.shadowBlur=0;
-X.fillStyle=fc2||'#251508';
-X.beginPath();X.ellipse(ex,ey+s*0.18,s*0.52,s*0.74,-0.08,0,Math.PI*2);X.fill();
-// Spine ridge along top
-X.fillStyle=fc2||'#3e2210';
-for(let sp=0;sp<5;sp++){X.beginPath();X.ellipse(ex+s*0.04-sp*s*0.02,ey-s*0.28+sp*s*0.22,s*0.09,s*0.065,-0.1,0,Math.PI*2);X.fill();}
-// Rib bones arching out
-X.strokeStyle=fc2||'#6e3e18';X.lineWidth=s*0.058;X.lineCap='round';
-for(let ri=0;ri<5;ri++){
-  const ry=ey-s*0.28+ri*s*0.24;
-  X.beginPath();X.moveTo(ex-s*0.5,ry);X.bezierCurveTo(ex-s*0.68,ry+s*0.1,ex+s*0.68,ry+s*0.1,ex+s*0.5,ry);X.stroke();
-}
-
-// === NECK — long curved forward ===
-const nBx=ex+s*0.12,nBy=ey-s*0.58;
-const nTx=ex+s*0.38,nTy=ey-s*1.28;
-X.strokeStyle=fc2||'#251508';X.lineWidth=s*0.3;X.lineCap='round';
-X.shadowColor='#8822ff';X.shadowBlur=8;
-X.beginPath();X.moveTo(nBx,nBy);X.quadraticCurveTo(nBx+s*0.35,nBy-s*0.38,nTx,nTy);X.stroke();
-// Neck vertebrae
-X.fillStyle=fc2||'#3e2210';X.shadowBlur=0;
-for(let ni=0;ni<3;ni++){const nt=ni/2.5;X.beginPath();X.ellipse(nBx+(nTx-nBx)*nt+s*0.08*nt,nBy+(nTy-nBy)*nt,s*0.1,s*0.075,0,0,Math.PI*2);X.fill();}
-
-// === HEAD ===
-const hx=nTx+s*0.12,hy=nTy-s*0.12;
-// Skull cranium
-X.fillStyle=fc2||'#c8a468';
-X.beginPath();X.ellipse(hx,hy,s*0.4,s*0.27,0.18,0,Math.PI*2);X.fill();
-// Forward snout — elongated dragon maw
-X.beginPath();X.ellipse(hx+s*0.28,hy+s*0.14,s*0.24,s*0.14,0.28,0,Math.PI*2);X.fill();
-// Jaw underside (open mouth)
-X.fillStyle=fc2||'#a07840';
-X.beginPath();X.ellipse(hx+s*0.22,hy+s*0.28,s*0.22,s*0.1,0.28,0,Math.PI);X.fill();
-// Upper fangs
-X.fillStyle=fc2||'#e8d898';
-for(let ti=0;ti<3;ti++){const tx2=hx+s*0.08+ti*s*0.14,ty2=hy+s*0.15;X.beginPath();X.moveTo(tx2,ty2);X.lineTo(tx2+s*0.055,ty2+s*0.16);X.lineTo(tx2+s*0.1,ty2);X.closePath();X.fill();}
-// Lower fangs
-for(let ti=0;ti<2;ti++){const tx2=hx+s*0.14+ti*s*0.14,ty2=hy+s*0.26;X.beginPath();X.moveTo(tx2,ty2);X.lineTo(tx2+s*0.045,ty2-s*0.13);X.lineTo(tx2+s*0.09,ty2);X.closePath();X.fill();}
-
-// === EYES ===
-X.shadowColor='#cc44ff';X.shadowBlur=24;
-X.fillStyle=fc2||'#cc44ff';
-X.beginPath();X.arc(hx-s*0.06,hy-s*0.07,s*0.1,0,Math.PI*2);X.fill();
-X.beginPath();X.arc(hx+s*0.24,hy-s*0.05,s*0.1,0,Math.PI*2);X.fill();
-X.fillStyle=fc2||'#ff99ff';X.shadowBlur=0;
-X.beginPath();X.arc(hx-s*0.06,hy-s*0.07,s*0.042,0,Math.PI*2);X.fill();
-X.beginPath();X.arc(hx+s*0.24,hy-s*0.05,s*0.042,0,Math.PI*2);X.fill();
-
-// === CURVED HORNS ===
-X.fillStyle=fc2||'#ddc888';
-X.beginPath();X.moveTo(hx-s*0.26,hy-s*0.16);
-X.bezierCurveTo(hx-s*0.52,hy-s*0.6,hx-s*0.28,hy-s*0.82,hx-s*0.14,hy-s*0.65);
-X.bezierCurveTo(hx-s*0.18,hy-s*0.42,hx-s*0.08,hy-s*0.26,hx-s*0.1,hy-s*0.14);
-X.closePath();X.fill();
-X.beginPath();X.moveTo(hx+s*0.2,hy-s*0.14);
-X.bezierCurveTo(hx+s*0.42,hy-s*0.6,hx+s*0.22,hy-s*0.82,hx+s*0.1,hy-s*0.64);
-X.bezierCurveTo(hx+s*0.06,hy-s*0.4,hx+s*0.02,hy-s*0.24,hx+s*0.04,hy-s*0.12);
-X.closePath();X.fill();
-
-// === DEATH AURA — orbiting purple wisps ===
-X.globalAlpha=0.28+Math.sin(gs.time*0.07)*0.14;
-X.shadowColor='#8822ff';X.shadowBlur=18;
-X.strokeStyle='#aa44ff';X.lineWidth=s*0.07;
-for(let ai=0;ai<3;ai++){const at=gs.time*0.035+ai*2.09;X.beginPath();X.arc(ex+Math.cos(at)*s*0.85,ey+s*0.2+Math.sin(at)*s*0.45,s*0.14,0,Math.PI*2);X.stroke();}
-X.globalAlpha=1;
 X.restore();
 }else{
 // Fallback for future boss types
