@@ -430,14 +430,14 @@ const VJOY_DEAD=12; // deadzone pixels
 function getCanvasXY(e){const r=C.getBoundingClientRect();return{x:(e.clientX-r.left)*(C.width/r.width),y:(e.clientY-r.top)*(C.height/r.height)};}
 C.addEventListener('click',e=>{
   const{x:mx2,y:my2}=getCanvasXY(e);
-  // Audio toggle buttons (always clickable, top-right)
-  if(mx2>=C.width-96&&mx2<=C.width-44&&my2>=18&&my2<=58){
+  // Audio toggle buttons — match actual drawn positions (x,y=26, w=36,h=24)
+  if(mx2>=C.width-90&&mx2<=C.width-52&&my2>=24&&my2<=52){
     musicEnabled=!musicEnabled;
     if(!musicEnabled)stopMusic();
     else if(gs.state==='game'||gs.state==='levelup'){if(AX)startMusic();}
     return;
   }
-  if(mx2>=C.width-54&&mx2<=C.width-2&&my2>=18&&my2<=58){
+  if(mx2>=C.width-48&&mx2<=C.width-8&&my2>=24&&my2<=52){
     voiceEnabled=!voiceEnabled;return;
   }
   if(gs.state==='levelup'&&gs.lvlChoices.length>0){
@@ -549,7 +549,7 @@ xp:0,xpNeeded:5,level:1,
 streakKills:0,streakTier:0,
 streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
 streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
-streakThresholds:[0,50,150,380,1000], // AWAKE ~1min, BASED ~2min, ASCENDED ~4min, GOD TIER ~6-7min
+streakThresholds:[0,50,150,418,1250], // AWAKE ~1min, BASED ~2min, ASCENDED +10%→418, GOD TIER +25%→1250
 // Flavor shown as subtitle when tier is reached
 streakQuotes:['',
   'The horde is gathering. Stand firm.',
@@ -758,9 +758,11 @@ void_shade:{name:'Void Shade',hp:30,spd:5.5,dmg:15,size:11,color:'#220044',xp:3,
 bone_archer:{name:'Bone Archer',hp:45,spd:2.2,dmg:14,size:13,color:'#997755',xp:4,emoji:'🏹',ranged:true,shootCd:0},
 swarm_larva:{name:'Larva',hp:8,spd:4.8,dmg:6,size:8,color:'#338833',xp:1,emoji:'🪲'},
 werewolf:{name:'Werewolf',hp:220,spd:5.2,dmg:32,size:22,color:'#886644',xp:14,emoji:'🐺',defPct:0.22},
+// ── WURM: underground tremor beast. Burrows, erupts, launches player/enemies. ──
+wurm:{name:'WURM',hp:900,spd:0,dmg:0,size:36,color:'#5a3a1a',xp:25,emoji:'🪱',defPct:0.3,isWurm:true},
 // ── Skeleton Wall: stationary barricade. Each segment is an individual killable enemy. ──
 // Spawns as an interlocked line of 4–6. Block movement. Break them to carve a path.
-skeleton_wall:{name:'Bone Wall',hp:110,spd:0,dmg:14,size:19,color:'#c8b870',xp:8,emoji:'💀',isWall:true,defPct:0},
+skeleton_wall:{name:'Bone Wall',hp:1100,spd:0,dmg:14,size:26,color:'#c8b870',xp:8,emoji:'💀',isWall:true,defPct:0},
 };
 const BOSS_DEFS={
 bandit_warlord:{name:'BANDIT WARLORD',hp:800,spd:2.4,dmg:45,size:40,color:'#cc4411',xp:80,emoji:'💣',defPct:0.28},
@@ -844,8 +846,8 @@ const p=gs.gameTime/SURVIVE_TIME;
 const timeScale=p<0.5?0.55+p*2*0.65:1.2+(p-0.5)*2*1.0;
 e.hp=def.hp*timeScale*0.7;e.maxHp=e.hp;
 e.spd=def.spd;
-// Damage: 0.45→0.7 first 3min, 0.7→1.2 second 3min — steady not spikey (+3% base)
-const dmgScale=(p<0.5?0.45+p*2*0.25:0.7+(p-0.5)*2*0.5)*1.03;
+// Damage: 0.45→0.7 first 3min, 0.7→1.2 second 3min — steady not spikey (+5% base total)
+const dmgScale=(p<0.5?0.45+p*2*0.25:0.7+(p-0.5)*2*0.5)*1.05;
 e.dmg=Math.ceil(def.dmg*dmgScale);
 e.size=def.size;
 e.color=def.color;e.xp=def.xp;e.type=type;e.name=def.name;
@@ -864,23 +866,23 @@ if(isBoss){
 }
 
 // ========== SKELETON WALL SPAWN ==========
-// Spawns a line of interlocked skeleton_wall segments as a barrier
+// Spawns a C-shaped arc of skeleton_wall segments wrapping around the player
 function spawnWallLine(){
   if(gs.state!=='game')return;
-  const ang=Math.random()*Math.PI*2;
-  const dist=280+Math.random()*140;
-  const lcx=gs.px+Math.cos(ang)*dist;
-  const lcy=gs.py+Math.sin(ang)*dist;
-  const perpAng=ang+Math.PI/2;
-  const count=4+Math.floor(Math.random()*3); // 4–6 segments
+  const def=ENEMY_DEFS.skeleton_wall;
+  const arcR=260+Math.random()*60; // radius of the C arc around player
+  // Open gap direction (mouth of C) points toward a random side
+  const gapAng=Math.random()*Math.PI*2;
+  const arcSpan=Math.PI*1.55; // ~280° arc (C shape)
+  const count=14; // dense arc
+  const segSpacing=arcSpan/(count-1);
   const _p=gs.gameTime/SURVIVE_TIME;const timeScale=Math.max(0.7,_p<0.5?0.55+_p*2*0.65:1.2+(_p-0.5)*2*1.0);
   let spawned=0;
   for(let i=0;i<count;i++){
-    const offset=i-(count-1)/2;
-    const wx=lcx+Math.cos(perpAng)*offset*38;
-    const wy=lcy+Math.sin(perpAng)*offset*38;
+    const a=gapAng+Math.PI/2+i*segSpacing-(arcSpan/2); // centered arc
+    const wx=gs.px+Math.cos(a)*arcR;
+    const wy=gs.py+Math.sin(a)*arcR;
     if(wx<50||wx>WORLD_W-50||wy<50||wy>WORLD_H-50)continue;
-    const def=ENEMY_DEFS.skeleton_wall;
     const e=Object.assign({},def,{
       type:'skeleton_wall',x:wx,y:wy,vx:0,vy:0,
       flash:0,onFire:0,frozen:0,active:true,bob:0,isBoss:false,
@@ -892,7 +894,7 @@ function spawnWallLine(){
   }
   if(spawned>0){
     snd('shatter');
-    spawnP(lcx,lcy,'#ccbb88',16,10,3);
+    spawnP(gs.px,gs.py,'#ccbb88',20,12,3);
     floatT(gs.px,gs.py-50,'💀 BONE WALL!','#ccbb88',true);
   }
 }
@@ -946,7 +948,7 @@ const lifeSteal=getStat('lifesteal');
 if(lifeSteal>0){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+lifeSteal);if(gs.kills%8===0)floatT(gs.px,gs.py-20,'+'+lifeSteal+'🩸','#ff4466');}
 const pillCount=Math.random()<0.4?1:0; // 40% drop rate — AoE volume still rewarding without XP flood
 dropXP(e.x,e.y,pillCount);
-if(Math.random()<0.07&&gs.pHP<gs.pMaxHP)dropFood(e.x,e.y); // 7% — only if not at full health
+if(Math.random()<0.075)dropFood(e.x,e.y); // ~7.5% (8.4% - 11%)
 // Plague bearer on-death: spreads fire patch + spawns 3 larvae
 if(e.type==='plague_bearer'){
   gs.weaponFX.push({type:'fire_patch',x:e.x,y:e.y,life:240,maxLife:240,color:'#226633',r:60,dmg:4,hit:new Set()});
@@ -1297,7 +1299,7 @@ for(const e of gs.enemies){
   if(!e.active)continue;
   const pd=Math.hypot(e.x-fx.x,e.y-fx.y);
   if(pd<fx.r+50){
-    const pullStr=0.9+prog*1.8; // accelerates toward end
+    const pullStr=0.18+prog*0.4; // slow steady pull — much gentler
     const pang=Math.atan2(fx.y-e.y,fx.x-e.x);
     e.vx+=Math.cos(pang)*pullStr;e.vy+=Math.sin(pang)*pullStr;
   }
@@ -1540,6 +1542,30 @@ gs.flash=12;gs.flashColor='#ff4444';gs.shakeDur=15;
 floatT(gs.px,gs.py-60,BOSS_DEFS[bs.type].name+' APPEARS!','#ff4444',true);
 }}
 
+// WURM: spawns with 3 min left (t=180 in 6-min game), once every 45s, max 1 active at a time
+if(gs.gameTime>=180&&(!gs._lastWurm||gs.gameTime-gs._lastWurm>=45)&&!gs.enemies.find(e=>e.active&&e.type==='wurm')){
+  gs._lastWurm=gs.gameTime;
+  const def=ENEMY_DEFS.wurm;
+  // Pick a random point near the player to burrow up from
+  const wang=Math.random()*Math.PI*2;
+  const wdist=180+Math.random()*200;
+  const wx=Math.max(60,Math.min(WORLD_W-60,gs.px+Math.cos(wang)*wdist));
+  const wy=Math.max(60,Math.min(WORLD_H-60,gs.py+Math.sin(wang)*wdist));
+  const e=Object.assign({},def,{
+    type:'wurm',x:wx,y:wy,vx:0,vy:0,
+    flash:0,onFire:0,frozen:0,active:true,bob:0,isBoss:false,defPct:def.defPct,
+    _wurmPhase:'burrow', // burrow → warn → erupt → retreat
+    _wurmTimer:0,
+    _wurmTargetX:gs.px,_wurmTargetY:gs.py, // where it's moving underground
+    _wurmTrailX:wx,_wurmTrailY:wy, // visual trail position underground
+  });
+  const _p2=gs.gameTime/SURVIVE_TIME;const ts2=Math.max(0.7,_p2<0.5?0.55+_p2*2*0.65:1.2+(_p2-0.5)*2*1.0);
+  e.hp=Math.round(def.hp*Math.min(ts2,2.5));e.maxHp=e.hp;e.size=def.size;e.spd=0;e.dmg=0;
+  gs.enemies.push(e);
+  snd('boss'); // rumble sound
+  floatT(gs.px,gs.py-40,'🌍 TREMOR…','#8b5e2a',true);
+}
+
 // ===== ENEMY UPDATE =====
 for(let i=gs.enemies.length-1;i>=0;i--){
 const e=gs.enemies[i];
@@ -1548,6 +1574,37 @@ if(!e.active){gs.enemies.splice(i,1);continue}
 if(e.frozen>0){e.frozen--;if(Math.random()<0.08)spawnP(e.x,e.y-e.size*0.3,'#88ddff',1,2);}
 const frozenSpd=e.frozen>0?0.18:1; // nearly stopped when frozen
 const nt=getNearestTarget(e.x,e.y);
+// WURM: underground tremor beast — phases: burrow→warn→erupt→retreat
+if(e.type==='wurm'){
+  e._wurmTimer++;
+  if(e._wurmPhase==='burrow'){
+    // Move underground toward player, show ground ripple trail
+    const bspd=3.5;const bdx=gs.px-e._wurmTrailX,bdy=gs.py-e._wurmTrailY;const bd=Math.hypot(bdx,bdy)||1;
+    e._wurmTrailX+=bdx/bd*bspd;e._wurmTrailY+=bdy/bd*bspd;
+    if(e._wurmTimer>90){e._wurmPhase='warn';e._wurmTimer=0;e.x=e._wurmTrailX;e.y=e._wurmTrailY;gs.shakeDur=8;}
+  }else if(e._wurmPhase==='warn'){
+    // Warning shake: rumble for 1.5s before eruption
+    if(e._wurmTimer%8===0)spawnP(e.x,e.y-10,'#8b5e2a',3,18,2);
+    if(e._wurmTimer>90){e._wurmPhase='erupt';e._wurmTimer=0;
+      snd('shatter');gs.shakeDur=22;gs.flash=14;gs.flashColor='#8b5e2a';
+      // Launch nearby enemies
+      for(const e2 of gs.enemies){if(e2===e||!e2.active)continue;const ld=Math.hypot(e2.x-e.x,e2.y-e.y);if(ld<160&&ld>0){const la=Math.atan2(e2.y-e.y,e2.x-e.x);e2.vx+=Math.cos(la)*12;e2.vy+=Math.sin(la)*12;}}
+      // Hit player if close — 20% max HP
+      const pd2=Math.hypot(gs.px-e.x,gs.py-e.y);
+      if(pd2<180&&gs.pInvince===0){const dmg2=Math.max(10,Math.round(gs.pMaxHP*0.20));gs.pHP=Math.max(1,gs.pHP-dmg2);gs.pInvince=90;floatT(gs.px,gs.py-30,'-'+dmg2+' WURM','#cc4400',true);gs.shakeDur=18;
+        const pla=Math.atan2(gs.py-e.y,gs.px-e.x);gs.px+=Math.cos(pla)*60;gs.py+=Math.sin(pla)*60;}
+      spawnP(e.x,e.y,'#8b5e2a',30,24,5);spawnP(e.x,e.y,'#bbaa66',20,20,4);
+    }
+  }else if(e._wurmPhase==='erupt'){
+    // Visible above ground briefly
+    if(e._wurmTimer>80){e._wurmPhase='retreat';e._wurmTimer=0;}
+  }else if(e._wurmPhase==='retreat'){
+    // Burrow back down and despawn
+    if(e._wurmTimer>60){e.active=false;}
+  }
+  if(e.flash>0)e.flash--;
+  continue;
+}
 // Skeleton wall: stationary — no movement, just rise animation
 if(e.isWall){
   e.vx=0;e.vy=0;
@@ -1643,7 +1700,13 @@ gs.pills.splice(i,1);
 }}
 for(let i=gs.foods.length-1;i>=0;i--){
 const f=gs.foods[i];f.life--;
-if(Math.hypot(gs.px-f.x,gs.py-f.y)<12){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+f.heal);floatT(gs.px,gs.py-20,'+'+f.heal,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
+f.vx=f.vx||0;f.vy=f.vy||0;
+const fd=Math.hypot(gs.px-f.x,gs.py-f.y);
+// Magnet pulls hearts like XP/gold if player has magnet stat
+if(fd<getMagnet()&&fd>0){const fspd=Math.min(fd,5+fd*0.06);f.vx=(gs.px-f.x)/fd*fspd;f.vy=(gs.py-f.y)/fd*fspd;}
+else{f.vx*=0.82;f.vy*=0.82;}
+f.x+=f.vx;f.y+=f.vy;
+if(fd<12){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+f.heal);floatT(gs.px,gs.py-20,'+'+f.heal,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
 if(f.life<=0){gs.foods.splice(i,1);}
 }
 // Gold gems
@@ -2564,7 +2627,87 @@ const ex=e.x-cx,ey=e.y-cy+Math.sin(e.bob)*2;
 if(ex<-e.size*4||ex>C.width+e.size*4||ey<-e.size*4||ey>C.height+e.size*4)continue;
 X.globalAlpha=1;
 X.fillStyle=e.flash>0?'#ffffff':e.color;
-if(e.isBoss){drawBoss(e,ex,ey);
+if(e.type==='wurm'){
+  // ── WURM: underground tremor beast ──
+  const phase=e._wurmPhase||'burrow';
+  const tx=e._wurmTrailX-cx,ty=e._wurmTrailY-cy;
+  if(phase==='burrow'){
+    // Draw underground trail — rippling ground distortion
+    X.save();
+    const ripples=5;
+    for(let ri=0;ri<ripples;ri++){
+      const rp=ri/ripples;const rr=8+ri*6;
+      X.globalAlpha=0.18*(1-rp);X.strokeStyle='#8b5e2a';X.lineWidth=3;
+      X.beginPath();X.arc(tx,ty,rr,0,Math.PI*2);X.stroke();
+    }
+    // Dirt mound bump
+    X.globalAlpha=0.55;X.fillStyle='#6b4520';X.shadowColor='#4a2e10';X.shadowBlur=8;
+    X.beginPath();X.ellipse(tx,ty,14,8,0,0,Math.PI*2);X.fill();
+    X.restore();
+  }else if(phase==='warn'){
+    // Warning: glowing cracking ground
+    const wp=e._wurmTimer/90;
+    X.save();
+    X.globalAlpha=0.3+wp*0.5;X.shadowColor='#cc7700';X.shadowBlur=16+wp*20;
+    X.fillStyle='#cc5500';
+    X.beginPath();X.ellipse(ex,ey,e.size*(0.8+wp*0.6),e.size*(0.4+wp*0.3),0,0,Math.PI*2);X.fill();
+    // Crack lines
+    X.strokeStyle='#ff8800';X.lineWidth=2+wp*2;
+    for(let ci=0;ci<4;ci++){const ca=ci*(Math.PI/2)+wp;X.beginPath();X.moveTo(ex,ey);X.lineTo(ex+Math.cos(ca)*(e.size*1.2),ey+Math.sin(ca)*(e.size*0.7));X.stroke();}
+    X.restore();
+  }else if(phase==='erupt'){
+    // Fully emerged: giant segmented worm bursting up
+    const ep=e._wurmTimer/80;
+    X.save();
+    X.shadowColor='#8b4513';X.shadowBlur=20;
+    // Ground crater
+    X.fillStyle='#4a2810';X.globalAlpha=0.7;
+    X.beginPath();X.ellipse(ex,ey+e.size*0.4,e.size*1.4,e.size*0.6,0,0,Math.PI*2);X.fill();
+    // Worm body segments rising
+    const segCount=5;
+    for(let si=0;si<segCount;si++){
+      const sf=(1-si/segCount);const sr2=e.size*(0.9-si*0.12);
+      const sy2=ey-si*e.size*0.7*(1-ep*0.4);
+      X.globalAlpha=sf*(1-ep*0.5);
+      const segCol=si===0?'#c87832':'#a05a20';
+      X.fillStyle=segCol;
+      X.beginPath();X.ellipse(ex+(Math.sin(gs.time*0.3+si)*si*4),sy2,sr2,sr2*0.85,0,0,Math.PI*2);X.fill();
+      // Segment ring
+      X.strokeStyle='#6a3810';X.lineWidth=2;X.globalAlpha=sf*0.6;
+      X.beginPath();X.arc(ex,sy2,sr2,0,Math.PI*2);X.stroke();
+    }
+    // Head — open maw with teeth
+    X.globalAlpha=1-ep*0.6;
+    X.fillStyle='#cc5500';X.shadowColor='#ff4400';X.shadowBlur=24;
+    X.beginPath();X.ellipse(ex,ey-segCount*e.size*0.7,e.size*1.1,e.size,0,0,Math.PI*2);X.fill();
+    // Eyes (red glow)
+    X.shadowColor='#ff0000';X.shadowBlur=12;X.fillStyle='#ff2200';
+    X.beginPath();X.arc(ex-e.size*0.32,ey-segCount*e.size*0.7-e.size*0.22,e.size*0.18,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(ex+e.size*0.32,ey-segCount*e.size*0.7-e.size*0.22,e.size*0.18,0,Math.PI*2);X.fill();
+    // Teeth
+    X.fillStyle='#eeeebb';X.shadowBlur=0;
+    for(let ti=0;ti<5;ti++){const ta=Math.PI+ti*(Math.PI/4.5)-Math.PI/9;
+      X.beginPath();X.moveTo(ex+Math.cos(ta)*e.size*0.9,ey-segCount*e.size*0.7+Math.sin(ta)*e.size*0.9);
+      X.lineTo(ex+Math.cos(ta+0.12)*e.size*1.05,ey-segCount*e.size*0.7+Math.sin(ta+0.12)*e.size*1.05);
+      X.lineTo(ex+Math.cos(ta+0.06)*e.size*1.25,ey-segCount*e.size*0.7+Math.sin(ta+0.06)*e.size*1.25);
+      X.closePath();X.fill();}
+    X.restore();
+    // Dirt/rock debris
+    if(e._wurmTimer<20){for(let di=0;di<3;di++){spawnP(e.x+(Math.random()-0.5)*e.size*2,e.y,'#8b5e2a',2,16,3);}}
+  }else{
+    // Retreat — fade out
+    X.save();X.globalAlpha=Math.max(0,1-e._wurmTimer/60);
+    X.fillStyle='#6a3810';X.beginPath();X.ellipse(ex,ey,e.size*0.5,e.size*0.3,0,0,Math.PI*2);X.fill();
+    X.restore();
+  }
+  // HP bar (only visible when erupted)
+  if(phase==='erupt'){
+    const hpPct=e.hp/e.maxHp;
+    X.save();X.fillStyle='rgba(0,0,0,0.7)';X.fillRect(ex-28,ey-e.size*4.5,56,5);
+    X.fillStyle=hpPct>0.5?'#44ff44':hpPct>0.25?'#ffaa00':'#ff2200';
+    X.fillRect(ex-28,ey-e.size*4.5,56*hpPct,5);X.restore();
+  }
+}else if(e.isBoss){drawBoss(e,ex,ey);
 }else if(e.type==='werewolf'){
   // ── WEREWOLF: hunched beast with fangs and claws ──
   const wc=e.flash>0?'#ffffff':e.color;
@@ -2937,22 +3080,23 @@ X.fillStyle=timerColor;X.fillText(mm+':'+ss,C.width/2,32);
   const thorn=getStat('thorns');if(thorn>0)rows.push([`◆ ${Math.round(thorn)} THORNS`,'#66ff44']);
   const crit=getMetaStat('crit');if(crit>0)rows.push([`★ ${Math.round(crit*100)}% CRIT`,'#ffcc00']);
   if(rows.length>0){
-    const pw=156,rh=16,pad=5;
+    const pw=160,rh=17,pad=5;
     const ph=rows.length*rh+pad*2;
-    X.fillStyle='rgba(0,0,0,0.72)';
+    X.fillStyle='rgba(0,0,10,0.82)';
     X.beginPath();X.roundRect(8,24,pw,ph,5);X.fill();
-    X.strokeStyle='rgba(80,200,120,0.18)';X.lineWidth=1;
+    X.strokeStyle='rgba(80,200,120,0.45)';X.lineWidth=1.2;
     X.beginPath();X.roundRect(8,24,pw,ph,5);X.stroke();
-    X.font='10px monospace';X.textBaseline='middle';X.textAlign='left';
+    X.font='bold 10px monospace';X.textBaseline='middle';X.textAlign='left';
     for(let ri=0;ri<rows.length;ri++){
       const [lbl,col]=rows[ri];
       const rowY=24+pad+ri*rh;
       const hovered=_mx>=8&&_mx<=8+pw&&_my>=rowY&&_my<=rowY+rh;
-      if(hovered){X.save();X.shadowColor=col;X.shadowBlur=12;X.fillStyle=col+'22';X.fillRect(9,rowY,pw-2,rh-1);X.restore();}
-      X.fillStyle=col;X.globalAlpha=hovered?1:0.92;
-      if(hovered){X.save();X.shadowColor=col;X.shadowBlur=8;}
+      X.save();
+      X.shadowColor=col;X.shadowBlur=hovered?14:6;
+      if(hovered){X.fillStyle=col+'22';X.fillRect(9,rowY,pw-2,rh-1);}
+      X.fillStyle=col;X.globalAlpha=hovered?1:0.95;
       X.fillText(lbl,16,rowY+rh/2);
-      if(hovered)X.restore();
+      X.restore();
     }
     X.globalAlpha=1;
   }
@@ -3101,6 +3245,8 @@ if(rKeys.length>0){
 const slotSz=38,slotGap=4,slotX=10;
 const isLvlUp=gs.state==='levelup';
 const lvlPulse=isLvlUp?(0.6+Math.sin(gs.time*0.18)*0.4):0;
+// Always allow hover tooltips (not just during level-up)
+const allowHover=true;
 let _hoverTip=null; // tooltip to draw at end
 // Top row: active weapons
 let wx=slotX;
@@ -3108,7 +3254,7 @@ for(const w of gs.weapons){
 const def=WEAPONS[w.id];if(!def){wx+=slotSz+slotGap;continue;}
 const wc=def.color||'#aaddff';
 const sy=C.height-slotSz*2-slotGap-12;
-const hovered=isLvlUp&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
+const hovered=allowHover&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
 X.save();
 X.shadowColor=wc;X.shadowBlur=isLvlUp?(20+lvlPulse*18):10+w.lvl*2;
 if(hovered){X.shadowBlur=35;_hoverTip={x:wx+slotSz/2,y:sy-8,name:def.name,desc:def.desc,color:wc};}
@@ -3127,7 +3273,7 @@ wx=slotX;
 for(const p of gs.passives){
 const def=PASSIVES[p.id];if(!def){wx+=slotSz+slotGap;continue;}
 const sy=C.height-slotSz-8;
-const hovered=isLvlUp&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
+const hovered=allowHover&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
 X.save();
 X.shadowColor='#8866cc';X.shadowBlur=isLvlUp?(16+lvlPulse*14):8;
 if(hovered){X.shadowBlur=35;_hoverTip={x:wx+slotSz/2,y:sy-8,name:def.name,desc:def.desc,color:'#bb99ff'};}
