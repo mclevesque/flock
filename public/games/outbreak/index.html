@@ -1,0 +1,3637 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>FLOCK: OUTBREAK</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;height:100vh}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+</style>
+</head><body>
+<canvas id="g"></canvas>
+<script>
+// ============================================================
+//  FLOCK: OUTBREAK  —  Powered by VIBE ENGINE
+//  Vampire Survivors-style. Your Flock avatar vs zombie hordes.
+//  Survive 10 minutes. Built on exact Truthseeker movement.
+//
+//  🌟 GOLDEN RULE: "Is this satisfying to the player, and addicting in some way?"
+//     Every mechanic, sound, visual, and number must pass this test.
+//     If it isn't instantly rewarding or building toward something compelling, cut it.
+// ============================================================
+
+const C=document.getElementById('g'),X=C.getContext('2d');
+C.width=1280;C.height=720;
+C.style.width='100vw';C.style.height='100vh';C.style.objectFit='contain';
+X.imageSmoothingEnabled=true;
+
+// ========== URL PARAMS ==========
+const params=new URLSearchParams(window.location.search);
+const PLAYER_AVATAR=params.get('avatar')||'';
+const PLAYER_NAME=params.get('username')||'Survivor';
+const FLOCK_ORIGIN=params.get('origin')||'';
+const PARTY_ID=params.get('partyId')||'';
+const USER_ID=params.get('userId')||PLAYER_NAME;
+const PARTY_HOST=(params.get('partyHost')||'https://flock.partykit.dev').replace(/\/$/,'');
+
+// ========== MULTIPLAYER ==========
+let ws=null,wsRetryTimer=null;
+const remotePlayers={};  // id -> {x,y,hp,maxHp,level,kills,alive,username,avatar_url}
+const remoteAvatarImgs={};  // id -> Image
+
+function connectParty(){
+  if(!PARTY_ID)return;
+  try{
+    const wsUrl=PARTY_HOST.replace('https://','wss://').replace('http://','ws://')+'/parties/town/'+PARTY_ID;
+    ws=new WebSocket(wsUrl);
+    ws.onopen=()=>{sendPartyUpdate();};
+    ws.onmessage=(ev)=>{
+      try{
+        const d=JSON.parse(ev.data);
+        if(d.type==='snapshot'){
+          for(const[id,p] of Object.entries(d.state?.players||{})){
+            if(id!==USER_ID&&p.mode==='outbreak')registerRemotePlayer(id,p);
+          }
+        }else if(d.type==='player-update'){
+          const p=d.player;
+          if(p&&p.id!==USER_ID&&p.mode==='outbreak'){
+            const wasAlive=remotePlayers[p.id]?.alive;
+            registerRemotePlayer(p.id,p);
+            if(wasAlive&&!p.alive&&gs.state==='game')
+              floatT(p.x||gs.px,(p.y||gs.py)-40,(p.username||'Ally')+' fell!','#ff6644',true);
+          }
+        }else if(d.type==='player-leave'){
+          delete remotePlayers[d.id];
+          // If we're waiting for them to pick, remove from waiting list and re-check
+          if(gs.state==='levelup'){gs.partyLevelUpChosen[d.id]=true;checkLevelUpDone();}
+        }else if(d.type==='shared-xp'&&d.fromId!==USER_ID&&(gs.state==='game'||gs.state==='levelup')){
+          // Teammate collected XP — add to our pool too (shared XP)
+          gs.xp+=d.amount;
+          checkLevelUp();
+        }else if(d.type==='levelup-trigger'&&gs.state==='game'){
+          // Teammate triggered level-up — sync us to level up too
+          if(gs.level<d.level){
+            gs.level=d.level;
+            gs.xpNeeded=Math.floor(10*Math.pow(1.55,d.level-1));
+            gs.xp=0;
+          }
+          gs.lvlChoices=generateChoices();gs.lvlSelected=0;
+          if(gs.lvlChoices.length===0){const b=Math.ceil(gs.pMaxHP*0.08);gs.pMaxHP+=b;gs.pHP=Math.min(gs.pHP+b,gs.pMaxHP);}
+          else{gs.state='levelup';gs.partyLevelUpChosen={};snd('lvlup');}
+        }else if(d.type==='levelup-chosen'&&gs.state==='levelup'){
+          gs.partyLevelUpChosen[d.fromId]=true;
+          checkLevelUpDone();
+        }else if(d.type==='levelup-force-end'&&gs.state==='levelup'){
+          // Party leader forced the level-up to end
+          floatT(gs.px,gs.py-50,'⚡ Leader skipped pick','#ffd700',false);
+          // Apply random choice if local player hasn't chosen yet
+          if(!gs.partyLevelUpChosen[USER_ID]&&gs.lvlChoices.length>0){
+            applyChoice(gs.lvlChoices[gs.lvlSelected]);
+          }
+          exitLevelUp();
+        }else if(d.type==='player-revive'&&d.targetId===USER_ID&&gs.state==='downed'){
+          // A teammate revived us!
+          gs.pHP=Math.max(40,Math.floor(gs.pMaxHP*0.4));
+          gs.state='game';gs.downedTimer=0;gs.pInvince=180;
+          spawnP(gs.px,gs.py,'#44ff88',25,6);spawnP(gs.px,gs.py,'#aaddff',15,5);
+          floatT(gs.px,gs.py-40,'REVIVED!','#44ff88',true);snd('lvlup');
+        }
+      }catch(e){}
+    };
+    ws.onclose=()=>{ws=null;if(PARTY_ID)wsRetryTimer=setTimeout(connectParty,3500);};
+    ws.onerror=()=>{};
+  }catch(e){}
+}
+
+function registerRemotePlayer(id,p){
+  remotePlayers[id]={
+    id,username:p.username||'Survivor',
+    x:p.x||WORLD_W/2,y:p.y||WORLD_H/2,
+    hp:p.hp??100,maxHp:p.maxHp??100,
+    level:p.level||1,kills:p.kills||0,
+    alive:p.alive!==false,
+    downed:p.downed===true,
+    avatar_url:p.avatar_url||'',
+    mode:'outbreak'
+  };
+  if(p.avatar_url&&!remoteAvatarImgs[id]){
+    const img=new Image();img.crossOrigin='anonymous';
+    img.onload=()=>{remoteAvatarImgs[id]=img;};
+    img.onerror=()=>{};
+    img.src=p.avatar_url;
+  }
+}
+
+let _partyTick=0;
+function tickParty(){
+  _partyTick++;
+  if(_partyTick%6===0)sendPartyUpdate();
+}
+
+function sendPartyUpdate(){
+  if(!ws||ws.readyState!==1)return;
+  try{ws.send(JSON.stringify({
+    type:'player-update',
+    player:{
+      id:USER_ID,username:PLAYER_NAME,avatar_url:PLAYER_AVATAR,
+      x:gs.px,y:gs.py,
+      hp:gs.pHP,maxHp:gs.pMaxHP,
+      level:gs.level,kills:gs.kills,
+      alive:(gs.state==='game'||gs.state==='levelup'||gs.state==='downed'),
+      downed:gs.state==='downed',
+      levelingUp:gs.state==='levelup',
+      mode:'outbreak',direction:gs.pFacing>0?'right':'left',moving:false
+    }
+  }));}catch(e){}
+}
+
+function leaveParty(){
+  if(!ws||ws.readyState!==1)return;
+  try{ws.send(JSON.stringify({type:'player-leave'}));}catch(e){}
+}
+
+// Party leader = player with lexicographically smallest USER_ID among all connected
+function isPartyLeader(){
+  return Object.keys(remotePlayers).every(id=>USER_ID<=id);
+}
+
+function exitLevelUp(){
+  gs.state='game';
+  gs.partyLevelUpChosen={};
+  gs.lvlChoices=[];
+}
+
+// Check if everyone in party has chosen; if so, resume
+function checkLevelUpDone(){
+  if(!PARTY_ID){exitLevelUp();return;} // solo: exit immediately
+  const aliveRemotes=Object.keys(remotePlayers).filter(id=>remotePlayers[id].alive||remotePlayers[id].downed);
+  const allIds=[USER_ID,...aliveRemotes];
+  if(allIds.every(id=>gs.partyLevelUpChosen[id]))exitLevelUp();
+}
+
+function sendPartyXP(amount){
+  if(!ws||ws.readyState!==1||!PARTY_ID)return;
+  try{ws.send(JSON.stringify({type:'shared-xp',amount,fromId:USER_ID}));}catch(e){}
+}
+
+// Returns nearest player target coords for enemy pathfinding
+function getNearestTarget(ex,ey){
+  let tx=gs.px,ty=gs.py,td=Infinity;
+  if(gs.state==='game'||gs.state==='levelup')td=Math.hypot(ex-gs.px,ey-gs.py);
+  else{tx=WORLD_W/2;ty=WORLD_H/2;} // wander if local player dead
+  for(const rp of Object.values(remotePlayers)){
+    if(!rp.alive)continue;
+    const d=Math.hypot(ex-rp.x,ey-rp.y);
+    if(d<td){tx=rp.x;ty=rp.y;td=d;}
+  }
+  return{x:tx,y:ty};
+}
+
+// ========== AVATAR LOAD ==========
+let avatarImg=null;
+if(PLAYER_AVATAR){
+const img=new Image();
+// No crossOrigin — allows loading from any CDN; canvas taint is fine since we never call toDataURL/getImageData
+img.onload=()=>{avatarImg=img};
+img.onerror=()=>{
+  // Retry once after 1.5s in case CDN was slow
+  setTimeout(()=>{const img2=new Image();img2.onload=()=>{avatarImg=img2};img2.src=PLAYER_AVATAR+'?retry=1';},1500);
+};
+img.src=PLAYER_AVATAR;
+}
+
+// ========== AUDIO ==========
+let AX;
+function initA(){if(!AX)AX=new AudioContext();if(AX.state==='suspended')AX.resume()}
+document.addEventListener('pointerdown',initA,{once:true});
+document.addEventListener('keydown',initA,{once:true});
+
+// ── Real audio via vibe-engine sfx ──────────────────────────────────────────
+const SFX_BASE='assets/audio/sfx/';
+const VOICE_BASE='assets/audio/voice/';
+const _audioBuffers={};
+const _audioLoaded={};
+function loadAudio(key,path){
+  if(_audioLoaded[key])return;
+  _audioLoaded[key]=true;
+  fetch(path).then(r=>r.arrayBuffer()).then(buf=>{
+    if(!AX)return;
+    AX.decodeAudioData(buf,decoded=>{_audioBuffers[key]=decoded;});
+  }).catch(()=>{});
+}
+// ── Audio toggle flags — players can mute music/voice independently ──────────
+let musicEnabled=true;
+let voiceEnabled=true;
+// ── Master mix constants — tune the whole balance here ──────────────────────
+const SFX_VOL=0.28;   // global multiplier for all real audio files (wolf, shatter, voice, etc.)
+const SND_VOL=0.38;   // global multiplier for all procedural oscillator sounds in snd()
+// Note: music kick (_mKick) is NOT affected — it's the star of the mix
+
+function playSFX(key,vol,rate){
+  if(!AX||!_audioBuffers[key])return;
+  const src=AX.createBufferSource();
+  src.buffer=_audioBuffers[key];
+  src.playbackRate.value=rate||(0.9+Math.random()*0.2);
+  const g=AX.createGain();g.gain.value=(vol||0.4)*SFX_VOL;
+  src.connect(g);g.connect(AX.destination);
+  src.start();
+}
+
+// Voice lines for key moments (generated by ElevenLabs or fallback)
+// ── VOICE LINE SCRIPTS ─────────────────────────────────────────────────────
+// All scripts below should be regenerated with ElevenLabs (narrator voice, dark/tense tone).
+// Use Grok or Claude to refine. Golden Rule: every line must feel EARNED and ATMOSPHERIC.
+//
+// LEVEL UP (3 lines, rotate):
+//   lvlup_0: "Getting stronger. Good."
+//   lvlup_1: "Power found in the dark."
+//   lvlup_2: "One step closer to seeing dawn."
+//
+// BOSS SPAWNS (2 lines):
+//   boss_0: "Something ancient just woke up. Don't stop moving."
+//   boss_1: "A big one is here. Hit it fast and hit it hard."
+//
+// WIN (survived 10 min):
+//   win_0: "Ten minutes in hell. You made it out. For now."
+//
+// DEATH:
+//   death_0: "The horde took you. But you took plenty with you."
+//
+// STREAK TIER 1 — WOKE (15 kills):
+//   outbreak_streak_fighter: "The horde is thickening. Stay on your feet."
+//
+// STREAK TIER 2 — BASED (40 kills):
+//   outbreak_streak_warrior: "You move through them like fire through rot."
+//
+// STREAK TIER 3/4 — GOD TIER / ASCENDED (90–200 kills):
+//   outbreak_streak_slayer: "Nothing ends tonight. Except them."
+//
+// STREAK TIER 5 — MOON BLESSED (450 kills):
+//   outbreak_streak_moonblessed: "The Moon chose its champion well. Do not falter."
+//
+// WEAPON SELECT — MOONBOLT:
+//   moonbolt: "Sacred light. The dead recoil from it — and they should."
+//
+// WEAPON SELECT — PLAGUE CROWS (flock_burst):
+//   flock_burst: "The crows remember the fallen. Now they fight for you."
+//
+// WEAPON SELECT — ROT CLOUD (mira_curse):
+//   mira_curse: "Turn the plague against itself. Beautiful and brutal."
+//
+// WEAPON SELECT — WAR CRY (herald_shout):
+//   herald_shout: "That sound alone stops them cold. Use it well."
+// ────────────────────────────────────────────────────────────────────────────
+const SURVIVE_TIME=300; // 5 minutes (testing) — change to 600 for full 10-min run
+const ZOOM=1.45; // zoom in — player feels closer, world feels more intense
+const VOICE_LINES={
+  // Level up — all 5 base lines × 4 variants each (A/B/C/D)
+  lvlup:[
+    'voice/outbreak_lvlup_0_v2.mp3','voice/outbreak_lvlup_0_v2_b.mp3','voice/outbreak_lvlup_0_v2_c.mp3','voice/outbreak_lvlup_0_v2_d.mp3',
+    'voice/outbreak_lvlup_1_v2.mp3','voice/outbreak_lvlup_1_v2_b.mp3','voice/outbreak_lvlup_1_v2_c.mp3','voice/outbreak_lvlup_1_v2_d.mp3',
+    'voice/outbreak_lvlup_2_v2.mp3','voice/outbreak_lvlup_2_v2_b.mp3','voice/outbreak_lvlup_2_v2_c.mp3','voice/outbreak_lvlup_2_v2_d.mp3',
+    'voice/outbreak_lvlup_3_v2.mp3','voice/outbreak_lvlup_3_v2_b.mp3','voice/outbreak_lvlup_3_v2_c.mp3','voice/outbreak_lvlup_3_v2_d.mp3',
+    'voice/outbreak_lvlup_4_v2.mp3','voice/outbreak_lvlup_4_v2_b.mp3','voice/outbreak_lvlup_4_v2_c.mp3','voice/outbreak_lvlup_4_v2_d.mp3',
+  ],
+  boss:[
+    'voice/outbreak_boss_0_v2.mp3','voice/outbreak_boss_0_v2_b.mp3','voice/outbreak_boss_0_v2_c.mp3','voice/outbreak_boss_0_v2_d.mp3',
+    'voice/outbreak_boss_1_v2.mp3','voice/outbreak_boss_1_v2_b.mp3','voice/outbreak_boss_1_v2_c.mp3','voice/outbreak_boss_1_v2_d.mp3',
+  ],
+  win:SURVIVE_TIME<=300?
+    ['voice/outbreak_win_5min_v2.mp3','voice/outbreak_win_5min_v2_b.mp3','voice/outbreak_win_5min_v2_c.mp3','voice/outbreak_win_5min_v2_d.mp3']:
+    ['voice/outbreak_win_0_v2.mp3','voice/outbreak_win_0_v2_b.mp3','voice/outbreak_win_0_v2_c.mp3','voice/outbreak_win_0_v2_d.mp3'],
+  death:['voice/outbreak_death_0_v2.mp3','voice/outbreak_death_0_v2_b.mp3','voice/outbreak_death_0_v2_c.mp3','voice/outbreak_death_0_v2_d.mp3'],
+  // Streak milestones — male voice, 4 variants each
+  outbreak_streak_awake:   ['voice/outbreak_streak_awake_v2.mp3','voice/outbreak_streak_awake_v2_b.mp3','voice/outbreak_streak_awake_v2_c.mp3','voice/outbreak_streak_awake_v2_d.mp3'],
+  outbreak_streak_based:   ['voice/outbreak_streak_based_v2.mp3','voice/outbreak_streak_based_v2_b.mp3','voice/outbreak_streak_based_v2_c.mp3','voice/outbreak_streak_based_v2_d.mp3'],
+  outbreak_streak_ascended:['voice/outbreak_streak_ascended_v2.mp3','voice/outbreak_streak_ascended_v2_b.mp3','voice/outbreak_streak_ascended_v2_c.mp3','voice/outbreak_streak_ascended_v2_d.mp3'],
+  outbreak_streak_godtier: ['voice/outbreak_streak_godtier_v2.mp3','voice/outbreak_streak_godtier_v2_b.mp3','voice/outbreak_streak_godtier_v2_c.mp3','voice/outbreak_streak_godtier_v2_d.mp3'],
+  // Weapon pickups — queen voice, 4 variants each
+  moonbolt:        ['voice/outbreak_weapon_moonbolt_v2.mp3','voice/outbreak_weapon_moonbolt_v2_b.mp3','voice/outbreak_weapon_moonbolt_v2_c.mp3','voice/outbreak_weapon_moonbolt_v2_d.mp3'],
+  flock_burst:     ['voice/outbreak_weapon_flock_burst_v2.mp3','voice/outbreak_weapon_flock_burst_v2_b.mp3','voice/outbreak_weapon_flock_burst_v2_c.mp3','voice/outbreak_weapon_flock_burst_v2_d.mp3'],
+  mira_curse:      ['voice/outbreak_weapon_mira_curse_v2.mp3','voice/outbreak_weapon_mira_curse_v2_b.mp3','voice/outbreak_weapon_mira_curse_v2_c.mp3','voice/outbreak_weapon_mira_curse_v2_d.mp3'],
+  herald_shout:    ['voice/outbreak_weapon_herald_shout_v2.mp3','voice/outbreak_weapon_herald_shout_v2_b.mp3','voice/outbreak_weapon_herald_shout_v2_c.mp3','voice/outbreak_weapon_herald_shout_v2_d.mp3'],
+  pip_pebble:      ['voice/outbreak_weapon_pip_pebble_v2.mp3','voice/outbreak_weapon_pip_pebble_v2_b.mp3','voice/outbreak_weapon_pip_pebble_v2_c.mp3','voice/outbreak_weapon_pip_pebble_v2_d.mp3'],
+  lysara_orb:      ['voice/outbreak_weapon_lysara_orb_v2.mp3','voice/outbreak_weapon_lysara_orb_v2_b.mp3','voice/outbreak_weapon_lysara_orb_v2_c.mp3','voice/outbreak_weapon_lysara_orb_v2_d.mp3'],
+  aldric_lance:    ['voice/outbreak_weapon_aldric_lance_v2.mp3','voice/outbreak_weapon_aldric_lance_v2_b.mp3','voice/outbreak_weapon_aldric_lance_v2_c.mp3','voice/outbreak_weapon_aldric_lance_v2_d.mp3'],
+  theron_hammer:   ['voice/outbreak_weapon_theron_hammer_v2.mp3','voice/outbreak_weapon_theron_hammer_v2_b.mp3','voice/outbreak_weapon_theron_hammer_v2_c.mp3','voice/outbreak_weapon_theron_hammer_v2_d.mp3'],
+  moon_arrow:      ['voice/outbreak_weapon_moon_arrow_v2.mp3','voice/outbreak_weapon_moon_arrow_v2_b.mp3','voice/outbreak_weapon_moon_arrow_v2_c.mp3','voice/outbreak_weapon_moon_arrow_v2_d.mp3'],
+  bessie_pie_throw:['voice/outbreak_weapon_bessie_pie_throw_v2.mp3','voice/outbreak_weapon_bessie_pie_throw_v2_b.mp3','voice/outbreak_weapon_bessie_pie_throw_v2_c.mp3','voice/outbreak_weapon_bessie_pie_throw_v2_d.mp3'],
+  flame_whip:      ['voice/outbreak_weapon_flame_whip_0_v2.mp3','voice/outbreak_weapon_flame_whip_0_v2_b.mp3','voice/outbreak_weapon_flame_whip_1_v2.mp3','voice/outbreak_weapon_flame_whip_1_v2_b.mp3','voice/outbreak_weapon_flame_whip_0_v2_c.mp3','voice/outbreak_weapon_flame_whip_1_v2_c.mp3'],
+  void_maw:        ['voice/outbreak_weapon_void_maw_v2.mp3','voice/outbreak_weapon_void_maw_v2_b.mp3','voice/outbreak_weapon_void_maw_v2_c.mp3','voice/outbreak_weapon_void_maw_v2_d.mp3'],
+  soul_scythe:     ['voice/outbreak_weapon_soul_scythe_v2.mp3','voice/outbreak_weapon_soul_scythe_v2_b.mp3','voice/outbreak_weapon_soul_scythe_v2_c.mp3','voice/outbreak_weapon_soul_scythe_v2_d.mp3'],
+  frost_nova:      ['voice/outbreak_weapon_frost_nova_v2.mp3','voice/outbreak_weapon_frost_nova_v2_b.mp3','voice/outbreak_weapon_frost_nova_v2_c.mp3','voice/outbreak_weapon_frost_nova_v2_d.mp3'],
+  // Passive pickups — queen voice, 4 variants each
+  bessie_pie:      ['voice/outbreak_passive_bessie_pie_v2.mp3','voice/outbreak_passive_bessie_pie_v2_b.mp3','voice/outbreak_passive_bessie_pie_v2_c.mp3','voice/outbreak_passive_bessie_pie_v2_d.mp3'],
+  aldric_boots:    ['voice/outbreak_passive_aldric_boots_v2.mp3','voice/outbreak_passive_aldric_boots_v2_b.mp3','voice/outbreak_passive_aldric_boots_v2_c.mp3','voice/outbreak_passive_aldric_boots_v2_d.mp3'],
+  theron_anvil:    ['voice/outbreak_passive_theron_anvil_v2.mp3','voice/outbreak_passive_theron_anvil_v2_b.mp3','voice/outbreak_passive_theron_anvil_v2_c.mp3','voice/outbreak_passive_theron_anvil_v2_d.mp3'],
+  mira_tome:       ['voice/outbreak_passive_mira_tome_v2.mp3','voice/outbreak_passive_mira_tome_v2_b.mp3','voice/outbreak_passive_mira_tome_v2_c.mp3','voice/outbreak_passive_mira_tome_v2_d.mp3'],
+  herald_scroll:   ['voice/outbreak_passive_herald_scroll_v2.mp3','voice/outbreak_passive_herald_scroll_v2_b.mp3','voice/outbreak_passive_herald_scroll_v2_c.mp3','voice/outbreak_passive_herald_scroll_v2_d.mp3'],
+  lysara_crystal:  ['voice/outbreak_passive_lysara_crystal_v2.mp3','voice/outbreak_passive_lysara_crystal_v2_b.mp3','voice/outbreak_passive_lysara_crystal_v2_c.mp3','voice/outbreak_passive_lysara_crystal_v2_d.mp3'],
+  pip_charm:       ['voice/outbreak_passive_pip_charm_0_v2.mp3','voice/outbreak_passive_pip_charm_0_v2_b.mp3','voice/outbreak_passive_pip_charm_1_v2.mp3','voice/outbreak_passive_pip_charm_1_v2_b.mp3','voice/outbreak_passive_pip_charm_2_v2.mp3','voice/outbreak_passive_pip_charm_2_v2_b.mp3','voice/outbreak_passive_pip_charm_0_v2_c.mp3','voice/outbreak_passive_pip_charm_1_v2_c.mp3'],
+  moon_amulet:     ['voice/outbreak_passive_moon_amulet_v2.mp3','voice/outbreak_passive_moon_amulet_v2_b.mp3','voice/outbreak_passive_moon_amulet_v2_c.mp3','voice/outbreak_passive_moon_amulet_v2_d.mp3'],
+  queen_crown:     ['voice/outbreak_passive_queen_crown_v2.mp3','voice/outbreak_passive_queen_crown_v2_b.mp3','voice/outbreak_passive_queen_crown_v2_c.mp3','voice/outbreak_passive_queen_crown_v2_d.mp3'],
+  flock_badge:     ['voice/outbreak_passive_flock_badge_v2.mp3','voice/outbreak_passive_flock_badge_v2_b.mp3','voice/outbreak_passive_flock_badge_v2_c.mp3','voice/outbreak_passive_flock_badge_v2_d.mp3'],
+  crimson_pact:    ['voice/outbreak_passive_crimson_pact_v2.mp3','voice/outbreak_passive_crimson_pact_v2_b.mp3','voice/outbreak_passive_crimson_pact_v2_c.mp3','voice/outbreak_passive_crimson_pact_v2_d.mp3'],
+  thorn_shroud:    ['voice/outbreak_passive_thorn_shroud_v2.mp3','voice/outbreak_passive_thorn_shroud_v2_b.mp3','voice/outbreak_passive_thorn_shroud_v2_c.mp3','voice/outbreak_passive_thorn_shroud_v2_d.mp3'],
+};
+let _voiceLineIndex={};
+// Female voice cooldown — max one every 20 seconds so she doesn't spam
+let _lastFemaleVoiceTime=0;
+const FEMALE_VOICE_COOLDOWN=20000; // ms
+// Male streak voices always play (they're rare tier events)
+const _MALE_VOICE_KEYS=new Set(['outbreak_streak_awake','outbreak_streak_based','outbreak_streak_ascended','outbreak_streak_godtier']);
+// Critical story moments always play regardless of cooldown
+const _ALWAYS_PLAY_KEYS=new Set(['death','win']);
+
+function playVoice(type){
+  if(!voiceEnabled)return;
+  const lines=VOICE_LINES[type];if(!lines||!lines.length)return;
+  // Rate-limit female voices to once every ~20s
+  const isMale=_MALE_VOICE_KEYS.has(type);
+  const isAlways=_ALWAYS_PLAY_KEYS.has(type);
+  if(!isMale&&!isAlways){
+    const now=Date.now();
+    if(now-_lastFemaleVoiceTime<FEMALE_VOICE_COOLDOWN)return;
+    _lastFemaleVoiceTime=now;
+  }
+  const idx=(_voiceLineIndex[type]||0)%lines.length;_voiceLineIndex[type]=(idx+1)%lines.length;
+  const path='assets/audio/'+lines[idx];
+  // Voice volume scales from 0.45 → 0.80 as game approaches end
+  const voiceVol=Math.min(0.80,0.45+0.35*Math.min(1,(gs.gameTime||0)/SURVIVE_TIME));
+  if(!_audioBuffers[path]){
+    fetch(path).then(r=>{if(!r.ok)throw new Error('missing');return r.arrayBuffer();})
+    .then(buf=>{if(AX)AX.decodeAudioData(buf,dec=>{_audioBuffers[path]=dec;setTimeout(()=>playSFX(path,voiceVol),50);});})
+    .catch(()=>{});
+    return;
+  }
+  playSFX(path,voiceVol);
+}
+
+// Pre-load sfx after first interaction
+function loadAllSFX(){
+  loadAudio('impact',SFX_BASE+'bullet_impact.mp3');
+  loadAudio('shatter',SFX_BASE+'shatter.mp3');
+  loadAudio('shield_hit',SFX_BASE+'shield_hit.mp3');
+  loadAudio('pickup',SFX_BASE+'spark_pickup.mp3');
+  loadAudio('wolf_attack',SFX_BASE+'wolf_attack.mp3');
+  loadAudio('wolf_howl',SFX_BASE+'wolf_howl.mp3');
+  loadAudio('plasma',SFX_BASE+'plasma_shot.mp3');
+}
+document.addEventListener('pointerdown',()=>{setTimeout(loadAllSFX,100);},{once:true});
+document.addEventListener('keydown',()=>{setTimeout(loadAllSFX,100);},{once:true});
+
+function snd(type,pm){
+if(!AX)return;
+const o=AX.createOscillator(),g=AX.createGain();
+o.connect(g);g.connect(AX.destination);
+const t=AX.currentTime;pm=pm||(0.95+Math.random()*0.1);
+switch(type){
+// All snd() volumes multiplied by SND_VOL — beat cuts through cleanly
+case'shoot':o.type='sine';o.frequency.setValueAtTime(600*pm,t);o.frequency.linearRampToValueAtTime(900*pm,t+0.04);g.gain.setValueAtTime(0.09*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.06);o.start(t);o.stop(t+0.06);break;
+case'kill':o.type='square';o.frequency.setValueAtTime(200*pm,t);o.frequency.linearRampToValueAtTime(80,t+0.1);g.gain.setValueAtTime(0.14*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.12);o.start(t);o.stop(t+0.12);break;
+case'kill_big':{o.type='square';o.frequency.setValueAtTime(150,t);o.frequency.linearRampToValueAtTime(40,t+0.15);g.gain.setValueAtTime(0.22*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.18);o.start(t);o.stop(t+0.18);
+const o2=AX.createOscillator(),g2=AX.createGain();o2.connect(g2);g2.connect(AX.destination);o2.type='triangle';o2.frequency.setValueAtTime(60,t);g2.gain.setValueAtTime(0.24*SND_VOL,t);g2.gain.exponentialRampToValueAtTime(0.001,t+0.2);o2.start(t);o2.stop(t+0.2);break}
+case'hit':o.type='sine';o.frequency.setValueAtTime(180,t);o.frequency.linearRampToValueAtTime(60,t+0.18);g.gain.setValueAtTime(0.11*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.22);o.start(t);o.stop(t+0.22);break;
+case'lvlup':o.type='sine';[523,659,784,1047].forEach((f,i)=>o.frequency.setValueAtTime(f*pm,t+i*0.08));g.gain.setValueAtTime(0.28*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.4);o.start(t);o.stop(t+0.4);break;
+case'aura':o.type='sine';o.frequency.setValueAtTime(220,t);o.frequency.linearRampToValueAtTime(330,t+0.2);g.gain.setValueAtTime(0.07*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.25);o.start(t);o.stop(t+0.25);break;
+case'boss':o.type='sawtooth';[80,60,80,60].forEach((f,i)=>o.frequency.setValueAtTime(f,t+i*0.2));g.gain.setValueAtTime(0.32*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.9);o.start(t);o.stop(t+0.9);break;
+case'select':o.type='sine';o.frequency.setValueAtTime(600,t);o.frequency.linearRampToValueAtTime(700,t+0.04);g.gain.setValueAtTime(0.13*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.06);o.start(t);o.stop(t+0.06);break;
+case'xp':o.type='sine';o.frequency.setValueAtTime(880,t);o.frequency.linearRampToValueAtTime(1200,t+0.07);g.gain.setValueAtTime(0.06*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);o.start(t);o.stop(t+0.1);break;
+case'gold':o.type='triangle';o.frequency.setValueAtTime(700,t);o.frequency.linearRampToValueAtTime(950,t+0.08);g.gain.setValueAtTime(0.08*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.12);o.start(t);o.stop(t+0.12);break;
+case'win':{[523,659,784,1047,1319].forEach((f,i)=>{const oo=AX.createOscillator(),gg=AX.createGain();oo.connect(gg);gg.connect(AX.destination);oo.type='sine';oo.frequency.setValueAtTime(f*pm,t+i*0.1);gg.gain.setValueAtTime(0.32*SND_VOL,t+i*0.1);gg.gain.exponentialRampToValueAtTime(0.001,t+i*0.1+0.3);oo.start(t+i*0.1);oo.stop(t+i*0.1+0.3);});break}
+case'death':{o.type='sawtooth';[300,250,200,120,80].forEach((f,i)=>o.frequency.setValueAtTime(f,t+i*0.12));g.gain.setValueAtTime(0.30*SND_VOL,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.7);o.start(t);o.stop(t+0.7);break}
+}}
+
+// ========== INPUT (identical to Truthseeker) ==========
+const keys={},jp={};
+let gp={btns:new Array(16).fill(false),axes:[0,0],jp:new Array(16).fill(false)};
+let prevGP=new Array(16).fill(false);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Backquote'){gs._clairvoyance=!gs._clairvoyance;return;} // ` toggle CLAIRVOYANCE
+  if(!keys[e.code])jp[e.code]=true;keys[e.code]=true;
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code))e.preventDefault();
+});
+document.addEventListener('keyup',e=>{keys[e.code]=false});
+function pollGP(){
+const gs2=navigator.getGamepads();if(!gs2)return;
+let pad=null;for(let i=0;i<gs2.length;i++)if(gs2[i]){pad=gs2[i];break}
+if(!pad)return;
+for(let i=0;i<16;i++){const p=pad.buttons[i]?pad.buttons[i].pressed:false;gp.jp[i]=p&&!prevGP[i];prevGP[i]=p;gp.btns[i]=p}
+gp.axes=[pad.axes[0]||0,pad.axes[1]||0];
+}
+// ── Mobile virtual joystick ──────────────────────────────────────────────────
+const vJoy={active:false,id:-1,bx:0,by:0,dx:0,dy:0,tapFired:false};
+const VJOY_DEAD=12; // deadzone pixels
+// Click on level-up cards or meta shop tabs
+C.addEventListener('click',e=>{
+  const scaleX=C.width/C.offsetWidth,scaleY=C.height/C.offsetHeight;
+  const mx2=e.offsetX*scaleX,my2=e.offsetY*scaleY;
+  // Audio toggle buttons (always clickable, top-right)
+  if(mx2>=C.width-88&&mx2<=C.width-52&&my2>=26&&my2<=50){
+    musicEnabled=!musicEnabled;
+    if(!musicEnabled)stopMusic();
+    else if(gs.state==='game'||gs.state==='levelup'){if(AX)startMusic();}
+    return;
+  }
+  if(mx2>=C.width-46&&mx2<=C.width-10&&my2>=26&&my2<=50){
+    voiceEnabled=!voiceEnabled;return;
+  }
+  if(gs.state==='levelup'&&gs.lvlChoices.length>0){
+    const cw=220,ch=170,gap=20;
+    const startX=C.width/2-(gs.lvlChoices.length*cw+(gs.lvlChoices.length-1)*gap)/2;
+    const by=C.height/2-80;
+    for(let i=0;i<gs.lvlChoices.length;i++){
+      const bx=startX+i*(cw+gap);
+      if(mx2>=bx&&mx2<=bx+cw&&my2>=by&&my2<=by+ch){
+        if(gs.lvlSelected!==i){gs.lvlSelected=i;snd('select');}
+        else{jp['Space']=true;} // double-click same = confirm
+        return;
+      }
+    }
+  }
+  if(gs.state==='powerups'){
+    // Click tab buttons (All/Combat/Survival/Utility) — hit area at top of shop panel
+    const tabW=90,tabH=28,tabY=C.height/2-220;
+    const tabStartX=C.width/2-META_CATEGORIES.length*tabW/2;
+    for(let i=0;i<META_CATEGORIES.length;i++){
+      const tx=tabStartX+i*tabW;
+      if(mx2>=tx&&mx2<=tx+tabW&&my2>=tabY&&my2<=tabY+tabH){
+        gs.puCategory=META_CATEGORIES[i];gs.puSelected=0;snd('select');return;
+      }
+    }
+  }
+});
+
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();initA();setTimeout(loadAllSFX,100);
+  for(const t of e.changedTouches){
+    if(!vJoy.active){
+      vJoy.active=true;vJoy.id=t.identifier;
+      vJoy.bx=t.clientX;vJoy.by=t.clientY;
+      vJoy.dx=0;vJoy.dy=0;vJoy.tapFired=false;
+    } else {
+      // Second touch = confirm (tap on right side = action button)
+      jp['Space']=true;
+    }
+  }
+},{passive:false});
+C.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===vJoy.id){
+      // Scale to canvas coords
+      const scaleX=C.width/C.offsetWidth,scaleY=C.height/C.offsetHeight;
+      const rx=(t.clientX-vJoy.bx)*scaleX,ry=(t.clientY-vJoy.by)*scaleY;
+      const dist=Math.sqrt(rx*rx+ry*ry);
+      const maxR=70;
+      if(dist>VJOY_DEAD){vJoy.dx=rx/Math.max(dist,maxR);vJoy.dy=ry/Math.max(dist,maxR);}
+      else{vJoy.dx=0;vJoy.dy=0;}
+    }
+  }
+},{passive:false});
+C.addEventListener('touchend',e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===vJoy.id){
+      // Short tap with no drag = confirm
+      if(Math.abs(vJoy.dx)<0.1&&Math.abs(vJoy.dy)<0.1&&!vJoy.tapFired){
+        jp['Space']=true;vJoy.tapFired=true;
+      }
+      vJoy.active=false;vJoy.dx=0;vJoy.dy=0;
+    }
+  }
+},{passive:false});
+
+function mx(){
+  let x=0;
+  if(keys['ArrowLeft']||keys['KeyA'])x=-1;
+  if(keys['ArrowRight']||keys['KeyD'])x=1;
+  if(Math.abs(gp.axes[0])>0.25)x=gp.axes[0];
+  if(vJoy.active&&Math.abs(vJoy.dx)>0.1)x=vJoy.dx;
+  return x;
+}
+function my(){
+  let y=0;
+  if(keys['ArrowUp']||keys['KeyW'])y=-1;
+  if(keys['ArrowDown']||keys['KeyS'])y=1;
+  if(Math.abs(gp.axes[1])>0.25)y=gp.axes[1];
+  if(vJoy.active&&Math.abs(vJoy.dy)>0.1)y=vJoy.dy;
+  return y;
+}
+function confirmP(){return jp['Space']||jp['Enter']||jp['KeyZ']||gp.jp[0]}
+function anyP(){return Object.values(jp).some(v=>v)||gp.jp.some(v=>v)||vJoy.active}
+
+function lerp(a,b,t){return a+(b-a)*t}
+
+// ========== GAME STATE (same structure as Truthseeker) ==========
+const WORLD_W=3200,WORLD_H=2400;
+
+const gs={
+state:'title',
+time:0,gameTime:0,frame:0,
+// Player — EXACT same as Truthseeker
+px:WORLD_W/2,py:WORLD_H/2,
+pvx:0,pvy:0,
+pHP:100,pMaxHP:100,pSpeed:3,
+pFacing:1,pFacingY:0,
+pInvince:0,pFlash:0,pBob:0,pDirRow:0,
+// Level
+xp:0,xpNeeded:10,level:1,
+// Streak (renamed to "horde" meter)
+streakKills:0,streakTier:0,
+streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
+streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
+streakThresholds:[0,10,28,65,130],  // faster tier reach
+// Flavor shown as subtitle when tier is reached
+streakQuotes:['',
+  'The horde is gathering. Stand firm.',
+  'You cut through them like moonlight through fog.',
+  'LET THEM COME!',
+  'You are UNSTOPPABLE!'
+],
+streakDmgMult:[1,1.25,1.65,2.3,3.2],   // much more impactful
+streakSpdMult:[1,1.12,1.26,1.42,1.60], // noticeable speed gains
+// Weapons / passives
+weapons:[],maxWeapons:6,
+passives:[],maxPassives:6,
+// Kills
+kills:0,totalDamage:0,gold:0,
+// Drops
+pills:[],foods:[],goldGems:[],chests:[],
+// Enemies
+enemies:[],enemyPool:[],maxEnemies:180,
+// Particles
+particles:[],floatTexts:[],
+// Camera
+camX:0,camY:0,
+// Screen effects
+shakeX:0,shakeY:0,shakeDur:0,flash:0,flashColor:'#fff',hitFreeze:0,
+// Level-up (freezes game; in co-op waits for all players to pick)
+lvlChoices:[],lvlSelected:0,partyLevelUpChosen:{},
+// Spawn
+spawnTimer:0,bossTimer:0,
+// Win/lose
+survived:false,
+// Downed / revive (co-op)
+downedTimer:0,          // countdown frames before permanent death (1800=30s)
+isReviving:false,       // currently reviving a teammate
+reviveTarget:null,      // remote player id being revived
+reviveProgress:0,       // 0-180 (3s)
+nearDownedId:null,      // nearby downed teammate id (for prompt)
+// Meta progression runtime
+ironShells:0,           // remaining iron shell blocks this run
+metaGoldEarned:0,       // gold banked after last run (shown on death screen)
+// PowerUp shop state
+puSelected:0,           // selected card index in shop
+puCategory:'all',       // filter: all/combat/survival/utility
+puScroll:0,             // scroll offset (cards)
+// Weapon FX
+weaponFX:[],
+// Orbit state per-weapon
+orbitAngle:0,
+// CLAIRVOYANCE debug
+_clairvoyance:false,
+_fpsSmooth:60,_fpsLast:performance.now(),_fpsCount:0,
+};
+
+// ========== WEAPON DEFINITIONS ==========
+const WEAPONS={
+moonbolt:{name:'Moonbolt',desc:"Crescent bolts of sacred light that track the dead. The undead flinch from it — they know what it means.",type:'projectile',dmg:14,cd:36,range:300,lvl:1,maxLvl:8,color:'#aaddff',emoji:'🌙'},
+flock_burst:{name:'Plague Crows',desc:"A burst of corrupted crows summoned from the outbreak's wake. They tear through crowds and return to you.",type:'boomerang',dmg:10,cd:70,range:260,lvl:1,maxLvl:8,color:'#88ffaa',emoji:'🐦‍⬛'},
+pip_pebble:{name:'Skull Stones',desc:"Rough chunks of bone and rock launched at brutal speed. Cheap. Dirty. Cracks skulls at any range.",type:'axe',dmg:22,cd:80,range:220,lvl:1,maxLvl:8,color:'#ffcc44',emoji:'🪨'},
+lysara_orb:{name:'Arcane Orbs',desc:"Volatile arcane spheres that orbit your body and grind through anything that gets close. They never stop spinning.",type:'orbit',dmg:9,cd:0,range:90,lvl:1,maxLvl:8,color:'#cc44ff',emoji:'🔮'},
+herald_shout:{name:'War Cry',desc:"A primal scream that tears through the undead. The dead cannot stand against the sound of the living — not like this.",type:'aura',dmg:32,cd:50,range:140,lvl:1,maxLvl:8,color:'#ffaa22',emoji:'📯'},
+aldric_lance:{name:'Iron Lance',desc:"A war lance stripped from a fallen knight. It punches through the entire horde in a straight line. No mercy.",type:'pierce',dmg:28,cd:90,range:420,lvl:1,maxLvl:8,color:'#4488ff',emoji:'🗡️'},
+theron_hammer:{name:'Warhammer',desc:"Slow. Heavy. Unstoppable. One swing clears a radius. The ground shakes. The dead go airborne.",type:'bomb',dmg:70,cd:200,range:110,lvl:1,maxLvl:8,color:'#ff6622',emoji:'⚒️'},
+mira_curse:{name:'Rot Cloud',desc:"A spreading plague hex that melts through undead flesh. It was born from the outbreak itself — turned against its own.",type:'wave',dmg:6,cd:45,range:340,lvl:1,maxLvl:8,color:'#8855cc',emoji:'☠️'},
+moon_arrow:{name:'Moon Arrows',desc:"Rapid moonlight bolts that fire in all directions. Blessed, accurate, and absolutely relentless at max level.",type:'multishot',dmg:9,cd:22,range:360,lvl:1,maxLvl:8,color:'#ffffff',emoji:'🏹'},
+bessie_pie_throw:{name:'Fire Flask',desc:"A burning flask hurled into the horde. Shatters on impact and leaves a fire patch that scorches everything for 3 seconds.",type:'fire_patch',dmg:12,cd:150,range:250,lvl:1,maxLvl:8,color:'#ff8822',emoji:'🔥'},
+flame_whip:{name:'Flame Whip',desc:"A cracking arc of fire across your facing side. Ignites every enemy it touches — and fire spreads. Synergy: Soul Scythe hits burning enemies for 2×.",type:'whip',dmg:18,cd:55,range:130,lvl:1,maxLvl:8,color:'#ff5500',emoji:'🔥'},
+void_maw:{name:'Void Maw',desc:"A gravitational tear that pulls all nearby enemies inward, then detonates. Frozen enemies inside detonate for bonus damage. Slow. Devastating.",type:'vortex',dmg:55,cd:280,range:190,lvl:1,maxLvl:8,color:'#8800ff',emoji:'🌀'},
+soul_scythe:{name:'Soul Scythe',desc:"A wide reaping arc that cuts through everything in front of you. Deals 2× damage to burning enemies. Synergy: Flame Whip + Soul Scythe shreds entire clusters.",type:'scythe',dmg:26,cd:65,range:150,lvl:1,maxLvl:8,color:'#9955ff',emoji:'⚔️'},
+frost_nova:{name:'Frost Nova',desc:"An icy burst radiating from your body. Freezes enemies in place for 2 seconds. Frozen enemies caught by Void Maw explode for double damage.",type:'nova',dmg:12,cd:160,range:120,lvl:1,maxLvl:8,color:'#88ddff',emoji:'❄️'},
+};
+
+const PASSIVES={
+bessie_pie:{name:"Survivor's Ration",desc:'+20% Max HP. You eat. You live. Simple.',stat:'maxhp',val:0.2,emoji:'🥩'},
+aldric_boots:{name:'Combat Boots',desc:'+10% Move Speed. Speed is survival.',stat:'movespd',val:0.1,emoji:'👢'},
+theron_anvil:{name:'Sharpened Blade',desc:'+15% Damage. Every hit counts more.',stat:'might',val:0.15,emoji:'🗡️'},
+mira_tome:{name:'Grimoire',desc:'+10% XP Gain. Knowledge accelerates power.',stat:'growth',val:0.1,emoji:'📖'},
+herald_scroll:{name:'Battle Tactics',desc:'+12% Weapon Area. Wider reach, more dead.',stat:'area',val:0.12,emoji:'📜'},
+lysara_crystal:{name:'Focus Shard',desc:'-10% Weapon Cooldown. Attack faster.',stat:'cooldown',val:0.1,emoji:'💎'},
+pip_charm:{name:"Scavenger's Luck",desc:"+30% Pickup Range. Draws drops toward you.",stat:'magnet',val:0.3,emoji:'🍀'},
+moon_amulet:{name:'Moon Amulet',desc:'Regen 0.4 HP/sec. The moon watches over you.',stat:'regen',val:0.4,emoji:'🌙'},
+queen_crown:{name:'Crown Fragment',desc:'+20% Damage and XP. Power has its price.',stat:'all',val:0.05,emoji:'👑'},
+flock_badge:{name:'Extra Mag',desc:'+1 Extra Projectile. More bullets. More dead.',stat:'amount',val:1,emoji:'🔋'},
+crimson_pact:{name:'Crimson Pact',desc:'Each kill restores 2 HP. Blood for blood. Synergy: Soul Scythe can hit a whole horde — heal on every single one.',stat:'lifesteal',val:2,emoji:'🩸'},
+thorn_shroud:{name:'Thorn Shroud',desc:'Anything that touches you takes 8 damage. The dead learn to regret it. Stack it and become a wall.',stat:'thorns',val:8,emoji:'🌿'},
+};
+
+// ========== META PROGRESSION (Vampire Survivors-style PowerUps) ==========
+// Separate from Flock economy — stored in outbreak_meta localStorage key
+const OUTBREAK_META_KEY='outbreak_meta';
+function loadMeta(){try{return JSON.parse(localStorage.getItem(OUTBREAK_META_KEY)||'{}')}catch{return{}}}
+function saveMeta(m){try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(m))}catch{}}
+
+// Cached meta stats (prevent localStorage reads every frame)
+let _metaCache=null;
+function refreshMetaCache(){_metaCache=loadMeta();}
+function getMetaStat(stat){
+  if(!_metaCache)_metaCache=loadMeta();
+  const pu=_metaCache.powerups||{};
+  let v=0;
+  for(const[k,def]of Object.entries(META_POWERUPS)){
+    if(def.stat===stat)v+=def.valPerLvl*(pu[k]||0);
+  }
+  return v;
+}
+
+// Cost formula: InitialCost × 1.4^(rank) — soft exponential, ~30,000g total to max all
+// Research: VS recommendation for 5-min web game (1.4× per rank, not opaque global fee)
+function metaCost(key){
+  const def=META_POWERUPS[key];
+  if(!_metaCache)_metaCache=loadMeta();
+  const lvl=(_metaCache.powerups||{})[key]||0;
+  if(lvl>=def.maxLvl)return Infinity;
+  return Math.round(def.baseCost*Math.pow(1.4,lvl));
+}
+
+// Moon Essence: VS-style Golden Egg equivalent — 1,000g each, tiny random stat boost, infinite loop
+function buyMoonEssence(){
+  refreshMetaCache();
+  const meta=_metaCache;
+  const cost=1000;
+  if((meta.goldBank||0)<cost)return false;
+  meta.goldBank-=cost;
+  meta.essences=(meta.essences||0)+1;
+  // Random tiny stat boost (picks from pool)
+  const pool=['might','maxhp','movespd','cooldown','area','regen','magnet','amount','crit'];
+  // Weighted: more common stats get picked more often
+  const weights=[3,3,2,2,2,2,2,1,1];
+  const totalW=weights.reduce((a,b)=>a+b,0);
+  let r=Math.random()*totalW;
+  let statPick='might';
+  for(let i=0;i<pool.length;i++){r-=weights[i];if(r<=0){statPick=pool[i];break;}}
+  const boostAmt=statPick==='amount'?0.1:statPick==='cooldown'?0.005:statPick==='maxhp'||statPick==='regen'?0.5:0.01;
+  meta.essenceStats=meta.essenceStats||{};
+  meta.essenceStats[statPick]=(meta.essenceStats[statPick]||0)+boostAmt;
+  meta.totalSpent=(meta.totalSpent||0)+cost;
+  saveMeta(meta);refreshMetaCache();
+  return statPick;
+}
+
+// Buy one level of a powerup
+function buyMetaPowerup(key){
+  if(!META_POWERUPS[key])return false;
+  refreshMetaCache();
+  const meta=_metaCache;
+  const cost=metaCost(key);
+  const bank=meta.goldBank||0;
+  if(bank<cost||cost===Infinity)return false;
+  meta.goldBank=bank-cost;
+  meta.powerups=meta.powerups||{};
+  meta.powerups[key]=(meta.powerups[key]||0)+1;
+  meta.totalSpent=(meta.totalSpent||0)+cost;
+  saveMeta(meta);
+  refreshMetaCache();
+  snd('lvlup');
+  return true;
+}
+
+const META_POWERUPS={
+  // ── COMBAT ────────────────────────────────────────────────────────────
+  blood_fury:{name:'Blood Fury',      emoji:'🗡️',desc:'+8% damage per level. The moon sharpens your blade.',
+    stat:'might',    valPerLvl:0.08,maxLvl:8, baseCost:50,  color:'#ff4444',category:'combat'},
+  focus_shard:{name:'Focus Shard',    emoji:'💎',desc:'-6% weapon cooldown. Strike faster, die less.',
+    stat:'cooldown', valPerLvl:0.06,maxLvl:5, baseCost:75,  color:'#44ccff',category:'combat'},
+  eagle_eye:{name:'Eagle Eye',        emoji:'🎯',desc:'+10% weapon area. Wider arc of destruction.',
+    stat:'area',     valPerLvl:0.10,maxLvl:4, baseCost:100, color:'#88ffcc',category:'combat'},
+  power_surge:{name:'Power Surge',    emoji:'⚡',desc:'+1 extra projectile per level. More bullets. More dead.',
+    stat:'amount',   valPerLvl:1,   maxLvl:3, baseCost:500, color:'#ffff44',category:'combat'},
+  berserker:{name:'Berserker',        emoji:'💢',desc:'+4% damage per streak tier. Momentum is power.',
+    stat:'berserker',valPerLvl:0.04,maxLvl:5, baseCost:150, color:'#ff6644',category:'combat'},
+  gamblers_edge:{name:"Gambler's Edge",emoji:'🎲',desc:'+6% chance to deal double damage. Push your luck.',
+    stat:'crit',     valPerLvl:0.06,maxLvl:4, baseCost:200, color:'#ffdd44',category:'combat'},
+  // ── SURVIVAL ──────────────────────────────────────────────────────────
+  iron_veins:{name:'Iron Veins',      emoji:'❤️',desc:'+10% max HP per level. More blood to spill.',
+    stat:'maxhp',    valPerLvl:0.10,maxLvl:8, baseCost:50,  color:'#ff8888',category:'survival'},
+  windwalker:{name:'Windwalker',      emoji:'👢',desc:'+5% move speed. Speed is the only armor.',
+    stat:'movespd',  valPerLvl:0.05,maxLvl:6, baseCost:75,  color:'#44ffaa',category:'survival'},
+  moon_regen:{name:"Moon's Regen",    emoji:'🌙',desc:'+0.3 HP/sec regen. The moon watches over you.',
+    stat:'regen',    valPerLvl:0.3, maxLvl:5, baseCost:100, color:'#aa88ff',category:'survival'},
+  iron_shell:{name:'Iron Shell',      emoji:'🛡️',desc:'Start with free blocked hits. Negate damage once.',
+    stat:'iron_shell',valPerLvl:1,  maxLvl:3, baseCost:300, color:'#aaaacc',category:'survival'},
+  // ── UTILITY ───────────────────────────────────────────────────────────
+  fortunes_favor:{name:"Fortune's Favor",emoji:'🍀',desc:'+20% gold banked per level. Greed is immortal.',
+    stat:'gold_mult',valPerLvl:0.20,maxLvl:5, baseCost:100, color:'#ffd700',category:'utility'},
+  scavenger:{name:'Scavenger',        emoji:'🧲',desc:'+20% pickup range per level. Nothing wasted.',
+    stat:'magnet',   valPerLvl:0.20,maxLvl:4, baseCost:75,  color:'#cc88ff',category:'utility'},
+};
+
+const META_PU_KEYS=Object.keys(META_POWERUPS);
+const META_CATEGORIES=['all','combat','survival','utility'];
+
+// ========== ENEMY DEFINITIONS ==========
+// 10X aggression = 5x speed, 4x damage — intense but survivable with skill
+// Player base speed=3, so shamblers (2.4) are barely catchable. Runners (6.0) must be fought.
+// Max player HP ramps to ~260 with passives. Boss hits ~30-50 = 5-8 hits to die = intense
+const ENEMY_DEFS={
+shambler:{name:'Shambler',hp:28,spd:2.4,dmg:10,size:14,color:'#558855',xp:2,emoji:'🧟'},
+raven:{name:'Zombie Raven',hp:18,spd:4.2,dmg:8,size:10,color:'#226622',xp:2,emoji:'🪶'},
+bloated:{name:'Bloated Zombie',hp:110,spd:1.5,dmg:25,size:22,color:'#33aa33',xp:5,emoji:'🧟‍♂️',defPct:0.15},
+risen_bandit:{name:'Risen Bandit',hp:60,spd:3.0,dmg:18,size:16,color:'#885533',xp:4,emoji:'💀'},
+runner:{name:'Runner',hp:35,spd:6.0,dmg:12,size:12,color:'#226622',xp:3,emoji:'🏃'},
+risen_knight:{name:'Risen Knight',hp:220,spd:1.9,dmg:35,size:20,color:'#445566',xp:10,emoji:'⚔️',defPct:0.25},
+witch_spawn:{name:'Corrupted Mage',hp:75,spd:2.6,dmg:22,size:16,color:'#441166',xp:7,emoji:'🧙',defPct:0.12},
+ancient:{name:'Ancient Horror',hp:550,spd:2.8,dmg:50,size:32,color:'#882200',xp:20,emoji:'👹',defPct:0.35},
+// New enemy types
+plague_bearer:{name:'Plague Bearer',hp:85,spd:2.0,dmg:20,size:18,color:'#226633',xp:6,emoji:'🤢',onDeathSpread:true,defPct:0.10},
+void_shade:{name:'Void Shade',hp:30,spd:5.5,dmg:15,size:11,color:'#220044',xp:3,emoji:'👤',phasing:true},
+bone_archer:{name:'Bone Archer',hp:45,spd:2.2,dmg:14,size:13,color:'#997755',xp:4,emoji:'🏹',ranged:true,shootCd:0},
+swarm_larva:{name:'Larva',hp:8,spd:4.8,dmg:6,size:8,color:'#338833',xp:1,emoji:'🪲'},
+werewolf:{name:'Werewolf',hp:220,spd:5.2,dmg:32,size:22,color:'#886644',xp:14,emoji:'🐺',defPct:0.22},
+// ── Skeleton Wall: stationary barricade. Each segment is an individual killable enemy. ──
+// Spawns as an interlocked line of 4–6. Block movement. Break them to carve a path.
+skeleton_wall:{name:'Bone Wall',hp:110,spd:0,dmg:14,size:19,color:'#c8b870',xp:8,emoji:'💀',isWall:true,defPct:0},
+};
+const BOSS_DEFS={
+bandit_warlord:{name:'BANDIT WARLORD',hp:800,spd:2.4,dmg:45,size:40,color:'#cc4411',xp:80,emoji:'💣',defPct:0.28},
+undead_dragon:{name:'UNDEAD DRAGON',hp:2800,spd:3.0,dmg:58,size:52,color:'#553311',xp:280,emoji:'💀',defPct:0.38},
+zombie_dragon:{name:'ZOMBIE DRAGON',hp:4000,spd:3.2,dmg:70,size:55,color:'#116622',xp:350,emoji:'🐉',defPct:0.42},
+moon_wraith:{name:'MOON WRAITH',hp:6000,spd:4.2,dmg:90,size:60,color:'#2222aa',xp:500,emoji:'👻',defPct:0.45},
+};
+
+// ========== SPAWN SCHEDULE ==========
+const SPAWN_SCHEDULE=[
+{t:0,  types:['shambler'],                                        rate:52, count:8},
+{t:15, types:['shambler','raven'],                                rate:40, count:14},
+{t:35, types:['shambler','raven','swarm_larva'],                  rate:32, count:20},
+{t:55, types:['shambler','bloated','swarm_larva'],                rate:26, count:28},
+{t:80, types:['shambler','risen_bandit','runner'],                rate:20, count:36},
+{t:110,types:['risen_bandit','runner','plague_bearer'],           rate:16, count:44},
+{t:130,types:['skeleton_wall'],                                   rate:180,count:1},  // wall event — slow rate, triggers spawnWallLine
+{t:140,types:['runner','plague_bearer','void_shade','werewolf'],  rate:13, count:55},
+{t:170,types:['risen_bandit','void_shade','bone_archer'],         rate:10, count:65},
+{t:200,types:['risen_knight','bone_archer','werewolf','runner'],  rate:8,  count:75},
+{t:230,types:['risen_knight','witch_spawn','void_shade','werewolf'],rate:7,count:85},
+{t:260,types:['risen_knight','witch_spawn','plague_bearer'],      rate:6,  count:95},
+{t:300,types:['witch_spawn','ancient','bone_archer','werewolf'],  rate:5,  count:110},
+{t:360,types:['ancient','risen_knight','void_shade'],             rate:4,  count:120},
+{t:420,types:['ancient','witch_spawn','swarm_larva','werewolf'],  rate:3,  count:130},
+{t:480,types:['ancient','void_shade','bone_archer'],              rate:2,  count:140},
+{t:540,types:['ancient','risen_knight','plague_bearer','werewolf'],rate:2, count:150},
+];
+const BOSS_SCHEDULE=[
+{t:120,type:'bandit_warlord'},
+{t:240,type:'undead_dragon'},
+{t:390,type:'zombie_dragon'},
+{t:570,type:'moon_wraith'},
+];
+
+// ========== STAT HELPERS (identical pattern to Truthseeker) ==========
+function getStat(stat){
+let v=0;
+for(const p of gs.passives){
+const def=PASSIVES[p.id];if(!def)continue;
+if(def.stat===stat)v+=def.val*p.lvl;
+if(def.stat==='all')v+=def.val*p.lvl;
+}
+// Add permanent meta powerup bonuses (except iron_shell/berserker — handled separately)
+if(stat!=='iron_shell'&&stat!=='berserker'&&stat!=='crit'&&stat!=='gold_mult')v+=getMetaStat(stat);
+return v;
+}
+function getMight(){
+// Berserker: flat % per streak tier on top of base damage
+const berserkerBonus=gs.streakTier*getMetaStat('berserker');
+return 1+getStat('might')+berserkerBonus;
+}
+function getArea(){return 1+getStat('area')}
+function getCooldown(){return Math.max(0.25,1-getStat('cooldown'))}
+function getProjSpd(){return 1+getStat('projspd')||1}
+function getMagnet(){return 80*(1+getStat('magnet'))}
+function getGrowth(){return 1+getStat('growth')}
+function getMoveSpd(){return(gs.pSpeed+gs.pSpeed*getStat('movespd'))*gs.streakSpdMult[gs.streakTier]}
+function getAmt(){return 1+Math.floor(getStat('amount'))}
+
+// ========== OBJECT POOL ==========
+function getEnemy(){if(gs.enemyPool.length>0)return gs.enemyPool.pop();
+return{active:false,x:0,y:0,hp:0,maxHp:0,spd:0,dmg:0,size:0,color:'#fff',xp:0,type:'',name:'',vx:0,vy:0,flash:0,bob:0,isBoss:false,emoji:'🧟'}}
+function freeEnemy(e){e.active=false;gs.enemyPool.push(e)}
+
+// ========== SPAWN ==========
+function spawnEnemy(type,isBoss){
+if(gs.enemies.filter(e=>e.active).length>=gs.maxEnemies)return;
+const def=isBoss?BOSS_DEFS[type]:ENEMY_DEFS[type];if(!def)return;
+const e=getEnemy();
+// Cluster spawn (same as Truthseeker)
+const baseAng=gs.frame*0.005+Math.floor(Math.random()*2)*(Math.PI);
+const ang=baseAng+(Math.random()-0.5)*0.4;
+const dist=420+Math.random()*120;
+e.x=gs.px+Math.cos(ang)*dist+(Math.random()-0.5)*30;
+e.y=gs.py+Math.sin(ang)*dist+(Math.random()-0.5)*30;
+e.x=Math.max(30,Math.min(WORLD_W-30,e.x));
+e.y=Math.max(30,Math.min(WORLD_H-30,e.y));
+// Smooth continuous scaling: starts easy at 0.55×, ramps to 3.0× at SURVIVE_TIME
+const timeScale=0.55+(gs.gameTime/SURVIVE_TIME)*2.45;
+e.hp=def.hp*timeScale;e.maxHp=e.hp;
+e.spd=def.spd;
+// Damage also scales, more gently (0.6→2.0 range)
+e.dmg=Math.ceil(def.dmg*(0.6+(gs.gameTime/SURVIVE_TIME)*1.4));
+e.size=def.size;
+e.color=def.color;e.xp=def.xp;e.type=type;e.name=def.name;
+e.emoji=def.emoji;e.vx=0;e.vy=0;e.flash=0;e.onFire=0;e.onFireSpreads=0;e.frozen=0;
+e.bob=Math.random()*100;e.isBoss=!!isBoss;e.active=true;
+gs.enemies.push(e);
+if(isBoss){
+  snd('boss');
+  // Boss-specific entrance sounds
+  if(type==='moon_wraith')playSFX('wolf_howl',0.7);
+  else if(type==='zombie_dragon'||type==='undead_dragon')playSFX('wolf_attack',0.8);
+  else playSFX('shatter',0.65);
+}
+// Werewolf: occasional distant howl on spawn
+// Wolf howl removed — was triggering every spawn and got annoying
+}
+
+// ========== SKELETON WALL SPAWN ==========
+// Spawns a line of interlocked skeleton_wall segments as a barrier
+function spawnWallLine(){
+  if(gs.state!=='game')return;
+  const ang=Math.random()*Math.PI*2;
+  const dist=280+Math.random()*140;
+  const lcx=gs.px+Math.cos(ang)*dist;
+  const lcy=gs.py+Math.sin(ang)*dist;
+  const perpAng=ang+Math.PI/2;
+  const count=4+Math.floor(Math.random()*3); // 4–6 segments
+  const timeScale=Math.max(0.7,0.55+(gs.gameTime/SURVIVE_TIME)*2.45);
+  let spawned=0;
+  for(let i=0;i<count;i++){
+    const offset=i-(count-1)/2;
+    const wx=lcx+Math.cos(perpAng)*offset*38;
+    const wy=lcy+Math.sin(perpAng)*offset*38;
+    if(wx<50||wx>WORLD_W-50||wy<50||wy>WORLD_H-50)continue;
+    const def=ENEMY_DEFS.skeleton_wall;
+    const e=Object.assign({},def,{
+      type:'skeleton_wall',x:wx,y:wy,vx:0,vy:0,
+      flash:0,onFire:0,frozen:0,active:true,bob:0,isBoss:false,
+      _riseAnim:0,defPct:def.defPct
+    });
+    e.hp=Math.round(def.hp*Math.min(timeScale,2.2));e.maxHp=e.hp;
+    e.dmg=def.dmg;e.xp=def.xp;e.size=def.size;e.spd=0;
+    gs.enemies.push(e);spawned++;
+  }
+  if(spawned>0){
+    snd('shatter');
+    spawnP(lcx,lcy,'#ccbb88',16,10,3);
+    floatT(gs.px,gs.py-50,'💀 BONE WALL!','#ccbb88',true);
+  }
+}
+
+// ========== DROPS ==========
+function dropXP(x,y,count){
+for(let i=0;i<count;i++){
+const ang=Math.random()*Math.PI*2;const spd=1+Math.random()*2;
+gs.pills.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val:1,life:500,magnet:false,size:4+Math.random()*2,
+color:Math.random()<0.15?'#aaddff':(Math.random()<0.2?'#66bbff':'#4499ff')});
+}}
+function dropFood(x,y){
+const types=[{heal:35,color:'#ffffff',name:'Blood Vial'},{heal:20,color:'#cc4422',name:'Ration Pack'},{heal:12,color:'#ddaa44',name:'Med Kit'},{heal:8,color:'#44cc44',name:'Herb'}];
+const f=types[Math.floor(Math.random()*types.length)];
+gs.foods.push({x,y,heal:f.heal,color:f.color,name:f.name,size:6,life:900});
+}
+function dropGold(x,y,count,val){
+val=val||1;
+for(let i=0;i<count;i++){
+  // Low velocity so coins don't fly far — small bounce only
+  const ang=Math.random()*Math.PI*2;const spd=0.4+Math.random()*0.8;
+  const sz=val>=5?9+Math.random()*2:val>=3?7.5+Math.random()*2:6+Math.random()*1.5;
+  gs.goldGems.push({x:x+(Math.random()-0.5)*16,y:y+(Math.random()-0.5)*16,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val,life:700,size:sz});
+}}
+function dropChest(x,y){
+gs.chests.push({x,y,life:9999,size:14,open:false});
+}
+
+// ========== PARTICLES ==========
+function spawnP(x,y,color,count,spread,sz){
+for(let i=0;i<count;i++)gs.particles.push({x,y,vx:(Math.random()-0.5)*spread,vy:-Math.random()*spread*0.7-0.8,life:18+Math.random()*18,maxLife:36,color,size:sz||2+Math.random()*2});
+}
+function floatT(x,y,text,color,big){gs.floatTexts.push({x,y,text,color,life:48,vy:-1.4,big:!!big})}
+
+// ========== HIT ENEMY ==========
+function hitEnemy(e,dmg){
+if(!e.active)return;
+// Gambler's Edge: crit chance for double damage
+const critChance=getMetaStat('crit');
+if(critChance>0&&Math.random()<critChance){dmg*=2;floatT(e.x,e.y-e.size-12,'CRIT!','#ffdd00',true);}
+// Enemy defense: tankier enemies absorb a % of incoming damage
+if(e.defPct>0)dmg=Math.max(1,dmg*(1-e.defPct));
+e.hp-=dmg;e.flash=6;
+gs.totalDamage+=Math.floor(dmg);
+floatT(e.x,e.y-e.size,Math.floor(dmg)+'',gs.streakTier>=3?'#ff4444':'#ffffff',gs.streakTier>=3);
+if(e.hp<=0){
+e.active=false;gs.kills++;gs.streakKills++;
+updateStreak();
+// CRIMSON PACT: lifesteal on kill
+const lifeSteal=getStat('lifesteal');
+if(lifeSteal>0){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+lifeSteal);if(gs.kills%8===0)floatT(gs.px,gs.py-20,'+'+lifeSteal+'🩸','#ff4466');}
+const pillCount=3+gs.streakTier;
+dropXP(e.x,e.y,pillCount);
+if(Math.random()<0.07)dropFood(e.x,e.y); // ~7% — hearts visible and satisfying
+// Plague bearer on-death: spreads fire patch + spawns 3 larvae
+if(e.type==='plague_bearer'){
+  gs.weaponFX.push({type:'fire_patch',x:e.x,y:e.y,life:240,maxLife:240,color:'#226633',r:60,dmg:4,hit:new Set()});
+  for(let li=0;li<3;li++){const la=Math.random()*Math.PI*2;const ld=25+Math.random()*20;spawnEnemy('swarm_larva',false);}
+  floatT(e.x,e.y-20,'PLAGUE BURST!','#44ff88');
+}
+// Gold drops — balanced: rewarding but not flooding screen with coins
+// Common (xp<5): 22% → 1g  |  Standard (xp5-9): 40% → 1g  |  Elite (xp≥10): 60% → 1-2g
+// Boss: capped shower (not spammy)
+if(e.isBoss){
+  // Boss: scatter ~10-18 coins of varying value
+  const bossCoins=Math.floor(e.xp/14)+5;
+  for(let bc=0;bc<bossCoins;bc++){
+    const bv=Math.random()<0.3?5:Math.random()<0.5?3:2;
+    dropGold(e.x+(Math.random()-0.5)*100,e.y+(Math.random()-0.5)*70,1,bv);
+  }
+}else if(e.xp>=10){
+  // Elite enemy: 60% drop chance, 1-2 coins
+  if(Math.random()<0.60){const ec=Math.random()<0.4?2:1;dropGold(e.x,e.y,ec,Math.random()<0.4?3:2);}
+}else if(e.xp>=5){
+  // Standard: 40% drop, 1 coin
+  if(Math.random()<0.40)dropGold(e.x,e.y,1,1);
+}else{
+  // Common: 22% drop, 1 coin
+  if(Math.random()<0.22)dropGold(e.x,e.y,1,1);
+}
+// Chest from boss
+if(e.isBoss)dropChest(e.x,e.y);
+// ── DEATH EXPLOSION — lean counts to prevent particle budget blow-up ──
+const isElite=e.xp>=10;
+// Common enemies: small burst only. Elites: medium. Bosses: big (but capped).
+const baseCount=e.isBoss?28:isElite?12:(4+gs.streakTier*2);
+const baseSpread=e.isBoss?9:isElite?6:(3+gs.streakTier);
+spawnP(e.x,e.y,e.color,baseCount,baseSpread,e.isBoss?4:2+gs.streakTier*0.3);
+spawnP(e.x,e.y,'#ffffff',Math.ceil(baseCount*0.25),baseSpread,1.5);
+// Enemy-type tinted secondary burst (only for notable types)
+if(e.type==='plague_bearer'||e.type==='swarm_larva')spawnP(e.x,e.y,'#44ff88',5,5,2);
+else if(e.type==='void_shade')spawnP(e.x,e.y,'#aa44ff',6,6,2);
+else if(e.type==='werewolf')spawnP(e.x,e.y,'#ff8844',7,6,2.5);
+else if(e.type==='witch_spawn')spawnP(e.x,e.y,'#cc44ff',5,5,2);
+else if(e.type==='ancient')spawnP(e.x,e.y,'#ff4422',8,6,2.5);
+if(gs.streakTier>=2)spawnP(e.x,e.y,'#ffcc00',Math.min(6,gs.streakTier*2),4,2);
+// Boss death: shockwave + modest burst (no hitFreeze spam)
+if(e.isBoss){
+  spawnP(e.x,e.y,'#ff4400',22,11,4);spawnP(e.x,e.y,'#ffd700',16,9,3);
+  gs.weaponFX.push({type:'bomb',x:e.x,y:e.y,life:38,maxLife:38,range:e.size*3,color:'#ff4400',dmg:0});
+  gs.hitFreeze=Math.max(gs.hitFreeze,5); // was 8 — reduced to cut stutter
+}
+// Shake only for elites/bosses — not every common kill
+gs.shakeDur=Math.max(gs.shakeDur,e.isBoss?14:isElite?5:gs.streakTier>=3?3:1);
+snd(e.isBoss?'boss':isElite||gs.streakTier>=2?'kill_big':'kill');
+playSFX(e.isBoss?'wolf_attack':isElite||gs.streakTier>=2?'shatter':'impact',e.isBoss?0.9:isElite?0.55:0.35);
+if(e.isBoss)floatT(e.x,e.y-30,'BOSS DEFEATED!','#ffcc00',true);
+freeEnemy(e);
+}else{
+const kb=3;const ang=Math.atan2(e.y-gs.py,e.x-gs.px);
+e.vx+=Math.cos(ang)*kb;e.vy+=Math.sin(ang)*kb;
+}}
+
+// ========== STREAK ==========
+function updateStreak(){
+let newTier=0;
+for(let i=gs.streakThresholds.length-1;i>=0;i--){if(gs.streakKills>=gs.streakThresholds[i]){newTier=i;break}}
+if(newTier>gs.streakTier){
+gs.streakTier=newTier;snd('lvlup');
+const streakVoiceKeys=['','outbreak_streak_awake','outbreak_streak_based','outbreak_streak_ascended','outbreak_streak_godtier'];
+if(streakVoiceKeys[newTier])playVoice(streakVoiceKeys[newTier]);
+floatT(gs.px,gs.py-30,gs.streakNames[newTier],gs.streakColors[newTier],true);
+if(gs.streakQuotes[newTier])floatT(gs.px,gs.py-62,gs.streakQuotes[newTier],'rgba(255,255,255,0.8)',false);
+gs.shakeDur=4+newTier*2;gs.flash=4+newTier*2;gs.flashColor=gs.streakColors[newTier];
+if(newTier>=4){
+gs.shakeDur=18;gs.flash=14;gs.flashColor='#ffcc00';gs.hitFreeze=8;
+spawnP(gs.px,gs.py,'#ffcc00',35,8);spawnP(gs.px,gs.py,'#ff6600',20,7);spawnP(gs.px,gs.py,'#ffffff',15,6);
+for(const e of gs.enemies){if(e.active)hitEnemy(e,40)}
+}}}
+
+// ========== LEVEL UP ==========
+function generateChoices(){
+  const choices=[];
+  const weapFull=gs.weapons.length>=gs.maxWeapons;
+  const passFull=gs.passives.length>=gs.maxPassives;
+  // VS logic: if slots full, only offer upgrades for owned items — never new ones
+  const availW=Object.keys(WEAPONS).filter(k=>{
+    const owned=gs.weapons.find(w=>w.id===k);
+    if(owned)return owned.lvl<WEAPONS[k].maxLvl; // upgrade available
+    return !weapFull; // new weapon only if there's a free slot
+  });
+  const availP=Object.keys(PASSIVES).filter(k=>{
+    const owned=gs.passives.find(p=>p.id===k);
+    if(owned)return owned.lvl<8; // upgrade available
+    return !passFull; // new passive only if there's a free slot
+  });
+  const pool=[...availW.map(k=>({id:k,isWeapon:true})),...availP.map(k=>({id:k,isWeapon:false}))];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
+  for(let i=0;i<Math.min(3,pool.length);i++)choices.push(pool[i]);
+  return choices;
+}
+function applyChoice(choice){
+if(choice.isWeapon){
+const existing=gs.weapons.find(w=>w.id===choice.id);
+if(existing){existing.lvl++;existing.cd=0}
+else if(gs.weapons.length<gs.maxWeapons){gs.weapons.push({id:choice.id,lvl:1,cd:0,_orbs:null})}
+}else{
+const existing=gs.passives.find(p=>p.id===choice.id);
+if(existing)existing.lvl++;
+else if(gs.passives.length<gs.maxPassives)gs.passives.push({id:choice.id,lvl:1});
+}
+gs.pMaxHP=100*(1+getStat('maxhp'));
+}
+
+// ========== WEAPON FIRE ==========
+function fireWeapons(){
+for(const w of gs.weapons){
+if(w.cd>0){w.cd--;continue}
+const def=WEAPONS[w.id];if(!def)continue;
+const cd=Math.floor(def.cd*getCooldown());
+w.cd=cd;
+const might=getMight()*gs.streakDmgMult[gs.streakTier];
+const area=getArea();const amt=getAmt();
+
+switch(def.type){
+case'projectile':{
+// Find nearest enemy
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const baseAng=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
+for(let i=0;i<amt;i++){
+const spread=(amt>1)?(i-amt/2)*0.2:0;
+const ang=baseAng+spread;
+gs.weaponFX.push({type:'proj',x:gs.px,y:gs.py,vx:Math.cos(ang)*6*getProjSpd(),vy:Math.sin(ang)*6*getProjSpd(),
+dmg:def.dmg*w.lvl*might,life:50,maxLife:50,color:def.color,size:5*area});
+}snd('shoot');break}
+
+case'pierce':{
+// Piercing projectile (aldric lance)
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const ang=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
+gs.weaponFX.push({type:'pierce',x:gs.px,y:gs.py,vx:Math.cos(ang)*7.5,vy:Math.sin(ang)*7.5,
+dmg:def.dmg*w.lvl*might,life:60,maxLife:60,color:def.color,size:6*area,hit:new Set()});
+snd('shoot');break}
+
+case'boomerang':{
+for(let i=0;i<amt;i++){
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<td){td=d;tgt=e}}
+const ang=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):(Math.random()*Math.PI*2);
+gs.weaponFX.push({type:'boomerang',x:gs.px,y:gs.py,vx:Math.cos(ang)*5.5*getProjSpd(),vy:Math.sin(ang)*5.5*getProjSpd(),
+dmg:def.dmg*w.lvl*might,life:55,maxLife:55,color:def.color,size:8*area,returning:false,age:0});
+}snd('shoot');break}
+
+case'axe':{
+for(let i=0;i<amt;i++){
+const ang=-Math.PI/2+(Math.random()-0.5)*0.5;
+gs.weaponFX.push({type:'axe',x:gs.px,y:gs.py,vx:Math.cos(ang)*2.5*(0.8+i*0.2),vy:-4.5-Math.random()*2,
+dmg:def.dmg*w.lvl*might,life:80,maxLife:80,color:def.color,size:10*area,rot:0});
+}snd('shoot');break}
+
+case'orbit':{
+w._orbs=w._orbs||[];
+const cnt=Math.min(8,amt+w.lvl-1);
+while(w._orbs.length<cnt)w._orbs.push({ang:w._orbs.length*(Math.PI*2/cnt),r:def.range*area});
+for(const orb of w._orbs){
+orb.ang+=0.042;
+const ox=gs.px+Math.cos(orb.ang)*orb.r;
+const oy=gs.py+Math.sin(orb.ang)*orb.r;
+for(const e of gs.enemies){
+if(!e.active)continue;
+if(Math.hypot(e.x-ox,e.y-oy)<e.size+10)hitEnemy(e,def.dmg*w.lvl*might*0.15);
+}
+gs.weaponFX.push({type:'orb',x:ox,y:oy,life:2,maxLife:2,color:def.color,size:8*area});
+}w.cd=0;break}// orbit always fires
+
+case'aura':{
+const r=def.range*area;snd('aura');
+for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might*0.3)}
+gs.weaponFX.push({type:'aura',x:gs.px,y:gs.py,r,life:20,maxLife:20,color:def.color});
+if(getStat('regen')>0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
+break}
+
+case'bomb':{
+const r=def.range*area;
+gs.weaponFX.push({type:'bomb',x:gs.px,y:gs.py,life:22,maxLife:22,range:r,color:def.color,dmg:def.dmg*w.lvl*might});
+for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might)}
+snd('kill_big');gs.shakeDur=8;break}
+
+case'wave':{
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const ang=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
+gs.weaponFX.push({type:'wave',x:gs.px,y:gs.py,vx:Math.cos(ang)*2.5,vy:Math.sin(ang)*2.5,
+dmg:def.dmg*w.lvl*might,life:80,maxLife:80,color:def.color,size:14*area,hit:new Set()});
+snd('aura');break}
+
+case'multishot':{
+// Fan of arrows aimed at nearest enemy
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const baseAng2=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
+const arrowAmt=amt+Math.floor(w.lvl/2);
+for(let i=0;i<arrowAmt;i++){
+  const spread=(arrowAmt>1)?(i-(arrowAmt-1)/2)*0.18:0;
+  const aang=baseAng2+spread;
+  gs.weaponFX.push({type:'arrow',x:gs.px,y:gs.py,vx:Math.cos(aang)*9*getProjSpd(),vy:Math.sin(aang)*9*getProjSpd(),
+  dmg:def.dmg*w.lvl*might,life:42,maxLife:42,color:def.color,size:3*area,rot:aang});
+}snd('shoot');break}
+
+case'fire_patch':{
+// Throw a pie that lands and creates a burning patch
+let tgt=null,td=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const ang3=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
+const landX=gs.px+Math.cos(ang3)*def.range*area*0.7;
+const landY=gs.py+Math.sin(ang3)*def.range*area*0.7;
+gs.weaponFX.push({type:'pie_flight',x:gs.px,y:gs.py,tx:landX,ty:landY,
+dmg:def.dmg*w.lvl*might,life:30,maxLife:30,color:def.color,size:8,rot:0,landed:false,
+patchLife:180,patchMaxLife:180,patchR:55*area});
+snd('shoot');break}
+
+case'whip':{
+// Arc sweep in facing direction ±90°. Ignites. Synergy with soul_scythe.
+const faceAng=Math.atan2(gs.pFacingY||0,gs.pFacing||1);
+const sweepR=def.range*area;
+const hit=new Set();
+for(const e of gs.enemies){
+  if(!e.active)continue;
+  const ex=e.x-gs.px,ey=e.y-gs.py;
+  const d=Math.hypot(ex,ey);if(d>sweepR)continue;
+  const ang4=Math.atan2(ey,ex);
+  let diff=ang4-faceAng;while(diff>Math.PI)diff-=Math.PI*2;while(diff<-Math.PI)diff+=Math.PI*2;
+  if(Math.abs(diff)<Math.PI*0.75){
+    const baseDmg=def.dmg*w.lvl*might;
+    hitEnemy(e,baseDmg);
+    e.onFire=Math.max(e.onFire||0,300); // 5s burn
+    spawnP(e.x,e.y,'#ff5500',4,3);
+    hit.add(e);
+  }
+}
+gs.weaponFX.push({type:'whip_arc',x:gs.px,y:gs.py,ang:faceAng,r:sweepR,life:14,maxLife:14,color:def.color});
+snd('aura');break}
+
+case'vortex':{
+// Pull all nearby enemies inward for duration, then explode
+const pullR=def.range*area;
+gs.weaponFX.push({type:'vortex_pull',x:gs.px,y:gs.py,r:pullR,life:90,maxLife:90,
+dmg:def.dmg*w.lvl*might,color:def.color,detonated:false});
+snd('aura');break}
+
+case'scythe':{
+// Wide sweep arc — hits all enemies in a 240° arc in front. 2× if burning.
+const faceAng2=Math.atan2(gs.pFacingY||0,gs.pFacing||1);
+const scytheR=def.range*area;
+for(const e of gs.enemies){
+  if(!e.active)continue;
+  const ex=e.x-gs.px,ey=e.y-gs.py;
+  const d=Math.hypot(ex,ey);if(d>scytheR)continue;
+  const ang5=Math.atan2(ey,ex);
+  let diff2=ang5-faceAng2;while(diff2>Math.PI)diff2-=Math.PI*2;while(diff2<-Math.PI)diff2+=Math.PI*2;
+  if(Math.abs(diff2)<Math.PI*0.8){
+    const bonusMult=(e.onFire>0)?2:1; // SYNERGY: double dmg on burning enemies
+    hitEnemy(e,def.dmg*w.lvl*might*bonusMult);
+    if(bonusMult>1)floatT(e.x,e.y-e.size-10,'BURN CRIT!','#ff5500',true);
+    spawnP(e.x,e.y,'#9955ff',3,3);
+  }
+}
+gs.weaponFX.push({type:'scythe_arc',x:gs.px,y:gs.py,ang:faceAng2,r:scytheR,life:18,maxLife:18,color:def.color});
+snd('aura');break}
+
+case'nova':{
+// Radial icy burst — freezes all enemies in range for 2 seconds
+const novaR=def.range*area;
+for(const e of gs.enemies){
+  if(!e.active)continue;
+  if(Math.hypot(e.x-gs.px,e.y-gs.py)<novaR){
+    hitEnemy(e,def.dmg*w.lvl*might);
+    e.frozen=Math.max(e.frozen||0,120); // 2 seconds
+    spawnP(e.x,e.y,'#88ddff',4,3);
+  }
+}
+gs.weaponFX.push({type:'nova_burst',x:gs.px,y:gs.py,r:novaR,life:25,maxLife:25,color:def.color});
+snd('aura');gs.shakeDur=Math.max(gs.shakeDur,4);break}
+}}}
+
+// ========== UPDATE FX / PROJECTILES ==========
+function updateFX(){
+for(let i=gs.weaponFX.length-1;i>=0;i--){
+const fx=gs.weaponFX[i];
+fx.life--;
+if(fx.life<=0){gs.weaponFX.splice(i,1);continue}
+
+if(fx.type==='proj'||fx.type==='wave'){
+fx.x+=fx.vx;fx.y+=fx.vy;
+for(const e of gs.enemies){
+if(!e.active)continue;
+if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){
+if(fx.type==='wave'){if(!fx.hit.has(e)){{fx.hit.add(e);hitEnemy(e,fx.dmg)}}}
+else{hitEnemy(e,fx.dmg);gs.weaponFX.splice(i,1);break}
+}}}
+
+else if(fx.type==='pierce'){
+fx.x+=fx.vx;fx.y+=fx.vy;
+for(const e of gs.enemies){
+if(!e.active||fx.hit.has(e))continue;
+if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){fx.hit.add(e);hitEnemy(e,fx.dmg)}
+}}
+
+else if(fx.type==='boomerang'){
+fx.age++;
+if(fx.age>fx.maxLife/2)fx.returning=true;
+if(fx.returning){const ang=Math.atan2(gs.py-fx.y,gs.px-fx.x);fx.vx=Math.cos(ang)*6;fx.vy=Math.sin(ang)*6;}
+fx.x+=fx.vx;fx.y+=fx.vy;
+for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
+}
+
+else if(fx.type==='axe'){
+fx.rot=(fx.rot||0)+0.25;
+fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=0.18;
+for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
+}
+else if(fx.type==='arrow'){
+fx.x+=fx.vx;fx.y+=fx.vy;
+for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg);gs.weaponFX.splice(i,1);break}}
+}
+else if(fx.type==='pie_flight'){
+// Arc toward target
+const t=1-(fx.life/fx.maxLife);
+fx.x=lerp(fx.x,fx.tx,0.12);fx.y=lerp(fx.y,fx.ty,0.12);
+fx.rot=(fx.rot||0)+0.25;
+if(fx.life<=1){
+  // Convert to fire patch
+  gs.weaponFX.push({type:'fire_patch',x:fx.tx,y:fx.ty,life:fx.patchLife,maxLife:fx.patchMaxLife,
+  color:fx.color,r:fx.patchR,dmg:fx.dmg,hit:new Set()});
+  spawnP(fx.tx,fx.ty,'#ff8822',12,6);spawnP(fx.tx,fx.ty,'#ffcc44',8,5);snd('kill');
+}}
+else if(fx.type==='fire_patch'){
+// Damage every 8 frames
+if(gs.frame%8===0){
+  for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<fx.r){hitEnemy(e,fx.dmg*0.3);e.onFire=Math.max(e.onFire||0,420);e.onFireSpreads=e.onFireSpreads||0;}}
+  if(Math.random()<0.2)spawnP(fx.x+(Math.random()-0.5)*fx.r,fx.y+(Math.random()-0.5)*fx.r,'#ff6622',2,3);
+}
+}
+else if(fx.type==='vortex_pull'){
+// Follow player each frame so it stays centered on you
+fx.x=gs.px;fx.y=gs.py;
+// Pull all enemies inward every frame. Detonate on last frame.
+const prog=1-(fx.life/fx.maxLife); // 0→1 as it runs
+for(const e of gs.enemies){
+  if(!e.active)continue;
+  const pd=Math.hypot(e.x-fx.x,e.y-fx.y);
+  if(pd<fx.r+50){
+    const pullStr=0.9+prog*1.8; // accelerates toward end
+    const pang=Math.atan2(fx.y-e.y,fx.x-e.x);
+    e.vx+=Math.cos(pang)*pullStr;e.vy+=Math.sin(pang)*pullStr;
+  }
+}
+if(fx.life<=1&&!fx.detonated){
+  fx.detonated=true;
+  for(const e of gs.enemies){
+    if(!e.active)continue;
+    const pd2=Math.hypot(e.x-fx.x,e.y-fx.y);
+    if(pd2<fx.r*0.9){
+      // SYNERGY: frozen enemies take double detonation damage
+      const frozenBonus=(e.frozen>0)?2:1;
+      hitEnemy(e,fx.dmg*frozenBonus);
+      if(frozenBonus>1)floatT(e.x,e.y-e.size-10,'FREEZE BURST!','#88ddff',true);
+      spawnP(e.x,e.y,'#8800ff',6,5);
+    }
+  }
+  gs.weaponFX.push({type:'bomb',x:fx.x,y:fx.y,life:28,maxLife:28,range:fx.r*0.85,color:'#8800ff',dmg:0});
+  gs.shakeDur=Math.max(gs.shakeDur,10);spawnP(fx.x,fx.y,'#8800ff',20,7);spawnP(fx.x,fx.y,'#cc88ff',12,5);
+  snd('kill_big');
+}
+}
+}}
+
+// ========== UPDATE ==========
+function update(){
+pollGP();gs.time++;gs.frame++;
+if(gs.hitFreeze>0){gs.hitFreeze--;return}
+if(gs.shakeDur>0){gs.shakeX=(Math.random()-0.5)*7;gs.shakeY=(Math.random()-0.5)*7;gs.shakeDur--}else{gs.shakeX=0;gs.shakeY=0}
+if(gs.flash>0)gs.flash--;
+
+// ===== TITLE =====
+if(gs.state==='title'){
+// P key or select button opens PowerUps shop
+if(jp['KeyP']||jp['KeyU']||gp.jp[6]){gs.state='powerups';gs.puSelected=0;snd('select');}
+else if(anyP()||confirmP()){initA();startGame()}
+for(const k in jp)jp[k]=false;gp.jp.fill(false);return
+}
+
+// ===== POWERUP SHOP =====
+if(gs.state==='powerups'){
+  const filtered=META_PU_KEYS.filter(k=>gs.puCategory==='all'||META_POWERUPS[k].category===gs.puCategory);
+  // Navigate
+  if(jp['ArrowLeft']||jp['KeyA']||gp.jp[14]){gs.puSelected=Math.max(0,gs.puSelected-1);snd('select')}
+  if(jp['ArrowRight']||jp['KeyD']||gp.jp[15]){gs.puSelected=Math.min(filtered.length-1,gs.puSelected+1);snd('select')}
+  if(jp['ArrowUp']||jp['KeyW']||gp.jp[12]){gs.puSelected=Math.max(0,gs.puSelected-4);snd('select')}
+  if(jp['ArrowDown']||jp['KeyS']||gp.jp[13]){gs.puSelected=Math.min(filtered.length-1,gs.puSelected+4);snd('select')}
+  // Cycle category filter
+  if(jp['Tab']){
+    const ci=(META_CATEGORIES.indexOf(gs.puCategory)+1)%META_CATEGORIES.length;
+    gs.puCategory=META_CATEGORIES[ci];gs.puSelected=0;snd('select');
+  }
+  // Buy
+  if(confirmP()&&filtered.length>0){
+    const key=filtered[gs.puSelected];
+    if(buyMetaPowerup(key)){
+      spawnP(C.width/2,C.height/2,'#ffd700',16,6);
+    }else{snd('hit');}
+  }
+  // Close
+  if(jp['Escape']||jp['KeyP']||jp['KeyU']||gp.jp[6]){gs.state='title';snd('select');}
+  for(const k in jp)jp[k]=false;gp.jp.fill(false);return
+}
+
+// ===== GAME OVER =====
+if(gs.state==='dead'||gs.state==='win'){
+if(confirmP()){
+leaveParty();
+if(FLOCK_ORIGIN&&window.opener){window.opener.postMessage({type:'game_over',survived:gs.survived,kills:gs.kills},FLOCK_ORIGIN);window.close()}
+else{gs.state='title';resetGame()}
+}
+for(const k in jp)jp[k]=false;gp.jp.fill(false);return
+}
+
+// ===== LEVEL UP — PAUSES GAME, WAITS FOR ALL PARTY MEMBERS =====
+if(gs.state==='levelup'){
+// Safety net: if we somehow ended up here with no choices, escape immediately
+if(gs.lvlChoices.length===0){exitLevelUp();return;}
+gs.frame++;gs.time++;tickParty();
+// Navigate cards
+if(jp['ArrowLeft']||jp['KeyA']||gp.jp[14]){gs.lvlSelected=(gs.lvlSelected-1+gs.lvlChoices.length)%gs.lvlChoices.length;snd('select')}
+if(jp['ArrowRight']||jp['KeyD']||gp.jp[15]){gs.lvlSelected=(gs.lvlSelected+1)%gs.lvlChoices.length;snd('select')}
+if(jp['Tab']){gs.lvlChoices=generateChoices();gs.lvlSelected=0;snd('select')} // reroll
+// Confirm pick — only if we haven't chosen yet
+if(confirmP()&&gs.lvlChoices.length>0&&!gs.partyLevelUpChosen[USER_ID]){
+  const _chosen=gs.lvlChoices[gs.lvlSelected];
+  applyChoice(_chosen);
+  if(VOICE_LINES[_chosen.id])playVoice(_chosen.id);
+  gs.partyLevelUpChosen[USER_ID]=true;
+  // Broadcast choice to party
+  if(PARTY_ID&&ws&&ws.readyState===1){
+    try{ws.send(JSON.stringify({type:'levelup-chosen',fromId:USER_ID}));}catch(e){}
+  }
+  snd('lvlup');
+  checkLevelUpDone();
+}
+// Party leader force-end (multiplayer only)
+if(PARTY_ID&&isPartyLeader()&&(jp['KeyF']||gp.jp[6])&&Object.keys(remotePlayers).length>0){
+  if(PARTY_ID&&ws&&ws.readyState===1){
+    try{ws.send(JSON.stringify({type:'levelup-force-end'}));}catch(e){}
+  }
+  // Apply random choice for anyone who hasn't picked (local auto-picks)
+  if(!gs.partyLevelUpChosen[USER_ID]&&gs.lvlChoices.length>0){
+    applyChoice(gs.lvlChoices[gs.lvlSelected]);
+  }
+  exitLevelUp();
+}
+for(const k in jp)jp[k]=false;gp.jp.fill(false);return
+}
+
+// ===== DOWNED STATE (co-op only) =====
+if(gs.state==='downed'){
+gs.frame++;gs.time++;tickParty();
+gs.camX=gs.px-C.width/2;gs.camY=gs.py-C.height/2;
+gs.camX=Math.max(0,Math.min(WORLD_W-C.width,gs.camX));
+gs.camY=Math.max(0,Math.min(WORLD_H-C.height,gs.camY));
+gs.downedTimer--;
+if(gs.downedTimer<=0){
+  // Countdown expired — permanent death
+  const anyAlive=Object.values(remotePlayers).some(rp=>rp.alive&&!rp.downed);
+  if(!anyAlive){gs.state='dead';saveRun();gs.survived=false;snd('death');playVoice('death');}
+  else{gs.downedTimer=1;} // keep waiting while a teammate is still up
+}
+if(gs.pInvince>0)gs.pInvince--;
+for(let i=gs.enemies.length-1;i>=0;i--){
+  const e=gs.enemies[i];if(!e.active)continue;
+  e.x+=e.vx;e.y+=e.vy;e.bob+=0.06;
+  if(e.flash>0)e.flash--;
+  if(e.onFire>0){e.onFire--;if(gs.frame%4===0)hitEnemy(e,2);}
+}
+// Update weapon FX and particles (so they keep animating)
+for(let i=gs.particles.length-1;i>=0;i--){const p=gs.particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=0.92;p.vy*=0.92;p.life--;if(p.life<=0)gs.particles.splice(i,1);}
+for(let i=gs.floatTexts.length-1;i>=0;i--){const f=gs.floatTexts[i];f.y+=f.vy;f.life--;if(f.life<=0)gs.floatTexts.splice(i,1);}
+if(gs.shakeDur>0){gs.shakeDur--;gs.shakeX=(Math.random()-0.5)*gs.shakeDur*2;gs.shakeY=(Math.random()-0.5)*gs.shakeDur*2;}
+return;
+}
+
+// ===== GAME =====
+if(gs.state!=='game')return;
+
+gs.gameTime+=1/60;
+
+// Timer check
+if(gs.gameTime>=SURVIVE_TIME){
+gs.state='win';saveRun();gs.survived=true;stopMusic();snd('win');playVoice('win');
+spawnP(gs.px,gs.py,'#aaddff',60,10);spawnP(gs.px,gs.py,'#44ff88',40,8);
+gs.shakeDur=20;gs.flash=20;gs.flashColor='#aaddff';
+return
+}
+
+// HP regen
+if(getStat('regen')>0&&gs.frame%60===0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
+
+// ===== TIMED WORLD CHESTS (every 45s like VS) =====
+const chestIntervals=[45,90,135,180,225,270,315,360,405,450,495];
+for(const ct of chestIntervals){
+  if(gs.gameTime>=ct&&gs.gameTime<ct+1/60&&!gs._chestDropped){}
+  if(Math.floor(gs.gameTime)===ct&&gs.frame%60===0){
+    const cx2=gs.px+(Math.random()-0.5)*320,cy2=gs.py+(Math.random()-0.5)*320;
+    dropChest(Math.max(60,Math.min(WORLD_W-60,cx2)),Math.max(60,Math.min(WORLD_H-60,cy2)));
+    floatT(gs.px,gs.py-50,'📦 CHEST NEARBY!','#ffd700',true);
+    gs.shakeDur=Math.max(gs.shakeDur,4);
+  }
+}
+// Kill milestone chests (every 50 kills)
+if(gs.kills>0&&gs.kills%50===0&&gs._lastKillChest!==gs.kills){
+  gs._lastKillChest=gs.kills;
+  dropChest(gs.px+(Math.random()-0.5)*200,gs.py+(Math.random()-0.5)*200);
+  floatT(gs.px,gs.py-50,'🏆 MILESTONE CHEST!','#ffd700',true);
+  spawnP(gs.px,gs.py,'#ffd700',14,6);
+}
+
+// ===== SKELETON WALL LINE EVENTS (every 35–50s after t=90) =====
+if(gs.gameTime>=90){
+  gs._wallTimer=(gs._wallTimer||0)+1/60;
+  const wallInterval=35+((gs.frame%17)+2); // pseudo-random 35–53s
+  if(gs._wallTimer>=wallInterval){gs._wallTimer=0;spawnWallLine();}
+}
+
+// ===== PLAYER MOVEMENT — EXACT TRUTHSEEKER PATTERN =====
+const spd=getMoveSpd();
+let dx=mx(),dy=my();
+const len=Math.sqrt(dx*dx+dy*dy);
+if(len>0){dx/=len;dy/=len;}
+gs.pvx=dx*spd;gs.pvy=dy*spd;
+gs.px=Math.max(20,Math.min(WORLD_W-20,gs.px+gs.pvx));
+gs.py=Math.max(20,Math.min(WORLD_H-20,gs.py+gs.pvy));
+if(dx!==0)gs.pFacing=dx;
+if(dy!==0)gs.pFacingY=dy;
+// Skeleton wall collision — solid pushout + contact damage
+for(const _we of gs.enemies){
+  if(!_we.active||!_we.isWall)continue;
+  const _wd=Math.hypot(gs.px-_we.x,gs.py-_we.y);
+  if(_wd<_we.size+17&&_wd>0){
+    const _wa=Math.atan2(gs.py-_we.y,gs.px-_we.x);
+    gs.px+=Math.cos(_wa)*(_we.size+17-_wd);
+    gs.py+=Math.sin(_wa)*(_we.size+17-_wd);
+    if(gs.pInvince===0){gs.pHP-=_we.dmg;gs.pInvince=35;gs.shakeDur=Math.max(gs.shakeDur,5);}
+  }
+}
+gs.pBob=(gs.pBob||0)+(len>0?0.15:0);
+
+// Camera (exact Truthseeker)
+gs.camX=gs.px-C.width/2;gs.camY=gs.py-C.height/2;
+gs.camX=Math.max(0,Math.min(WORLD_W-C.width,gs.camX));
+gs.camY=Math.max(0,Math.min(WORLD_H-C.height,gs.camY));
+
+// Invincibility
+if(gs.pInvince>0)gs.pInvince--;
+
+// ===== ENEMY SPAWN (scales with party size) =====
+gs.spawnTimer+=1/60;
+let sched=SPAWN_SCHEDULE[0];
+for(const s of SPAWN_SCHEDULE){if(gs.gameTime>=s.t)sched=s;}
+// Party size multiplier: +35% spawn rate & batch per extra player (max party=10)
+const partyMult=Math.max(1,1+(Object.keys(remotePlayers).length)*0.35);
+const spawnRate=(sched.rate/60)/partyMult; // faster with bigger party
+if(gs.spawnTimer>=spawnRate){
+gs.spawnTimer=0;
+const batch=Math.ceil((1+Math.floor(gs.gameTime/120))*partyMult);
+for(let b=0;b<batch;b++){
+const t=sched.types[Math.floor(Math.random()*sched.types.length)];
+spawnEnemy(t,false);
+}}
+
+// Boss spawns
+gs.bossTimer+=1/60;
+for(const bs of BOSS_SCHEDULE){
+if(gs.gameTime>=bs.t&&gs.gameTime<bs.t+1/60&&!gs.enemies.find(e=>e.active&&e.isBoss)){
+spawnEnemy(bs.type,true);
+gs.flash=12;gs.flashColor='#ff4444';gs.shakeDur=15;
+floatT(gs.px,gs.py-60,BOSS_DEFS[bs.type].name+' APPEARS!','#ff4444',true);
+}}
+
+// ===== ENEMY UPDATE =====
+for(let i=gs.enemies.length-1;i>=0;i--){
+const e=gs.enemies[i];
+if(!e.active){gs.enemies.splice(i,1);continue}
+// Frozen: thaw over time
+if(e.frozen>0){e.frozen--;if(Math.random()<0.08)spawnP(e.x,e.y-e.size*0.3,'#88ddff',1,2);}
+const frozenSpd=e.frozen>0?0.18:1; // nearly stopped when frozen
+const nt=getNearestTarget(e.x,e.y);
+// Skeleton wall: stationary — no movement, just rise animation
+if(e.isWall){
+  e.vx=0;e.vy=0;
+  if((e._riseAnim||0)<1)e._riseAnim=Math.min(1,(e._riseAnim||0)+0.07);
+  e.bob+=0.035;
+  if(e.flash>0)e.flash--;
+  // Enemy separation around walls — throttled to every 5 frames, skip when horde is huge
+  if(gs.frame%5===0&&gs.enemies.length<100){
+    for(const e2 of gs.enemies){
+      if(!e2.active||e2===e||e2.isWall)continue;
+      const eed=Math.hypot(e2.x-e.x,e2.y-e.y);
+      if(eed<e.size+e2.size&&eed>0){const ea=Math.atan2(e2.y-e.y,e2.x-e.x);e2.x+=Math.cos(ea)*(e.size+e2.size-eed)*0.22;e2.y+=Math.sin(ea)*(e.size+e2.size-eed)*0.22;}
+    }
+  }
+  continue; // skip normal movement & ranged logic
+}
+const edx=nt.x-e.x,edy=nt.y-e.y;
+const ed=Math.sqrt(edx*edx+edy*edy);
+if(ed>0){e.vx=(edx/ed)*e.spd*frozenSpd+(e.vx-((edx/ed)*e.spd*frozenSpd))*0.85;e.vy=(edy/ed)*e.spd*frozenSpd+(e.vy-((edy/ed)*e.spd*frozenSpd))*0.85;}
+e.x+=e.vx;e.y+=e.vy;
+e.bob+=0.06;
+if(e.flash>0)e.flash--;
+
+// ===== ON-FIRE: burn tick + spread =====
+if(e.onFire>0){
+e.onFire--;
+if(gs.frame%4===0)hitEnemy(e,2);
+// Fire particle smoke
+if(Math.random()<0.25)spawnP(e.x+(Math.random()-0.5)*e.size*0.8,e.y-e.size*0.6,'#ff6622',1,3);
+// Spread fire to nearby enemies every 45 frames, max 4 total spreads
+if(gs.frame%45===0&&(e.onFireSpreads||0)<4){
+for(const e2 of gs.enemies){
+if(!e2.active||e2===e||e2.onFire>0)continue;
+if(Math.hypot(e2.x-e.x,e2.y-e.y)<58){
+e2.onFire=Math.round(360+Math.random()*60);// 6-7s for spread
+e.onFireSpreads=(e.onFireSpreads||0)+1;
+spawnP(e2.x,e2.y,'#ff8822',5,4);spawnP(e2.x,e2.y,'#ffcc44',3,3);
+if(e.onFireSpreads>=4)break;
+}}}}
+
+// Hit player
+if(gs.pInvince===0&&Math.hypot(e.x-gs.px,e.y-gs.py)<e.size+16){
+// Iron Shell: block the hit entirely
+if(gs.ironShells>0){
+  gs.ironShells--;
+  gs.pInvince=60;gs.flash=6;gs.flashColor='#aaaaff';
+  spawnP(gs.px,gs.py,'#aaaaff',10,4);
+  floatT(gs.px,gs.py-24,'🛡️ BLOCKED!','#aaaaff',true);
+  snd('select');
+}else{
+gs.pHP-=e.dmg;gs.pInvince=50;
+gs.flash=8;gs.flashColor='#ff0000';gs.shakeDur=5;
+snd('hit'); // soft low thud (shield_hit removed — was too harsh)
+// THORN SHROUD: deal thorn damage back to attacker
+const thornDmg=getStat('thorns');
+if(thornDmg>0){hitEnemy(e,thornDmg);spawnP(e.x,e.y,'#44ff44',3,2);}
+if(gs.pHP<=0){gs.pHP=0;
+const hasAliveMates=Object.values(remotePlayers).some(rp=>rp.alive&&!rp.downed);
+if(hasAliveMates){
+  // Co-op: go DOWNED — teammates can revive
+  gs.state='downed';gs.downedTimer=1800;gs.pInvince=999;
+  floatT(gs.px,gs.py-30,'DOWNED! Get help!','#ff6644',true);
+  snd('death');spawnP(gs.px,gs.py,'#ff4444',20,5);
+  gs.flash=12;gs.flashColor='#ff4444';
+}else{
+  // Solo or all teammates down → hard death
+  gs.state='dead';saveRun();gs.survived=false;stopMusic();snd('death');
+  playSFX('shatter',0.7);playVoice('death');
+  spawnP(gs.px,gs.py,'#ff4444',30,8);gs.flash=20;gs.flashColor='#ff0000';
+}
+sendPartyUpdate(); // broadcast downed state
+}
+}}} // closes if(pHP<=0), else(iron_shell), if(pInvince===0)
+
+// ===== DROPS =====
+const magR=getMagnet();
+for(let i=gs.pills.length-1;i>=0;i--){
+const p=gs.pills[i];p.life--;
+const pd=Math.hypot(gs.px-p.x,gs.py-p.y);
+// Direct pull — no spring accumulation → no overshoot/repel bug
+if(pd<magR&&pd>0){const ps=Math.min(pd,7+pd*0.07);p.vx=(gs.px-p.x)/pd*ps;p.vy=(gs.py-p.y)/pd*ps;}
+else{p.vx*=0.84;p.vy*=0.84;}
+p.x+=p.vx;p.y+=p.vy;
+if(pd<14||p.life<=0){
+if(pd<14){
+  const xpGain=p.val*getGrowth();
+  gs.xp+=xpGain;
+  snd('xp');
+  sendPartyXP(xpGain); // share with teammates
+  checkLevelUp();
+}
+gs.pills.splice(i,1);
+}}
+for(let i=gs.foods.length-1;i>=0;i--){
+const f=gs.foods[i];f.life--;
+if(Math.hypot(gs.px-f.x,gs.py-f.y)<12){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+f.heal);floatT(gs.px,gs.py-20,'+'+f.heal,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
+if(f.life<=0){gs.foods.splice(i,1);}
+}
+// Gold gems
+for(let i=gs.goldGems.length-1;i>=0;i--){
+const g=gs.goldGems[i];g.life--;
+const gd=Math.hypot(gs.px-g.x,gs.py-g.y);
+// Direct pull — same fix as XP gems, prevents overshoot/repel
+if(gd<getMagnet()*1.4&&gd>0){const gspd=Math.min(gd,7+gd*0.07);g.vx=(gs.px-g.x)/gd*gspd;g.vy=(gs.py-g.y)/gd*gspd;}
+else{g.vx*=0.84;g.vy*=0.84;}
+g.x+=g.vx;g.y+=g.vy;
+if(gd<12||g.life<=0){if(gd<12){gs.gold+=g.val;floatT(gs.px,gs.py-24,'+'+g.val+'g','#ffd700');snd('gold');}gs.goldGems.splice(i,1);}
+}
+// Chests (open on touch → guaranteed level up bonus)
+for(let i=gs.chests.length-1;i>=0;i--){
+const ch=gs.chests[i];
+if(!ch.open&&Math.hypot(gs.px-ch.x,gs.py-ch.y)<ch.size+16){
+  ch.open=true;
+  // ── SATISFYING CHEST OPEN — VS style ──
+  floatT(ch.x,ch.y-30,'✨ CHEST OPENED!','#ffd700',true);
+  snd('lvlup');
+  // Big particle burst
+  spawnP(ch.x,ch.y,'#ffd700',24,8);spawnP(ch.x,ch.y,'#fff',12,6);
+  spawnP(ch.x,ch.y,'#ffcc44',16,7);spawnP(ch.x,ch.y,'#ff88ff',8,5);
+  // Gold shower from chest
+  for(let ci=0;ci<6;ci++)dropGold(ch.x+(Math.random()-0.5)*30,ch.y+(Math.random()-0.5)*30,1,Math.random()<0.3?3:2);
+  // Screen flash + shake
+  gs.shakeDur=14;gs.flash=14;gs.flashColor='#ffd700';gs.hitFreeze=4;
+  // 3 upgrade choices (like VS treasure chest — more rewarding than normal level up)
+  gs.lvlChoices=[...generateChoices(),...generateChoices()].filter((c,i,a)=>a.findIndex(x=>x.id===c.id)===i).slice(0,3);
+  if(gs.lvlChoices.length<3){const extra=generateChoices();for(const e of extra){if(!gs.lvlChoices.find(c=>c.id===e.id)&&gs.lvlChoices.length<3)gs.lvlChoices.push(e);}}
+  gs.lvlSelected=0;
+  // Chest with empty choices (max build) → HP bonus instead of stuck screen
+  if(gs.lvlChoices.length===0){const bonus=Math.ceil(gs.pMaxHP*0.1);gs.pMaxHP+=bonus;gs.pHP=Math.min(gs.pHP+bonus,gs.pMaxHP);floatT(gs.px,gs.py-40,'MAX BUILD! +'+bonus+'❤️ BONUS','#ffd700',true);}
+  else{gs.state='levelup';gs.partyLevelUpChosen={};
+  if(PARTY_ID&&ws&&ws.readyState===1){
+    try{ws.send(JSON.stringify({type:'levelup-trigger',level:gs.level,fromId:USER_ID}));}catch(e){}
+  }}
+  gs.chests.splice(i,1);
+  gs.shakeDur=6;gs.flash=8;gs.flashColor='#ffd700';
+}}
+
+// ===== WEAPON FIRE =====
+fireWeapons();updateFX();
+tickParty();
+
+// ===== REVIVE SCAN =====
+gs.nearDownedId=null;
+for(const[rid,rp] of Object.entries(remotePlayers)){
+  if(!rp.downed)continue;
+  if(Math.hypot(gs.px-rp.x,gs.py-rp.y)<90){gs.nearDownedId=rid;break;}
+}
+// Hold Y (keyboard) or West button (gamepad, index 3) to revive
+if(gs.nearDownedId&&(keys['KeyY']||gp.btns[3])){
+  gs.isReviving=true;gs.reviveTarget=gs.nearDownedId;
+  gs.reviveProgress=(gs.reviveProgress||0)+1;
+  gs.pvx=0;gs.pvy=0; // freeze movement while reviving
+  if(gs.reviveProgress>=180){
+    // 3 seconds complete — revive!
+    if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'player-revive',targetId:gs.reviveTarget}));
+    gs.reviveProgress=0;gs.isReviving=false;gs.reviveTarget=null;
+    floatT(gs.px,gs.py-30,'Teammate revived! 💚','#44ff88',true);
+    snd('lvlup');spawnP(gs.px,gs.py,'#44ff88',12,4);
+  }
+}else{
+  if(gs.reviveProgress>0)gs.reviveProgress=Math.max(0,gs.reviveProgress-2);
+  if(!gs.reviveProgress)gs.isReviving=false;
+}
+
+// ===== PARTICLES — cap at 280 to prevent end-game lag =====
+// Emergency cull: if over limit, remove oldest particles first
+if(gs.particles.length>280)gs.particles.splice(0,gs.particles.length-280);
+for(let i=gs.particles.length-1;i>=0;i--){
+const p=gs.particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.08;p.vx*=0.94;p.life--;
+if(p.life<=0)gs.particles.splice(i,1);
+}
+// Cap float texts at 35 and weapon FX at 70
+if(gs.floatTexts.length>35)gs.floatTexts.splice(0,gs.floatTexts.length-35);
+if(gs.weaponFX.length>70)gs.weaponFX.splice(0,gs.weaponFX.length-70);
+for(let i=gs.floatTexts.length-1;i>=0;i--){
+const f=gs.floatTexts[i];f.x+=(Math.random()-0.5)*0.3;f.y+=f.vy;f.life--;
+if(f.life<=0)gs.floatTexts.splice(i,1);
+}
+
+for(const k in jp)jp[k]=false;gp.jp.fill(false);
+}
+
+function checkLevelUp(){
+if(gs.xp>=gs.xpNeeded&&gs.state!=='levelup'){
+gs.xp-=gs.xpNeeded;gs.level++;
+gs.xpNeeded=Math.floor(gs.xpNeeded*1.55);
+gs.lvlChoices=generateChoices();gs.lvlSelected=0;
+// VS logic: if nothing left to upgrade (all items fully maxed), skip level-up screen
+// and grant a small HP bonus as a reward instead — no infinite loop
+if(gs.lvlChoices.length===0){
+  const bonus=Math.ceil(gs.pMaxHP*0.08);
+  gs.pMaxHP+=bonus;gs.pHP=Math.min(gs.pHP+bonus,gs.pMaxHP);
+  floatT(gs.px,gs.py-40,'MAX BUILD! +'+bonus+'❤️','#ffd700',true);
+  gs.shakeDur=6;gs.flash=8;gs.flashColor='#ffd700';
+  return;
+}
+gs.state='levelup';
+gs.partyLevelUpChosen={};
+gs.shakeDur=8;gs.flash=10;gs.flashColor='#ffd700';
+// Broadcast to party so everyone enters level-up together
+if(PARTY_ID&&ws&&ws.readyState===1){
+  try{ws.send(JSON.stringify({type:'levelup-trigger',level:gs.level,fromId:USER_ID}));}catch(e){}
+}
+}}
+
+function startGame(){
+refreshMetaCache(); // ensure meta stats are fresh
+stopMusic(); // stop any previous music before reset
+resetGame();gs.state='game';
+connectParty();
+gs.weapons.push({id:'moonbolt',lvl:1,cd:0,_orbs:null});
+// Start procedural music after a short intro delay
+if(AX)setTimeout(()=>{if(gs.state==='game')startMusic();},600);
+else{const _mStart=()=>{stopMusic();setTimeout(()=>{if(gs.state==='game')startMusic();},600);};document.addEventListener('pointerdown',_mStart,{once:true});}
+// Apply Iron Shell — start with free blocked hits from meta powerup
+gs.ironShells=getMetaStat('iron_shell');
+// Show iron shell count if active
+if(gs.ironShells>0)floatT(gs.px,gs.py-40,`🛡️ ${gs.ironShells} Iron Shell${gs.ironShells>1?'s':''}!`,'#aaaaff',true);
+}
+
+function resetGame(){
+gs.gameTime=0;gs.frame=0;
+gs.px=WORLD_W/2;gs.py=WORLD_H/2;gs.pvx=0;gs.pvy=0;
+gs.pHP=100;gs.pMaxHP=100;gs.pInvince=0;gs.pFlash=0;gs.pBob=0;
+gs.xp=0;gs.xpNeeded=10;gs.level=1;
+gs.streakKills=0;gs.streakTier=0;
+gs.weapons=[];gs.passives=[];
+gs.pills=[];gs.foods=[];gs.goldGems=[];gs.chests=[];gs.enemies=[];gs.enemyPool=[];
+gs.kills=0;gs.totalDamage=0;gs.gold=0;
+gs.particles=[];gs.floatTexts=[];gs.weaponFX=[];
+gs.spawnTimer=0;gs.bossTimer=0;
+gs.shakeDur=0;gs.shakeX=0;gs.shakeY=0;gs.flash=0;gs.hitFreeze=0;
+gs.survived=false;
+gs._wallTimer=0;
+}
+
+// ========== PROCEDURAL MUSIC ==========
+let _musicRunning=false,_musicBeat=0,_musicNext=0;
+const MUSIC_BPM=128,MUSIC_BEAT_S=60/MUSIC_BPM;
+function startMusic(){if(_musicRunning||!AX)return;_musicRunning=true;_musicNext=AX.currentTime+0.15;_scheduleMusicLoop();}
+function stopMusic(){_musicRunning=false;_musicBeat=0;}
+function _scheduleMusicLoop(){
+  if(!_musicRunning||!musicEnabled){_musicRunning=false;return;}
+  if(!AX){setTimeout(_scheduleMusicLoop,200);return;}
+  const now=AX.currentTime;
+  const intensity=Math.min(1,(gs.gameTime||0)/SURVIVE_TIME);
+  while(_musicNext<now+0.6){
+    const t=_musicNext,b=_musicBeat%8;
+    // Kick every beat
+    _mKick(t,intensity);
+    // Sub-bass every 2 beats at low intensity, every beat at high
+    if(b%2===0||(intensity>0.55&&b%1===0))_mBass(t,intensity,b);
+    // Snare on beats 2 & 6 when intensity > 0.2
+    if((b===2||b===6)&&intensity>0.2)_mSnare(t,intensity);
+    // Hi-hat from 50% intensity
+    if(intensity>0.5){_mHat(t,0.28+intensity*0.18);if(intensity>0.78)_mHat(t+MUSIC_BEAT_S*0.5,0.14);}
+    // Melody from 65%
+    if(intensity>0.65&&(b===0||b===4))_mMelody(t,intensity);
+    _musicNext+=MUSIC_BEAT_S;_musicBeat++;
+  }
+  setTimeout(_scheduleMusicLoop,80);
+}
+// KICK — the hero of the mix, punchy and loud so it cuts through SFX
+function _mKick(t,v){if(!AX)return;const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sine';o.frequency.setValueAtTime(180,t);o.frequency.exponentialRampToValueAtTime(38,t+0.12);g.gain.setValueAtTime(0.52+v*0.22,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.42);o.start(t);o.stop(t+0.42);}
+// BASS — kept lower so kick stands out
+function _mBass(t,v,b){if(!AX)return;const notes=[55,55,49,55,55,46,55,49];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sawtooth';o.frequency.setValueAtTime(notes[b%notes.length],t);const vol=0.032+v*0.038;g.gain.setValueAtTime(vol,t);g.gain.setValueAtTime(vol*0.4,t+MUSIC_BEAT_S*0.55);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*0.9);o.start(t);o.stop(t+MUSIC_BEAT_S);}
+// SNARE — subtle, doesn't compete with kick
+function _mSnare(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.11);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.65;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=1800;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime(0.045+v*0.03,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.11);s.start(t);s.stop(t+0.12);}
+// HI-HAT — very quiet texture only
+function _mHat(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.035);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.45;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=8500;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime((v||0.09)*0.28,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.035);s.start(t);s.stop(t+0.035);}
+// MELODY — quiet background texture
+const _MNOTES=[220,247,261,220,196,220,247,294];
+function _mMelody(t,v){if(!AX)return;const note=_MNOTES[Math.floor(_musicBeat/4)%_MNOTES.length];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='triangle';o.frequency.setValueAtTime(note,t);const vol=(v-0.65)*0.14;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*1.8);o.start(t);o.stop(t+MUSIC_BEAT_S*2);}
+
+// ========== WORLD DECORATION ==========
+// Deterministic seeded placement — drawn from world coord hash
+function drawWorldDecor(cx,cy){
+  // Dense grass layer first (small cell, very frequent)
+  const gcell=80;
+  const gsc=Math.floor(cx/gcell)-1,gec=Math.ceil((cx+C.width)/gcell)+1;
+  const gsr2=Math.floor(cy/gcell)-1,ger=Math.ceil((cy+C.height)/gcell)+1;
+  for(let gx=gsc;gx<=gec;gx++){for(let gy=gsr2;gy<=ger;gy++){
+    const gh=((gx*374761)^(gy*668265)^(gx*gy*1234567))>>>0;
+    if((gh%100)>38)continue; // ~38% of cells get grass tufts
+    const r1=(gh&0xFF)/255,r2=((gh>>8)&0xFF)/255;
+    const wx=gx*gcell+r1*gcell*0.85+gcell*0.07;
+    const wy=gy*gcell+r2*gcell*0.85+gcell*0.07;
+    if(wx<20||wx>WORLD_W-20||wy<20||wy>WORLD_H-20)continue;
+    if(Math.abs(wx-WORLD_W/2)<180&&Math.abs(wy-WORLD_H/2)<180)continue;
+    _dGrass(wx-cx,wy-cy,(gh>>16)&0xFF);
+  }}
+  // Larger props (trees, rocks, fire pits, ruins)
+  const cellSize=220;
+  const sc=Math.floor(cx/cellSize)-1,ec=Math.ceil((cx+C.width)/cellSize)+1;
+  const sr=Math.floor(cy/cellSize)-1,er=Math.ceil((cy+C.height)/cellSize)+1;
+  for(let gx=sc;gx<=ec;gx++){for(let gy=sr;gy<=er;gy++){
+    const h=((gx*73856093)^(gy*19349663)^(gx*gy*2654435761))>>>0;
+    const r1=(h&0xFF)/255,r2=((h>>8)&0xFF)/255,r3=((h>>16)&0xFF)/255,r4=((h>>24)&0xFF)/255;
+    const wx=gx*cellSize+r1*cellSize*0.8+cellSize*0.1;
+    const wy=gy*cellSize+r2*cellSize*0.8+cellSize*0.1;
+    if(wx<30||wx>WORLD_W-30||wy<30||wy>WORLD_H-30)continue;
+    if(Math.abs(wx-WORLD_W/2)<200&&Math.abs(wy-WORLD_H/2)<200)continue;
+    const sx=wx-cx,sy=wy-cy;
+    if(r3<0.48){_dTree(sx,sy,16+r4*26,r1);}
+    else if(r3<0.65){_dRock(sx,sy,10+r4*18,r2);}
+    else if(r3<0.76){_dFire(sx,sy,r1);}
+    else if(r3<0.83){_dRuin(sx,sy,r4);}
+  }}
+}
+
+// Grass tuft — VS style: 2-4 blades per cluster, dark olive green
+function _dGrass(sx,sy,seed){
+  X.save();X.globalAlpha=0.55;
+  const blades=2+((seed>>2)%3);
+  const spread=7+((seed>>4)%6);
+  const gc=['#243d1a','#1e3516','#2a4420','#1a2e14'][(seed>>6)%4];
+  X.strokeStyle=gc;X.lineWidth=1.5;X.lineCap='round';
+  for(let b=0;b<blades;b++){
+    const bx=sx+(((seed*17+b*31)%spread)-(spread/2));
+    const bh=5+((seed*b*7)%6);
+    const lean=(((seed+b)*13)%8)-4;
+    X.beginPath();X.moveTo(bx,sy);X.quadraticCurveTo(bx+lean,sy-bh*0.5,bx+lean*1.4,sy-bh);X.stroke();
+  }
+  X.restore();
+}
+
+// Tree — VS style: stacked layered canopy, dark + depth
+function _dTree(sx,sy,sz,seed){
+  X.save();X.globalAlpha=0.88;
+  // Drop shadow
+  X.fillStyle='rgba(0,0,0,0.22)';X.beginPath();X.ellipse(sx,sy+sz*0.5,sz*0.65,sz*0.2,0,0,Math.PI*2);X.fill();
+  // Trunk
+  X.fillStyle='#2e1f0e';X.fillRect(sx-sz*0.10,sy,sz*0.20,sz*0.55);
+  // Choose canopy colors by seed
+  const dark=['#0d1f0a','#0a1c08','#0e2210','#111f0c'][(seed*4|0)%4];
+  const mid=['#163012','#122a10','#183514','#14280e'][(seed*7|0)%4];
+  const light='#1e3d18';
+  // Bottom layer (widest, darkest) — slightly elliptical
+  X.fillStyle=dark;X.shadowColor='#050e04';X.shadowBlur=12;
+  X.beginPath();X.ellipse(sx,sy-sz*0.05,sz*0.88,sz*0.62,0,0,Math.PI*2);X.fill();
+  // Middle layer
+  X.fillStyle=mid;X.shadowBlur=8;
+  X.beginPath();X.ellipse(sx+sz*0.06,sy-sz*0.42,sz*0.72,sz*0.52,0,0,Math.PI*2);X.fill();
+  // Top layer (smallest, lightest)
+  X.fillStyle=light;X.shadowBlur=5;
+  X.beginPath();X.ellipse(sx-sz*0.04,sy-sz*0.76,sz*0.48,sz*0.38,0,0,Math.PI*2);X.fill();
+  // Highlight glint top-left
+  X.globalAlpha=0.12;X.fillStyle='#6aaa44';X.shadowBlur=0;
+  X.beginPath();X.ellipse(sx-sz*0.22,sy-sz*0.85,sz*0.18,sz*0.13,0,0,Math.PI*2);X.fill();
+  X.restore();X.shadowBlur=0;
+}
+
+// Rock — chunky, VS style
+function _dRock(sx,sy,sz,seed){
+  X.save();X.globalAlpha=0.70;
+  X.fillStyle='rgba(0,0,0,0.2)';X.beginPath();X.ellipse(sx,sy+sz*0.25,sz*0.58,sz*0.16,0,0,Math.PI*2);X.fill();
+  X.shadowColor='#000';X.shadowBlur=6;
+  X.fillStyle='#3a3830';
+  X.beginPath();X.moveTo(sx-sz*0.55,sy+sz*0.3);X.lineTo(sx-sz*0.65,sy-sz*0.05);X.lineTo(sx-sz*0.3,sy-sz*0.45);X.lineTo(sx+sz*0.12,sy-sz*0.52);X.lineTo(sx+sz*0.60,sy-sz*0.1);X.lineTo(sx+sz*0.54,sy+sz*0.3);X.closePath();X.fill();
+  X.shadowBlur=0;X.fillStyle='#555248';
+  X.beginPath();X.moveTo(sx-sz*0.14,sy-sz*0.44);X.lineTo(sx+sz*0.12,sy-sz*0.52);X.lineTo(sx+sz*0.55,sy-sz*0.1);X.lineTo(sx+sz*0.2,sy-sz*0.02);X.closePath();X.fill();
+  X.fillStyle='rgba(255,255,255,0.07)';
+  X.beginPath();X.moveTo(sx-sz*0.3,sy-sz*0.45);X.lineTo(sx-sz*0.12,sy-sz*0.48);X.lineTo(sx-sz*0.18,sy-sz*0.28);X.closePath();X.fill();
+  X.restore();
+}
+
+// Fire pit — VS style: stone ring + dramatic animated flames
+function _dFire(sx,sy,seed){
+  const t2=gs.time*0.18+seed*6.28;
+  X.save();
+  // Glow on ground
+  X.globalAlpha=0.18+Math.sin(t2)*0.06;
+  const gg=X.createRadialGradient(sx,sy,0,sx,sy,32);
+  gg.addColorStop(0,'rgba(255,140,0,0.7)');gg.addColorStop(1,'rgba(255,60,0,0)');
+  X.fillStyle=gg;X.beginPath();X.arc(sx,sy,32,0,Math.PI*2);X.fill();
+  // Stone ring — 7 irregular stones in a circle
+  X.globalAlpha=0.92;
+  for(let si=0;si<7;si++){
+    const sa=si*(Math.PI*2/7)+(seed*0.8);
+    const sr2=10;const stone_x=sx+Math.cos(sa)*sr2,stone_y=sy+Math.sin(sa)*sr2*0.65;
+    X.fillStyle=['#4a4540','#3e3a36','#524e48','#403c38'][si%4];
+    X.beginPath();X.ellipse(stone_x,stone_y,3.5+((si*37+seed*100|0)%3),2.5,sa,0,Math.PI*2);X.fill();
+  }
+  // Burning logs
+  X.globalAlpha=0.8;
+  X.fillStyle='#2a1005';X.strokeStyle='#3d1a08';X.lineWidth=3.5;X.lineCap='round';
+  X.beginPath();X.moveTo(sx-7,sy+2);X.lineTo(sx+7,sy-2);X.stroke();
+  X.beginPath();X.moveTo(sx-5,sy-3);X.lineTo(sx+6,sy+4);X.stroke();
+  // Embers
+  X.globalAlpha=0.6;
+  for(let ei=0;ei<4;ei++){
+    const ea=t2*0.7+ei*(Math.PI/2);
+    X.fillStyle='#ff6600';X.shadowColor='#ff4400';X.shadowBlur=4;
+    X.beginPath();X.arc(sx+Math.cos(ea)*4,sy+Math.sin(ea)*2.5-1,1.2,0,Math.PI*2);X.fill();
+  }
+  // Flames — tall, narrow, VS style
+  X.shadowColor='#ff6600';X.shadowBlur=22+Math.sin(t2)*8;
+  for(let fi=0;fi<5;fi++){
+    const fa=fi*(Math.PI*2/5)+t2*0.4;
+    const fx=sx+Math.cos(fa)*3.5;const fw=2.5+Math.sin(t2*1.2+fi)*1;
+    const fh=12+Math.sin(t2*1.1+fi*0.8)*5;
+    const flg=X.createLinearGradient(fx,sy,fx,sy-fh-4);
+    flg.addColorStop(0,'rgba(255,240,60,0.95)');flg.addColorStop(0.3,'rgba(255,100,0,0.85)');flg.addColorStop(0.7,'rgba(220,40,0,0.5)');flg.addColorStop(1,'rgba(150,0,0,0)');
+    X.fillStyle=flg;X.globalAlpha=0.82;
+    X.beginPath();X.moveTo(fx-fw,sy);X.quadraticCurveTo(fx+fw*0.5,sy-fh*0.5,fx,sy-fh);X.quadraticCurveTo(fx-fw*0.4,sy-fh*0.5,fx+fw,sy);X.closePath();X.fill();
+  }
+  X.restore();X.shadowBlur=0;
+}
+
+// Ruin — crumbling stone wall, VS style
+function _dRuin(sx,sy,seed){
+  X.save();X.globalAlpha=0.65;
+  const w=20+seed*24,h=14+seed*18;
+  // Wall body — rough stone color
+  X.fillStyle='rgba(0,0,0,0.18)';X.beginPath();X.ellipse(sx,sy+4,w*0.55,6,0,0,Math.PI*2);X.fill();
+  X.fillStyle='#322e28';X.fillRect(sx-w/2,sy-h,w,h);
+  // Stone blocks
+  X.strokeStyle='#1e1b18';X.lineWidth=1;
+  for(let row=0;row<3;row++){
+    const ry=sy-h+row*(h/3);
+    for(let col=0;col<3;col++){const cx2=sx-w/2+col*(w/3);X.strokeRect(cx2+1,ry+1,w/3-2,h/3-1);}
+  }
+  // Crumbled top edge — jagged
+  X.fillStyle='#322e28';
+  X.beginPath();X.moveTo(sx-w/2,sy-h);
+  for(let jx=0;jx<=4;jx++){X.lineTo(sx-w/2+jx*(w/4),sy-h-((seed*17+jx*7)%9));}
+  X.lineTo(sx+w/2,sy-h);X.closePath();X.fill();
+  // Dark window/void
+  X.fillStyle='rgba(0,0,0,0.6)';X.fillRect(sx-5,sy-h+3,10,8);
+  // Moss/vines hint on side
+  X.globalAlpha=0.3;X.fillStyle='#1e3a0e';X.fillRect(sx-w/2,sy-h+2,3,h-2);
+  X.restore();
+}
+
+// ========== DRAW ==========
+function drawBoss(e,ex,ey){
+const s=e.size,fc=e.flash>0?'#ffffff':e.color,ph=gs.time*0.05;
+if(e.type==='bandit_warlord'){
+X.save();X.shadowColor='#ff4411';X.shadowBlur=22+Math.sin(ph)*6;
+// Armored torso (trapezoid)
+X.fillStyle=fc;X.beginPath();X.moveTo(ex-s*0.65,ey+s*0.75);X.lineTo(ex-s*0.88,ey-s*0.08);X.lineTo(ex-s*0.54,ey-s*0.55);X.lineTo(ex+s*0.54,ey-s*0.55);X.lineTo(ex+s*0.88,ey-s*0.08);X.lineTo(ex+s*0.65,ey+s*0.75);X.closePath();X.fill();
+// Chest plate
+X.fillStyle='#ff5522';X.beginPath();X.moveTo(ex-s*0.38,ey-s*0.52);X.lineTo(ex+s*0.38,ey-s*0.52);X.lineTo(ex+s*0.28,ey+s*0.18);X.lineTo(ex,ey+s*0.28);X.lineTo(ex-s*0.28,ey+s*0.18);X.closePath();X.fill();
+// Shoulder spikes
+X.fillStyle='#ff6633';for(const sx of[-1,1]){X.beginPath();X.moveTo(ex+sx*s*0.54,ey-s*0.55);X.lineTo(ex+sx*s*0.95,ey-s*0.88);X.lineTo(ex+sx*s*0.84,ey-s*0.25);X.closePath();X.fill();}
+// Head
+X.fillStyle=e.flash>0?'#ffffff':'#993322';X.beginPath();X.arc(ex,ey-s*0.74,s*0.4,0,Math.PI*2);X.fill();
+// Helmet
+X.fillStyle=fc;X.beginPath();X.arc(ex,ey-s*0.84,s*0.45,Math.PI,Math.PI*2);X.fill();
+// Helmet center spike
+X.beginPath();X.moveTo(ex-s*0.1,ey-s*1.24);X.lineTo(ex,ey-s*1.6);X.lineTo(ex+s*0.1,ey-s*1.24);X.closePath();X.fill();
+// Helmet side spikes
+X.fillStyle='#cc3300';
+X.beginPath();X.moveTo(ex-s*0.38,ey-s*1.02);X.lineTo(ex-s*0.62,ey-s*1.2);X.lineTo(ex-s*0.35,ey-s*0.88);X.closePath();X.fill();
+X.beginPath();X.moveTo(ex+s*0.38,ey-s*1.02);X.lineTo(ex+s*0.62,ey-s*1.2);X.lineTo(ex+s*0.35,ey-s*0.88);X.closePath();X.fill();
+// Jaw/teeth
+X.fillStyle='#7a2210';X.beginPath();X.arc(ex,ey-s*0.58,s*0.26,0,Math.PI);X.fill();
+X.fillStyle='#eecc99';for(let t=0;t<4;t++){X.beginPath();X.moveTo(ex-s*0.22+t*s*0.15,ey-s*0.58);X.lineTo(ex-s*0.18+t*s*0.15,ey-s*0.44);X.lineTo(ex-s*0.12+t*s*0.15,ey-s*0.58);X.closePath();X.fill();}
+// Glowing red eyes
+X.shadowColor='#ff0000';X.shadowBlur=10;X.fillStyle='#ff1100';
+X.beginPath();X.arc(ex-s*0.16,ey-s*0.76,s*0.09,0,Math.PI*2);X.fill();
+X.beginPath();X.arc(ex+s*0.16,ey-s*0.76,s*0.09,0,Math.PI*2);X.fill();
+X.fillStyle='#ff8844';X.shadowBlur=0;
+X.beginPath();X.arc(ex-s*0.16,ey-s*0.76,s*0.04,0,Math.PI*2);X.fill();
+X.beginPath();X.arc(ex+s*0.16,ey-s*0.76,s*0.04,0,Math.PI*2);X.fill();
+// Arms
+X.strokeStyle=fc;X.lineWidth=s*0.22;X.lineCap='round';
+const wb=Math.sin(e.bob*0.8)*0.35;
+X.beginPath();X.moveTo(ex-s*0.88,ey-s*0.08);X.lineTo(ex-s*1.38,ey-s*0.42+Math.sin(wb)*s*0.18);X.stroke();
+X.beginPath();X.moveTo(ex+s*0.88,ey-s*0.08);X.lineTo(ex+s*1.28,ey+s*0.18+Math.sin(-wb)*s*0.22);X.stroke();
+// Axe
+const ax=ex+s*1.32,ay=ey+s*0.22;
+X.strokeStyle='#664422';X.lineWidth=s*0.1;X.beginPath();X.moveTo(ax-s*0.08,ay-s*0.55);X.lineTo(ax+s*0.15,ay+s*0.28);X.stroke();
+X.fillStyle='#999';X.shadowColor='#bbbbcc';X.shadowBlur=6;
+X.beginPath();X.moveTo(ax,ay-s*0.45);X.lineTo(ax+s*0.4,ay-s*0.12);X.lineTo(ax+s*0.34,ay+s*0.24);X.lineTo(ax-s*0.02,ay+s*0.1);X.closePath();X.fill();
+X.fillStyle='#bbb';X.beginPath();X.moveTo(ax+s*0.08,ay-s*0.38);X.lineTo(ax+s*0.36,ay-s*0.08);X.lineTo(ax+s*0.3,ay+s*0.16);X.closePath();X.fill();
+// Legs
+X.shadowBlur=0;X.strokeStyle=fc;X.lineWidth=s*0.22;X.lineCap='round';
+X.beginPath();X.moveTo(ex-s*0.32,ey+s*0.75);X.lineTo(ex-s*0.4,ey+s*1.18+Math.sin(e.bob)*s*0.1);X.stroke();
+X.beginPath();X.moveTo(ex+s*0.32,ey+s*0.75);X.lineTo(ex+s*0.4,ey+s*1.18+Math.sin(e.bob+1.2)*s*0.1);X.stroke();
+// Boot spikes
+X.fillStyle='#cc3300';
+X.beginPath();X.moveTo(ex-s*0.4,ey+s*1.18);X.lineTo(ex-s*0.58,ey+s*1.22);X.lineTo(ex-s*0.4,ey+s*1.08);X.closePath();X.fill();
+X.beginPath();X.moveTo(ex+s*0.4,ey+s*1.18);X.lineTo(ex+s*0.58,ey+s*1.22);X.lineTo(ex+s*0.4,ey+s*1.08);X.closePath();X.fill();
+X.restore();
+}else if(e.type==='zombie_dragon'){
+X.save();X.shadowColor='#22ff55';X.shadowBlur=28+Math.sin(ph*0.7)*10;
+const wf=Math.sin(e.bob*0.55)*0.28;
+// Wings (behind body)
+X.fillStyle=e.flash>0?'#ccffcc':'#0b3319';
+X.beginPath();X.moveTo(ex-s*0.52,ey-s*0.15);X.lineTo(ex-s*1.95,ey-s*0.68+wf*s);X.lineTo(ex-s*1.72,ey+s*0.58);X.lineTo(ex-s*0.75,ey+s*0.32);X.closePath();X.fill();
+X.beginPath();X.moveTo(ex+s*0.52,ey-s*0.15);X.lineTo(ex+s*1.95,ey-s*0.68+wf*s);X.lineTo(ex+s*1.72,ey+s*0.58);X.lineTo(ex+s*0.75,ey+s*0.32);X.closePath();X.fill();
+// Wing veins
+X.strokeStyle=e.flash>0?'#aaffaa':'#1a5530';X.lineWidth=1.5;
+for(let w=0;w<3;w++){X.beginPath();X.moveTo(ex-s*0.52,ey+s*0.05);X.lineTo(ex-s*1.82+w*s*0.32,ey-s*0.5+wf*s);X.stroke();}
+for(let w=0;w<3;w++){X.beginPath();X.moveTo(ex+s*0.52,ey+s*0.05);X.lineTo(ex+s*1.82-w*s*0.32,ey-s*0.5+wf*s);X.stroke();}
+// Body
+X.shadowBlur=0;X.fillStyle=fc;X.beginPath();X.ellipse(ex,ey+s*0.12,s*0.72,s*0.82,0,0,Math.PI*2);X.fill();
+// Belly plates
+X.fillStyle=e.flash>0?'#ffffff':'#2a6a3a';X.beginPath();X.ellipse(ex,ey+s*0.32,s*0.44,s*0.54,0,0,Math.PI*2);X.fill();
+// Scale dots
+X.fillStyle=e.flash>0?'#ccffcc':'#0f4f22';
+for(let sc=0;sc<6;sc++){const sa=sc*(Math.PI/3)+ph*0.2;X.beginPath();X.arc(ex+Math.cos(sa)*s*0.36,ey+s*0.18+Math.sin(sa)*s*0.36,s*0.07,0,Math.PI*2);X.fill();}
+// Neck
+X.fillStyle=fc;X.beginPath();X.moveTo(ex-s*0.27,ey-s*0.7);X.lineTo(ex+s*0.27,ey-s*0.7);X.lineTo(ex+s*0.2,ey-s*1.18);X.lineTo(ex-s*0.2,ey-s*1.18);X.closePath();X.fill();
+// Head
+X.beginPath();X.ellipse(ex,ey-s*1.32,s*0.35,s*0.25,0,0,Math.PI*2);X.fill();
+// Snout
+X.beginPath();X.ellipse(ex+s*0.1,ey-s*1.14,s*0.22,s*0.19,0.25,0,Math.PI*2);X.fill();
+// Nostrils
+X.fillStyle=e.flash>0?'#fff':'#0a3318';
+X.beginPath();X.ellipse(ex+s*0.05,ey-s*1.1,s*0.04,s*0.03,0,0,Math.PI*2);X.fill();
+X.beginPath();X.ellipse(ex+s*0.2,ey-s*1.12,s*0.04,s*0.03,0,0,Math.PI*2);X.fill();
+// Teeth
+X.fillStyle='#eeeebb';for(let t=0;t<3;t++){X.beginPath();X.moveTo(ex-s*0.2+t*s*0.2,ey-s*1.06);X.lineTo(ex-s*0.14+t*s*0.2,ey-s*0.95);X.lineTo(ex-s*0.08+t*s*0.2,ey-s*1.06);X.closePath();X.fill();}
+// Eyes
+X.shadowColor='#ffcc00';X.shadowBlur=10;X.fillStyle='#ffcc00';
+X.beginPath();X.arc(ex-s*0.15,ey-s*1.37,s*0.1,0,Math.PI*2);X.fill();
+X.beginPath();X.arc(ex+s*0.33,ey-s*1.28,s*0.1,0,Math.PI*2);X.fill();
+// Pupils
+X.fillStyle='#000';X.shadowBlur=0;
+X.beginPath();X.ellipse(ex-s*0.15,ey-s*1.37,s*0.03,s*0.08,0,0,Math.PI*2);X.fill();
+X.beginPath();X.ellipse(ex+s*0.33,ey-s*1.28,s*0.03,s*0.08,0,0,Math.PI*2);X.fill();
+// Horns
+X.fillStyle=e.flash>0?'#ccffcc':'#446644';
+X.beginPath();X.moveTo(ex-s*0.17,ey-s*1.44);X.lineTo(ex-s*0.36,ey-s*1.78);X.lineTo(ex-s*0.07,ey-s*1.44);X.closePath();X.fill();
+X.beginPath();X.moveTo(ex+s*0.17,ey-s*1.44);X.lineTo(ex+s*0.36,ey-s*1.78);X.lineTo(ex+s*0.07,ey-s*1.44);X.closePath();X.fill();
+// Tail
+X.strokeStyle=fc;X.lineWidth=s*0.17;X.lineCap='round';
+X.beginPath();X.moveTo(ex,ey+s*0.88);X.quadraticCurveTo(ex-s*1.05,ey+s*1.32+Math.sin(e.bob*0.5)*s*0.18,ex-s*0.6,ey+s*1.65);X.stroke();
+// Tail spike
+X.fillStyle=e.flash>0?'#ccffcc':'#446644';
+X.beginPath();X.moveTo(ex-s*0.6,ey+s*1.65);X.lineTo(ex-s*0.8,ey+s*1.72);X.lineTo(ex-s*0.52,ey+s*1.78);X.closePath();X.fill();
+X.restore();
+}else if(e.type==='moon_wraith'){
+X.save();
+// Orbiting soul orbs (behind body)
+X.shadowColor='#88aaff';X.shadowBlur=14;
+for(let o=0;o<3;o++){
+const oa=ph*1.3+o*(Math.PI*2/3);
+X.fillStyle=`rgba(100,130,255,${0.32+Math.sin(ph+o)*0.18})`;
+X.beginPath();X.arc(ex+Math.cos(oa)*s*1.18,ey+Math.sin(oa)*s*0.65,s*0.14,0,Math.PI*2);X.fill();
+}
+// Body glow gradient
+X.shadowColor='#6688ff';X.shadowBlur=38+Math.sin(ph)*12;
+const wg=X.createRadialGradient(ex,ey-s*0.22,s*0.08,ex,ey-s*0.22,s*1.05);
+wg.addColorStop(0,e.flash>0?'rgba(255,255,255,0.98)':'rgba(130,155,255,0.95)');
+wg.addColorStop(0.4,e.flash>0?'rgba(200,200,255,0.7)':'rgba(45,65,210,0.68)');
+wg.addColorStop(1,'rgba(15,15,75,0)');
+X.fillStyle=wg;X.beginPath();X.arc(ex,ey-s*0.22,s*0.98,0,Math.PI*2);X.fill();
+// Ethereal wispy tendrils (bottom)
+X.shadowBlur=0;
+for(let w=0;w<5;w++){
+const wx=ex+(-2+w)*s*0.27;
+const wo=Math.sin(ph+w*1.28)*s*0.22;
+X.strokeStyle=e.flash>0?`rgba(255,255,255,0.5)`:`rgba(80,105,255,${0.28+w*0.04})`;
+X.lineWidth=s*0.07+Math.sin(ph+w)*s*0.024;X.lineCap='round';
+X.beginPath();X.moveTo(wx,ey+s*0.38);X.quadraticCurveTo(wx+wo,ey+s*0.75,wx+wo*0.5,ey+s*1.22+Math.sin(ph+w*0.68)*s*0.18);X.stroke();
+}
+// Dark hood overlay
+X.fillStyle=e.flash>0?'rgba(200,200,255,0.2)':'rgba(4,4,28,0.62)';
+X.beginPath();X.ellipse(ex,ey-s*0.52,s*0.68,s*0.54,0,0,Math.PI);X.fill();
+// Inner void / dark face
+X.fillStyle=e.flash>0?'rgba(255,255,255,0.1)':'rgba(2,2,20,0.55)';
+X.beginPath();X.ellipse(ex,ey-s*0.46,s*0.46,s*0.38,0,0,Math.PI*2);X.fill();
+// 3 glowing eye orbs
+const eyePts=[{ox:-0.24,oy:-0.56},{ox:0.24,oy:-0.59},{ox:0,oy:-0.38}];
+eyePts.forEach((ep,i)=>{
+const epp=ph+i*1.18;const ebb=Math.sin(epp)*s*0.038;
+X.shadowColor='#aabbff';X.shadowBlur=14;
+X.fillStyle=e.flash>0?'#ffffff':'#aac0ff';
+X.beginPath();X.arc(ex+ep.ox*s,ey+ep.oy*s+ebb,s*0.11,0,Math.PI*2);X.fill();
+X.shadowBlur=0;X.fillStyle='#eef4ff';
+X.beginPath();X.arc(ex+ep.ox*s,ey+ep.oy*s+ebb,s*0.05,0,Math.PI*2);X.fill();
+// Pupil slit
+X.fillStyle='rgba(0,0,20,0.7)';
+X.beginPath();X.ellipse(ex+ep.ox*s,ey+ep.oy*s+ebb,s*0.02,s*0.07,0,0,Math.PI*2);X.fill();
+});
+// Crown of bone-white shards
+X.fillStyle=e.flash>0?'#eef':'#ccd4ff';X.shadowColor='#aabbff';X.shadowBlur=8;
+for(let c=0;c<5;c++){const ca=-Math.PI*0.75+c*(Math.PI*0.35);const cl=s*(0.82+Math.sin(c*1.8)*0.12);
+X.beginPath();X.moveTo(ex+Math.cos(ca-0.1)*s*0.75,ey-s*0.18+Math.sin(ca-0.1)*s*0.75);
+X.lineTo(ex+Math.cos(ca)*cl,ey-s*0.18+Math.sin(ca)*cl);
+X.lineTo(ex+Math.cos(ca+0.1)*s*0.75,ey-s*0.18+Math.sin(ca+0.1)*s*0.75);
+X.closePath();X.fill();}
+X.restore();
+}else if(e.type==='undead_dragon'){
+// ── UNDEAD DRAGON: full skeletal dragon — massive membrane wings, serpentine body ──
+X.save();X.shadowColor='#8822ff';X.shadowBlur=32+Math.sin(ph*0.8)*14;
+const wf=Math.sin(e.bob*0.55)*0.3;
+const fc2=e.flash>0?'#ffffff':null;
+
+// === WINGS (drawn first, behind everything) ===
+// Left wing membrane — huge swept bat-like shape
+const lWx=ex-s*0.38,lWy=ey-s*0.05;
+X.fillStyle=fc2||'#1e0e2e';
+X.beginPath();
+X.moveTo(lWx,lWy);
+X.bezierCurveTo(lWx-s*0.85,lWy-s*0.95+wf*s*0.55,lWx-s*1.7,lWy-s*0.55+wf*s*0.75,lWx-s*2.3,lWy-s*0.05+wf*s*0.65);
+X.bezierCurveTo(lWx-s*1.85,lWy+s*0.55+wf*s*0.25,lWx-s*1.1,lWy+s*0.6,lWx-s*0.1,lWy+s*0.35);
+X.closePath();X.fill();
+// Right wing membrane
+const rWx=ex+s*0.38,rWy=ey-s*0.05;
+X.beginPath();
+X.moveTo(rWx,rWy);
+X.bezierCurveTo(rWx+s*0.85,rWy-s*0.95+wf*s*0.55,rWx+s*1.7,rWy-s*0.55+wf*s*0.75,rWx+s*2.3,rWy-s*0.05+wf*s*0.65);
+X.bezierCurveTo(rWx+s*1.85,rWy+s*0.55+wf*s*0.25,rWx+s*1.1,rWy+s*0.6,rWx+s*0.1,rWy+s*0.35);
+X.closePath();X.fill();
+// Wing finger bones (veins)
+X.strokeStyle=fc2||'#4a1e6a';X.lineWidth=s*0.045;X.lineCap='round';X.globalAlpha=0.75;
+for(let vi=0;vi<3;vi++){
+  X.beginPath();X.moveTo(lWx,lWy);
+  X.lineTo(lWx-s*(0.75+vi*0.55),lWy-s*(0.6-vi*0.05)+wf*s*(0.45+vi*0.12));X.stroke();
+  X.beginPath();X.moveTo(rWx,rWy);
+  X.lineTo(rWx+s*(0.75+vi*0.55),rWy-s*(0.6-vi*0.05)+wf*s*(0.45+vi*0.12));X.stroke();
+}
+// Wing edge highlight (subtle bone-rim)
+X.strokeStyle=fc2||'#6a3a8a';X.lineWidth=s*0.025;X.globalAlpha=0.5;
+X.beginPath();X.moveTo(lWx-s*2.3,lWy-s*0.05+wf*s*0.65);X.bezierCurveTo(lWx-s*1.85,lWy+s*0.55+wf*s*0.25,lWx-s*1.1,lWy+s*0.6,lWx-s*0.1,lWy+s*0.35);X.stroke();
+X.beginPath();X.moveTo(rWx+s*2.3,rWy-s*0.05+wf*s*0.65);X.bezierCurveTo(rWx+s*1.85,rWy+s*0.55+wf*s*0.25,rWx+s*1.1,rWy+s*0.6,rWx+s*0.1,rWy+s*0.35);X.stroke();
+X.globalAlpha=1;
+
+// === TAIL — serpentine S-curve with taper ===
+const tbx=ex-s*0.18,tby=ey+s*0.62;
+X.strokeStyle=fc2||'#2e1808';X.lineWidth=s*0.36;X.lineCap='round';
+X.shadowColor='#8822ff';X.shadowBlur=10;
+X.beginPath();X.moveTo(tbx,tby);
+X.bezierCurveTo(tbx-s*0.9,tby+s*0.45+Math.sin(e.bob*0.42)*s*0.22,tbx-s*1.75,tby+s*0.1+Math.sin(e.bob*0.42+1.1)*s*0.28,tbx-s*2.25,tby+s*0.75+Math.sin(e.bob*0.42+2)*s*0.2);X.stroke();
+X.lineWidth=s*0.14;
+X.beginPath();X.moveTo(tbx-s*2.25,tby+s*0.75);
+X.bezierCurveTo(tbx-s*2.65,tby+s*1.1,tbx-s*2.9,tby+s*0.9,tbx-s*3.1,tby+s*1.25);X.stroke();
+// Tail diamond-spike
+X.fillStyle=fc2||'#aa7730';
+X.beginPath();X.moveTo(tbx-s*3.1,tby+s*1.25);X.lineTo(tbx-s*3.45,tby+s*1.05);X.lineTo(tbx-s*3.0,tby+s*1.5);X.lineTo(tbx-s*2.8,tby+s*1.2);X.closePath();X.fill();
+
+// === BODY ===
+X.shadowBlur=0;
+X.fillStyle=fc2||'#251508';
+X.beginPath();X.ellipse(ex,ey+s*0.18,s*0.52,s*0.74,-0.08,0,Math.PI*2);X.fill();
+// Spine ridge along top
+X.fillStyle=fc2||'#3e2210';
+for(let sp=0;sp<5;sp++){X.beginPath();X.ellipse(ex+s*0.04-sp*s*0.02,ey-s*0.28+sp*s*0.22,s*0.09,s*0.065,-0.1,0,Math.PI*2);X.fill();}
+// Rib bones arching out
+X.strokeStyle=fc2||'#6e3e18';X.lineWidth=s*0.058;X.lineCap='round';
+for(let ri=0;ri<5;ri++){
+  const ry=ey-s*0.28+ri*s*0.24;
+  X.beginPath();X.moveTo(ex-s*0.5,ry);X.bezierCurveTo(ex-s*0.68,ry+s*0.1,ex+s*0.68,ry+s*0.1,ex+s*0.5,ry);X.stroke();
+}
+
+// === NECK — long curved forward ===
+const nBx=ex+s*0.12,nBy=ey-s*0.58;
+const nTx=ex+s*0.38,nTy=ey-s*1.28;
+X.strokeStyle=fc2||'#251508';X.lineWidth=s*0.3;X.lineCap='round';
+X.shadowColor='#8822ff';X.shadowBlur=8;
+X.beginPath();X.moveTo(nBx,nBy);X.quadraticCurveTo(nBx+s*0.35,nBy-s*0.38,nTx,nTy);X.stroke();
+// Neck vertebrae
+X.fillStyle=fc2||'#3e2210';X.shadowBlur=0;
+for(let ni=0;ni<3;ni++){const nt=ni/2.5;X.beginPath();X.ellipse(nBx+(nTx-nBx)*nt+s*0.08*nt,nBy+(nTy-nBy)*nt,s*0.1,s*0.075,0,0,Math.PI*2);X.fill();}
+
+// === HEAD ===
+const hx=nTx+s*0.12,hy=nTy-s*0.12;
+// Skull cranium
+X.fillStyle=fc2||'#c8a468';
+X.beginPath();X.ellipse(hx,hy,s*0.4,s*0.27,0.18,0,Math.PI*2);X.fill();
+// Forward snout — elongated dragon maw
+X.beginPath();X.ellipse(hx+s*0.28,hy+s*0.14,s*0.24,s*0.14,0.28,0,Math.PI*2);X.fill();
+// Jaw underside (open mouth)
+X.fillStyle=fc2||'#a07840';
+X.beginPath();X.ellipse(hx+s*0.22,hy+s*0.28,s*0.22,s*0.1,0.28,0,Math.PI);X.fill();
+// Upper fangs
+X.fillStyle=fc2||'#e8d898';
+for(let ti=0;ti<3;ti++){const tx2=hx+s*0.08+ti*s*0.14,ty2=hy+s*0.15;X.beginPath();X.moveTo(tx2,ty2);X.lineTo(tx2+s*0.055,ty2+s*0.16);X.lineTo(tx2+s*0.1,ty2);X.closePath();X.fill();}
+// Lower fangs
+for(let ti=0;ti<2;ti++){const tx2=hx+s*0.14+ti*s*0.14,ty2=hy+s*0.26;X.beginPath();X.moveTo(tx2,ty2);X.lineTo(tx2+s*0.045,ty2-s*0.13);X.lineTo(tx2+s*0.09,ty2);X.closePath();X.fill();}
+
+// === EYES ===
+X.shadowColor='#cc44ff';X.shadowBlur=24;
+X.fillStyle=fc2||'#cc44ff';
+X.beginPath();X.arc(hx-s*0.06,hy-s*0.07,s*0.1,0,Math.PI*2);X.fill();
+X.beginPath();X.arc(hx+s*0.24,hy-s*0.05,s*0.1,0,Math.PI*2);X.fill();
+X.fillStyle=fc2||'#ff99ff';X.shadowBlur=0;
+X.beginPath();X.arc(hx-s*0.06,hy-s*0.07,s*0.042,0,Math.PI*2);X.fill();
+X.beginPath();X.arc(hx+s*0.24,hy-s*0.05,s*0.042,0,Math.PI*2);X.fill();
+
+// === CURVED HORNS ===
+X.fillStyle=fc2||'#ddc888';
+X.beginPath();X.moveTo(hx-s*0.26,hy-s*0.16);
+X.bezierCurveTo(hx-s*0.52,hy-s*0.6,hx-s*0.28,hy-s*0.82,hx-s*0.14,hy-s*0.65);
+X.bezierCurveTo(hx-s*0.18,hy-s*0.42,hx-s*0.08,hy-s*0.26,hx-s*0.1,hy-s*0.14);
+X.closePath();X.fill();
+X.beginPath();X.moveTo(hx+s*0.2,hy-s*0.14);
+X.bezierCurveTo(hx+s*0.42,hy-s*0.6,hx+s*0.22,hy-s*0.82,hx+s*0.1,hy-s*0.64);
+X.bezierCurveTo(hx+s*0.06,hy-s*0.4,hx+s*0.02,hy-s*0.24,hx+s*0.04,hy-s*0.12);
+X.closePath();X.fill();
+
+// === DEATH AURA — orbiting purple wisps ===
+X.globalAlpha=0.28+Math.sin(gs.time*0.07)*0.14;
+X.shadowColor='#8822ff';X.shadowBlur=18;
+X.strokeStyle='#aa44ff';X.lineWidth=s*0.07;
+for(let ai=0;ai<3;ai++){const at=gs.time*0.035+ai*2.09;X.beginPath();X.arc(ex+Math.cos(at)*s*0.85,ey+s*0.2+Math.sin(at)*s*0.45,s*0.14,0,Math.PI*2);X.stroke();}
+X.globalAlpha=1;
+X.restore();
+}else{
+// Fallback for future boss types
+X.save();X.shadowColor=e.color;X.shadowBlur=20;
+X.fillStyle=e.flash>0?'#ffffff':e.color;X.beginPath();X.arc(ex,ey,s,0,Math.PI*2);X.fill();X.restore();
+X.font='28px serif';X.textAlign='center';X.textBaseline='middle';X.fillText(e.emoji,ex,ey);
+}
+}
+function drawPlayer(cx,cy){
+const px=gs.px-cx,py=gs.py-cy;
+const bob=Math.sin(gs.pBob)*2;
+
+// Shadow
+X.save();X.globalAlpha=0.25;X.fillStyle='#000';X.beginPath();X.ellipse(px,py+18,14,6,0,0,Math.PI*2);X.fill();X.restore();
+
+// Glow ring
+if(gs.streakTier>0){
+const gc=gs.streakColors[gs.streakTier];
+X.save();X.shadowColor=gc;X.shadowBlur=18+gs.streakTier*4;
+X.strokeStyle=gc;X.lineWidth=2.5;X.globalAlpha=0.6+Math.sin(gs.time*0.08)*0.2;
+X.beginPath();X.arc(px,py+bob,21,0,Math.PI*2);X.stroke();
+X.restore();
+}
+
+// Avatar circle
+X.save();
+X.beginPath();X.arc(px,py+bob,18,0,Math.PI*2);X.clip();
+if(avatarImg){
+  if(gs.pFacing<0){
+    X.translate(px*2,0);X.scale(-1,1);
+    X.drawImage(avatarImg,px-18,py+bob-18,36,36);
+  }else{
+    X.drawImage(avatarImg,px-18,py+bob-18,36,36);
+  }
+}else{X.fillStyle='#446688';X.fill();X.fillStyle='#fff';X.font='bold 16px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText((PLAYER_NAME[0]||'?').toUpperCase(),px,py+bob);}
+X.restore();
+
+// Invince flash
+if(gs.pInvince>0&&gs.pInvince%4<2){X.save();X.globalAlpha=0.5;X.strokeStyle='#ff4444';X.lineWidth=3;X.beginPath();X.arc(px,py+bob,19,0,Math.PI*2);X.stroke();X.restore();}
+
+// Name tag
+X.save();X.font='bold 11px monospace';X.fillStyle='#fff';X.strokeStyle='#000';X.lineWidth=2.5;X.textAlign='center';X.textBaseline='top';
+X.strokeText(PLAYER_NAME,px,py+bob+22);X.fillText(PLAYER_NAME,px,py+bob+22);X.restore();
+}
+
+function draw(){
+const cx=gs.camX+gs.shakeX,cy=gs.camY+gs.shakeY;
+X.clearRect(0,0,C.width,C.height);
+
+if(gs.state==='title'){drawTitle();return}
+if(gs.state==='powerups'){drawPowerUps();return}
+
+// Zoom in — scale world around canvas center so player stays centered
+X.save();
+X.translate(C.width/2,C.height/2);
+X.scale(ZOOM,ZOOM);
+X.translate(-C.width/2,-C.height/2);
+
+// ===== WORLD =====
+// Ground — VS-style: varied dark green with noise patches, no harsh grid
+// Ground — flat green base. Grass blade detail comes from drawWorldDecor.
+X.fillStyle='#1a2816';X.fillRect(0,0,C.width,C.height);
+
+// ===== WORLD DECORATIONS (trees, rocks, fire pits, ruins) =====
+if(gs.state==='game'||gs.state==='downed'||gs.state==='levelup')drawWorldDecor(cx,cy);
+
+// ===== DROPS =====
+for(const p of gs.pills){
+const px2=p.x-cx,py2=p.y-cy;
+const pulse=0.8+Math.sin(gs.time*0.12+p.x)*0.18;
+X.globalAlpha=pulse;
+X.save();
+X.shadowColor=p.color;X.shadowBlur=10;
+// Crystal: hexagon shape
+X.fillStyle=p.color;
+X.beginPath();
+for(let h=0;h<6;h++){const ha=h*(Math.PI/3)-(Math.PI/6);X.lineTo(px2+Math.cos(ha)*p.size,py2+Math.sin(ha)*p.size);}
+X.closePath();X.fill();
+// Inner highlight
+X.globalAlpha=pulse*0.5;X.fillStyle='#ffffff';
+X.beginPath();
+X.moveTo(px2,py2-p.size*0.5);X.lineTo(px2+p.size*0.3,py2);X.lineTo(px2,py2+p.size*0.2);X.closePath();X.fill();
+X.restore();X.shadowBlur=0;
+}
+for(const f of gs.foods){
+X.globalAlpha=0.9;X.font='14px serif';X.textAlign='center';X.textBaseline='middle';
+X.fillText('❤️',f.x-cx,f.y-cy);
+}
+// Gold coins — BTC-style orange coin with ₿ symbol
+for(const g of gs.goldGems){
+const gx=g.x-cx,gy=g.y-cy;
+const pulse=0.82+Math.sin(gs.time*0.18+g.x*0.05)*0.18;
+X.save();
+X.globalAlpha=pulse;
+// BTC orange glow
+X.shadowColor='#f7931a';X.shadowBlur=g.val>=5?20:g.val>=3?15:10;
+// Drop shadow
+X.fillStyle='rgba(0,0,0,0.3)';X.beginPath();X.ellipse(gx+1,gy+3,g.size*0.88,g.size*0.28,0,0,Math.PI*2);X.fill();
+// Coin body — BTC orange gradient
+const coinGrad=X.createRadialGradient(gx-g.size*0.3,gy-g.size*0.3,1,gx,gy,g.size);
+coinGrad.addColorStop(0,'#ffdd88');coinGrad.addColorStop(0.4,'#f7931a');coinGrad.addColorStop(1,'#8B4500');
+X.fillStyle=coinGrad;X.beginPath();X.arc(gx,gy,g.size,0,Math.PI*2);X.fill();
+// Rim
+X.strokeStyle='rgba(255,200,80,0.55)';X.lineWidth=1.5;X.beginPath();X.arc(gx,gy,g.size,0,Math.PI*2);X.stroke();
+// ₿ symbol
+X.shadowBlur=0;X.globalAlpha=pulse;
+X.font='bold '+(g.size*1.2)+'px sans-serif';X.fillStyle='#5a2a00';X.textAlign='center';X.textBaseline='middle';
+X.fillText('₿',gx+0.5,gy+1);
+X.restore();X.shadowBlur=0;
+}
+// Chests — VS-style glowing treasure
+for(const ch of gs.chests){
+if(ch.open)continue; // skip opened chests
+const chx=ch.x-cx,chy=ch.y-cy;
+const pulse=Math.sin(gs.time*0.12)*0.5+0.5; // 0→1 pulse
+X.save();
+// Outer beacon beam (vertical gold pillar — visible from far away)
+const beamGrad=X.createLinearGradient(chx,chy-80,chx,chy);
+beamGrad.addColorStop(0,'rgba(255,215,0,0)');
+beamGrad.addColorStop(0.6,'rgba(255,215,0,0.18)');
+beamGrad.addColorStop(1,'rgba(255,215,0,0.5)');
+X.fillStyle=beamGrad;X.fillRect(chx-8,chy-80,16,80);
+// Ground glow
+X.shadowColor='#ffd700';X.shadowBlur=28+pulse*18;
+X.globalAlpha=0.45+pulse*0.25;
+X.fillStyle='#ffd700';X.beginPath();X.ellipse(chx,chy+2,ch.size*2.2,ch.size*0.7,0,0,Math.PI*2);X.fill();
+// Pulsing outer ring
+X.globalAlpha=0.35+pulse*0.35;
+X.strokeStyle='#ffd700';X.lineWidth=2.5+pulse*1.5;
+X.beginPath();X.arc(chx,chy,ch.size+8+pulse*4,0,Math.PI*2);X.stroke();
+// Inner sparkle ring
+X.globalAlpha=0.6+pulse*0.3;X.strokeStyle='#fffde0';X.lineWidth=1;
+X.beginPath();X.arc(chx,chy,ch.size+2,0,Math.PI*2);X.stroke();
+// Chest emoji (larger)
+X.globalAlpha=1;X.font='26px serif';X.textAlign='center';X.textBaseline='middle';
+X.fillText('💰',chx,chy+Math.sin(gs.time*0.1)*3);
+// Sparkle particles at corners
+for(let si=0;si<4;si++){
+  const sa=si*(Math.PI/2)+gs.time*0.04;
+  const sr=ch.size+4+Math.sin(gs.time*0.15+si)*4;
+  X.globalAlpha=(0.4+pulse*0.5)*Math.abs(Math.sin(gs.time*0.08+si*1.3));
+  X.fillStyle='#fffde0';X.beginPath();X.arc(chx+Math.cos(sa)*sr,chy+Math.sin(sa)*sr,2,0,Math.PI*2);X.fill();
+}
+X.restore();X.shadowBlur=0;
+}
+X.globalAlpha=1;X.shadowBlur=0;
+
+// ===== WEAPON FX =====
+for(const fx of gs.weaponFX){
+const a=(fx.life/fx.maxLife);
+X.globalAlpha=Math.min(1,a*1.5);
+X.fillStyle=fx.color;
+
+if(fx.type==='proj'){
+  // ── MOONBOLT: crescent shape with moonbeam trail ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.shadowColor='#aaddff';X.shadowBlur=14;
+  X.fillStyle='#aaddff';X.globalAlpha=a*0.9;
+  // Crescent: full circle minus inner offset circle
+  X.beginPath();X.arc(fxX,fxY,fx.size,0,Math.PI*2);X.fill();
+  X.fillStyle='#0a180a';
+  X.beginPath();X.arc(fxX+fx.size*0.4,fxY-fx.size*0.3,fx.size*0.7,0,Math.PI*2);X.fill();
+  // Moonbeam trail
+  for(let t=1;t<=3;t++){X.globalAlpha=a*0.18*t;X.fillStyle='#aaddff';X.beginPath();X.arc(fxX-fx.vx*t*1.5,fxY-fx.vy*t*1.5,fx.size*(1-t*0.22),0,Math.PI*2);X.fill();}
+  X.restore();
+
+}else if(fx.type==='boomerang'){
+  // ── PLAGUE CROWS: visible dark crow silhouette with green corruption glow ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.translate(fxX,fxY);X.rotate(Math.atan2(fx.vy,fx.vx));
+  const sz=fx.size*1.8; // bigger than before
+  // Glow halo so it's always visible
+  X.shadowColor='#44ff88';X.shadowBlur=16+a*8;
+  X.globalAlpha=a*0.85;
+  // Dark crow body
+  X.fillStyle='#1a2e1a';
+  X.beginPath();X.ellipse(0,0,sz*1.2,sz*0.45,0,0,Math.PI*2);X.fill();
+  // Wings — closed path so they fill properly
+  X.fillStyle='#0d1f0d';
+  X.beginPath();X.moveTo(-sz*0.6,0);X.lineTo(0,-sz*1.6);X.lineTo(sz*0.6,0);X.closePath();X.fill();
+  // Wing highlight edge (bright green)
+  X.fillStyle='#44ff88';X.globalAlpha=a*0.5;
+  X.beginPath();X.moveTo(-sz*0.5,0);X.lineTo(0,-sz*1.4);X.lineTo(sz*0.5,0);X.closePath();X.fill();
+  // Glowing eye
+  X.globalAlpha=a;X.fillStyle='#88ffaa';
+  X.beginPath();X.arc(sz*0.6,0,sz*0.2,0,Math.PI*2);X.fill();
+  // Corruption trail
+  for(let t=1;t<=4;t++){X.globalAlpha=a*0.18;X.fillStyle='#44ff88';X.shadowBlur=0;X.beginPath();X.arc(-fx.vx*t*1.5,-fx.vy*t*1.5,sz*0.35,0,Math.PI*2);X.fill();}
+  X.restore();
+
+}else if(fx.type==='wave'){
+  // ── MIRA'S CURSE: green-purple poison cloud with skull ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.globalAlpha=a*0.65;X.shadowColor='#8855cc';X.shadowBlur=18;
+  X.fillStyle='#8855cc';X.beginPath();X.arc(fxX,fxY,fx.size,0,Math.PI*2);X.fill();
+  X.fillStyle='#4422aa';X.beginPath();X.arc(fxX+fx.size*0.3,fxY-fx.size*0.2,fx.size*0.6,0,Math.PI*2);X.fill();
+  X.globalAlpha=a*0.9;X.font='12px serif';X.textAlign='center';X.textBaseline='middle';
+  X.fillText('💀',fxX,fxY);
+  // Wispy trail
+  for(let t=1;t<=4;t++){X.globalAlpha=a*0.1;X.fillStyle='#cc44ff';X.beginPath();X.arc(fxX-fx.vx*t*2,fxY-fx.vy*t*2,fx.size*(0.9-t*0.15),0,Math.PI*2);X.fill();}
+  X.restore();
+
+}else if(fx.type==='pierce'){
+  // ── ALDRIC'S LANCE: long spear with light trail ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  const ang=Math.atan2(fx.vy,fx.vx);
+  X.save();X.translate(fxX,fxY);X.rotate(ang);
+  X.globalAlpha=a;X.shadowColor='#4488ff';X.shadowBlur=16;
+  // Shaft
+  X.fillStyle='#aabbcc';X.fillRect(-32,-3,60,6);
+  // Tip
+  X.fillStyle='#4488ff';X.beginPath();X.moveTo(28,-5);X.lineTo(46,0);X.lineTo(28,5);X.closePath();X.fill();
+  // Tail
+  X.fillStyle='#224488';X.fillRect(-36,-4,12,8);
+  // Light trail
+  for(let t=1;t<=4;t++){X.globalAlpha=a*0.12;X.fillStyle='#aaddff';X.fillRect(-30-t*8,-2,12,4);}
+  X.restore();
+
+}else if(fx.type==='axe'){
+  // ── PIP'S PEBBLE: spinning stone with dust ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.translate(fxX,fxY);X.rotate(fx.rot||0);
+  X.globalAlpha=a;X.shadowColor='#ffcc44';X.shadowBlur=8;
+  X.fillStyle='#ddaa44';X.beginPath();
+  for(let s=0;s<5;s++){const sa=s*(Math.PI*2/5)-(Math.PI/2);X.lineTo(Math.cos(sa)*fx.size,Math.sin(sa)*fx.size);}X.closePath();X.fill();
+  X.fillStyle='#aa7722';X.beginPath();X.arc(0,0,fx.size*0.5,0,Math.PI*2);X.fill();
+  // Dust trail
+  X.restore();
+  for(let t=1;t<=3;t++){X.globalAlpha=a*0.15;X.fillStyle='#ffcc44';X.beginPath();X.arc(fxX-fx.vx*t,fxY-fx.vy*t,fx.size*0.3,0,Math.PI*2);X.fill();}
+
+}else if(fx.type==='aura'){
+  // ── HERALD'S SHOUT: expanding rune ring ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.globalAlpha=a*0.9;X.strokeStyle='#ffaa22';X.lineWidth=4-a*2;X.shadowColor='#ffaa22';X.shadowBlur=18;
+  const r=fx.r*(1.1-a*0.2);
+  X.beginPath();X.arc(fxX,fxY,r,0,Math.PI*2);X.stroke();
+  // Second inner ring
+  X.globalAlpha=a*0.4;X.lineWidth=2;X.strokeStyle='#fff6cc';
+  X.beginPath();X.arc(fxX,fxY,r*0.65,0,Math.PI*2);X.stroke();
+  // Rune marks
+  X.globalAlpha=a*0.7;X.font='12px serif';X.textAlign='center';X.textBaseline='middle';
+  const runeStr='ᚠᚱᚢᚦᚩ';
+  for(let ri=0;ri<5;ri++){const ra=ri*(Math.PI*2/5)+gs.time*0.04;X.fillStyle='#ffcc44';X.fillText(runeStr[ri],fxX+Math.cos(ra)*r,fxY+Math.sin(ra)*r);}
+  X.restore();
+
+}else if(fx.type==='bomb'){
+  // ── THERON'S HAMMER: orange shockwave + impact lines ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.globalAlpha=a*0.8;X.fillStyle='#ff6622';X.shadowColor='#ff6622';X.shadowBlur=22;
+  X.beginPath();X.arc(fxX,fxY,fx.range*(1.05-a),0,Math.PI*2);X.fill();
+  // Inner flash
+  X.globalAlpha=a*a*0.6;X.fillStyle='#ffcc44';
+  X.beginPath();X.arc(fxX,fxY,fx.range*0.55*(1.1-a),0,Math.PI*2);X.fill();
+  // Impact cracks
+  X.globalAlpha=a*0.7;X.strokeStyle='#ffaa44';X.lineWidth=2;
+  for(let li=0;li<8;li++){const la=li*(Math.PI/4);const ld=fx.range*(0.6+a*0.4);
+    X.beginPath();X.moveTo(fxX,fxY);X.lineTo(fxX+Math.cos(la)*ld,fxY+Math.sin(la)*ld);X.stroke();}
+  X.restore();
+
+}else if(fx.type==='orb'){
+  // ── LYSARA'S ORB: arcane glowing sphere with particle ring ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.shadowColor='#cc44ff';X.shadowBlur=20;X.globalAlpha=0.9;
+  const grad=X.createRadialGradient(fxX-fx.size*0.3,fxY-fx.size*0.3,1,fxX,fxY,fx.size);
+  grad.addColorStop(0,'#ffffff');grad.addColorStop(0.4,'#ee88ff');grad.addColorStop(1,'#6600aa');
+  X.fillStyle=grad;X.beginPath();X.arc(fxX,fxY,fx.size,0,Math.PI*2);X.fill();
+  // Arcane ring
+  X.strokeStyle='#dd88ff';X.lineWidth=1.5;X.globalAlpha=0.5+Math.sin(gs.time*0.25)*0.2;
+  X.beginPath();X.arc(fxX,fxY,fx.size*1.8,0,Math.PI*2);X.stroke();
+  X.restore();
+
+}else if(fx.type==='arrow'){
+  // ── MOON ARROW: thin white arrow with moonlight streak ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  const ang=fx.rot||Math.atan2(fx.vy,fx.vx);
+  X.save();X.translate(fxX,fxY);X.rotate(ang);
+  X.globalAlpha=a;X.shadowColor='#ffffff';X.shadowBlur=10;
+  // Shaft
+  X.strokeStyle='#dddddd';X.lineWidth=2;X.beginPath();X.moveTo(-14,0);X.lineTo(14,0);X.stroke();
+  // Arrowhead
+  X.fillStyle='#ffffff';X.beginPath();X.moveTo(14,0);X.lineTo(8,-4);X.lineTo(8,4);X.closePath();X.fill();
+  // Fletching
+  X.strokeStyle='#88ccff';X.lineWidth=1.5;
+  X.beginPath();X.moveTo(-10,-3);X.lineTo(-14,0);X.lineTo(-10,3);X.stroke();
+  // Streak
+  for(let t=1;t<=4;t++){X.globalAlpha=a*0.12;X.strokeStyle='#aaddff';X.lineWidth=1.5;X.beginPath();X.moveTo(-14-t*4,0);X.lineTo(-10-t*4,0);X.stroke();}
+  X.restore();
+
+}else if(fx.type==='pie_flight'){
+  // ── FIRE FLASK: spinning glass bottle with fire trail ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.translate(fxX,fxY);X.rotate(fx.rot||0);
+  X.globalAlpha=a;X.shadowColor='#ff8822';X.shadowBlur=14;
+  // Fire trail behind
+  for(let t=1;t<=3;t++){X.globalAlpha=a*(0.35-t*0.1);X.fillStyle=t===1?'#ffcc44':'#ff6622';X.beginPath();X.arc(-t*5,t*2,fx.size*(1-t*0.2),0,Math.PI*2);X.fill();}
+  X.globalAlpha=a;
+  // Flask body (rounded bottle shape)
+  X.fillStyle='#553311';X.beginPath();X.roundRect(-fx.size*0.55,-fx.size*0.9,fx.size*1.1,fx.size*1.6,fx.size*0.4);X.fill();
+  // Glass glint
+  X.fillStyle='rgba(255,200,100,0.55)';X.beginPath();X.roundRect(-fx.size*0.55,-fx.size*0.9,fx.size*1.1,fx.size*1.6,fx.size*0.4);X.fill();
+  // Neck
+  X.fillStyle='#443322';X.fillRect(-fx.size*0.2,-fx.size*1.35,fx.size*0.4,fx.size*0.55);
+  // Cork
+  X.fillStyle='#8B6914';X.beginPath();X.roundRect(-fx.size*0.22,-fx.size*1.52,fx.size*0.44,fx.size*0.28,2);X.fill();
+  // Flame visible inside
+  X.globalAlpha=a*0.9;X.fillStyle='#ffaa00';X.beginPath();X.arc(0,0,fx.size*0.38,0,Math.PI*2);X.fill();
+  X.fillStyle='#ffee44';X.beginPath();X.arc(0,fx.size*0.05,fx.size*0.2,0,Math.PI*2);X.fill();
+  X.restore();
+
+}else if(fx.type==='fire_patch'){
+  // ── FIRE PATCH: burning ground circle ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.globalAlpha=a*0.55;X.shadowColor='#ff6622';X.shadowBlur=20;
+  // Ground scorch
+  X.fillStyle='#441100';X.beginPath();X.ellipse(fxX,fxY,fx.r,fx.r*0.5,0,0,Math.PI*2);X.fill();
+  // Flame tongues
+  X.globalAlpha=a*0.7;
+  for(let fi=0;fi<8;fi++){
+    const fa=fi*(Math.PI*2/8)+gs.time*0.08;
+    const fd=fx.r*(0.5+Math.sin(gs.time*0.2+fi)*0.2);
+    const grad2=X.createRadialGradient(fxX+Math.cos(fa)*fd,fxY+Math.sin(fa)*fd*0.5,0,fxX+Math.cos(fa)*fd,fxY+Math.sin(fa)*fd*0.5,12);
+    grad2.addColorStop(0,'#ffee44');grad2.addColorStop(0.5,'#ff6622');grad2.addColorStop(1,'rgba(200,30,0,0)');
+    X.fillStyle=grad2;X.beginPath();X.arc(fxX+Math.cos(fa)*fd,fxY+Math.sin(fa)*fd*0.5,12,0,Math.PI*2);X.fill();
+  }
+  X.restore();
+
+}else if(fx.type==='whip_arc'){
+  // ── FLAME WHIP: blazing arc sweep across facing side ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.translate(fxX,fxY);
+  X.globalAlpha=a*0.82;X.shadowColor='#ff5500';X.shadowBlur=22;
+  // Outer fire arc
+  X.strokeStyle='#ff5500';X.lineWidth=6*(a*0.7+0.3);
+  X.beginPath();X.arc(0,0,fx.r*0.92,fx.ang-Math.PI*0.75,fx.ang+Math.PI*0.75);X.stroke();
+  // Inner hot core
+  X.globalAlpha=a*0.6;X.strokeStyle='#ffcc44';X.lineWidth=3;
+  X.beginPath();X.arc(0,0,fx.r*0.85,fx.ang-Math.PI*0.65,fx.ang+Math.PI*0.65);X.stroke();
+  // Tip sparks
+  for(let si=0;si<6;si++){
+    const sa=fx.ang-Math.PI*0.7+si*(Math.PI*1.4/5);
+    const sd=fx.r*(0.88+Math.random()*0.16);
+    X.globalAlpha=a*(0.3+Math.random()*0.5);
+    X.fillStyle=si%2===0?'#ff8822':'#ffee44';
+    X.beginPath();X.arc(Math.cos(sa)*sd,Math.sin(sa)*sd,3+Math.random()*3,0,Math.PI*2);X.fill();
+  }
+  X.restore();
+
+}else if(fx.type==='vortex_pull'){
+  // ── VOID MAW: purple gravity spiral sucking inward ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  const prog=1-(fx.life/fx.maxLife);
+  X.save();X.translate(fxX,fxY);X.rotate(gs.time*0.12);
+  // Outer ring darkening as it pulls
+  X.globalAlpha=a*0.35+prog*0.3;X.strokeStyle='#8800ff';X.lineWidth=2+prog*4;X.shadowColor='#cc44ff';X.shadowBlur=28;
+  X.beginPath();X.arc(0,0,fx.r*(0.9+Math.sin(gs.time*0.15)*0.08),0,Math.PI*2);X.stroke();
+  // 3 spiral arms
+  for(let arm=0;arm<3;arm++){
+    X.globalAlpha=a*0.5;X.strokeStyle=arm===0?'#8800ff':'#cc44ff';X.lineWidth=1.5;
+    X.beginPath();
+    for(let t=0;t<60;t++){
+      const r2=fx.r*(0.88-t/60*0.88);const ang6=(arm*(Math.PI*2/3))+t*0.22+gs.time*0.1;
+      t===0?X.moveTo(Math.cos(ang6)*r2,Math.sin(ang6)*r2):X.lineTo(Math.cos(ang6)*r2,Math.sin(ang6)*r2);
+    }
+    X.stroke();
+  }
+  // Core void
+  X.globalAlpha=0.6+prog*0.3;
+  const vGrad=X.createRadialGradient(0,0,0,0,0,fx.r*0.25);
+  vGrad.addColorStop(0,'rgba(40,0,80,0.9)');vGrad.addColorStop(1,'rgba(80,0,180,0)');
+  X.fillStyle=vGrad;X.beginPath();X.arc(0,0,fx.r*0.25,0,Math.PI*2);X.fill();
+  X.restore();
+
+}else if(fx.type==='scythe_arc'){
+  // ── SOUL SCYTHE: ghostly purple reaping arc ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  X.save();X.translate(fxX,fxY);
+  X.globalAlpha=a*0.85;X.shadowColor='#9955ff';X.shadowBlur=20;
+  // Arc stroke
+  X.strokeStyle='#9955ff';X.lineWidth=8*(a*0.6+0.4);
+  X.beginPath();X.arc(0,0,fx.r*0.9,fx.ang-Math.PI*0.8,fx.ang+Math.PI*0.8);X.stroke();
+  // Ghost echo slightly larger
+  X.globalAlpha=a*0.25;X.strokeStyle='#cc88ff';X.lineWidth=3;
+  X.beginPath();X.arc(0,0,fx.r,fx.ang-Math.PI*0.82,fx.ang+Math.PI*0.82);X.stroke();
+  // Soul sparks along the arc
+  for(let si=0;si<8;si++){
+    const sa=fx.ang-Math.PI*0.75+si*(Math.PI*1.5/7);
+    X.globalAlpha=a*(0.4+Math.random()*0.5);
+    X.fillStyle=si%2===0?'#9955ff':'#ffffff';
+    X.beginPath();X.arc(Math.cos(sa)*fx.r*0.88,Math.sin(sa)*fx.r*0.88,2+Math.random()*3,0,Math.PI*2);X.fill();
+  }
+  X.restore();
+
+}else if(fx.type==='nova_burst'){
+  // ── FROST NOVA: crystalline ice ring radiating outward ──
+  const fxX=fx.x-cx,fxY=fx.y-cy;
+  const expand=1-a; // starts small, grows
+  X.save();X.translate(fxX,fxY);X.rotate(gs.time*0.03);
+  X.globalAlpha=a*0.8;X.strokeStyle='#88ddff';X.lineWidth=4;X.shadowColor='#aaeeff';X.shadowBlur=18;
+  X.beginPath();X.arc(0,0,fx.r*(0.3+expand*0.7),0,Math.PI*2);X.stroke();
+  // Ice crystal spikes radiating out
+  X.globalAlpha=a*0.7;X.fillStyle='#ccf4ff';
+  for(let ci=0;ci<8;ci++){
+    const ca=ci*(Math.PI*2/8);
+    const cd=fx.r*(0.35+expand*0.65);
+    X.save();X.translate(Math.cos(ca)*cd,Math.sin(ca)*cd);X.rotate(ca);
+    X.beginPath();X.moveTo(0,-6);X.lineTo(4,0);X.lineTo(0,6);X.lineTo(-4,0);X.closePath();X.fill();
+    X.restore();
+  }
+  // Inner white flash
+  X.globalAlpha=a*a*0.5;X.fillStyle='#ffffff';
+  X.beginPath();X.arc(0,0,fx.r*(0.25+expand*0.18),0,Math.PI*2);X.fill();
+  X.restore();
+}
+X.globalAlpha=1;
+}
+
+// ===== ENEMIES =====
+for(const e of gs.enemies){
+if(!e.active)continue;
+const ex=e.x-cx,ey=e.y-cy+Math.sin(e.bob)*2;
+// Offscreen cull — don't draw enemies outside the viewport
+if(ex<-e.size*4||ex>C.width+e.size*4||ey<-e.size*4||ey>C.height+e.size*4)continue;
+X.globalAlpha=1;
+X.fillStyle=e.flash>0?'#ffffff':e.color;
+if(e.isBoss){drawBoss(e,ex,ey);
+}else if(e.type==='werewolf'){
+  // ── WEREWOLF: hunched beast with fangs and claws ──
+  const wc=e.flash>0?'#ffffff':e.color;
+  X.save();X.shadowColor='#ff8844';X.shadowBlur=0; // shadow removed for perf
+  const wbob=Math.sin(e.bob*1.4)*0.28;
+  // Hunched body
+  X.fillStyle=wc;X.beginPath();X.ellipse(ex,ey+e.size*0.12,e.size*0.65,e.size*0.72,wbob*0.3,0,Math.PI*2);X.fill();
+  // Head (larger, animalistic — tilted toward player)
+  X.fillStyle=e.flash>0?'#ffffff':'#775533';X.beginPath();X.ellipse(ex,ey-e.size*0.62,e.size*0.5,e.size*0.42,wbob*0.5,0,Math.PI*2);X.fill();
+  // Snout
+  X.fillStyle=e.flash>0?'#ffeecc':'#664422';X.beginPath();X.ellipse(ex+e.size*0.12,ey-e.size*0.52,e.size*0.28,e.size*0.22,0.3,0,Math.PI*2);X.fill();
+  // Fangs
+  X.fillStyle='#eeeecc';X.beginPath();X.moveTo(ex-e.size*0.1,ey-e.size*0.44);X.lineTo(ex-e.size*0.06,ey-e.size*0.32);X.lineTo(ex-e.size*0.02,ey-e.size*0.44);X.closePath();X.fill();
+  X.beginPath();X.moveTo(ex+e.size*0.1,ey-e.size*0.44);X.lineTo(ex+e.size*0.14,ey-e.size*0.32);X.lineTo(ex+e.size*0.18,ey-e.size*0.44);X.closePath();X.fill();
+  // Glowing amber eyes
+  X.shadowColor='#ffaa00';X.shadowBlur=10;X.fillStyle=e.flash>0?'#ff8888':'#ff8800';
+  X.beginPath();X.arc(ex-e.size*0.18,ey-e.size*0.68,e.size*0.1,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(ex+e.size*0.18,ey-e.size*0.68,e.size*0.1,0,Math.PI*2);X.fill();
+  // Ears (pointy)
+  X.fillStyle=wc;X.shadowBlur=0;
+  X.beginPath();X.moveTo(ex-e.size*0.3,ey-e.size*0.82);X.lineTo(ex-e.size*0.46,ey-e.size*1.12);X.lineTo(ex-e.size*0.12,ey-e.size*0.88);X.closePath();X.fill();
+  X.beginPath();X.moveTo(ex+e.size*0.3,ey-e.size*0.82);X.lineTo(ex+e.size*0.46,ey-e.size*1.12);X.lineTo(ex+e.size*0.12,ey-e.size*0.88);X.closePath();X.fill();
+  // Arms with claw swipe
+  X.strokeStyle=wc;X.lineWidth=e.size*0.24;X.lineCap='round';
+  const swipe=Math.sin(e.bob*2)*0.55;
+  X.beginPath();X.moveTo(ex-e.size*0.55,ey-e.size*0.15);X.lineTo(ex-e.size*1.15,ey+e.size*0.05+swipe*e.size*0.4);X.stroke();
+  X.beginPath();X.moveTo(ex+e.size*0.55,ey-e.size*0.15);X.lineTo(ex+e.size*1.15,ey+e.size*0.05-swipe*e.size*0.4);X.stroke();
+  // Legs
+  X.lineWidth=e.size*0.22;
+  X.beginPath();X.moveTo(ex-e.size*0.28,ey+e.size*0.72);X.lineTo(ex-e.size*0.38,ey+e.size*1.12+Math.sin(e.bob)*e.size*0.18);X.stroke();
+  X.beginPath();X.moveTo(ex+e.size*0.28,ey+e.size*0.72);X.lineTo(ex+e.size*0.38,ey+e.size*1.12+Math.sin(e.bob+1.2)*e.size*0.18);X.stroke();
+  X.restore();X.shadowBlur=0;
+}else if(e.type==='skeleton_wall'){
+  // ── SKELETON WALL SEGMENT: bone stake with skull, lashed crossbones ──
+  const rise=Math.min(1,e._riseAnim||1);
+  const sc=e.flash>0?'#ffffff':'#c8b870';
+  const scd=e.flash>0?'#ffffff':'#6a4820';
+  X.save();X.shadowColor='#aa9955';X.shadowBlur=e.flash>0?0:8;
+  // Wooden stake post
+  X.fillStyle=scd;
+  const postH=e.size*2.6*rise;
+  X.beginPath();X.roundRect(ex-e.size*0.2,ey+e.size*0.45,e.size*0.4,postH,2);X.fill();
+  // Lash bindings on post
+  X.strokeStyle='#4a2c10';X.lineWidth=e.size*0.09;
+  for(let li=0;li<2;li++){const ly=ey+e.size*(0.65+li*0.95)*rise;X.beginPath();X.moveTo(ex-e.size*0.25,ly);X.lineTo(ex+e.size*0.25,ly);X.stroke();}
+  // Horizontal arm bone (crossbar)
+  X.fillStyle=sc;X.lineWidth=e.size*0.22;X.lineCap='round';
+  X.strokeStyle=sc;
+  X.beginPath();X.moveTo(ex-e.size*0.85,ey-e.size*0.35*rise);X.lineTo(ex+e.size*0.85,ey-e.size*0.35*rise);X.stroke();
+  // Knuckle balls at crossbar ends
+  X.beginPath();X.arc(ex-e.size*0.85,ey-e.size*0.35*rise,e.size*0.14,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(ex+e.size*0.85,ey-e.size*0.35*rise,e.size*0.14,0,Math.PI*2);X.fill();
+  // Skull on top
+  X.shadowColor='#ddcc88';X.shadowBlur=e.flash>0?0:12;
+  X.beginPath();X.arc(ex,ey-e.size*1.18*rise,e.size*0.44,0,Math.PI*2);X.fill();
+  // Skull lower jaw
+  X.fillStyle=e.flash>0?'#ffffff':'#b8a458';
+  X.beginPath();X.arc(ex+e.size*0.04,ey-e.size*0.96*rise,e.size*0.28,0,Math.PI);X.fill();
+  // Eye sockets
+  X.fillStyle='#1a0e00';X.shadowBlur=0;
+  X.beginPath();X.arc(ex-e.size*0.16,ey-e.size*1.22*rise,e.size*0.13,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(ex+e.size*0.16,ey-e.size*1.22*rise,e.size*0.13,0,Math.PI*2);X.fill();
+  // Nose hole
+  X.beginPath();X.arc(ex,ey-e.size*1.1*rise,e.size*0.07,0,Math.PI*2);X.fill();
+  // Teeth gap
+  for(let ti=0;ti<3;ti++){X.fillRect(ex-e.size*0.22+ti*e.size*0.22,ey-e.size*0.98*rise,e.size*0.1,e.size*0.13);}
+  // Rib bones on stake (impaled)
+  X.strokeStyle=sc;X.lineWidth=e.size*0.08;
+  for(let ri=0;ri<2;ri++){
+    const ry=ey+e.size*(0.05+ri*0.5)*rise;
+    X.beginPath();X.moveTo(ex-e.size*0.55,ry);X.bezierCurveTo(ex-e.size*0.7,ry+e.size*0.1,ex+e.size*0.7,ry+e.size*0.1,ex+e.size*0.55,ry);X.stroke();
+  }
+  // HP bar (only when damaged)
+  if(e.hp<e.maxHp){
+    const hpPct=e.hp/e.maxHp;
+    X.fillStyle='rgba(0,0,0,0.7)';X.fillRect(ex-e.size,ey+e.size*0.45,e.size*2,4);
+    X.fillStyle=hpPct>0.5?'#55ff55':'#ff4444';X.fillRect(ex-e.size,ey+e.size*0.45,e.size*2*hpPct,4);
+  }
+  X.restore();
+}else{
+  // Zombie body: draw a proper zombie sprite
+  const zc=e.flash>0?'#ffffff':e.color;
+  X.save();
+  // Body (rounded rectangle, slightly wider than tall)
+  X.fillStyle=zc;
+  X.beginPath();X.roundRect(ex-e.size*0.55,ey-e.size*0.4,e.size*1.1,e.size*1.1,4);X.fill();
+  // Head
+  X.fillStyle=e.flash>0?'#ffffff':'#7a9a5a';
+  X.beginPath();X.arc(ex,ey-e.size*0.55,e.size*0.45,0,Math.PI*2);X.fill();
+  // Eyes (glowing red dots)
+  X.fillStyle=e.flash>0?'#ff8888':'#ff2200';
+  X.beginPath();X.arc(ex-e.size*0.15,ey-e.size*0.58,e.size*0.1,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(ex+e.size*0.15,ey-e.size*0.58,e.size*0.1,0,Math.PI*2);X.fill();
+  // Arms (outstretched like a zombie)
+  X.strokeStyle=zc;X.lineWidth=e.size*0.22;X.lineCap='round';
+  const armAngle=Math.sin(e.bob*1.5)*0.3;
+  X.beginPath();X.moveTo(ex-e.size*0.55,ey-e.size*0.1);X.lineTo(ex-e.size*1.1,ey-e.size*0.1+Math.sin(armAngle)*e.size*0.3);X.stroke();
+  X.beginPath();X.moveTo(ex+e.size*0.55,ey-e.size*0.1);X.lineTo(ex+e.size*1.1,ey-e.size*0.1+Math.sin(-armAngle)*e.size*0.3);X.stroke();
+  // Legs
+  X.lineWidth=e.size*0.2;
+  X.beginPath();X.moveTo(ex-e.size*0.2,ey+e.size*0.7);X.lineTo(ex-e.size*0.3,ey+e.size*1.1+Math.sin(e.bob)*e.size*0.15);X.stroke();
+  X.beginPath();X.moveTo(ex+e.size*0.2,ey+e.size*0.7);X.lineTo(ex+e.size*0.3,ey+e.size*1.1+Math.sin(e.bob+1)*e.size*0.15);X.stroke();
+  X.restore();
+}
+X.globalAlpha=1;
+// Frozen visual: ice crystal overlay
+if(e.frozen>0){
+const fa2=Math.min(1,e.frozen/60);
+X.save();X.globalAlpha=fa2*0.55;X.shadowColor='#88ddff';X.shadowBlur=12;
+X.fillStyle='rgba(136,221,255,0.4)';X.beginPath();X.arc(ex,ey,e.size*1.2,0,Math.PI*2);X.fill();
+X.strokeStyle='#aaeeff';X.lineWidth=1.5;
+for(let fi2=0;fi2<4;fi2++){const fc=fi2*(Math.PI/2)+0.3;X.beginPath();X.moveTo(ex,ey);X.lineTo(ex+Math.cos(fc)*e.size*1.1,ey+Math.sin(fc)*e.size*1.1);X.stroke();}
+X.restore();
+}
+// On-fire visual effect
+if(e.onFire>0){
+const fa=Math.min(1,e.onFire/180);
+X.save();X.globalAlpha=fa*0.82;X.shadowColor='#ff6622';X.shadowBlur=16;
+for(let fi=0;fi<5;fi++){
+const fang=fi*(Math.PI*2/5)+gs.time*0.2+e.bob*0.5;
+const fdr=e.size*(0.38+Math.sin(gs.time*0.28+fi)*0.14);
+const fgx=ex+Math.cos(fang)*fdr,fgy=ey-e.size*0.35+Math.sin(fang)*fdr*0.5;
+const fgr=X.createRadialGradient(fgx,fgy,0,fgx,fgy,e.size*0.6);
+fgr.addColorStop(0,'#ffee44');fgr.addColorStop(0.45,'#ff5500');fgr.addColorStop(1,'rgba(200,30,0,0)');
+X.fillStyle=fgr;X.beginPath();X.arc(fgx,fgy,e.size*0.6,0,Math.PI*2);X.fill();
+}
+X.restore();
+}
+// HP bar (show when damaged)
+if(e.hp<e.maxHp){
+const bw=e.size*2;const bx=ex-e.size;const by=ey-e.size-8;
+X.fillStyle='#333';X.fillRect(bx,by,bw,4);
+X.fillStyle=e.isBoss?'#ff4444':'#44ff88';
+X.fillRect(bx,by,bw*(e.hp/e.maxHp),4);
+}
+// Boss name
+if(e.isBoss){
+X.font='bold 11px monospace';X.fillStyle='#ff4444';X.strokeStyle='#000';X.lineWidth=2;X.textAlign='center';
+X.strokeText(e.name,ex,ey-e.size-16);X.fillText(e.name,ex,ey-e.size-16);
+}}
+
+// ===== REMOTE PLAYERS =====
+for(const[rid,rp] of Object.entries(remotePlayers)){
+  const rx=rp.x-cx,ry=rp.y-cy;
+  const rimg=remoteAvatarImgs[rid];
+  X.save();
+  if(rp.downed){
+    // ---- DOWNED: draw horizontal/fallen with red pulsing glow ----
+    const pulse=0.5+Math.sin(gs.time*0.15)*0.5;
+    X.shadowColor='#ff4422';X.shadowBlur=12+pulse*10;
+    X.globalAlpha=0.85;
+    // Fallen body (rotated 90°)
+    X.translate(rx,ry+8);X.rotate(Math.PI/2);
+    X.beginPath();X.arc(0,0,18,0,Math.PI*2);X.clip();
+    if(rimg){X.drawImage(rimg,-18,-18,36,36);}
+    else{X.fillStyle='#664433';X.fill();X.fillStyle='#ccc';X.font='bold 14px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText((rp.username[0]||'?').toUpperCase(),0,0);}
+    X.restore();
+    X.save();
+    // Pulsing red ring
+    X.strokeStyle=`rgba(255,68,34,${0.5+pulse*0.5})`;X.lineWidth=2.5;
+    X.beginPath();X.arc(rx,ry+8,22,0,Math.PI*2);X.stroke();
+    // "DOWNED" label with Y prompt
+    X.font='bold 9px monospace';X.textAlign='center';X.textBaseline='top';
+    X.strokeStyle='#000';X.lineWidth=2.5;
+    X.strokeText('⚠ DOWNED',rx,ry-16);X.fillStyle='#ff6644';X.fillText('⚠ DOWNED',rx,ry-16);
+    // Show Y prompt if this is the nearDownedId and local player not downed
+    if(rid===gs.nearDownedId&&gs.state==='game'){
+      X.strokeText('[Y] REVIVE',rx,ry-28);X.fillStyle='#aaffcc';X.fillText('[Y] REVIVE',rx,ry-28);
+      // Revive progress arc
+      if(gs.isReviving&&gs.reviveTarget===rid){
+        const pct=gs.reviveProgress/180;
+        X.strokeStyle='#44ff88';X.lineWidth=4;X.shadowColor='#44ff88';X.shadowBlur=8;
+        X.beginPath();X.arc(rx,ry+8,26,-Math.PI/2,-Math.PI/2+Math.PI*2*pct);X.stroke();
+      }
+    }
+    X.restore();
+  } else {
+    // ---- ALIVE / DEAD normal render ----
+    if(!rp.alive)X.globalAlpha=0.3;
+    // Glow ring for alive players
+    if(rp.alive){X.strokeStyle='#44ffaa';X.lineWidth=2;X.globalAlpha=0.5;X.beginPath();X.arc(rx,ry,21,0,Math.PI*2);X.stroke();X.globalAlpha=1;}
+    // Avatar
+    X.beginPath();X.arc(rx,ry,18,0,Math.PI*2);X.clip();
+    if(rimg){X.drawImage(rimg,rx-18,ry-18,36,36);}
+    else{X.fillStyle='#446688';X.fill();X.fillStyle='#fff';X.font='bold 15px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText((rp.username[0]||'?').toUpperCase(),rx,ry);}
+    X.restore();
+    // Name tag
+    X.save();X.font='bold 10px monospace';X.textAlign='center';X.textBaseline='top';
+    X.fillStyle=rp.alive?'#88ffcc':'#ff4444';X.strokeStyle='#000';X.lineWidth=2.5;
+    X.strokeText(rp.username,rx,ry+22);X.fillText(rp.username,rx,ry+22);
+    X.restore();
+    // HP bar
+    if(rp.alive){
+      const hpPct=Math.max(0,rp.hp/rp.maxHp);
+      X.fillStyle='#222';X.fillRect(rx-18,ry-27,36,4);
+      X.fillStyle=hpPct>0.5?'#44ff88':hpPct>0.25?'#ffaa22':'#ff4444';
+      X.fillRect(rx-18,ry-27,36*hpPct,4);
+    }
+  }
+}
+
+// ===== PLAYER =====
+drawPlayer(cx,cy);
+
+// ===== PARTICLES =====
+for(const p of gs.particles){
+X.globalAlpha=(p.life/p.maxLife)*0.9;
+X.fillStyle=p.color;X.beginPath();X.arc(p.x-cx,p.y-cy,p.size,0,Math.PI*2);X.fill();
+}
+X.globalAlpha=1;
+
+// ===== FLOAT TEXTS =====
+for(const f of gs.floatTexts){
+const a=f.life/48;X.globalAlpha=a;
+X.font=(f.big?'bold 16px':'bold 11px')+' monospace';X.fillStyle=f.color;X.strokeStyle='#000';X.lineWidth=2;
+X.textAlign='center';X.textBaseline='middle';
+X.strokeText(f.text,f.x-cx,f.y-cy);X.fillText(f.text,f.x-cx,f.y-cy);
+}
+X.globalAlpha=1;
+
+// ===== FLASH OVERLAY =====
+if(gs.flash>0){
+X.globalAlpha=(gs.flash/20)*0.35;
+X.fillStyle=gs.flashColor;X.fillRect(0,0,C.width,C.height);
+X.globalAlpha=1;
+}
+
+X.restore(); // end zoom — HUD and overlays draw at native resolution
+
+drawHUD();
+if(gs.state==='levelup')drawLevelUp();
+if(gs.state==='dead')drawGameOver(false);
+if(gs.state==='win')drawGameOver(true);
+if(gs._clairvoyance)drawClairvoyance();
+}
+
+// ===== CLAIRVOYANCE DEBUG OVERLAY ===== (toggle with ` key)
+function drawClairvoyance(){
+  // FPS tracking
+  gs._fpsCount++;
+  const now=performance.now();
+  if(now-gs._fpsLast>=500){
+    gs._fpsSmooth=Math.round(gs._fpsCount*2);
+    gs._fpsCount=0;gs._fpsLast=now;
+  }
+  // Collect FX type counts
+  const fxTypes={};for(const fx of gs.weaponFX){fxTypes[fx.type]=(fxTypes[fx.type]||0)+1;}
+  // Weapon FX warnings
+  const warnings=[];
+  for(const w of gs.weapons){
+    const def=WEAPONS[w.id];if(!def)continue;
+    const t=def.type;
+    const typeMap={projectile:'proj',boomerang:'boomerang',pierce:'pierce',axe:'axe',multishot:'arrow',wave:'wave',orbit:'orbit',bomb:'pie_flight',fire_patch:'fire_patch',aura:'aura'};
+    const expectedType=typeMap[t]||t;
+    const count=fxTypes[expectedType]||0;
+    if(t!=='aura'&&t!=='orbit'&&count===0)warnings.push('⚠️ '+def.name+' ('+def.type+'): 0 FX visible');
+  }
+  // Draw panel
+  const pw=310,lines=8+Object.keys(fxTypes).length+warnings.length;
+  const ph=14+lines*16;const px2=C.width-pw-8,py2=8;
+  X.save();
+  X.fillStyle='rgba(0,10,20,0.88)';X.beginPath();X.roundRect(px2,py2,pw,ph,8);X.fill();
+  X.strokeStyle='rgba(0,200,255,0.5)';X.lineWidth=1;X.beginPath();X.roundRect(px2,py2,pw,ph,8);X.stroke();
+  X.font='bold 11px monospace';X.fillStyle='#00ccff';X.textAlign='left';X.textBaseline='top';
+  let ly=py2+8;const lx=px2+10;
+  X.fillText('⚡ CLAIRVOYANCE  [` to hide]',lx,ly);ly+=18;
+  X.fillStyle='#aaddff';X.font='10px monospace';
+  X.fillText('FPS: '+gs._fpsSmooth+'  |  Frame: '+gs.frame,lx,ly);ly+=14;
+  X.fillText('State: '+gs.state,lx,ly);ly+=14;
+  X.fillText('Enemies: '+gs.enemies.filter(e=>e.active).length+'  |  FX total: '+gs.weaponFX.length,lx,ly);ly+=14;
+  X.fillText('Particles: '+gs.particles.length+'  |  Floats: '+gs.floatTexts.length,lx,ly);ly+=14;
+  X.fillText('Pills: '+gs.pills.length+'  |  Gold: '+gs.goldGems.length,lx,ly);ly+=14;
+  X.fillStyle='#88ffcc';
+  X.fillText('── FX by type ──',lx,ly);ly+=14;
+  for(const[t,n] of Object.entries(fxTypes)){X.fillStyle='#66ffaa';X.fillText('  '+t+': '+n,lx,ly);ly+=13;}
+  if(warnings.length===0){X.fillStyle='#44ff88';X.fillText('✓ All weapon FX active',lx,ly);ly+=13;}
+  else{for(const w of warnings){X.fillStyle='#ff6644';X.fillText(w,lx,ly);ly+=13;}}
+  X.restore();
+}
+
+function drawHUD(){
+const mm=String(Math.floor(Math.max(0,SURVIVE_TIME-gs.gameTime)/60)).padStart(2,'0');
+const ss=String(Math.floor(Math.max(0,SURVIVE_TIME-gs.gameTime)%60)).padStart(2,'0');
+
+// ── HP BAR — full width at very top, like XP bar at bottom ──
+const hpPct=gs.pHP/gs.pMaxHP;
+const hpColor=hpPct>0.5?'#44ff88':hpPct>0.25?'#ffaa22':'#ff3333';
+const hpGlowBase=10+hpPct*18;
+const hpPulse=hpPct<0.3?Math.abs(Math.sin(gs.time*0.28))*18:Math.sin(gs.time*0.07)*5;
+X.fillStyle='rgba(0,8,0,0.88)';X.fillRect(0,0,C.width,20);
+X.save();
+X.shadowColor=hpColor;X.shadowBlur=hpGlowBase+hpPulse;
+X.fillStyle=hpColor;
+X.fillRect(0,0,C.width*hpPct,20);
+if(hpPct>0.02&&hpPct<0.99){
+  X.fillStyle=`rgba(220,255,220,${0.4+Math.sin(gs.time*0.18)*0.15})`;
+  X.fillRect(C.width*hpPct-3,0,5,20);
+}
+// Sliding shimmer along the fill
+const hpShimmer=(gs.time*0.016)%1;
+if(hpShimmer<hpPct){
+  const hsx=hpShimmer*C.width;
+  const hsg=X.createLinearGradient(hsx-22,0,hsx+22,0);
+  hsg.addColorStop(0,'rgba(255,255,255,0)');hsg.addColorStop(0.5,'rgba(255,255,255,0.22)');hsg.addColorStop(1,'rgba(255,255,255,0)');
+  X.fillStyle=hsg;X.fillRect(hsx-22,0,44,20);
+}
+X.restore();
+// HP text
+X.font='bold 11px monospace';X.fillStyle='rgba(255,255,255,0.93)';X.textAlign='left';X.textBaseline='middle';
+X.shadowColor='rgba(0,0,0,0.9)';X.shadowBlur=4;
+X.fillText('HP '+Math.ceil(gs.pHP)+'/'+Math.floor(gs.pMaxHP),8,10);
+X.shadowBlur=0;
+
+// Timer — shifted down below HP bar
+X.font='bold 24px monospace';X.textAlign='center';X.textBaseline='top';
+const timerColor=gs.gameTime>540?'#ff4444':'#aaddff';
+X.fillStyle='rgba(0,0,0,0.88)';X.beginPath();X.roundRect(C.width/2-64,24,128,40,8);X.fill();
+X.save();
+X.strokeStyle=timerColor+'55';X.lineWidth=1;X.shadowColor=timerColor;X.shadowBlur=6+Math.sin(gs.time*0.08)*3;
+X.beginPath();X.roundRect(C.width/2-64,24,128,40,8);X.stroke();
+X.restore();
+X.fillStyle=timerColor;X.fillText(mm+':'+ss,C.width/2,32);
+
+// ── AUDIO TOGGLES — top right, always accessible ──
+{
+  const tbBtns=[{x:C.width-88,icon:'🎵',on:musicEnabled},{x:C.width-46,icon:'🔊',on:voiceEnabled}];
+  X.font='14px serif';X.textBaseline='middle';X.textAlign='center';
+  for(const tb of tbBtns){
+    X.globalAlpha=tb.on?0.92:0.42;
+    X.fillStyle=tb.on?'rgba(20,40,20,0.88)':'rgba(20,10,10,0.75)';
+    X.beginPath();X.roundRect(tb.x,26,36,24,5);X.fill();
+    X.strokeStyle=tb.on?'#44ff88':'#aa4444';X.lineWidth=1.5;
+    X.beginPath();X.roundRect(tb.x,26,36,24,5);X.stroke();
+    X.fillText(tb.icon,tb.x+18,38);
+  }
+  X.globalAlpha=1;
+}
+
+// ── STREAK TIER BANNER — top center, always visible, more glow ──
+{
+  const sr2=gs.streakTier,sc2=gs.streakColors[sr2];
+  const dmgM2=gs.streakDmgMult[sr2],spdM2=gs.streakSpdMult[sr2];
+  const pulse2=0.5+Math.sin(gs.time*0.14)*0.5;
+  X.save();
+  X.fillStyle='rgba(0,0,0,0.78)';X.beginPath();X.roundRect(C.width/2-128,70,256,28,7);X.fill();
+  if(sr2>0){
+    X.shadowColor=sc2;X.shadowBlur=18+pulse2*16;
+    X.strokeStyle=sc2+'66';X.lineWidth=1.5;
+    X.beginPath();X.roundRect(C.width/2-128,70,256,28,7);X.stroke();
+  }
+  X.font='bold 12px monospace';X.fillStyle=sr2>0?sc2:'rgba(120,120,120,0.75)';
+  X.textAlign='center';X.textBaseline='middle';
+  const tierLabel=sr2>0?gs.streakNames[sr2]+' ':'';
+  X.fillText(tierLabel+'×'+dmgM2.toFixed(2)+' DMG   ×'+spdM2.toFixed(2)+' SPD',C.width/2,84);
+  X.restore();
+}
+
+// ── VS-style stats panel — LEFT side, starts just below HP bar ──
+{
+  const rows=[];
+  const spdB=getStat('movespd');if(spdB>0)rows.push([`▲ +${Math.round(spdB*100)}% SPD`,'#44ffaa']);
+  const mightB=getMight()-1;if(mightB>0)rows.push([`⚔ +${Math.round(mightB*100)}% MIGHT`,'#ff9955']);
+  const areaB=getArea()-1;if(areaB>0)rows.push([`◎ +${Math.round(areaB*100)}% AREA`,'#cc88ff']);
+  const cdB=getStat('cooldown');if(cdB>0)rows.push([`⚡ -${Math.round(cdB*100)}% CD`,'#44ccff']);
+  const amt=getAmt();if(amt>1)rows.push([`• +${amt-1} AMOUNT`,'#ffee44']);
+  const magB=getStat('magnet');if(magB>0)rows.push([`⊕ +${Math.round(magB*100)}% MAGNET`,'#ffaa44']);
+  const regen=getStat('regen');if(regen>0)rows.push([`+ ${regen.toFixed(1)} REGEN`,'#44ff88']);
+  const xpB=getStat('growth');if(xpB>0)rows.push([`▲ +${Math.round(xpB*100)}% XP`,'#88ffcc']);
+  const steal=getStat('lifesteal');if(steal>0)rows.push([`♥ ${steal} LIFESTEAL`,'#ff4466']);
+  const thorn=getStat('thorns');if(thorn>0)rows.push([`◆ ${Math.round(thorn)} THORNS`,'#66ff44']);
+  const crit=getMetaStat('crit');if(crit>0)rows.push([`★ ${Math.round(crit*100)}% CRIT`,'#ffcc00']);
+  if(rows.length>0){
+    const pw=156,rh=16,pad=5;
+    const ph=rows.length*rh+pad*2;
+    X.fillStyle='rgba(0,0,0,0.72)';
+    X.beginPath();X.roundRect(8,24,pw,ph,5);X.fill();
+    X.strokeStyle='rgba(80,200,120,0.18)';X.lineWidth=1;
+    X.beginPath();X.roundRect(8,24,pw,ph,5);X.stroke();
+    X.font='10px monospace';X.textBaseline='middle';X.textAlign='left';
+    for(let ri=0;ri<rows.length;ri++){
+      const [lbl,col]=rows[ri];
+      X.fillStyle=col;X.globalAlpha=0.92;
+      X.fillText(lbl,16,24+pad+ri*rh+rh/2);
+    }
+    X.globalAlpha=1;
+  }
+}
+
+// XP bar — full width at very bottom, juiced-up glow
+const xpPct=Math.min(1,gs.xp/gs.xpNeeded);
+const xpGlowBase=10+xpPct*20;
+const xpPulse=xpPct>0.8?Math.abs(Math.sin(gs.time*0.24))*14:Math.sin(gs.time*0.08)*4;
+const xpGlow=xpGlowBase+xpPulse;
+X.fillStyle='rgba(0,0,18,0.85)';X.fillRect(0,C.height-16,C.width,16);
+X.save();
+X.shadowColor='#4488ff';X.shadowBlur=xpGlow;
+const xpBlue=Math.floor(100+xpPct*155);
+X.fillStyle=`rgb(30,${Math.floor(80+xpPct*70)},${xpBlue})`;
+X.fillRect(0,C.height-15,C.width*xpPct,14);
+// Shimmer at fill edge
+if(xpPct>0&&xpPct<1){
+  X.fillStyle=`rgba(160,220,255,${0.4+xpPct*0.4})`;
+  X.fillRect(C.width*xpPct-3,C.height-15,5,14);
+}
+// Sliding shimmer across fill
+const xpShimmer=(gs.time*0.014)%1;
+if(xpShimmer<xpPct){
+  const xsx=xpShimmer*C.width;
+  const xsg=X.createLinearGradient(xsx-24,0,xsx+24,0);
+  xsg.addColorStop(0,'rgba(255,255,255,0)');xsg.addColorStop(0.5,'rgba(255,255,255,0.2)');xsg.addColorStop(1,'rgba(255,255,255,0)');
+  X.fillStyle=xsg;X.fillRect(xsx-24,C.height-15,48,14);
+}
+X.restore();
+if(xpPct>0.88){
+  const ta=0.45+Math.sin(gs.time*0.26)*0.3;
+  X.globalAlpha=ta;X.font='bold 10px monospace';X.fillStyle='#aaddff';X.textAlign='center';
+  X.fillText('LEVEL UP SOON!',C.width/2,C.height-9);X.globalAlpha=1;
+}else{
+  X.font='bold 10px monospace';X.fillStyle='rgba(140,180,255,0.75)';X.textAlign='center';
+  X.fillText('LV '+gs.level+' — '+Math.floor(gs.xp)+'/'+gs.xpNeeded+' XP',C.width/2,C.height-9);
+}
+
+// ===== STREAK RING — vivid, more halos, more glow =====
+const sr=gs.streakTier,sc=gs.streakColors[sr];
+const ringX=C.width/2,ringY=C.height-108,ringR=50,ringTk=9;
+const tierMin=gs.streakThresholds[sr];
+const tierMax=sr<gs.streakThresholds.length-1?gs.streakThresholds[sr+1]:tierMin+500;
+const tierPct=Math.min(1,Math.max(0,(gs.streakKills-tierMin)/(tierMax-tierMin)));
+const pulse=0.5+Math.sin(gs.time*0.14)*0.5;
+
+// Outer glow halos — always visible even at tier 0, intensify with tier
+{
+  const haloLayers=sr>0?4:2;
+  for(let g=haloLayers;g>0;g--){
+    X.beginPath();X.arc(ringX,ringY,ringR+g*5,0,Math.PI*2);
+    X.strokeStyle=sc;X.globalAlpha=(0.035+sr*0.025)*pulse*(haloLayers-g+1)*0.5;X.lineWidth=g*3.5;X.stroke();
+  }
+  X.globalAlpha=1;
+}
+
+// Track ring (dark)
+X.beginPath();X.arc(ringX,ringY,ringR,0,Math.PI*2);
+X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ringTk;X.globalAlpha=1;X.stroke();
+
+// Fill arc — clockwise from top, triple-pass for bright neon look
+if(tierPct>0){
+  X.save();
+  // Outer glow pass
+  X.shadowColor=sc;X.shadowBlur=28+sr*10+pulse*16;
+  X.beginPath();X.arc(ringX,ringY,ringR,-Math.PI/2,-Math.PI/2+tierPct*Math.PI*2);
+  X.strokeStyle=sc;X.lineWidth=ringTk;X.lineCap='round';X.stroke();
+  // Mid bright pass
+  X.shadowBlur=8;X.globalAlpha=0.7;
+  X.strokeStyle=sc;X.lineWidth=ringTk*0.55;
+  X.beginPath();X.arc(ringX,ringY,ringR,-Math.PI/2,-Math.PI/2+tierPct*Math.PI*2);X.stroke();
+  // Inner white highlight
+  X.shadowBlur=0;X.globalAlpha=0.55;
+  X.strokeStyle='#ffffff';X.lineWidth=ringTk*0.3;
+  X.beginPath();X.arc(ringX,ringY,ringR,-Math.PI/2,-Math.PI/2+tierPct*Math.PI*2);X.stroke();
+  X.restore();
+}
+
+// Tick marks at 25%, 50%, 75%
+X.save();
+for(let t=1;t<4;t++){
+  const ta=-Math.PI/2+t*(Math.PI*2/4);
+  X.strokeStyle='rgba(255,255,255,0.28)';X.lineWidth=2;
+  X.beginPath();X.moveTo(ringX+Math.cos(ta)*(ringR-ringTk/2-2),ringY+Math.sin(ta)*(ringR-ringTk/2-2));
+  X.lineTo(ringX+Math.cos(ta)*(ringR+ringTk/2+2),ringY+Math.sin(ta)*(ringR+ringTk/2+2));
+  X.stroke();
+}
+X.restore();
+
+// Orbiting dots — at tier 1+ (not just 3+)
+if(sr>=1){
+  const dotCount=sr*2+2;
+  for(let o=0;o<dotCount;o++){
+    const oa=gs.time*0.055*(o%2===0?1:-0.65)+o*(Math.PI*2/dotCount);
+    const or2=ringR+ringTk+4+Math.sin(gs.time*0.12+o)*4;
+    X.save();X.shadowColor=sc;X.shadowBlur=10+pulse*8;
+    X.fillStyle=sc;X.globalAlpha=0.5+pulse*0.4;
+    X.beginPath();X.arc(ringX+Math.cos(oa)*or2,ringY+Math.sin(oa)*or2*0.62,2.8,0,Math.PI*2);X.fill();
+    X.restore();
+  }
+}
+
+// Tier name (bold, glowing)
+X.save();
+X.shadowColor=sc;X.shadowBlur=sr>0?16+pulse*12:4;
+X.font='bold 12px monospace';X.fillStyle=sr>0?sc:'#555555';X.textAlign='center';X.textBaseline='middle';
+X.fillText(gs.streakNames[sr],ringX,ringY-6);
+X.font='9px monospace';X.fillStyle='rgba(255,255,255,0.6)';X.shadowBlur=0;
+X.fillText(gs.streakKills+' kills',ringX,ringY+9);
+X.restore();
+
+// DMG / SPD text above ring
+const dmgM=gs.streakDmgMult[sr],spdM=gs.streakSpdMult[sr];
+X.save();
+X.shadowColor=sc;X.shadowBlur=sr>0?10+pulse*6:2;
+X.font='bold 11px monospace';X.fillStyle=sr>0?sc:'rgba(120,120,120,0.6)';X.textAlign='center';X.textBaseline='bottom';
+X.fillText('x'+dmgM.toFixed(1)+' DMG   x'+spdM.toFixed(2)+' SPD',ringX,ringY-ringR-7);
+X.restore();
+
+// Kills + Gold — inside the HP bar trough at right side (clean, no overlap)
+X.font='bold 11px monospace';X.fillStyle='rgba(255,255,255,0.82)';X.textAlign='right';X.textBaseline='middle';
+X.shadowColor='rgba(0,0,0,0.8)';X.shadowBlur=4;
+X.fillText('💀 '+gs.kills+'   🪙 '+gs.gold.toLocaleString(),C.width-8,10);
+X.shadowBlur=0;
+
+// ===== CO-OP PARTY PANEL =====
+const rKeys=Object.keys(remotePlayers);
+if(rKeys.length>0){
+  const panH=22+rKeys.length*20;
+  X.fillStyle='rgba(0,5,15,0.78)';X.beginPath();X.roundRect(12,24,188,panH,6);X.fill();
+  X.font='bold 9px monospace';X.fillStyle='#7adfff';X.textAlign='left';X.textBaseline='top';
+  X.fillText('⚔ CO-OP PARTY',18,28);
+  let ry2=42;
+  for(const rid of rKeys){
+    const rp=remotePlayers[rid];
+    const hpPct=Math.max(0,rp.hp/rp.maxHp);
+    const icon=rp.downed?'💀':(rp.alive?'●':'✗');
+    X.fillStyle=rp.downed?'#ff6644':(rp.alive?(hpPct>0.5?'#44ff88':'#ffaa22'):'#ff4444');
+    X.fillText(icon+' '+rp.username.slice(0,10)+(rp.downed?' DOWNED':' Lv'+rp.level+' 💀'+rp.kills),18,ry2);
+    ry2+=20;
+  }
+}
+
+// ===== WEAPON SLOTS (top row) + PASSIVE SLOTS (bottom row) with glow =====
+const slotSz=38,slotGap=4,slotX=10;
+// Top row: active weapons
+let wx=slotX;
+for(const w of gs.weapons){
+const def=WEAPONS[w.id];if(!def){wx+=slotSz+slotGap;continue;}
+const wc=def.color||'#aaddff';
+X.save();
+X.shadowColor=wc;X.shadowBlur=10+w.lvl*2;
+X.fillStyle='rgba(0,5,20,0.88)';X.beginPath();X.roundRect(wx,C.height-slotSz*2-slotGap-12,slotSz,slotSz,7);X.fill();
+X.strokeStyle=wc+'88';X.lineWidth=1.5;X.beginPath();X.roundRect(wx,C.height-slotSz*2-slotGap-12,slotSz,slotSz,7);X.stroke();
+X.shadowBlur=0;
+X.font='22px serif';X.textAlign='center';X.textBaseline='middle';
+X.fillText(def.emoji,wx+slotSz/2,C.height-slotSz*2-slotGap-12+slotSz/2);
+X.font='bold 9px monospace';X.fillStyle='#ffd700';X.textAlign='right';X.textBaseline='bottom';
+X.fillText('LV'+w.lvl,wx+slotSz-2,C.height-slotSz*2-slotGap-12+slotSz-2);
+X.restore();
+wx+=slotSz+slotGap;
+}
+// Bottom row: passives (aligned under weapons)
+wx=slotX;
+for(const p of gs.passives){
+const def=PASSIVES[p.id];if(!def){wx+=slotSz+slotGap;continue;}
+X.save();
+X.shadowColor='#8866cc';X.shadowBlur=8;
+X.fillStyle='rgba(10,0,25,0.88)';X.beginPath();X.roundRect(wx,C.height-slotSz-8,slotSz,slotSz,7);X.fill();
+X.strokeStyle='rgba(180,140,255,0.45)';X.lineWidth=1.2;X.beginPath();X.roundRect(wx,C.height-slotSz-8,slotSz,slotSz,7);X.stroke();
+X.shadowBlur=0;
+X.font='22px serif';X.textAlign='center';X.textBaseline='middle';
+X.fillText(def.emoji,wx+slotSz/2,C.height-slotSz-8+slotSz/2);
+X.restore();
+wx+=slotSz+slotGap;
+}
+
+// ===== DOWNED OVERLAY (local player) =====
+if(gs.state==='downed'){
+  const pulse=0.5+Math.sin(gs.time*0.12)*0.5;
+  // Dark vignette
+  X.fillStyle='rgba(80,0,0,0.45)';X.fillRect(0,0,C.width,C.height);
+  // "DOWNED" big text
+  X.save();
+  X.shadowColor='#ff4422';X.shadowBlur=22+pulse*16;
+  X.font='bold 52px monospace';X.textAlign='center';X.textBaseline='middle';
+  X.fillStyle='#ff5533';X.fillText('DOWNED',C.width/2,C.height/2-48);
+  // Countdown
+  const secsLeft=Math.ceil(gs.downedTimer/60);
+  X.font='bold 22px monospace';X.fillStyle=secsLeft<=5?'#ff3300':'#ffaa44';
+  X.fillText('Bleeding out in '+secsLeft+'s…',C.width/2,C.height/2+8);
+  // Instruction
+  X.font='bold 13px monospace';X.fillStyle='rgba(255,200,180,0.9)';
+  X.fillText('A teammate must revive you with [Y]',C.width/2,C.height/2+40);
+  X.shadowBlur=0;
+  // Countdown ring around center
+  const ringR=70,pct=gs.downedTimer/1800;
+  X.strokeStyle='rgba(255,80,40,0.3)';X.lineWidth=6;
+  X.beginPath();X.arc(C.width/2,C.height/2-48,ringR,0,Math.PI*2);X.stroke();
+  X.strokeStyle=secsLeft<=5?'#ff3300':'#ff8844';X.lineWidth=6;X.shadowColor='#ff4422';X.shadowBlur=10;
+  X.lineCap='round';
+  X.beginPath();X.arc(C.width/2,C.height/2-48,ringR,-Math.PI/2,-Math.PI/2+Math.PI*2*pct);X.stroke();
+  X.restore();
+}
+
+// ── Virtual joystick overlay (mobile only — shown when touch active) ──
+if(vJoy.active){
+  const jx=vJoy.bx*(C.width/C.offsetWidth),jy=vJoy.by*(C.height/C.offsetHeight);
+  const thumbX=jx+vJoy.dx*60,thumbY=jy+vJoy.dy*60;
+  X.save();
+  // Outer ring
+  X.strokeStyle='rgba(255,255,255,0.25)';X.lineWidth=3;X.globalAlpha=0.6;
+  X.beginPath();X.arc(jx,jy,60,0,Math.PI*2);X.stroke();
+  // Inner guide dot
+  X.fillStyle='rgba(255,255,255,0.12)';X.beginPath();X.arc(jx,jy,60,0,Math.PI*2);X.fill();
+  // Thumb
+  X.globalAlpha=0.85;X.fillStyle='rgba(100,160,255,0.7)';X.shadowColor='#aaddff';X.shadowBlur=12;
+  X.beginPath();X.arc(thumbX,thumbY,26,0,Math.PI*2);X.fill();
+  X.restore();X.shadowBlur=0;
+}
+}
+
+function drawLevelUp(){
+X.save();
+// Solid dark overlay — game is paused
+X.fillStyle='rgba(0,0,12,0.84)';X.fillRect(0,0,C.width,C.height);
+// Header
+X.font='bold 28px monospace';
+X.shadowColor='#ffd700';X.shadowBlur=18;
+X.fillStyle='#ffd700';X.textAlign='center';X.textBaseline='middle';
+X.fillText('⬆ LEVEL '+gs.level,C.width/2,C.height/2-164);
+X.shadowBlur=0;
+// Subtitle changes based on solo vs party
+const isMulti=PARTY_ID&&Object.keys(remotePlayers).length>0;
+X.font='13px monospace';X.fillStyle='rgba(255,220,100,0.6)';
+X.fillText(isMulti?'Choose your upgrade — game resumes when all players pick':'Choose an upgrade',C.width/2,C.height/2-136);
+
+const cw=220,ch=170,gap=20,startX=C.width/2-(gs.lvlChoices.length*cw+(gs.lvlChoices.length-1)*gap)/2;
+for(let i=0;i<gs.lvlChoices.length;i++){
+const c=gs.lvlChoices[i];const bx=startX+i*(cw+gap);const by=C.height/2-80;
+const sel=i===gs.lvlSelected;
+X.fillStyle=sel?'rgba(100,80,200,0.9)':'rgba(30,22,60,0.95)';
+X.strokeStyle=sel?'rgba(200,170,255,0.9)':'rgba(140,110,220,0.6)';
+X.lineWidth=sel?2.5:1.5;X.beginPath();X.roundRect(bx,by,cw,ch,12);X.fill();X.beginPath();X.roundRect(bx,by,cw,ch,12);X.stroke();
+const def=c.isWeapon?WEAPONS[c.id]:PASSIVES[c.id];if(!def)continue;
+X.font='36px serif';X.textAlign='center';X.textBaseline='top';X.fillText(def.emoji,bx+cw/2,by+14);
+X.font='bold 13px monospace';X.fillStyle=sel?'#fff':'#ddccff';
+X.fillText(def.name,bx+cw/2,by+58);
+X.font='bold 10px monospace';X.fillStyle=c.isWeapon?'#88ffaa':'#88ccff';
+const existW=gs.weapons.find(w=>w.id===c.id);
+const wLabel=c.isWeapon?(existW?'LV UP ▸ LV'+(existW.lvl+1):'NEW WEAPON'):'PASSIVE';
+X.fillText(wLabel,bx+cw/2,by+78);
+// Level pip bar for weapons
+if(c.isWeapon&&existW){
+  const maxLv=WEAPONS[c.id].maxLvl||8;
+  const pipW=(cw-40)/maxLv;
+  for(let lp=0;lp<maxLv;lp++){
+    X.fillStyle=lp<existW.lvl?'#ffd700':'rgba(255,255,255,0.1)';
+    X.fillRect(bx+20+lp*pipW,by+88,pipW-2,4);
+  }
+}
+X.font='11px monospace';X.fillStyle='rgba(200,190,230,0.75)';
+const words=def.desc.split(' ');let line='';let y=by+98;
+for(const word of words){const test=line+(line?' ':'')+word;
+if(X.measureText(test).width>cw-20){X.fillText(line,bx+cw/2,y);line=word;y+=16;}else line=test;}
+if(line)X.fillText(line,bx+cw/2,y);
+}
+// Controls hint
+X.font='bold 12px monospace';X.fillStyle='rgba(180,160,255,0.5)';X.textAlign='center';X.textBaseline='bottom';
+X.fillText('A/D or ←/→ to select  •  SPACE/ENTER to confirm  •  TAB to re-roll',C.width/2,C.height-46);
+
+// Party waiting panel (multiplayer only)
+const rKeys=Object.keys(remotePlayers);
+if(PARTY_ID&&rKeys.length>0){
+  // Build waiting list
+  const waiting=[];
+  const done=[];
+  // Local player
+  if(gs.partyLevelUpChosen[USER_ID])done.push('You ✓');
+  else waiting.push('You…');
+  // Remote players
+  for(const id of rKeys){
+    const rp=remotePlayers[id];
+    if(!rp.alive&&!rp.downed)continue; // skip dead
+    const name=(rp.username||id).slice(0,10);
+    if(gs.partyLevelUpChosen[id])done.push(name+' ✓');
+    else waiting.push(name+'…');
+  }
+  // Panel bg
+  const pw=Math.min(480,C.width-40);
+  const ph=waiting.length>0?52:36;
+  const px2=C.width/2-pw/2,py2=C.height-ph-12;
+  X.fillStyle='rgba(10,5,30,0.85)';X.beginPath();X.roundRect(px2,py2,pw,ph,8);X.fill();
+  X.strokeStyle='rgba(100,80,200,0.5)';X.lineWidth=1;X.beginPath();X.roundRect(px2,py2,pw,ph,8);X.stroke();
+  // Status line
+  X.font='bold 11px monospace';X.textAlign='center';X.textBaseline='top';
+  if(waiting.length>0){
+    X.fillStyle='#ffaa44';
+    X.fillText('⏳ Waiting for: '+waiting.join('  '),C.width/2,py2+8);
+    X.fillStyle='#44ff88';
+    X.fillText('Picked: '+done.join('  '),C.width/2,py2+26);
+  }else{
+    X.fillStyle='#44ff88';
+    X.fillText('✓ All players ready! Resuming…',C.width/2,py2+12);
+  }
+  // Force-end hint for party leader (only if someone is still waiting)
+  if(isPartyLeader()&&waiting.length>0){
+    X.font='10px monospace';X.fillStyle='rgba(255,200,80,0.55)';X.textAlign='right';X.textBaseline='bottom';
+    X.fillText('[F] Force skip (leader only)',C.width-12,C.height-12);
+  }
+}
+X.restore();
+}
+
+// ===== PROGRESS SAVE / LOAD =====
+function saveRun(){
+  try{
+    // ── Transfer run gold to persistent bank ──────────────────────────
+    const meta=loadMeta();meta.powerups=meta.powerups||{};
+    const goldMult=1+getMetaStat('gold_mult');
+    const tierBonus=gs.streakTier*30;          // +30g per tier reached
+    const winBonus=gs.survived?150:0;           // +150g for winning
+    const earned=Math.floor(gs.gold*goldMult)+tierBonus+winBonus;
+    meta.goldBank=(meta.goldBank||0)+earned;
+    meta.totalGoldEarned=(meta.totalGoldEarned||0)+earned;
+    saveMeta(meta);
+    refreshMetaCache();
+    gs.metaGoldEarned=earned; // shown on game over screen
+
+    // ── Save run history (unchanged) ──────────────────────────────────
+    const prev=JSON.parse(localStorage.getItem('outbreak_progress')||'{}');
+    const run={kills:gs.kills,level:gs.level,tier:gs.streakTier,time:Math.floor(gs.gameTime),gold:gs.gold,date:Date.now()};
+    const best=prev.best||{};
+    if((run.kills>=(best.kills||0))||!best.kills){
+      best.kills=Math.max(run.kills,best.kills||0);
+      best.level=Math.max(run.level,best.level||0);
+      best.tier=Math.max(run.tier,best.tier||0);
+      best.time=Math.max(run.time,best.time||0);
+    }
+    const history=(prev.history||[]);
+    history.unshift(run);if(history.length>20)history.pop();
+    localStorage.setItem('outbreak_progress',JSON.stringify({best,history,totalKills:(prev.totalKills||0)+run.kills,totalRuns:(prev.totalRuns||0)+1}));
+  }catch(e){}
+}
+function loadProgress(){
+  try{return JSON.parse(localStorage.getItem('outbreak_progress')||'{}');}catch(e){return {};}
+}
+
+function drawGameOver(survived){
+// VS-style stat screen
+const bgColor=survived?'rgba(4,18,8,0.95)':'rgba(18,4,4,0.95)';
+X.fillStyle=bgColor;X.fillRect(0,0,C.width,C.height);
+
+// Background shimmer
+for(let i=0;i<20;i++){
+  const bx=((i*120+gs.time*0.3)%C.width);const by=C.height*0.85+Math.sin(gs.time*0.03+i)*8;
+  X.globalAlpha=0.05;X.font='20px serif';X.textAlign='center';X.fillText(survived?'🌙':'🧟',bx,by);
+}X.globalAlpha=1;
+
+const mm=String(Math.floor(gs.gameTime/60)).padStart(2,'0');
+const ss=String(Math.floor(gs.gameTime%60)).padStart(2,'0');
+
+// Title
+X.save();
+const titlePulse=1+Math.sin(gs.time*0.05)*0.02;
+X.translate(C.width/2,C.height/2-175);X.scale(titlePulse,titlePulse);
+X.font='bold 56px monospace';X.textAlign='center';X.textBaseline='middle';
+X.fillStyle=survived?'#003310':'#330000';X.fillText(survived?'MOONHAVEN SAVED':'THE HORDE WINS',2,2);
+X.fillStyle=survived?'#44ff88':'#ff4444';X.fillText(survived?'MOONHAVEN SAVED':'THE HORDE WINS',0,0);
+X.restore();
+
+// Flavor text
+X.font='italic 14px monospace';X.textAlign='center';X.textBaseline='middle';
+X.fillStyle=survived?'rgba(100,230,150,0.55)':'rgba(220,100,100,0.55)';
+X.fillText(survived?'"The moon still rises over Moonhaven. The horde is driven back."':'"Moonhaven falls to shadow. The undead feast tonight."',C.width/2,C.height/2-135);
+
+// Stats panel
+const pw=520,ph=220,px2=C.width/2-pw/2,py2=C.height/2-100;
+X.fillStyle='rgba(0,0,0,0.6)';X.strokeStyle=survived?'rgba(68,255,136,0.35)':'rgba(255,68,68,0.35)';
+X.lineWidth=1.5;X.beginPath();X.roundRect(px2,py2,pw,ph,10);X.fill();X.beginPath();X.roundRect(px2,py2,pw,ph,10);X.stroke();
+
+// Stats grid
+const stats=[
+  {label:'TIME SURVIVED',val:mm+':'+ss,color:'#aaddff'},
+  {label:'KILLS',val:gs.kills.toLocaleString(),color:'#ff6666'},
+  {label:'DAMAGE DEALT',val:gs.totalDamage.toLocaleString(),color:'#ffaa44'},
+  {label:'LEVEL REACHED',val:gs.level,color:'#ffd700'},
+  {label:'GOLD COLLECTED',val:gs.gold.toLocaleString()+'g',color:'#ffd700'},
+  {label:'HORDE TIER',val:gs.streakNames[gs.streakTier],color:gs.streakColors[gs.streakTier]},
+];
+const cols=2,rows=Math.ceil(stats.length/cols);
+const cw2=pw/cols;
+for(let si=0;si<stats.length;si++){
+  const col=si%cols,row=Math.floor(si/cols);
+  const sx=px2+col*cw2+cw2/2,sy=py2+28+row*62;
+  X.font='bold 10px monospace';X.fillStyle='rgba(180,180,180,0.5)';X.textAlign='center';
+  X.fillText(stats[si].label,sx,sy);
+  X.font='bold 22px monospace';X.fillStyle=stats[si].color;
+  X.fillText(String(stats[si].val),sx,sy+22);
+}
+
+// Weapons earned
+const itemY=py2+ph+14;
+X.font='bold 10px monospace';X.fillStyle='rgba(200,180,255,0.5)';X.textAlign='center';
+X.fillText('WEAPONS & PASSIVES',C.width/2,itemY+6);
+let itmX=C.width/2-(gs.weapons.length+gs.passives.length)*24;
+for(const w of gs.weapons){
+  const def=WEAPONS[w.id];if(!def)continue;
+  X.fillStyle='rgba(10,8,30,0.85)';X.beginPath();X.roundRect(itmX,itemY+14,40,40,6);X.fill();
+  X.font='22px serif';X.textAlign='center';X.textBaseline='middle';X.fillText(def.emoji,itmX+20,itemY+34);
+  X.font='bold 8px monospace';X.fillStyle='#ffd700';X.textAlign='right';X.textBaseline='bottom';
+  X.fillText('LV'+w.lvl,itmX+38,itemY+52);itmX+=44;
+}
+for(const p of gs.passives){
+  const def=PASSIVES[p.id];if(!def)continue;
+  X.fillStyle='rgba(0,0,20,0.85)';X.beginPath();X.roundRect(itmX,itemY+14,40,40,6);X.fill();
+  X.font='22px serif';X.textAlign='center';X.textBaseline='middle';X.fillText(def.emoji,itmX+20,itemY+34);itmX+=44;
+}
+
+// Gold banked this run
+if(gs.metaGoldEarned>0){
+  X.font='bold 12px monospace';X.textAlign='center';X.textBaseline='middle';
+  X.fillStyle='rgba(0,0,0,0.55)';X.beginPath();X.roundRect(C.width/2-120,C.height-64,240,26,6);X.fill();
+  X.fillStyle='#ffd700';X.fillText(`🪙 +${gs.metaGoldEarned} gold banked  ·  Bank: ${(loadMeta().goldBank||0)}g`,C.width/2,C.height-51);
+}
+// Play again prompt
+const blinkA=0.5+Math.sin(gs.time*0.1)*0.3;
+X.globalAlpha=blinkA;
+X.font='bold 15px monospace';X.fillStyle=survived?'#88ffaa':'#ff8888';X.textAlign='center';X.textBaseline='bottom';
+X.fillText('▶  SPACE / ENTER to '+(FLOCK_ORIGIN?'return to Flock':'play again') + '   [P] UPGRADES',C.width/2,C.height-20);
+X.globalAlpha=1;
+}
+
+function drawTitle(){
+// Background flicker
+X.fillStyle='#0a140a';X.fillRect(0,0,C.width,C.height);
+// Animated zombie horde silhouettes
+for(let i=0;i<30;i++){
+const x=((i*120+gs.time*0.8)%C.width);const y=C.height*0.72+Math.sin(gs.time*0.04+i)*12;
+X.globalAlpha=0.12+Math.sin(gs.time*0.06+i*0.5)*0.05;
+X.font='28px serif';X.textAlign='center';X.textBaseline='middle';X.fillText('🧟',x,y);
+}
+X.globalAlpha=1;
+// Title
+const pulse=1+Math.sin(gs.time*0.06)*0.03;
+X.save();X.translate(C.width/2,C.height/2-80);X.scale(pulse,pulse);
+X.font='bold 58px monospace';X.textAlign='center';X.textBaseline='middle';
+X.fillStyle='#1a3a1a';X.fillText('FLOCK: OUTBREAK',-2,2);
+X.fillStyle='#44ff88';X.fillText('FLOCK: OUTBREAK',0,0);
+X.restore();
+// Subtitle
+X.font='14px monospace';X.fillStyle='rgba(100,220,120,0.55)';X.textAlign='center';
+X.fillText('Survive 10 minutes • Your Flock avatar vs the undead',C.width/2,C.height/2-30);
+// Avatar preview
+if(avatarImg){
+X.save();X.beginPath();X.arc(C.width/2,C.height/2+40,32,0,Math.PI*2);X.clip();
+X.drawImage(avatarImg,C.width/2-32,C.height/2+8,64,64);X.restore();
+}
+// Start prompt
+X.globalAlpha=0.6+Math.sin(gs.time*0.08)*0.3;
+X.font='bold 18px monospace';X.fillStyle='#88ffaa';X.textAlign='center';
+X.fillText('PRESS ANY KEY TO START',C.width/2,C.height/2+110);
+X.globalAlpha=1;
+// Controls
+X.font='11px monospace';X.fillStyle='rgba(80,160,100,0.45)';
+X.fillText('WASD / Arrows to move  •  Auto-attack  •  Level up to get new weapons',C.width/2,C.height-28);
+// Best score display
+const prog=loadProgress();
+if(prog.best&&prog.best.kills){
+X.font='11px monospace';X.fillStyle='rgba(180,220,180,0.6)';X.textAlign='center';X.textBaseline='middle';
+X.fillText('Best: 💀'+prog.best.kills+' kills  LV'+prog.best.level+'  '+Math.floor(prog.best.time/60)+'m'+String(prog.best.time%60).padStart(2,'0')+'s',C.width/2,C.height-70);
+X.fillText('Total kills: '+((prog.totalKills||0)+'  Runs: '+(prog.totalRuns||0)),C.width/2,C.height-52);
+}
+// ── UPGRADES button & gold bank balance ─────────────────────────────
+const meta=loadMeta();const bank=meta.goldBank||0;
+// Gold bank display
+X.font='bold 13px monospace';X.textAlign='center';X.textBaseline='middle';
+X.fillStyle='rgba(0,0,0,0.6)';X.beginPath();X.roundRect(C.width/2-90,C.height/2+130,180,28,6);X.fill();
+const bankPulse=0.85+Math.sin(gs.time*0.06)*0.15;
+X.globalAlpha=bankPulse;X.fillStyle='#ffd700';
+X.fillText('🪙 '+bank+'g  in bank',C.width/2,C.height/2+144);X.globalAlpha=1;
+// UPGRADES button (pulsing)
+const btnPulse=0.6+Math.sin(gs.time*0.05)*0.3;
+X.globalAlpha=btnPulse;
+X.fillStyle='rgba(80,50,150,0.85)';X.beginPath();X.roundRect(C.width/2-80,C.height/2+168,160,32,8);X.fill();
+X.strokeStyle='rgba(180,140,255,0.8)';X.lineWidth=1.5;X.beginPath();X.roundRect(C.width/2-80,C.height/2+168,160,32,8);X.stroke();
+X.fillStyle='#cc88ff';X.font='bold 14px monospace';
+X.fillText('[P] ⚡ UPGRADES',C.width/2,C.height/2+184);
+X.globalAlpha=1;
+}
+
+// ========== POWERUP SHOP ==========
+function drawPowerUps(){
+const meta=loadMeta();const bank=meta.goldBank||0;const pus=meta.powerups||{};
+// Dark backdrop
+X.fillStyle='rgba(6,4,18,0.97)';X.fillRect(0,0,C.width,C.height);
+// Animated bg particles
+for(let i=0;i<12;i++){
+  const px2=((i*160+gs.time*0.4)%C.width);const py2=30+((i*90+gs.time*0.3)%(C.height-60));
+  X.globalAlpha=0.04;X.font='18px serif';X.textAlign='center';X.fillText('⚡',px2,py2);
+}X.globalAlpha=1;
+
+// Header
+X.font='bold 32px monospace';X.textAlign='center';X.textBaseline='middle';
+X.fillStyle='#220044';X.fillText('⚡ OUTBREAK UPGRADES',C.width/2+2,C.height/2-300+2);
+X.fillStyle='#cc88ff';X.fillText('⚡ OUTBREAK UPGRADES',C.width/2,C.height/2-300);
+X.font='12px monospace';X.fillStyle='rgba(180,150,255,0.5)';
+X.fillText('Permanent upgrades — separate from Flock. Persist across all runs.',C.width/2,C.height/2-268);
+
+// Gold bank
+X.font='bold 18px monospace';X.fillStyle='rgba(0,0,0,0.7)';
+X.beginPath();X.roundRect(C.width/2-110,C.height/2-252,220,30,6);X.fill();
+X.fillStyle='#ffd700';X.fillText('🪙 Bank: '+bank+'g',C.width/2,C.height/2-238);
+
+// Category tabs
+const cats=['All','Combat','Survival','Utility'];
+let tabX=C.width/2-180;
+cats.forEach((cat,ci)=>{
+  const catKey=cat.toLowerCase();const active=gs.puCategory===catKey;
+  X.fillStyle=active?'rgba(140,80,220,0.9)':'rgba(30,20,60,0.8)';
+  X.beginPath();X.roundRect(tabX,C.height/2-218,80,22,5);X.fill();
+  X.strokeStyle=active?'rgba(200,150,255,0.9)':'rgba(100,80,160,0.4)';
+  X.lineWidth=1.2;X.beginPath();X.roundRect(tabX,C.height/2-218,80,22,5);X.stroke();
+  X.font=(active?'bold ':'')+'10px monospace';X.fillStyle=active?'#fff':'rgba(180,160,220,0.7)';
+  X.fillText(cat,tabX+40,C.height/2-207);
+  tabX+=88;
+});
+
+// Cards grid (4 per row)
+const filtered=META_PU_KEYS.filter(k=>gs.puCategory==='all'||META_POWERUPS[k].category===gs.puCategory);
+const cols=4,cw=C.width<700?Math.floor((C.width-40)/Math.min(cols,filtered.length)):180,ch=160,gap=10;
+const totalW=Math.min(filtered.length,cols)*(cw+gap)-gap;
+const startX=C.width/2-totalW/2;const startY=C.height/2-180;
+for(let i=0;i<filtered.length;i++){
+  const key=filtered[i];const def=META_POWERUPS[key];
+  const col=i%cols,row=Math.floor(i/cols);
+  const bx=startX+col*(cw+gap),by=startY+row*(ch+gap);
+  const lvl=pus[key]||0;const maxed=lvl>=def.maxLvl;
+  const cost=maxed?0:metaCost(key);const canAfford=!maxed&&bank>=cost;
+  const sel=i===gs.puSelected;
+
+  // Card bg
+  X.save();
+  if(sel){X.shadowColor=def.color;X.shadowBlur=16;}
+  X.fillStyle=sel?'rgba(80,45,160,0.95)':maxed?'rgba(20,40,20,0.9)':'rgba(18,12,40,0.92)';
+  X.beginPath();X.roundRect(bx,by,cw,ch,10);X.fill();
+  X.strokeStyle=sel?def.color:maxed?'rgba(80,200,80,0.5)':'rgba(80,60,130,0.5)';
+  X.lineWidth=sel?2:1;X.beginPath();X.roundRect(bx,by,cw,ch,10);X.stroke();
+  X.restore();
+
+  // Emoji
+  X.font='30px serif';X.textAlign='center';X.textBaseline='top';
+  X.fillText(def.emoji,bx+cw/2,by+10);
+
+  // Name
+  X.font='bold 11px monospace';X.textBaseline='top';
+  X.fillStyle=maxed?'#88ff88':sel?'#fff':'#ddbbff';
+  X.fillText(def.name,bx+cw/2,by+46);
+
+  // Level pips
+  const pipW=10,pipGap=3,pipTotal=def.maxLvl*(pipW+pipGap)-pipGap;
+  let px3=bx+cw/2-pipTotal/2;
+  for(let pi=0;pi<def.maxLvl;pi++){
+    X.fillStyle=pi<lvl?def.color:'rgba(255,255,255,0.15)';
+    X.beginPath();X.roundRect(px3,by+64,pipW,6,2);X.fill();
+    px3+=pipW+pipGap;
+  }
+
+  // Desc
+  X.font='9px monospace';X.fillStyle='rgba(180,165,210,0.75)';X.textAlign='center';X.textBaseline='top';
+  // Wrap at ~20 chars
+  const words=def.desc.split(' ');let line='';const lines=[];
+  words.forEach(w=>{if((line+w).length>22){lines.push(line.trim());line='';}line+=w+' ';});if(line.trim())lines.push(line.trim());
+  lines.slice(0,3).forEach((l,li)=>X.fillText(l,bx+cw/2,by+76+li*12));
+
+  // Cost / maxed / can't afford
+  X.font='bold 12px monospace';X.textAlign='center';X.textBaseline='bottom';
+  if(maxed){
+    X.fillStyle='#88ff88';X.fillText('✓ MAXED',bx+cw/2,by+ch-6);
+  }else{
+    X.fillStyle=canAfford?'#ffd700':'rgba(150,130,100,0.5)';
+    X.fillText((canAfford?'▶ ':'🔒 ')+'BUY: '+cost+'g',bx+cw/2,by+ch-6);
+  }
+}
+
+// Instructions
+X.font='11px monospace';X.fillStyle='rgba(150,130,200,0.55)';X.textAlign='center';X.textBaseline='bottom';
+X.fillText('↕↔ Navigate  •  SPACE/Enter to Buy  •  Tab to filter  •  [P/Esc] Close',C.width/2,C.height-8);
+}
+
+// ========== GAME LOOP ==========
+function loop(){requestAnimationFrame(loop);update();draw()}
+loop();
+</script>
+</body></html>

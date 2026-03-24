@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🎙 Outbreak Voice Picker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0814; color: #e0d0ff; font-family: monospace; padding: 24px; }
+  h1 { color: #cc88ff; font-size: 22px; margin-bottom: 6px; }
+  p.sub { color: #776688; font-size: 12px; margin-bottom: 28px; }
+  .section { margin-bottom: 32px; }
+  .section h2 { color: #88aaff; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; border-bottom: 1px solid #221a33; padding-bottom: 6px; }
+  .line { background: #110d1e; border: 1px solid #2a1a44; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .line-key { color: #888; font-size: 10px; margin-bottom: 4px; }
+  .line-text { color: #ffffff; font-size: 13px; margin-bottom: 10px; font-style: italic; }
+  .variants { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .var-btn {
+    background: #1e1230; border: 1px solid #441a66; color: #cc88ff;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 12px;
+    transition: all 0.12s;
+  }
+  .var-btn:hover { background: #2e1a44; border-color: #cc88ff; }
+  .var-btn.playing { background: #441a66; border-color: #cc88ff; color: #fff; }
+  .var-btn.selected { background: #22441a; border-color: #88ff44; color: #88ff44; }
+  .select-btn {
+    background: #1a3318; border: 1px solid #336622; color: #66ff44;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 11px;
+    margin-left: 6px; transition: all 0.12s;
+  }
+  .select-btn:hover { background: #1f3f1a; border-color: #66ff44; }
+  .choice-label { font-size: 11px; color: #665588; margin-left: 6px; }
+  .choice-label.chosen { color: #66ff44; font-weight: bold; }
+  #export-btn {
+    background: #4422aa; border: none; color: #fff; padding: 12px 28px;
+    border-radius: 8px; cursor: pointer; font-family: monospace; font-size: 14px;
+    margin-top: 20px; display: block;
+  }
+  #export-btn:hover { background: #5533cc; }
+  #output { background: #0a0a14; border: 1px solid #221a44; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 11px; color: #88ff88; white-space: pre; display: none; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-right: 4px; }
+  .tag-queen { background: #330044; color: #cc88ff; }
+  .tag-male { background: #001a33; color: #44aaff; }
+</style>
+</head>
+<body>
+
+<h1>🎙 FLOCK: OUTBREAK — Voice Picker</h1>
+<p class="sub">Play each variant (A=original, B/C/D=alternatives). Click ✅ SELECT to choose the best take. Export when done.</p>
+
+<div id="lines-container"></div>
+
+<button id="export-btn">📋 Export Selections (copy to update VOICE_LINES)</button>
+<div id="output"></div>
+
+<script>
+const VOICE_DIR = 'assets/audio/voice/';
+
+const LINES = [
+  // ── LEVEL UP ──────────────────────────────────────────────────────────────
+  { section:'Level Up', key:'outbreak_lvlup_0_v2', text:'"Getting stronger. Good."', voice:'queen' },
+  { section:'Level Up', key:'outbreak_lvlup_1_v2', text:'"A light in the darkness."', voice:'queen' },
+  { section:'Level Up', key:'outbreak_lvlup_2_v2', text:'"The living do not suffer the dead."', voice:'queen' },
+  { section:'Level Up', key:'outbreak_lvlup_3_v2', text:'"You are a God amongst ants."', voice:'queen' },
+  { section:'Level Up', key:'outbreak_lvlup_4_v2', text:'"This is to go even further beyond!"', voice:'queen' },
+  // ── BOSS ──────────────────────────────────────────────────────────────────
+  { section:'Boss Spawn', key:'outbreak_boss_0_v2', text:'"Be ready, something\'s coming."', voice:'queen' },
+  { section:'Boss Spawn', key:'outbreak_boss_1_v2', text:'"A boss approaches. Show em who\'s really in charge."', voice:'queen' },
+  // ── WIN ───────────────────────────────────────────────────────────────────
+  { section:'Win', key:'outbreak_win_5min_v2', text:'"Five minutes. Still standing. That means something."', voice:'queen' },
+  { section:'Win', key:'outbreak_win_0_v2', text:'"Ten minutes in hell. You made it out. For now."', voice:'queen' },
+  // ── DEATH ─────────────────────────────────────────────────────────────────
+  { section:'Death', key:'outbreak_death_0_v2', text:'"The horde took you. But you took plenty with you."', voice:'queen' },
+  // ── STREAK ────────────────────────────────────────────────────────────────
+  { section:'Streak (Male)', key:'outbreak_streak_awake_v2', text:'"The horde is gathering. Stand firm."', voice:'male' },
+  { section:'Streak (Male)', key:'outbreak_streak_based_v2', text:'"You cut through them like moonlight through fog."', voice:'male' },
+  { section:'Streak (Male)', key:'outbreak_streak_ascended_v2', text:'"LET THEM COME!"', voice:'male' },
+  { section:'Streak (Male)', key:'outbreak_streak_godtier_v2', text:'"You are UNSTOPPABLE!"', voice:'male' },
+  // ── WEAPONS ───────────────────────────────────────────────────────────────
+  { section:'Weapons', key:'outbreak_weapon_moonbolt_v2', text:'"Sacred light!"', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_flock_burst_v2', text:'"As the crow flies."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_mira_curse_v2', text:'"Turn the plague against itself."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_herald_shout_v2', text:'"LET THE DEAD HEAR YOU!"', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_pip_pebble_v2', text:'"Let them fly."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_lysara_orb_v2', text:'"We are blessed by the Gods."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_aldric_lance_v2', text:'"May your aim be true."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_theron_hammer_v2', text:'"Slow but powerful. Don\'t miss."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_moon_arrow_v2', text:'"Like moonlight through fog."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_bessie_pie_throw_v2', text:'"Burn them all!"', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_flame_whip_0_v2', text:'"Whip them into shape."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_flame_whip_1_v2', text:'"Who knew whips could be so… hot."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_void_maw_v2', text:'"Pull them closer and watch what happens."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_soul_scythe_v2', text:'"One swing. Make it count."', voice:'queen' },
+  { section:'Weapons', key:'outbreak_weapon_frost_nova_v2', text:'"Stop them cold. Then finish it."', voice:'queen' },
+  // ── PASSIVES ──────────────────────────────────────────────────────────────
+  { section:'Passives', key:'outbreak_passive_bessie_pie_v2', text:'"You need to last. Eat, and keep moving."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_aldric_boots_v2', text:'"The ones you outrun can\'t kill you."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_theron_anvil_v2', text:'"Don\'t waste this blade."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_mira_tome_v2', text:'"Knowledge is power. Wisdom is knowing how to wield it."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_herald_scroll_v2', text:'"Now they can\'t escape your reach."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_lysara_crystal_v2', text:'"Time to focus."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_pip_charm_0_v2', text:'"Today\'s your lucky day."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_pip_charm_1_v2', text:'"Feeling lucky?"', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_pip_charm_2_v2', text:'"Looks like their luck just ran out. Ours is just getting started."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_moon_amulet_v2', text:'"Blessed by the moon mother."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_queen_crown_v2', text:'"Power has a price. Make the dead pay it."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_flock_badge_v2', text:'"Guns. Lots of guns."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_crimson_pact_v2', text:'"A pact made in blood."', voice:'queen' },
+  { section:'Passives', key:'outbreak_passive_thorn_shroud_v2', text:'"Stand your ground."', voice:'queen' },
+];
+
+const VARIANTS = ['', '_b', '_c', '_d'];
+const VARIANT_LABELS = ['A (original)', 'B', 'C', 'D'];
+
+// Track selections and currently playing audio
+const selections = {};
+let currentAudio = null;
+let currentBtn = null;
+
+function playVariant(key, variant, btn) {
+  if(currentAudio){ currentAudio.pause(); currentAudio.currentTime=0; }
+  if(currentBtn){ currentBtn.classList.remove('playing'); }
+  const path = VOICE_DIR + key + variant + '.mp3';
+  currentAudio = new Audio(path);
+  currentAudio.play().catch(()=>{});
+  currentBtn = btn;
+  btn.classList.add('playing');
+  currentAudio.onended = () => { btn.classList.remove('playing'); };
+}
+
+function selectVariant(key, variant) {
+  selections[key] = variant;
+  // Update UI
+  document.querySelectorAll(`.choice-label[data-key="${key}"]`).forEach(el => {
+    el.textContent = '';
+    el.classList.remove('chosen');
+  });
+  const label = document.querySelector(`.choice-label[data-key="${key}"][data-variant="${variant}"]`);
+  if(label){ label.textContent = '✅ SELECTED'; label.classList.add('chosen'); }
+}
+
+function buildUI() {
+  const container = document.getElementById('lines-container');
+  let currentSection = '';
+
+  for(const line of LINES) {
+    if(line.section !== currentSection) {
+      currentSection = line.section;
+      const sec = document.createElement('div');
+      sec.className = 'section';
+      sec.innerHTML = `<h2>${line.section}</h2>`;
+      container.appendChild(sec);
+    }
+    const section = container.lastElementChild;
+    const div = document.createElement('div');
+    div.className = 'line';
+    const voiceTag = line.voice === 'male'
+      ? '<span class="tag tag-male">♂ MALE</span>'
+      : '<span class="tag tag-queen">♀ QUEEN</span>';
+    div.innerHTML = `
+      <div class="line-key">${voiceTag} ${line.key}</div>
+      <div class="line-text">${line.text}</div>
+      <div class="variants" id="variants-${line.key}"></div>
+    `;
+    section.appendChild(div);
+
+    const varContainer = div.querySelector(`#variants-${line.key}`);
+    VARIANTS.forEach((v, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'var-btn';
+      btn.textContent = `▶ ${VARIANT_LABELS[i]}`;
+      btn.onclick = () => playVariant(line.key, v, btn);
+      varContainer.appendChild(btn);
+
+      const selBtn = document.createElement('button');
+      selBtn.className = 'select-btn';
+      selBtn.textContent = '✅ SELECT';
+      selBtn.onclick = () => selectVariant(line.key, v);
+      varContainer.appendChild(selBtn);
+
+      const label = document.createElement('span');
+      label.className = 'choice-label';
+      label.setAttribute('data-key', line.key);
+      label.setAttribute('data-variant', v);
+      varContainer.appendChild(label);
+
+      // Small gap between variants
+      const gap = document.createElement('span');
+      gap.style.marginRight = '8px';
+      varContainer.appendChild(gap);
+    });
+  }
+}
+
+document.getElementById('export-btn').onclick = () => {
+  const lines = [];
+  for(const line of LINES) {
+    const chosen = selections[line.key] ?? '';
+    const filename = `voice/${line.key}${chosen}.mp3`;
+    lines.push(`  // ${line.text}`);
+    lines.push(`  // SELECTED: ${VARIANT_LABELS[VARIANTS.indexOf(chosen)]} → ${line.key}${chosen}.mp3`);
+  }
+
+  // Group by game key
+  const gameKeyMap = {};
+  for(const line of LINES) {
+    const chosen = selections[line.key] ?? '';
+    // strip _v2 suffix to get game key
+    const gameKey = line.key
+      .replace(/^outbreak_weapon_/, '')
+      .replace(/^outbreak_passive_/, '')
+      .replace(/^outbreak_streak_/, 'outbreak_streak_')
+      .replace(/^outbreak_/, '')
+      .replace(/_v2$/, '');
+    const file = `voice/${line.key}${chosen}.mp3`;
+    if(!gameKeyMap[gameKey]) gameKeyMap[gameKey] = [];
+    gameKeyMap[gameKey].push(`'${file}'`);
+  }
+
+  let out = '// VOICE_LINES selections — paste into index.html\nconst VOICE_LINES={\n';
+  for(const [k,v] of Object.entries(gameKeyMap)) {
+    out += `  ${k}:[${v.join(',')}],\n`;
+  }
+  out += '};';
+
+  const outputEl = document.getElementById('output');
+  outputEl.textContent = out;
+  outputEl.style.display = 'block';
+  navigator.clipboard.writeText(out).then(() => alert('✅ Copied to clipboard!'));
+};
+
+buildUI();
+</script>
+</body>
+</html>
