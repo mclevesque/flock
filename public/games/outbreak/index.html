@@ -72,7 +72,7 @@ function connectParty(){
           // Teammate triggered level-up — sync us to level up too
           if(gs.level<d.level){
             gs.level=d.level;
-            gs.xpNeeded=Math.floor(10*Math.pow(1.55,d.level-1));
+            gs.xpNeeded=Math.floor(250*Math.pow(1.55,d.level-1));
             gs.xp=0;
           }
           gs.lvlChoices=generateChoices();gs.lvlSelected=0;
@@ -281,7 +281,7 @@ function playSFX(key,vol,rate){
 // WEAPON SELECT — WAR CRY (herald_shout):
 //   herald_shout: "That sound alone stops them cold. Use it well."
 // ────────────────────────────────────────────────────────────────────────────
-const SURVIVE_TIME=300; // 5 minutes (testing) — change to 600 for full 10-min run
+const SURVIVE_TIME=600; // 10 minute run
 const ZOOM=1.45; // zoom in — player feels closer, world feels more intense
 const VOICE_LINES={
   // Level up — all 5 base lines × 4 variants each (A/B/C/D)
@@ -536,12 +536,12 @@ pHP:100,pMaxHP:100,pSpeed:3,
 pFacing:1,pFacingY:0,
 pInvince:0,pFlash:0,pBob:0,pDirRow:0,
 // Level
-xp:0,xpNeeded:10,level:1,
+xp:0,xpNeeded:250,level:1,
 // Streak (renamed to "horde" meter)
 streakKills:0,streakTier:0,
 streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
 streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
-streakThresholds:[0,10,28,65,130],  // faster tier reach
+streakThresholds:[0,40,130,320,650], // GOD TIER needs ~8min sustained play
 // Flavor shown as subtitle when tier is reached
 streakQuotes:['',
   'The horde is gathering. Stand firm.',
