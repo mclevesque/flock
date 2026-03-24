@@ -541,7 +541,7 @@ xp:0,xpNeeded:250,level:1,
 streakKills:0,streakTier:0,
 streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
 streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
-streakThresholds:[0,40,130,320,1000], // GOD TIER needs ~8-9min sustained play
+streakThresholds:[0,75,220,520,1000], // natural exponential spacing, GOD TIER ~8-9min
 // Flavor shown as subtitle when tier is reached
 streakQuotes:['',
   'The horde is gathering. Stand firm.',
@@ -616,12 +616,12 @@ const PASSIVES={
 bessie_pie:{name:"Survivor's Ration",desc:'+20% Max HP. You eat. You live. Simple.',stat:'maxhp',val:0.2,emoji:'🥩'},
 aldric_boots:{name:'Combat Boots',desc:'+10% Move Speed. Speed is survival.',stat:'movespd',val:0.1,emoji:'👢'},
 theron_anvil:{name:'Sharpened Blade',desc:'+15% Damage. Every hit counts more.',stat:'might',val:0.15,emoji:'🗡️'},
-mira_tome:{name:'Grimoire',desc:'+10% XP Gain. Knowledge accelerates power.',stat:'growth',val:0.1,emoji:'📖'},
+mira_tome:{name:'Grimoire',desc:'+5% XP Gain. Knowledge accelerates power.',stat:'growth',val:0.05,emoji:'📖'},
 herald_scroll:{name:'Battle Tactics',desc:'+12% Weapon Area. Wider reach, more dead.',stat:'area',val:0.12,emoji:'📜'},
 lysara_crystal:{name:'Focus Shard',desc:'-10% Weapon Cooldown. Attack faster.',stat:'cooldown',val:0.1,emoji:'💎'},
 pip_charm:{name:"Scavenger's Luck",desc:"+30% Pickup Range. Draws drops toward you.",stat:'magnet',val:0.3,emoji:'🍀'},
 moon_amulet:{name:'Moon Amulet',desc:'Regen 0.4 HP/sec. The moon watches over you.',stat:'regen',val:0.4,emoji:'🌙'},
-queen_crown:{name:'Crown Fragment',desc:'+20% Damage and XP. Power has its price.',stat:'all',val:0.05,emoji:'👑'},
+queen_crown:{name:'Crown Fragment',desc:'+15% Damage and all stats. Power has its price.',stat:'all',val:0.03,emoji:'👑'},
 flock_badge:{name:'Extra Mag',desc:'+1 Extra Projectile. More bullets. More dead.',stat:'amount',val:1,emoji:'🔋'},
 crimson_pact:{name:'Crimson Pact',desc:'Each kill restores 2 HP. Blood for blood. Synergy: Soul Scythe can hit a whole horde — heal on every single one.',stat:'lifesteal',val:2,emoji:'🩸'},
 thorn_shroud:{name:'Thorn Shroud',desc:'Anything that touches you takes 8 damage. The dead learn to regret it. Stack it and become a wall.',stat:'thorns',val:8,emoji:'🌿'},
