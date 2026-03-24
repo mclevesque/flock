@@ -27,8 +27,8 @@ X.imageSmoothingEnabled=true;
 
 // ========== URL PARAMS ==========
 const params=new URLSearchParams(window.location.search);
-const PLAYER_AVATAR=params.get('avatar')||'';
-const PLAYER_NAME=params.get('username')||'Survivor';
+const PLAYER_AVATAR=params.get('avatar')||'/api/avatar/local_1773447897290_gaii19';
+const PLAYER_NAME=params.get('username')||''; // empty = guest, no name shown
 const FLOCK_ORIGIN=params.get('origin')||'';
 const PARTY_ID=params.get('partyId')||'';
 const USER_ID=params.get('userId')||PLAYER_NAME;
@@ -72,7 +72,8 @@ function connectParty(){
           // Teammate triggered level-up — sync us to level up too
           if(gs.level<d.level){
             gs.level=d.level;
-            gs.xpNeeded=Math.floor(250*Math.pow(1.55,d.level-1));
+            // Recalculate xpNeeded from level using VS-style additive formula
+{let xn=5;for(let l=1;l<d.level;l++){const inc=l<=10?5:l<=20?8:13;xn+=inc;}gs.xpNeeded=xn;}
             gs.xp=0;
           }
           gs.lvlChoices=generateChoices();gs.lvlSelected=0;
@@ -251,8 +252,9 @@ function playSFX(key,vol,rate){
 //   boss_0: "Something ancient just woke up. Don't stop moving."
 //   boss_1: "A big one is here. Hit it fast and hit it hard."
 //
-// WIN (survived 10 min):
+// WIN (survived the run):
 //   win_0: "Ten minutes in hell. You made it out. For now."
+//   win_1 (TODO record): "You survived. And that means something."
 //
 // DEATH:
 //   death_0: "The horde took you. But you took plenty with you."
@@ -281,7 +283,7 @@ function playSFX(key,vol,rate){
 // WEAPON SELECT — WAR CRY (herald_shout):
 //   herald_shout: "That sound alone stops them cold. Use it well."
 // ────────────────────────────────────────────────────────────────────────────
-const SURVIVE_TIME=600; // 10 minute run
+const SURVIVE_TIME=360; // 6 minute run
 const ZOOM=1.45; // zoom in — player feels closer, world feels more intense
 const VOICE_LINES={
   // Level up — all 5 base lines × 4 variants each (A/B/C/D)
@@ -296,9 +298,11 @@ const VOICE_LINES={
     'voice/outbreak_boss_0_v2.mp3','voice/outbreak_boss_0_v2_b.mp3','voice/outbreak_boss_0_v2_c.mp3','voice/outbreak_boss_0_v2_d.mp3',
     'voice/outbreak_boss_1_v2.mp3','voice/outbreak_boss_1_v2_b.mp3','voice/outbreak_boss_1_v2_c.mp3','voice/outbreak_boss_1_v2_d.mp3',
   ],
-  win:SURVIVE_TIME<=300?
-    ['voice/outbreak_win_5min_v2.mp3','voice/outbreak_win_5min_v2_b.mp3','voice/outbreak_win_5min_v2_c.mp3','voice/outbreak_win_5min_v2_d.mp3']:
-    ['voice/outbreak_win_0_v2.mp3','voice/outbreak_win_0_v2_b.mp3','voice/outbreak_win_0_v2_c.mp3','voice/outbreak_win_0_v2_d.mp3'],
+  // Win lines — time-agnostic pool (all variants regardless of run length)
+  win:[
+    'voice/outbreak_win_5min_v2.mp3','voice/outbreak_win_5min_v2_b.mp3','voice/outbreak_win_5min_v2_c.mp3','voice/outbreak_win_5min_v2_d.mp3',
+    'voice/outbreak_win_0_v2.mp3','voice/outbreak_win_0_v2_b.mp3','voice/outbreak_win_0_v2_c.mp3','voice/outbreak_win_0_v2_d.mp3',
+  ],
   death:['voice/outbreak_death_0_v2.mp3','voice/outbreak_death_0_v2_b.mp3','voice/outbreak_death_0_v2_c.mp3','voice/outbreak_death_0_v2_d.mp3'],
   // Streak milestones — male voice, 4 variants each
   outbreak_streak_awake:   ['voice/outbreak_streak_awake_v2.mp3','voice/outbreak_streak_awake_v2_b.mp3','voice/outbreak_streak_awake_v2_c.mp3','voice/outbreak_streak_awake_v2_d.mp3'],
@@ -462,6 +466,10 @@ C.addEventListener('click',e=>{
   }
 });
 
+let _mx=-999,_my=-999;
+C.addEventListener('mousemove',e=>{const r=C.getBoundingClientRect();_mx=(e.clientX-r.left)*(C.width/r.width);_my=(e.clientY-r.top)*(C.height/r.height);});
+C.addEventListener('mouseleave',()=>{_mx=-999;_my=-999;});
+
 C.addEventListener('touchstart',e=>{
   e.preventDefault();initA();setTimeout(loadAllSFX,100);
   for(const t of e.changedTouches){
@@ -536,12 +544,12 @@ pHP:100,pMaxHP:100,pSpeed:3,
 pFacing:1,pFacingY:0,
 pInvince:0,pFlash:0,pBob:0,pDirRow:0,
 // Level
-xp:0,xpNeeded:250,level:1,
+xp:0,xpNeeded:5,level:1,
 // Streak (renamed to "horde" meter)
 streakKills:0,streakTier:0,
 streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
 streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
-streakThresholds:[0,75,220,520,1000], // natural exponential spacing, GOD TIER ~8-9min
+streakThresholds:[0,50,150,380,1000], // AWAKE ~1min, BASED ~2min, ASCENDED ~4min, GOD TIER ~6-7min
 // Flavor shown as subtitle when tier is reached
 streakQuotes:['',
   'The horde is gathering. Stand firm.',
@@ -552,8 +560,8 @@ streakQuotes:['',
 streakDmgMult:[1,1.25,1.65,2.3,3.2],   // much more impactful
 streakSpdMult:[1,1.12,1.26,1.42,1.60], // noticeable speed gains
 // Weapons / passives
-weapons:[],maxWeapons:6,
-passives:[],maxPassives:6,
+weapons:[],maxWeapons:4,
+passives:[],maxPassives:4,
 // Kills
 kills:0,totalDamage:0,gold:0,
 // Drops
@@ -760,30 +768,31 @@ zombie_dragon:{name:'ZOMBIE DRAGON',hp:4000,spd:3.2,dmg:70,size:55,color:'#11662
 moon_wraith:{name:'MOON WRAITH',hp:6000,spd:4.2,dmg:90,size:60,color:'#2222aa',xp:500,emoji:'👻',defPct:0.45},
 };
 
-// ========== SPAWN SCHEDULE ==========
+// ========== SPAWN SCHEDULE (scaled to 6 min / 360s) ==========
 const SPAWN_SCHEDULE=[
 {t:0,  types:['shambler'],                                        rate:52, count:8},
-{t:15, types:['shambler','raven'],                                rate:40, count:14},
-{t:35, types:['shambler','raven','swarm_larva'],                  rate:32, count:20},
-{t:55, types:['shambler','bloated','swarm_larva'],                rate:26, count:28},
-{t:80, types:['shambler','risen_bandit','runner'],                rate:20, count:36},
-{t:110,types:['risen_bandit','runner','plague_bearer'],           rate:16, count:44},
-{t:130,types:['skeleton_wall'],                                   rate:180,count:1},  // wall event — slow rate, triggers spawnWallLine
-{t:140,types:['runner','plague_bearer','void_shade','werewolf'],  rate:13, count:55},
-{t:170,types:['risen_bandit','void_shade','bone_archer'],         rate:10, count:65},
-{t:200,types:['risen_knight','bone_archer','werewolf','runner'],  rate:8,  count:75},
-{t:230,types:['risen_knight','witch_spawn','void_shade','werewolf'],rate:7,count:85},
-{t:260,types:['risen_knight','witch_spawn','plague_bearer'],      rate:6,  count:95},
-{t:300,types:['witch_spawn','ancient','bone_archer','werewolf'],  rate:5,  count:110},
-{t:360,types:['ancient','risen_knight','void_shade'],             rate:4,  count:120},
-{t:420,types:['ancient','witch_spawn','swarm_larva','werewolf'],  rate:3,  count:130},
-{t:480,types:['ancient','void_shade','bone_archer'],              rate:2,  count:140},
-{t:540,types:['ancient','risen_knight','plague_bearer','werewolf'],rate:2, count:150},
+{t:9,  types:['shambler','raven'],                                rate:40, count:14},
+{t:21, types:['shambler','raven','swarm_larva'],                  rate:32, count:20},
+{t:33, types:['shambler','bloated','swarm_larva'],                rate:26, count:28},
+{t:48, types:['shambler','risen_bandit','runner'],                rate:20, count:36},
+{t:66, types:['risen_bandit','runner','plague_bearer'],           rate:18, count:40},
+{t:78, types:['skeleton_wall'],                                   rate:180,count:1},  // wall event
+{t:84, types:['runner','plague_bearer','void_shade'],             rate:16, count:45},  // no werewolf yet
+{t:96, types:['runner','void_shade','werewolf'],                  rate:14, count:50},  // gentle werewolf intro
+{t:120,types:['risen_bandit','void_shade','bone_archer','werewolf'], rate:12, count:58},
+{t:138,types:['risen_knight','bone_archer','werewolf','runner'],  rate:10, count:66},
+{t:156,types:['risen_knight','witch_spawn','void_shade','werewolf'],rate:8, count:75},
+{t:180,types:['risen_knight','witch_spawn','plague_bearer'],      rate:7,  count:85},
+{t:204,types:['witch_spawn','ancient','bone_archer','werewolf'],  rate:5,  count:100},
+{t:216,types:['ancient','risen_knight','void_shade'],             rate:4,  count:120},
+{t:252,types:['ancient','witch_spawn','swarm_larva','werewolf'],  rate:3,  count:130},
+{t:288,types:['ancient','void_shade','bone_archer'],              rate:2,  count:140},
+{t:324,types:['ancient','risen_knight','plague_bearer','werewolf'],rate:2, count:150},
 ];
 const BOSS_SCHEDULE=[
-{t:120,type:'bandit_warlord'},
-{t:300,type:'zombie_dragon'},
-{t:570,type:'moon_wraith'},
+{t:72, type:'bandit_warlord'},  // ~1:12
+{t:180,type:'zombie_dragon'},   // ~3:00
+{t:342,type:'moon_wraith'},     // ~5:42
 ];
 
 // ========== STAT HELPERS (identical pattern to Truthseeker) ==========
@@ -829,12 +838,15 @@ e.x=gs.px+Math.cos(ang)*dist+(Math.random()-0.5)*30;
 e.y=gs.py+Math.sin(ang)*dist+(Math.random()-0.5)*30;
 e.x=Math.max(30,Math.min(WORLD_W-30,e.x));
 e.y=Math.max(30,Math.min(WORLD_H-30,e.y));
-// Smooth continuous scaling: starts easy at 0.55×, ramps to 3.0× at SURVIVE_TIME
-const timeScale=0.55+(gs.gameTime/SURVIVE_TIME)*2.45;
-e.hp=def.hp*timeScale;e.maxHp=e.hp;
+// Piecewise scaling: gentle first 3min, gradual second 3min — no sudden wall
+// HP: 0.55→1.2 first half, 1.2→2.2 second half
+const p=gs.gameTime/SURVIVE_TIME;
+const timeScale=p<0.5?0.55+p*2*0.65:1.2+(p-0.5)*2*1.0;
+e.hp=def.hp*timeScale*0.7;e.maxHp=e.hp;
 e.spd=def.spd;
-// Damage also scales, more gently (0.6→2.0 range)
-e.dmg=Math.ceil(def.dmg*(0.6+(gs.gameTime/SURVIVE_TIME)*1.4));
+// Damage: 0.45→0.7 first 3min, 0.7→1.2 second 3min — steady not spikey (+3% base)
+const dmgScale=(p<0.5?0.45+p*2*0.25:0.7+(p-0.5)*2*0.5)*1.03;
+e.dmg=Math.ceil(def.dmg*dmgScale);
 e.size=def.size;
 e.color=def.color;e.xp=def.xp;e.type=type;e.name=def.name;
 e.emoji=def.emoji;e.vx=0;e.vy=0;e.flash=0;e.onFire=0;e.onFireSpreads=0;e.frozen=0;
@@ -861,7 +873,7 @@ function spawnWallLine(){
   const lcy=gs.py+Math.sin(ang)*dist;
   const perpAng=ang+Math.PI/2;
   const count=4+Math.floor(Math.random()*3); // 4–6 segments
-  const timeScale=Math.max(0.7,0.55+(gs.gameTime/SURVIVE_TIME)*2.45);
+  const _p=gs.gameTime/SURVIVE_TIME;const timeScale=Math.max(0.7,_p<0.5?0.55+_p*2*0.65:1.2+(_p-0.5)*2*1.0);
   let spawned=0;
   for(let i=0;i<count;i++){
     const offset=i-(count-1)/2;
@@ -932,9 +944,9 @@ updateStreak();
 // CRIMSON PACT: lifesteal on kill
 const lifeSteal=getStat('lifesteal');
 if(lifeSteal>0){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+lifeSteal);if(gs.kills%8===0)floatT(gs.px,gs.py-20,'+'+lifeSteal+'🩸','#ff4466');}
-const pillCount=3+gs.streakTier;
+const pillCount=Math.random()<0.4?1:0; // 40% drop rate — AoE volume still rewarding without XP flood
 dropXP(e.x,e.y,pillCount);
-if(Math.random()<0.07)dropFood(e.x,e.y); // ~7% — hearts visible and satisfying
+if(Math.random()<0.07&&gs.pHP<gs.pMaxHP)dropFood(e.x,e.y); // 7% — only if not at full health
 // Plague bearer on-death: spreads fire patch + spawns 3 larvae
 if(e.type==='plague_bearer'){
   gs.weaponFX.push({type:'fire_patch',x:e.x,y:e.y,life:240,maxLife:240,color:'#226633',r:60,dmg:4,hit:new Set()});
@@ -1440,7 +1452,7 @@ return
 if(getStat('regen')>0&&gs.frame%60===0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
 
 // ===== TIMED WORLD CHESTS (every 45s like VS) =====
-const chestIntervals=[45,90,135,180,225,270,315,360,405,450,495];
+const chestIntervals=[72,144,216,288]; // scaled to 6-min run (~every 72s)
 for(const ct of chestIntervals){
   if(gs.gameTime>=ct&&gs.gameTime<ct+1/60&&!gs._chestDropped){}
   if(Math.floor(gs.gameTime)===ct&&gs.frame%60===0){
@@ -1451,7 +1463,7 @@ for(const ct of chestIntervals){
   }
 }
 // Kill milestone chests (every 50 kills)
-if(gs.kills>0&&gs.kills%50===0&&gs._lastKillChest!==gs.kills){
+if(gs.kills>0&&gs.kills%75===0&&gs._lastKillChest!==gs.kills){
   gs._lastKillChest=gs.kills;
   dropChest(gs.px+(Math.random()-0.5)*200,gs.py+(Math.random()-0.5)*200);
   floatT(gs.px,gs.py-50,'🏆 MILESTONE CHEST!','#ffd700',true);
@@ -1486,6 +1498,9 @@ for(const _we of gs.enemies){
     if(gs.pInvince===0){gs.pHP-=_we.dmg;gs.pInvince=35;gs.shakeDur=Math.max(gs.shakeDur,5);}
   }
 }
+// Re-clamp after wall pushouts to prevent going off-map
+gs.px=Math.max(20,Math.min(WORLD_W-20,gs.px));
+gs.py=Math.max(20,Math.min(WORLD_H-20,gs.py));
 gs.pBob=(gs.pBob||0)+(len>0?0.15:0);
 
 // Camera (exact Truthseeker)
@@ -1505,7 +1520,8 @@ const partyMult=Math.max(1,1+(Object.keys(remotePlayers).length)*0.35);
 const spawnRate=(sched.rate/60)/partyMult; // faster with bigger party
 if(gs.spawnTimer>=spawnRate){
 gs.spawnTimer=0;
-const batch=Math.ceil((1+Math.floor(gs.gameTime/120))*partyMult);
+// Volume scales aggressively over time — more enemies, not just harder ones
+const batch=Math.ceil((1+Math.floor(gs.gameTime/80))*partyMult);
 for(let b=0;b<batch;b++){
 const t=sched.types[Math.floor(Math.random()*sched.types.length)];
 spawnEnemy(t,false);
@@ -1713,7 +1729,14 @@ for(const k in jp)jp[k]=false;gp.jp.fill(false);
 function checkLevelUp(){
 if(gs.xp>=gs.xpNeeded&&gs.state!=='levelup'){
 gs.xp-=gs.xpNeeded;gs.level++;
-gs.xpNeeded=Math.floor(gs.xpNeeded*1.55);
+// VS-style additive scaling — steeper mid/late to counteract AoE kill rates:
+// Levels 1-5:  +5  (5,10,15,20,25)
+// Levels 6-10: +20 (45,65,85,105,125)
+// Levels 11-15:+50 (175,225,275,325,375)
+// Levels 16-20:+100(475,575,675,775,875)
+// Levels 21+:  +150
+const inc=gs.level<=5?5:gs.level<=10?20:gs.level<=15?50:gs.level<=20?100:150;
+gs.xpNeeded=gs.xpNeeded+inc;
 gs.lvlChoices=generateChoices();gs.lvlSelected=0;
 // VS logic: if nothing left to upgrade (all items fully maxed), skip level-up screen
 // and grant a small HP bonus as a reward instead — no infinite loop
@@ -1752,7 +1775,7 @@ function resetGame(){
 gs.gameTime=0;gs.frame=0;
 gs.px=WORLD_W/2;gs.py=WORLD_H/2;gs.pvx=0;gs.pvy=0;
 gs.pHP=100;gs.pMaxHP=100;gs.pInvince=0;gs.pFlash=0;gs.pBob=0;
-gs.xp=0;gs.xpNeeded=10;gs.level=1;
+gs.xp=0;gs.xpNeeded=5;gs.level=1;
 gs.streakKills=0;gs.streakTier=0;
 gs.weapons=[];gs.passives=[];
 gs.pills=[];gs.foods=[];gs.goldGems=[];gs.chests=[];gs.enemies=[];gs.enemyPool=[];
@@ -2147,15 +2170,15 @@ if(avatarImg){
   }else{
     X.drawImage(avatarImg,px-18,py+bob-18,36,36);
   }
-}else{X.fillStyle='#446688';X.fill();X.fillStyle='#fff';X.font='bold 16px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText((PLAYER_NAME[0]||'?').toUpperCase(),px,py+bob);}
+}else{X.fillStyle='#446688';X.fill();X.fillStyle='#fff';X.font='bold 16px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText('?',px,py+bob);}
 X.restore();
 
 // Invince flash
 if(gs.pInvince>0&&gs.pInvince%4<2){X.save();X.globalAlpha=0.5;X.strokeStyle='#ff4444';X.lineWidth=3;X.beginPath();X.arc(px,py+bob,19,0,Math.PI*2);X.stroke();X.restore();}
 
-// Name tag
-X.save();X.font='bold 11px monospace';X.fillStyle='#fff';X.strokeStyle='#000';X.lineWidth=2.5;X.textAlign='center';X.textBaseline='top';
-X.strokeText(PLAYER_NAME,px,py+bob+22);X.fillText(PLAYER_NAME,px,py+bob+22);X.restore();
+// Name tag — only show if signed in (PLAYER_NAME set via URL param)
+if(PLAYER_NAME){X.save();X.font='bold 11px monospace';X.fillStyle='#fff';X.strokeStyle='#000';X.lineWidth=2.5;X.textAlign='center';X.textBaseline='top';
+X.strokeText(PLAYER_NAME,px,py+bob+22);X.fillText(PLAYER_NAME,px,py+bob+22);X.restore();}
 }
 
 function draw(){
@@ -2919,15 +2942,20 @@ X.fillStyle=timerColor;X.fillText(mm+':'+ss,C.width/2,32);
     X.font='10px monospace';X.textBaseline='middle';X.textAlign='left';
     for(let ri=0;ri<rows.length;ri++){
       const [lbl,col]=rows[ri];
-      X.fillStyle=col;X.globalAlpha=0.92;
-      X.fillText(lbl,16,24+pad+ri*rh+rh/2);
+      const rowY=24+pad+ri*rh;
+      const hovered=_mx>=8&&_mx<=8+pw&&_my>=rowY&&_my<=rowY+rh;
+      if(hovered){X.save();X.shadowColor=col;X.shadowBlur=12;X.fillStyle=col+'22';X.fillRect(9,rowY,pw-2,rh-1);X.restore();}
+      X.fillStyle=col;X.globalAlpha=hovered?1:0.92;
+      if(hovered){X.save();X.shadowColor=col;X.shadowBlur=8;}
+      X.fillText(lbl,16,rowY+rh/2);
+      if(hovered)X.restore();
     }
     X.globalAlpha=1;
   }
 }
 
-// XP bar — full width at very bottom, juiced-up glow
-const xpPct=Math.min(1,gs.xp/gs.xpNeeded);
+// XP bar — show as full while level-up screen is open (overflow XP caused apparent visual bug)
+const xpPct=gs.state==='levelup'?1:Math.min(1,gs.xp/gs.xpNeeded);
 const xpGlowBase=10+xpPct*20;
 const xpPulse=xpPct>0.8?Math.abs(Math.sin(gs.time*0.24))*14:Math.sin(gs.time*0.08)*4;
 const xpGlow=xpGlowBase+xpPulse;
@@ -2957,7 +2985,7 @@ if(xpPct>0.88){
   X.fillText('LEVEL UP SOON!',C.width/2,C.height-9);X.globalAlpha=1;
 }else{
   X.font='bold 10px monospace';X.fillStyle='rgba(140,180,255,0.75)';X.textAlign='center';
-  X.fillText('LV '+gs.level+' — '+Math.floor(gs.xp)+'/'+gs.xpNeeded+' XP',C.width/2,C.height-9);
+  X.fillText(gs.state==='levelup'?'⬆ LEVEL UP!':'LV '+gs.level+' — '+Math.floor(gs.xp)+'/'+gs.xpNeeded+' XP',C.width/2,C.height-9);
 }
 
 // ===== STREAK RING — vivid, more halos, more glow =====
@@ -3067,20 +3095,26 @@ if(rKeys.length>0){
 
 // ===== WEAPON SLOTS (top row) + PASSIVE SLOTS (bottom row) with glow =====
 const slotSz=38,slotGap=4,slotX=10;
+const isLvlUp=gs.state==='levelup';
+const lvlPulse=isLvlUp?(0.6+Math.sin(gs.time*0.18)*0.4):0;
+let _hoverTip=null; // tooltip to draw at end
 // Top row: active weapons
 let wx=slotX;
 for(const w of gs.weapons){
 const def=WEAPONS[w.id];if(!def){wx+=slotSz+slotGap;continue;}
 const wc=def.color||'#aaddff';
+const sy=C.height-slotSz*2-slotGap-12;
+const hovered=isLvlUp&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
 X.save();
-X.shadowColor=wc;X.shadowBlur=10+w.lvl*2;
-X.fillStyle='rgba(0,5,20,0.88)';X.beginPath();X.roundRect(wx,C.height-slotSz*2-slotGap-12,slotSz,slotSz,7);X.fill();
-X.strokeStyle=wc+'88';X.lineWidth=1.5;X.beginPath();X.roundRect(wx,C.height-slotSz*2-slotGap-12,slotSz,slotSz,7);X.stroke();
+X.shadowColor=wc;X.shadowBlur=isLvlUp?(20+lvlPulse*18):10+w.lvl*2;
+if(hovered){X.shadowBlur=35;_hoverTip={x:wx+slotSz/2,y:sy-8,name:def.name,desc:def.desc,color:wc};}
+X.fillStyle=hovered?'rgba(20,15,50,0.97)':'rgba(0,5,20,0.88)';X.beginPath();X.roundRect(wx,sy,slotSz,slotSz,7);X.fill();
+X.strokeStyle=isLvlUp?(wc+'cc'):wc+'88';X.lineWidth=isLvlUp?2:1.5;X.beginPath();X.roundRect(wx,sy,slotSz,slotSz,7);X.stroke();
 X.shadowBlur=0;
 X.font='22px serif';X.textAlign='center';X.textBaseline='middle';
-X.fillText(def.emoji,wx+slotSz/2,C.height-slotSz*2-slotGap-12+slotSz/2);
+X.fillText(def.emoji,wx+slotSz/2,sy+slotSz/2);
 X.font='bold 9px monospace';X.fillStyle='#ffd700';X.textAlign='right';X.textBaseline='bottom';
-X.fillText('LV'+w.lvl,wx+slotSz-2,C.height-slotSz*2-slotGap-12+slotSz-2);
+X.fillText('LV'+w.lvl,wx+slotSz-2,sy+slotSz-2);
 X.restore();
 wx+=slotSz+slotGap;
 }
@@ -3088,15 +3122,34 @@ wx+=slotSz+slotGap;
 wx=slotX;
 for(const p of gs.passives){
 const def=PASSIVES[p.id];if(!def){wx+=slotSz+slotGap;continue;}
+const sy=C.height-slotSz-8;
+const hovered=isLvlUp&&_mx>=wx&&_mx<=wx+slotSz&&_my>=sy&&_my<=sy+slotSz;
 X.save();
-X.shadowColor='#8866cc';X.shadowBlur=8;
-X.fillStyle='rgba(10,0,25,0.88)';X.beginPath();X.roundRect(wx,C.height-slotSz-8,slotSz,slotSz,7);X.fill();
-X.strokeStyle='rgba(180,140,255,0.45)';X.lineWidth=1.2;X.beginPath();X.roundRect(wx,C.height-slotSz-8,slotSz,slotSz,7);X.stroke();
+X.shadowColor='#8866cc';X.shadowBlur=isLvlUp?(16+lvlPulse*14):8;
+if(hovered){X.shadowBlur=35;_hoverTip={x:wx+slotSz/2,y:sy-8,name:def.name,desc:def.desc,color:'#bb99ff'};}
+X.fillStyle=hovered?'rgba(20,5,40,0.97)':'rgba(10,0,25,0.88)';X.beginPath();X.roundRect(wx,sy,slotSz,slotSz,7);X.fill();
+X.strokeStyle=isLvlUp?'rgba(200,160,255,0.75)':'rgba(180,140,255,0.45)';X.lineWidth=isLvlUp?2:1.2;X.beginPath();X.roundRect(wx,sy,slotSz,slotSz,7);X.stroke();
 X.shadowBlur=0;
 X.font='22px serif';X.textAlign='center';X.textBaseline='middle';
-X.fillText(def.emoji,wx+slotSz/2,C.height-slotSz-8+slotSz/2);
+X.fillText(def.emoji,wx+slotSz/2,sy+slotSz/2);
 X.restore();
 wx+=slotSz+slotGap;
+}
+// Hover tooltip for slots (drawn on top)
+if(_hoverTip){
+const tp=_hoverTip;const tw=180,th=46,tx=Math.min(C.width-tw-6,Math.max(4,tp.x-tw/2)),ty=tp.y-th-4;
+X.save();
+X.shadowColor=tp.color;X.shadowBlur=14;
+X.fillStyle='rgba(5,0,20,0.94)';X.beginPath();X.roundRect(tx,ty,tw,th,7);X.fill();
+X.strokeStyle=tp.color+'88';X.lineWidth=1.5;X.beginPath();X.roundRect(tx,ty,tw,th,7);X.stroke();
+X.shadowBlur=0;
+X.font='bold 11px monospace';X.fillStyle=tp.color;X.textAlign='center';X.textBaseline='top';
+X.fillText(tp.name,tx+tw/2,ty+7);
+X.font='9px monospace';X.fillStyle='rgba(210,200,240,0.82)';
+const words=tp.desc.split(' ');let ln='';let ty2=ty+22;
+for(const wd of words){const t2=ln+(ln?' ':'')+wd;if(X.measureText(t2).width>tw-12){X.fillText(ln,tx+tw/2,ty2);ln=wd;ty2+=13;}else ln=t2;}
+if(ln)X.fillText(ln,tx+tw/2,ty2);
+X.restore();
 }
 
 // ===== DOWNED OVERLAY (local player) =====
@@ -3264,6 +3317,26 @@ function saveRun(){
     const history=(prev.history||[]);
     history.unshift(run);if(history.length>20)history.pop();
     localStorage.setItem('outbreak_progress',JSON.stringify({best,history,totalKills:(prev.totalKills||0)+run.kills,totalRuns:(prev.totalRuns||0)+1}));
+
+    // ── POST to server for dev stats tracking ──────────────────────────
+    const origin=window.location.origin;
+    fetch(origin+'/api/outbreak',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        userId:USER_ID,
+        username:PLAYER_NAME||'guest',
+        kills:gs.kills,
+        level:gs.level,
+        streakTier:gs.streakTier,
+        timeSurvived:Math.floor(gs.gameTime),
+        gold:gs.gold,
+        damageDealt:gs.totalDamage||0,
+        survived:!!gs.survived,
+        weapons:gs.weapons.map(w=>({id:w.id,lvl:w.lvl})),
+        passives:gs.passives.map(p=>({id:p.id,lvl:p.lvl}))
+      })
+    }).catch(()=>{});
   }catch(e){}
 }
 function loadProgress(){
