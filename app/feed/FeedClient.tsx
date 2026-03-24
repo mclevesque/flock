@@ -441,7 +441,7 @@ export default function FeedClient() {
 
       {shareModal && <ShareLinkModal share={shareModal} onClose={() => setShareModal(null)} friends={friends} />}
 
-      <div style={{ maxWidth: 780, margin: "0 auto", padding: "40px 20px 0" }}>
+<div style={{ maxWidth: 780, margin: "0 auto", padding: "40px 20px 0" }}>
         {loading ? (
           <div style={{ textAlign: "center", padding: 80, color: "var(--text-muted)", fontSize: 15 }}>Loading feed…</div>
         ) : shares.length === 0 ? (

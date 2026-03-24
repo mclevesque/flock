@@ -7,6 +7,7 @@ import { useVoice } from "@/app/components/VoiceWidget";
 import { VIBE_TAGS } from "@/app/vibe/vibeData";
 import { useVibe } from "@/app/components/VibePlayer";
 import { friendAdded, drop as dropSound, pop, swoosh, click as clickSound } from "@/app/components/sounds";
+import StoryViewer from "@/app/components/StoryViewer";
 
 interface User {
   id: string; username: string; display_name: string; bio: string;
@@ -144,6 +145,21 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState(2);
   const isOwn = sessionUserId === user?.id;
+
+  // Story state — fetch on mount if logged in, check if this profile user has an active story
+  type Story = { id: string; user_id: string; username: string; avatar_url: string | null; video_url: string | null; thumbnail_url: string | null; duration_seconds: number; expires_at: string; views: number; };
+  const [profileStory, setProfileStory] = useState<Story | null>(null);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  useEffect(() => {
+    if (!sessionUserId || !user?.id) return;
+    fetch("/api/stories")
+      .then(r => r.ok ? r.json() : { stories: [] })
+      .then(d => {
+        const match = (d.stories as Story[]).find(s => s.user_id === user.id);
+        setProfileStory(match ?? null);
+      })
+      .catch(() => {});
+  }, [sessionUserId, user?.id]);
 
   // Draggable friends
   const [friendOrder, setFriendOrder] = useState<string[]>(() => {
@@ -416,18 +432,32 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
       {/* Profile header */}
       <div className="profile-header-row" style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "16px 8px", position: "relative", zIndex: 1, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <img
-            src={`/api/avatar/${user?.id ?? username}?v=${avatarVersion}`}
-            alt={displayName}
-            onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`; (e.currentTarget as HTMLImageElement).onerror = null; }}
-            style={{ width: 96, height: 96, borderRadius: 16, border: "4px solid var(--bg-base)", objectFit: "cover", display: "block", cursor: isMod ? "pointer" : "default", boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}
-            onClick={() => isMod && avatarInputRef.current?.click()}
-            title={isMod ? "Click to change avatar" : undefined}
-          />
+          {/* Story ring — gradient border when this user has an active story */}
+          <div
+            style={{
+              width: 104, height: 104, borderRadius: 20, padding: 3,
+              background: profileStory
+                ? "linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)"
+                : "transparent",
+              cursor: profileStory ? "pointer" : "default",
+            }}
+            onClick={() => { if (profileStory) setStoryViewerOpen(true); }}
+            title={profileStory ? `View ${isOwn ? "your" : `${displayName}'s`} story` : undefined}
+          >
+            <div style={{ width: "100%", height: "100%", borderRadius: 17, overflow: "hidden", background: "var(--bg-base)", border: profileStory ? "2px solid var(--bg-base)" : "none" }}>
+              <img
+                src={`/api/avatar/${user?.id ?? username}?v=${avatarVersion}`}
+                alt={displayName}
+                onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}
+                onClick={e => { if (!profileStory && isMod) { e.stopPropagation(); avatarInputRef.current?.click(); } }}
+              />
+            </div>
+          </div>
           {isMod && (
             <div
               onClick={() => avatarInputRef.current?.click()}
-              style={{ position: "absolute", inset: 0, borderRadius: 16, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity 0.2s", cursor: "pointer", fontSize: 28 }}
+              style={{ position: "absolute", inset: 0, borderRadius: 20, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity 0.2s", cursor: "pointer", fontSize: 28 }}
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity = "1"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; }}
             >
@@ -1337,6 +1367,17 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
             </div>
           </div>
         </div>
+      )}
+
+      {/* Story viewer — opens when clicking a profile avatar with an active story */}
+      {storyViewerOpen && profileStory && profileStory.video_url && (
+        <StoryViewer
+          stories={[{ ...profileStory, video_url: profileStory.video_url }]}
+          startIndex={0}
+          onClose={() => setStoryViewerOpen(false)}
+          currentUserId={sessionUserId ?? ""}
+          onDelete={(id) => { if (profileStory.id === id) { setProfileStory(null); setStoryViewerOpen(false); } }}
+        />
       )}
     </div>
   );

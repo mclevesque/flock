@@ -7,6 +7,7 @@ import ChallengePopup from "./components/ChallengePopup";
 import { VoiceProvider } from "./components/VoiceWidget";
 import { VibeProvider } from "./components/VibePlayer";
 import GlobalNotifications from "./components/GlobalNotifications";
+import GlobalPartyWidget from "./components/GlobalPartyWidget";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <main className="min-h-screen">{children}</main>
               <ChallengePopup />
               <GlobalNotifications />
+              <GlobalPartyWidget />
             </VibeProvider>
           </VoiceProvider>
         </SessionWrapper>

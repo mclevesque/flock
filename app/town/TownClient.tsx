@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
+// PartySocket is lazy-loaded in the WS useEffect to keep it out of the main bundle
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdventureOverlay, { generateMission } from "./AdventureOverlay";
@@ -8,8 +9,9 @@ import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
 import CharacterPanel from "@/app/components/CharacterPanel";
 import TheaterRoom from "./TheaterRoom";
-import HouseInterior from "@/app/components/HouseInterior";
-import { EXTERIOR_STYLES, NPC_HOUSE_NAMES, NPC_EXTERIORS } from "@/app/components/houseData";
+import HouseRoom from "./HouseRoom";
+import NeighborhoodScene from "./NeighborhoodScene";
+
 
 interface TownPlayer {
   user_id: string;
@@ -215,16 +217,9 @@ function ArcadeModal({ userId, onClose }: { userId: string; onClose: () => void 
   );
 }
 
-const W = 6400, H = 1120, TILE = 32;
-// Housing district starts right of market
-const HOUSE_DISTRICT_X = 4500;
-const HOUSE_COLS = 4, HOUSE_ROWS = 2, HOUSE_W = 200, HOUSE_H = 160, HOUSE_GAP = 60;
-const HOUSE_SLOTS = Array.from({ length: HOUSE_COLS * HOUSE_ROWS }, (_, i) => ({
-  col: i % HOUSE_COLS, row: Math.floor(i / HOUSE_COLS),
-  x: HOUSE_DISTRICT_X + 80 + (i % HOUSE_COLS) * (HOUSE_W + HOUSE_GAP),
-  y: Math.floor(i / HOUSE_COLS) === 0 ? 180 : 620,
-}));
-const PLAYER_SPEED = 228;
+const W = 4550, H = 1120, TILE = 32;
+
+const PLAYER_SPEED = 274; // 228 * 1.2
 const TAG_SPEED = 336; // faster during tag game
 const NEARBY_DIST = 220;
 const TAG_DIST = 90; // world-px radius for tagging
@@ -254,6 +249,31 @@ const TREES = [
   [1900,900],[1980,930],[1940,970],[2800,900],[2860,940],[2830,980],
   [2200,400],[2240,460],[2160,450],[2550,400],[2600,450],[2580,390],
 ];
+
+// ── Collision system (module-level) ──────────────────────────────────────────
+const COLLISION_RECTS: { x: number; y: number; w: number; h: number }[] = [
+  // BUILDINGS
+  ...BUILDINGS.map(b => ({ x: b.x + 10, y: b.y + 10, w: b.w - 20, h: b.h - 20 })),
+  // MARKET_STALLS
+  ...MARKET_STALLS.map(s => ({ x: s.x + 10, y: s.y + 10, w: s.w - 20, h: s.h - 20 })),
+  // Fountain (rough rect around circle)
+  { x: 2740, y: 490, w: 120, h: 120 },
+  // Castle outer walls (approximate)
+  { x: 0, y: 0, w: 700, h: 80 },
+  { x: 0, y: H - 80, w: 700, h: 80 },
+  { x: 0, y: 0, w: 60, h: H },
+];
+
+function collidesWithBuilding(px: number, py: number): boolean {
+  const r = 18; // player collision radius
+  for (const rect of COLLISION_RECTS) {
+    if (px + r > rect.x && px - r < rect.x + rect.w &&
+        py + r > rect.y && py - r < rect.y + rect.h) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Draw original square avatar sprite — returns the image so caller can flip it
 function drawAvatarSprite(
@@ -551,38 +571,17 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [confirmLeave, setConfirmLeave] = useState<{ label: string; href: string } | null>(null);
 
   // ── Theater ─────────────────────────────────────────────────────────────
-  // ── Housing district ──────────────────────────────────────────────────────
-  interface DistrictSlot { userId: string | null; username: string; exteriorStyle: string; isNpc: boolean; }
-  const [districtSlots, setDistrictSlots] = useState<DistrictSlot[]>([]);
-  const districtSlotsRef = useRef<DistrictSlot[]>([]);
-  const redrawHousesRef = useRef<(() => void) | null>(null);
-  const [openHouse, setOpenHouse] = useState<{ userId: string; username: string } | null>(null);
+  // ── Neighbourhood (separate Phaser instance, loaded on demand) ────────────
+  const [openNeighbourhood, setOpenNeighbourhood] = useState(false);
+  const openNeighbourhoodRef = useRef<(() => void) | null>(null);
+  // Tracks which voice line index to play next per NPC (cycles 0→4)
+  const npcVoiceIndexRef = useRef<Record<string, number>>({});
 
-  useEffect(() => {
-    fetch(`/api/house?district=1&partyId=${partyId ?? ""}`)
-      .then(r => r.json())
-      .then(({ houses }) => {
-        const real: DistrictSlot[] = (houses ?? []).map((h: Record<string, unknown>) => ({
-          userId: h.id as string,
-          username: h.username as string,
-          exteriorStyle: (h.exterior_style as string) ?? "cottage",
-          isNpc: false,
-        }));
-        const npcCount = Math.max(0, 8 - real.length);
-        const npcs: DistrictSlot[] = Array.from({ length: npcCount }, (_, i) => ({
-          userId: null,
-          username: NPC_HOUSE_NAMES[i % NPC_HOUSE_NAMES.length],
-          exteriorStyle: NPC_EXTERIORS[i % NPC_EXTERIORS.length],
-          isNpc: true,
-        }));
-        const slots = [...real, ...npcs];
-        districtSlotsRef.current = slots;
-        setDistrictSlots(slots);
-        // Redraw Phaser houses if scene already created
-        redrawHousesRef.current?.();
-      })
-      .catch(() => {});
-  }, [partyId]);
+  // ── PartyKit WebSocket (real-time player sync) ──────────────────────────
+  const townSocketRef = useRef<{ send: (data: string) => void; close: () => void; readyState: number } | null>(null);
+  const wsUpdateOtherRef = useRef<((p: TownPlayer) => void) | null>(null);
+  const wsRemoveOtherRef = useRef<((id: string) => void) | null>(null);
+
 
   const [theaterOpen, setTheaterOpen] = useState(false);
   const theaterOpenRef = useRef(false);
@@ -595,14 +594,13 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [showJukeboxDialog, setShowJukeboxDialog] = useState(false);
   const [jukeboxInput, setJukeboxInput] = useState("");
   const [jukeboxDialogLoading, setJukeboxDialogLoading] = useState(false);
+  const [jukeboxMuted, setJukeboxMuted] = useState(true);
   const openJukeboxDialogRef = useRef<(() => void) | null>(null);
 
   // ── Party system ────────────────────────────────────────────────────────
   interface PartyMember { userId: string; username: string; avatarUrl: string; isLeader: boolean; }
   interface Party { id: string; leaderId: string; leaderName: string; leaderAvatar: string; members: PartyMember[]; maxSize: number; createdAt: number; }
   const [myParty, setMyParty] = useState<Party | null>(null);
-  const [friendParties, setFriendParties] = useState<Party[]>([]);
-  const [showPartyPanel, setShowPartyPanel] = useState(false);
   const [showPartyInvite, setShowPartyInvite] = useState(false);
   const [partyInviteSent, setPartyInviteSent] = useState<string | null>(null);
   const partyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -617,6 +615,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [eventPotions, setEventPotions] = useState(3);
   const eventPotionsRef = useRef(3);
   const [eventActionPending, setEventActionPending] = useState(false);
+  const [meleeOutOfRange, setMeleeOutOfRange] = useState(false);
   const [victoryData, setVictoryData] = useState<{ loot: unknown[]; participants: number; eventType: string } | null>(null);
   const [seenVictoryEventId, setSeenVictoryEventId] = useState<string | null>(null);
   const seenVictoryEventIdRef = useRef<string | null>(null);
@@ -637,6 +636,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const banditLabelsRef = useRef<(import("phaser").GameObjects.Text | null)[]>([null, null, null]);
   const spawnBanditsRef = useRef<(() => void) | null>(null);
   const despawnBanditsRef = useRef<(() => void) | null>(null);
+  const banditCounterAttackRef = useRef<((dmg: number) => void) | null>(null);
   // Merchant visit entity
   const merchantContainerRef = useRef<import("phaser").GameObjects.Container | null>(null);
   const spawnMerchantRef = useRef<(() => void) | null>(null);
@@ -682,12 +682,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const [partyInvite, setPartyInvite] = useState<PartyInvite | null>(null);
   const [sendingInviteTo, setSendingInviteTo] = useState<string | null>(null); // userId currently being invited
 
-  // ── NPC Dialogue ─────────────────────────────────────────────────────────
-  const [npcDialogue, setNpcDialogue] = useState<{
-    npcId: string; npcName: string; npcEmoji: string; npcTitle: string;
-    reply: string; loading: boolean; npcChatInput: string;
-  } | null>(null);
-  const npcDialogueRef = useRef(false); // true while dialogue is open
   const nearNpcRef = useRef<string | null>(null); // nearest NPC id
 
   // ── Inventory / Character Panel ───────────────────────────────────────────
@@ -904,6 +898,36 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     // Special: check cooldown
     if (action === "special" && eventSpecialCooldownRef.current > 0) return;
 
+    // Proximity gate for melee classes — warrior/rogue must be near the event entity
+    if (action === "fight" || action === "special") {
+      const cls = adventureStatsRef.current?.class ?? null;
+      const isMelee = cls === "warrior" || cls === "rogue";
+      if (isMelee) {
+        const pos = myPosRef.current;
+        const MELEE_RANGE = 280; // world units
+        let nearEnough = false;
+        // Check dragon
+        const dc = dragonContainerRef.current;
+        if (dc && dc.alpha > 0.1) {
+          const dx = pos.x - dc.x, dy = pos.y - dc.y;
+          if (Math.sqrt(dx*dx + dy*dy) < MELEE_RANGE) nearEnough = true;
+        }
+        // Check bandits
+        for (const bc of banditContainersRef.current) {
+          if (bc && bc.alpha > 0.1) {
+            const dx2 = pos.x - bc.x, dy2 = pos.y - bc.y;
+            if (Math.sqrt(dx2*dx2 + dy2*dy2) < MELEE_RANGE) { nearEnough = true; break; }
+          }
+        }
+        if (!nearEnough) {
+          setMeleeOutOfRange(true);
+          setTimeout(() => setMeleeOutOfRange(false), 1800);
+          return;
+        }
+        setMeleeOutOfRange(false);
+      }
+    }
+
     setEventActionPending(true);
     try {
       const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -926,6 +950,9 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         // Enemy counter-attacks player (dragon or bandit)
         const counterDmg = (d.dragonDmg ?? 0) + (d.banditDmg ?? 0);
         if (counterDmg > 0) {
+          if (activeEventRef.current?.type === "bandit_raid") {
+            banditCounterAttackRef.current?.(counterDmg);
+          }
           const newHp = Math.max(0, townHpRef.current - counterDmg);
           townHpRef.current = newHp;
           setTownHp(newHp);
@@ -999,6 +1026,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     setCaptainDialogTab(adventureStatsRef.current?.class ? "mission" : "class");
     setShowCaptainDialog(true);
     if (!stashDataRef.current) loadStashData().catch(() => {});
+    playNpcVoice("guard_captain_aldric");
   }
 
   // Prevent accidental refresh/navigate when theater is open
@@ -1036,6 +1064,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     prevJukeboxUrlRef.current = jUrl;
     if (jUrl) {
       stopAmbientMusic();
+      setJukeboxMuted(false); // reset mute for each new song
     } else if (!theaterOpen) {
       startAmbientMusic();
     }
@@ -1046,12 +1075,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   useEffect(() => {
     const pollParty = async () => {
       try {
-        const [myRes, friendRes] = await Promise.all([
-          fetch("/api/party?action=my-party"),
-          fetch("/api/party?action=friend-parties"),
-        ]);
+        const myRes = await fetch("/api/party?action=my-party");
         if (myRes.ok) { const d = await myRes.json(); setMyParty(d.party ?? null); }
-        if (friendRes.ok) { const d = await friendRes.json(); setFriendParties(d.parties ?? []); }
       } catch {}
     };
     pollParty();
@@ -1099,28 +1124,41 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   }
 
   // Talk to a village/castle NPC via the AI route
-  async function talkToNpc(npcId: string, message?: string) {
-    npcDialogueRef.current = true;
-    setNpcDialogue(d => ({
-      npcId,
-      npcName: d?.npcId === npcId ? d.npcName : "…",
-      npcEmoji: d?.npcId === npcId ? d.npcEmoji : "🧙",
-      npcTitle: d?.npcId === npcId ? d.npcTitle : "",
-      reply: "", loading: true,
-      npcChatInput: d?.npcId === npcId ? d.npcChatInput : "",
-    }));
-    try {
-      const r = await fetch("/api/npc", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ npcId, playerMessage: message ?? "", playerUsername: username }) });
-      const d = await r.json();
-      setNpcDialogue(prev => prev?.npcId === npcId
-        ? { ...prev, npcName: d.npcName ?? prev.npcName, npcEmoji: d.npcEmoji ?? prev.npcEmoji,
-            npcTitle: d.npcTitle ?? prev.npcTitle, reply: d.reply ?? "…", loading: false }
-        : prev);
-    } catch {
-      setNpcDialogue(prev => prev ? { ...prev, reply: "…", loading: false } : null);
-    }
+  function playNpcVoice(npcId: string) {
+    // Pick trait-based line if available, otherwise random generic
+    const stats = adventureStatsRef.current;
+    const coins = myCoinsRef.current;
+    const level = stats?.level ?? 1;
+    const cls = stats?.class ?? null;
+
+    // Priority: class → rich → veteran → random generic
+    let traitKey: string | null = null;
+    if (cls) traitKey = `class_${cls}`;
+    else if (coins >= 1000) traitKey = "rich";
+    else if (level >= 10) traitKey = "veteran";
+
+    // RNG line selection — avoid repeating the last line played
+    const lineCount = npcId === "village_kid_pip" ? 20 : 8;
+    const last = npcVoiceIndexRef.current[npcId] ?? -1;
+    let idx = Math.floor(Math.random() * lineCount);
+    if (idx === last && lineCount > 1) idx = (idx + 1) % lineCount;
+    npcVoiceIndexRef.current[npcId] = idx;
+
+    const src = traitKey
+      ? `/audio/npc/${npcId}_trait_${traitKey}.mp3`
+      : `/audio/npc/${npcId}_${idx}.mp3`;
+
+    const audio = new Audio(src);
+    audio.volume = 0.8;
+    // Fall back to cycling generic if trait file doesn't exist
+    audio.onerror = () => {
+      const fallback = new Audio(`/audio/npc/${npcId}_${idx}.mp3`);
+      fallback.volume = 0.8;
+      fallback.play().catch(() => {});
+    };
+    audio.play().catch(() => {});
   }
+
 
   // Global keyboard shortcuts — work even when Phaser canvas doesn't have focus
   useEffect(() => {
@@ -1143,8 +1181,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // Block movement and Phaser input while any overlay is open.
   // Also saves/restores player position so they return to the same spot.
   useEffect(() => {
-    const blocked = showCaptainDialog || caveOpen || adventureOverlayOpen || showInventory || !!npcDialogue || showStash || showVendor || showHerald || theaterOpen || showJukeboxDialog;
-    npcDialogueRef.current = !!npcDialogue;
+    const blocked = showCaptainDialog || caveOpen || adventureOverlayOpen || showInventory || showStash || showVendor || showHerald || theaterOpen || showJukeboxDialog;
     overlayOpenRef.current = blocked;
 
     const game = gameRef.current as import("phaser").Game | null;
@@ -1163,7 +1200,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       // Re-focus canvas so WASD + hotkeys work immediately after closing any overlay
       setTimeout(() => { const c = containerRef.current?.querySelector("canvas"); if (c) (c as HTMLElement).focus(); }, 80);
     }
-  }, [showCaptainDialog, caveOpen, adventureOverlayOpen, showInventory, npcDialogue, showStash, showVendor, showHerald]);
+  }, [showCaptainDialog, caveOpen, adventureOverlayOpen, showInventory, showStash, showVendor, showHerald]);
 
   const CLASS_OPTIONS = [
     { key: "warrior", emoji: "⚔️", name: "Warrior", hp: 120, atk: "12–18", special: "Cleave: hit all enemies ×1.5" },
@@ -1892,7 +1929,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         loadingTextures: Set<string> = new Set(); // prevent duplicate loads
         cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
         wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
-        posTimer = 0; pollTimer = 0;
+        posTimer = 0; pollTimer = 3000; wsTimer = 0; proximityTimer = 0; hpBarTimer = 0;
         direction = "down";
         chatBubbleTimer = 0;
 
@@ -1925,26 +1962,26 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           // Town center shifted right to make room for village+castle on the left
           const TCX = 2800;
 
-          // ── Tileable grass floor (town area: x=1600–3280) ────────────────────
+          // ── Grass floor (town area: x=1600–3280) ─────────────────────────────
           const bg = this.add.graphics();
-          for (let tx = 1600; tx < 3280; tx += TILE) {
-            for (let ty = 0; ty < H; ty += TILE) {
-              const shade = ((tx / TILE + ty / TILE) % 2 === 0) ? 0x3a7a3a : 0x347034;
-              bg.fillStyle(shade, 1);
-              bg.fillRect(tx, ty, TILE, TILE);
-            }
+          // Single base fill + column stripes (~28 calls vs ~1855 tile calls)
+          bg.fillStyle(0x5aaa5a, 1);
+          bg.fillRect(1600, 0, 1680, H);
+          bg.fillStyle(0x68c068, 1);
+          for (let tx = 1600; tx < 3280; tx += TILE * 2) {
+            bg.fillRect(tx, 0, TILE, H);
           }
           // Decorative colored tiles (original town style)
           const tileColors = [0x2a5ca8, 0x1e8a4a, 0x8a3a2a, 0x6a4a8a, 0x1a6a6a, 0x4a6a1a];
           const rng = (seed: number) => { let s = seed; s = ((s >> 16) ^ s) * 0x45d9f3b; return ((s >> 16) ^ s) & 0xffff; };
-          for (let i = 0; i < 180; i++) {
+          for (let i = 0; i < 90; i++) {
             const cx = (rng(i * 7 + 1) % (W - 80)) + 40;
             const cy = (rng(i * 7 + 3) % (H - 80)) + 40;
-            if (cx < 1600 || cx > 3280) continue; // only decorate town tiles
+            if (cx < 1600 || cx > 3280) continue;
             if (Math.abs(cx - TCX) < 70 || Math.abs(cy - H/2) < 70) continue;
             const col = tileColors[i % tileColors.length];
             bg.fillStyle(col, 0.45);
-            const ts = 16 + (rng(i * 7 + 5) % 24);
+            const ts = 20 + (rng(i * 7 + 5) % 28); // slightly bigger so coverage stays similar
             bg.fillRect(cx, cy, ts, ts);
           }
 
@@ -1961,6 +1998,12 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
           // ── Center fountain ──────────────────────────────────────────────────
           const cx = TCX, cy = H/2;
+          // Ambient moonlight pool around fountain
+          const ambient = this.add.graphics();
+          ambient.fillStyle(0x88aaff, 0.07); ambient.fillCircle(cx, cy, 500);
+          ambient.fillStyle(0x99bbff, 0.10); ambient.fillCircle(cx, cy, 280);
+          ambient.fillStyle(0xaaccff, 0.13); ambient.fillCircle(cx, cy, 160);
+          ambient.setDepth(0);
           const fountain = this.add.graphics();
           fountain.fillStyle(0x1a5080, 1); fountain.fillCircle(cx, cy, 72);
           fountain.fillStyle(0x2a6fa0, 1); fountain.fillCircle(cx, cy, 55);
@@ -1974,12 +2017,45 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             fontSize: "13px", color: "#aad8f8", fontFamily: "monospace", fontStyle: "bold",
           }).setOrigin(0.5).setAlpha(0.85);
 
+          // ── Lamp posts along main road ────────────────────────────────────────
+          {
+            const lampG = this.add.graphics();
+            const lampXs = [1700, 1900, 2100, 2500, 2700, 2900, 3100];
+            const lampYs = [H/2 - 80, H/2 + 80];
+            lampXs.forEach(lx => {
+              lampYs.forEach(ly => {
+                // Outer soft halo
+                lampG.fillStyle(0xffcc66, 0.10);
+                lampG.fillCircle(lx, ly - 60, 110);
+                // Mid glow
+                lampG.fillStyle(0xffdd88, 0.28);
+                lampG.fillCircle(lx, ly - 60, 60);
+                // Inner warm glow
+                lampG.fillStyle(0xffee99, 0.50);
+                lampG.fillCircle(lx, ly - 60, 28);
+                // Pole
+                lampG.fillStyle(0x4a3820, 1);
+                lampG.fillRect(lx - 3, ly - 60, 6, 60);
+                // Lamp head
+                lampG.fillStyle(0xffe8a0, 1);
+                lampG.fillCircle(lx, ly - 60, 7);
+                // Bright center
+                lampG.fillStyle(0xffffff, 0.9);
+                lampG.fillCircle(lx, ly - 60, 3);
+              });
+            });
+          }
+
           // ── Buildings ────────────────────────────────────────────────────────
           BUILDINGS.forEach(b => {
             const g = this.add.graphics();
             g.fillStyle(0x000000, 0.25); g.fillRoundedRect(b.x+8, b.y+8, b.w, b.h, 6);
             g.fillStyle(b.color, 1); g.fillRoundedRect(b.x, b.y, b.w, b.h, 6);
             g.fillStyle(b.roof, 1); g.fillRoundedRect(b.x, b.y, b.w, 30, { tl: 6, tr: 6, bl: 0, br: 0 });
+            g.fillStyle(0xffcc44, 0.3);
+            g.fillRoundedRect(b.x+14, b.y+38, 38, 38, 4);
+            g.fillRoundedRect(b.x+b.w-52, b.y+38, 38, 38, 4);
+            if (b.w > 160) g.fillRoundedRect(b.x+b.w/2-19, b.y+38, 38, 38, 4);
             g.fillStyle(0xffd880, 0.9);
             g.fillRoundedRect(b.x+18, b.y+42, 30, 30, 3);
             g.fillRoundedRect(b.x+b.w-48, b.y+42, 30, 30, 3);
@@ -2006,10 +2082,10 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             // Cobblestone ground for market area
             mg.fillStyle(0xb8a878, 0.9);
             mg.fillRect(3272, 0, 1128, H); // market district: x=3272–4400
-            // Cobblestone texture lines (horizontal + vertical)
-            mg.lineStyle(1, 0xa09060, 0.35);
-            for (let ty2 = 0; ty2 < H; ty2 += 24) { mg.moveTo(3272, ty2); mg.lineTo(4400, ty2); }
-            for (let tx2 = 3272; tx2 < 4400; tx2 += 36) { mg.moveTo(tx2, 0); mg.lineTo(tx2, H); }
+            // Cobblestone texture lines — halved density (same look, half the command buffer)
+            mg.lineStyle(1, 0xa09060, 0.3);
+            for (let ty2 = 0; ty2 < H; ty2 += 48) { mg.moveTo(3272, ty2); mg.lineTo(4400, ty2); }
+            for (let tx2 = 3272; tx2 < 4400; tx2 += 72) { mg.moveTo(tx2, 0); mg.lineTo(tx2, H); }
             mg.strokePath();
             // Dividing border between town and market (stone wall)
             const border = this.add.graphics();
@@ -2328,11 +2404,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           {
             // Village grass floor
             const vg = this.add.graphics();
-            vg.fillStyle(0x4a7a2a, 1); vg.fillRect(700, 0, 900, H);
-            for (let vi = 0; vi < 55; vi++) {
+            vg.fillStyle(0x5a8f38, 1); vg.fillRect(700, 0, 900, H);
+            for (let vi = 0; vi < 28; vi++) {
               const vx2 = 700 + (rng(vi * 13 + 5) % 860) + 20;
               const vy2 = (rng(vi * 13 + 7) % (H - 60)) + 30;
-              vg.fillStyle(0x5a8a30, 0.32); vg.fillCircle(vx2, vy2, 9 + (rng(vi * 13 + 9) % 14));
+              vg.fillStyle(0x5a8a30, 0.32); vg.fillCircle(vx2, vy2, 12 + (rng(vi * 13 + 9) % 18));
             }
             // Stone divider wall — east side (between village and town at x=1600)
             const vwall = this.add.graphics();
@@ -2411,9 +2487,15 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             [760, 980, 1200, 1420].forEach(lpx => {
               [210, H-210].forEach(lpy => {
                 const lp = this.add.graphics();
+                // Glow halos
+                lp.fillStyle(0xffcc66, 0.10); lp.fillEllipse(lpx+5, lpy-52, 180, 140);
+                lp.fillStyle(0xffdd88, 0.28); lp.fillEllipse(lpx+5, lpy-52, 90, 70);
+                lp.fillStyle(0xffee99, 0.50); lp.fillEllipse(lpx+5, lpy-52, 44, 34);
+                // Pole
                 lp.fillStyle(0x7a6a38, 1); lp.fillRect(lpx-3, lpy-50, 6, 56); lp.fillRect(lpx-3, lpy-50, 12, 4);
+                // Lamp head
                 lp.fillStyle(0xffee88, 1); lp.fillEllipse(lpx+5, lpy-52, 12, 16);
-                lp.fillStyle(0xffee88, 0.14); lp.fillEllipse(lpx+5, lpy-52, 28, 28);
+                lp.fillStyle(0xffffff, 0.9); lp.fillEllipse(lpx+5, lpy-52, 5, 6);
               });
             });
           }
@@ -2422,7 +2504,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           {
             // Stone floor
             const cg = this.add.graphics();
-            cg.fillStyle(0x6a6a72, 1); cg.fillRect(0, 0, 700, H);
+            cg.fillStyle(0x888892, 1); cg.fillRect(0, 0, 700, H);
             cg.lineStyle(1, 0x5a5a62, 0.38);
             for (let cy2 = 0; cy2 < H; cy2 += 28) { cg.moveTo(0, cy2); cg.lineTo(700, cy2); }
             for (let cx2 = 0; cx2 < 700; cx2 += 40) { cg.moveTo(cx2, 0); cg.lineTo(cx2, H); }
@@ -2445,8 +2527,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             const outerWall = this.add.graphics();
             outerWall.fillStyle(0x7a7a82, 1); outerWall.fillRect(0, 0, 700, 62); outerWall.fillRect(0, H-62, 700, 62);
             outerWall.fillStyle(0x9a9aaa, 1); outerWall.fillRect(0, 0, 700, 20); outerWall.fillRect(0, H-20, 700, 20);
-            for (let bx2 = 0; bx2 < 700; bx2 += 36) {
-              outerWall.fillStyle(0x7a7a82, 1); outerWall.fillRect(bx2, 0, 22, 36); outerWall.fillRect(bx2, H-36, 22, 36);
+            for (let bx2 = 0; bx2 < 700; bx2 += 54) {
+              outerWall.fillStyle(0x7a7a82, 1); outerWall.fillRect(bx2, 0, 28, 36); outerWall.fillRect(bx2, H-36, 28, 36);
             }
 
             // Hanging banners between columns (royal purple + gold trim)
@@ -2662,7 +2744,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
                 // Check if frogged before letting player talk
                 const frogged = froggifiedNpcs.get(npc.id);
                 if (frogged && frogged.expiry > Date.now()) return;
-                talkToNpc(npc.id);
+                playNpcVoice(npc.id);
               });
 
               const rec = this as unknown as Record<string, unknown>;
@@ -2670,10 +2752,10 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               (rec._villageNpcs as { id: string; x: number; y: number; hint: Phaser.GameObjects.Text }[]).push({ id: npc.id, x: npc.x, y: npc.y, hint: npcHint });
             });
 
-            // Single E-key listener for NPC dialogue (reads nearNpcRef)
+            // E-key also triggers voice
             this.input.keyboard!.on("keydown-E", () => {
-              if (!chatOpenRef.current && nearNpcRef.current && !captainHintRef.current && !caveHintRef.current && !npcDialogueRef.current)
-                talkToNpc(nearNpcRef.current);
+              if (!chatOpenRef.current && nearNpcRef.current && !captainHintRef.current && !caveHintRef.current)
+                playNpcVoice(nearNpcRef.current);
             });
           }
 
@@ -2716,7 +2798,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             this.add.text(GX, GY + 74, "Respawn point", { fontSize: "8px", color: "#666688", fontFamily: "monospace" }).setOrigin(0.5);
             // Grass background for east area
             const eastBg = this.add.graphics();
-            eastBg.fillStyle(0x2a3a1a, 0.4); eastBg.fillRect(3400, 600, 900, 440);
+            eastBg.fillStyle(0x3a5428, 0.4); eastBg.fillRect(3400, 600, 900, 440);
           }
 
           // ── Dragon Entity (spawned during dragon_attack events) ────────────
@@ -2937,10 +3019,21 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           // ── Bandit Raid Entities ────────────────────────────────────────────
           {
             const BANDIT_DEFS = [
-              { emoji: "🗡️", name: "CUTPURSE",   color: "#ff8844", size: "38px" },
-              { emoji: "🥷",  name: "SHADOWBLADE", color: "#aa66ff", size: "38px" },
-              { emoji: "🪓",  name: "IRONCLUB",   color: "#ffcc44", size: "38px" },
+              { emoji: "🗡️", name: "CUTPURSE",   color: "#ff8844", size: "38px", audioId: "bandit_cutpurse" },
+              { emoji: "🥷",  name: "SHADOWBLADE", color: "#aa66ff", size: "38px", audioId: "bandit_shadowblade" },
+              { emoji: "🪓",  name: "IRONCLUB",   color: "#ffcc44", size: "38px", audioId: "bandit_ironclub" },
             ];
+            const banditLineIndex: Record<string, number> = {};
+            function playBanditVoice(audioId: string) {
+              const count = 8;
+              const last = banditLineIndex[audioId] ?? -1;
+              let idx = Math.floor(Math.random() * count);
+              if (idx === last && count > 1) idx = (idx + 1) % count;
+              banditLineIndex[audioId] = idx;
+              const audio = new Audio(`/audio/npc/${audioId}_${idx}.mp3`);
+              audio.volume = 0.75;
+              audio.play().catch(() => {});
+            }
             const banditScene = this;
             const bContainers: import("phaser").GameObjects.Container[] = [];
             const bHpFills: import("phaser").GameObjects.Graphics[] = [];
@@ -2967,6 +3060,46 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               banditLabelsRef.current[i] = nameLabel;
             }
 
+            // Bandit quip lines — ordered pairs for comedic sequencing
+            let banditQuipTimer: ReturnType<typeof setInterval> | null = null;
+
+            // Bandit counter-attack: slash from nearest bandit toward player with damage number
+            banditCounterAttackRef.current = (dmg: number) => {
+              const alive = bContainers.filter(bc => bc.alpha > 0.1);
+              if (!alive.length) return;
+              const attacker = alive[Math.floor(Math.random() * alive.length)];
+              const px = myPosRef.current.x, py = myPosRef.current.y;
+              const bx = attacker.x, by = attacker.y;
+
+              // Slash arc at player position
+              const slash = banditScene.add.graphics().setDepth(120);
+              const angle = Math.atan2(py - by, px - bx);
+              for (let si = -1; si <= 1; si++) {
+                const a = angle + si * 0.4;
+                slash.lineStyle(3, 0xff4400, 0.9);
+                slash.beginPath();
+                slash.moveTo(px, py);
+                slash.lineTo(px + Math.cos(a) * 30, py + Math.sin(a) * 30);
+                slash.strokePath();
+              }
+              slash.fillStyle(0xff2200, 0.5);
+              slash.fillCircle(px, py, 8);
+              banditScene.tweens.add({ targets: slash, alpha: 0, scaleX: 1.6, scaleY: 1.6, duration: 300, onComplete: () => slash.destroy() });
+
+              // Red damage number floating up
+              const dmgTxt = banditScene.add.text(px + (Math.random() - 0.5) * 20, py - 20, `-${dmg}`, {
+                fontSize: "16px", color: "#ff4444", fontFamily: "monospace", fontStyle: "bold",
+                backgroundColor: "rgba(0,0,0,0.6)", padding: { x: 3, y: 2 },
+              }).setOrigin(0.5).setDepth(121);
+              banditScene.tweens.add({ targets: dmgTxt, y: dmgTxt.y - 40, alpha: 0, duration: 900, ease: "Cubic.Out", onComplete: () => dmgTxt.destroy() });
+
+              // Brief red flash on player
+              const flash = banditScene.add.graphics().setDepth(119);
+              flash.fillStyle(0xff0000, 0.35);
+              flash.fillCircle(px, py, 22);
+              banditScene.tweens.add({ targets: flash, alpha: 0, duration: 250, onComplete: () => flash.destroy() });
+            };
+
             spawnBanditsRef.current = () => {
               for (let i = 0; i < bContainers.length; i++) {
                 const bc = bContainers[i];
@@ -2984,6 +3117,15 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               };
               setTimeout(fireBanditWave, 2200);
               npcAutoChargeRef.current = setInterval(fireBanditWave, 8000 + Math.random() * 3000);
+
+              // Bandit voice lines every 8-14 seconds
+              if (banditQuipTimer) clearInterval(banditQuipTimer);
+              banditQuipTimer = setInterval(() => {
+                const aliveIndices = bContainers.map((bc, i) => bc.alpha > 0.1 ? i : -1).filter(i => i >= 0);
+                if (!aliveIndices.length) return;
+                const idx = aliveIndices[Math.floor(Math.random() * aliveIndices.length)];
+                playBanditVoice(BANDIT_DEFS[idx].audioId);
+              }, 8000 + Math.random() * 6000);
             };
 
             despawnBanditsRef.current = () => {
@@ -3248,165 +3390,87 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           this.player.add(this.playerBubble);
           this.player.setDepth(10);
 
-          // ── Housing District (x=4500–6200) ────────────────────────────────────
+          // ── Neighbourhood Gate (x=4400) ────────────────────────────────────
+          // Just a gate — the neighbourhood loads as its own Phaser instance
           {
-            // Ground — warm cobblestone neighbourhood feel
-            const hg = this.add.graphics();
-            hg.fillStyle(0xc8a87a, 1);
-            hg.fillRect(4400, 0, 1800, H);
-            // cobblestone texture
-            hg.lineStyle(1, 0xaa8855, 0.3);
-            for (let hy = 0; hy < H; hy += 36) {
-              for (let hx = 4400; hx < 6200; hx += 48) {
-                hg.strokeRoundedRect(hx + (hy % 2 === 0 ? 0 : 24), hy, 46, 34, 4);
-              }
+            const GX = 4430; // gate center x
+            const RY = H / 2; // road center y (H/2 = 560)
+
+            const gateG = this.add.graphics().setDepth(4);
+
+            // Left pillar (above road)
+            gateG.fillStyle(0x9a8a6a, 1); gateG.fillRect(GX - 54, RY - 160, 32, 210);
+            gateG.fillStyle(0x7a6a4a, 1); gateG.fillRoundedRect(GX - 60, RY - 178, 44, 22, 4);
+            // Right pillar (above road)
+            gateG.fillStyle(0x9a8a6a, 1); gateG.fillRect(GX + 22, RY - 160, 32, 210);
+            gateG.fillStyle(0x7a6a4a, 1); gateG.fillRoundedRect(GX + 16, RY - 178, 44, 22, 4);
+            // Cross beam
+            gateG.fillStyle(0x7a6a4a, 1); gateG.fillRect(GX - 60, RY - 165, 120, 10);
+
+            // Iron gate bars across the road gap
+            gateG.fillStyle(0x334455, 0.9);
+            for (let bx = GX - 46; bx < GX + 46; bx += 13) {
+              gateG.fillRect(bx, RY - 150, 7, 150);
+              // Spear tip
+              gateG.fillTriangle(bx + 3, RY - 162, bx, RY - 150, bx + 7, RY - 150);
             }
-            // Border wall between market and housing
-            const hw = this.add.graphics();
-            hw.fillStyle(0x7a6040, 1); hw.fillRect(4400, 0, 14, H);
-            hw.fillStyle(0x9a8060, 1);
-            for (let hy = 0; hy < H; hy += 40) hw.fillRect(4400, hy, 14, 18);
+            // Horizontal rails
+            gateG.fillStyle(0x445566, 1);
+            gateG.fillRect(GX - 50, RY - 110, 100, 6);
+            gateG.fillRect(GX - 50, RY - 65, 100, 6);
 
-            // District sign
-            this.add.text(4800, H / 2, "🏘️  Neighbourhood", {
-              fontSize: "20px", color: "#4a2800", fontFamily: "monospace", fontStyle: "bold",
-              backgroundColor: "rgba(240,210,150,0.85)", padding: { x: 14, y: 7 },
-            }).setOrigin(0.5).setDepth(5);
-            this.add.text(4800, H / 2 + 36, "Your party's homes", {
-              fontSize: "12px", color: "#7a5030", fontFamily: "monospace",
-              backgroundColor: "rgba(240,210,150,0.7)", padding: { x: 10, y: 4 },
-            }).setOrigin(0.5).setDepth(5);
+            // Left pillar (below road)
+            gateG.fillStyle(0x9a8a6a, 1); gateG.fillRect(GX - 54, RY + 52, 32, 98);
+            gateG.fillStyle(0x7a6a4a, 1); gateG.fillRoundedRect(GX - 60, RY + 145, 44, 22, 4);
+            // Right pillar (below road)
+            gateG.fillStyle(0x9a8a6a, 1); gateG.fillRect(GX + 22, RY + 52, 32, 98);
+            gateG.fillStyle(0x7a6a4a, 1); gateG.fillRoundedRect(GX + 16, RY + 145, 44, 22, 4);
 
-            // Central path between rows
-            const pathG = this.add.graphics();
-            pathG.fillStyle(0xd4b07a, 1); pathG.fillRect(4420, 430, 1780, 160);
-            pathG.lineStyle(2, 0xb89060, 0.5);
-            for (let px = 4420; px < 6200; px += 40) pathG.strokeRect(px, 430, 38, 158);
+            // Sign above gate
+            const gSign = this.add.text(GX, RY - 195, "🏘️  Neighbourhood", {
+              fontSize: "13px", color: "#ffeebb", fontFamily: "monospace", fontStyle: "bold",
+              backgroundColor: "rgba(50,30,10,0.92)", padding: { x: 10, y: 5 },
+            }).setOrigin(0.5, 1).setDepth(6);
 
-            // Trees lining the path
-            [[4470, 420],[4690, 420],[4910, 420],[5130, 420],[5350, 420],[5570, 420],
-             [4470, 600],[4690, 600],[4910, 600],[5130, 600],[5350, 600],[5570, 600]].forEach(([tx, ty]) => {
-              const tg = this.add.graphics();
-              tg.fillStyle(0x6a3a12, 1); tg.fillRect(tx-3, ty+4, 6, 18);
-              tg.fillStyle(0x0e6622, 1); tg.fillTriangle(tx, ty-22, tx-18, ty+6, tx+18, ty+6);
-              tg.fillStyle(0x1a9030, 1); tg.fillCircle(tx, ty-8, 11);
-            });
+            this.add.text(GX, RY - 218, "click to enter", {
+              fontSize: "9px", color: "rgba(255,230,160,0.5)", fontFamily: "monospace",
+            }).setOrigin(0.5, 1).setDepth(6);
 
-            // Draw houses — uses ref so redraw works after async API load
-            const houseGraphicsGroup: { destroy(): void }[] = [];
-            const drawHouses = () => {
-              houseGraphicsGroup.forEach(g => g.destroy());
-              houseGraphicsGroup.length = 0;
-              HOUSE_SLOTS.forEach((slot, i) => {
-              const info = districtSlotsRef.current[i];
-              if (!info) return;
-              const ext = EXTERIOR_STYLES.find(e => e.id === info.exteriorStyle) ?? EXTERIOR_STYLES[0];
-              const hx = slot.x, hy = slot.y;
-              const hw2 = HOUSE_W, hh = HOUSE_H;
+            // Click zone covering gate area
+            const gateZone = this.add.zone(GX, RY - 50, 130, 250).setInteractive({ cursor: "pointer" }).setDepth(9);
+            gateZone.on("pointerover", () => gSign.setStyle({ color: "#ffd700" }));
+            gateZone.on("pointerout", () => gSign.setStyle({ color: "#ffeebb" }));
+            gateZone.on("pointerdown", () => openNeighbourhoodRef.current?.());
 
-              const houseG = this.add.graphics();
-              houseG.setDepth(4);
-
-              // Shadow
-              houseG.fillStyle(0x000000, 0.18);
-              houseG.fillRoundedRect(hx + 8, hy + 8, hw2, hh, 6);
-
-              // Foundation
-              houseG.fillStyle(0x8a7a5a, 1);
-              houseG.fillRect(hx - 4, hy + hh - 4, hw2 + 8, 10);
-
-              // Walls
-              const wc = parseInt(ext.wallColor.replace("#",""), 16);
-              houseG.fillStyle(wc, 1);
-              houseG.fillRoundedRect(hx, hy + 28, hw2, hh - 28, { tl: 0, tr: 0, bl: 6, br: 6 });
-
-              // Roof
-              const rc = parseInt(ext.roofColor.replace("#",""), 16);
-              houseG.fillStyle(rc, 1);
-              houseG.fillTriangle(hx - 8, hy + 32, hx + hw2/2, hy - 18, hx + hw2 + 8, hy + 32);
-              // Chimney
-              const tc = parseInt(ext.trimColor.replace("#",""), 16);
-              houseG.fillStyle(wc, 1);
-              houseG.fillRect(hx + hw2 * 0.7, hy - 28, 18, 38);
-              houseG.fillStyle(0x333333, 0.6); houseG.fillRect(hx + hw2 * 0.7 - 2, hy - 32, 22, 6);
-
-              // Windows (2)
-              houseG.fillStyle(0xffd880, 0.9);
-              houseG.fillRoundedRect(hx + 14, hy + 44, 38, 30, 3);
-              houseG.fillRoundedRect(hx + hw2 - 52, hy + 44, 38, 30, 3);
-              houseG.lineStyle(2, 0x8a6a30, 0.4);
-              houseG.strokeRoundedRect(hx + 14, hy + 44, 38, 30, 3);
-              houseG.strokeRoundedRect(hx + hw2 - 52, hy + 44, 38, 30, 3);
-              // Window cross
-              houseG.lineStyle(1, 0x8a6a30, 0.4);
-              houseG.lineBetween(hx + 33, hy + 44, hx + 33, hy + 74);
-              houseG.lineBetween(hx + 14, hy + 59, hx + 52, hy + 59);
-              houseG.lineBetween(hx + hw2 - 33, hy + 44, hx + hw2 - 33, hy + 74);
-              houseG.lineBetween(hx + hw2 - 52, hy + 59, hx + hw2 - 14, hy + 59);
-
-              // Door
-              const dc = parseInt(ext.doorColor.replace("#",""), 16);
-              houseG.fillStyle(dc, 1);
-              houseG.fillRoundedRect(hx + hw2/2 - 16, hy + hh - 52, 32, 52, { tl: 6, tr: 6, bl: 0, br: 0 });
-              // Door knob
-              houseG.fillStyle(0xffcc44, 1); houseG.fillCircle(hx + hw2/2 + 8, hy + hh - 28, 3);
-              // Door step
-              houseG.fillStyle(0x8a7a5a, 1); houseG.fillRect(hx + hw2/2 - 20, hy + hh - 4, 40, 8);
-
-              // Trim accent
-              houseG.fillStyle(tc, 0.8);
-              houseG.fillRect(hx, hy + 26, hw2, 4);
-              houseG.fillRoundedRect(hx, hy + hh - 4, hw2, 4, 2);
-
-              // Nameplate
-              const label = info.isNpc
-                ? `${ext.emoji} ${info.username}`
-                : `${ext.emoji} ${info.username}`;
-              const nameText = this.add.text(hx + hw2/2, hy - 30, label, {
-                fontSize: "10px", color: "#fff", fontFamily: "monospace", fontStyle: "bold",
-                backgroundColor: "rgba(0,0,0,0.65)", padding: { x: 6, y: 3 },
-              }).setOrigin(0.5, 1).setDepth(8);
-
-              // "Your house" indicator
-              if (!info.isNpc && info.userId === userId) {
-                const homeLabel = this.add.text(hx + hw2/2, hy - 46, "🏠 Your Home", {
-                  fontSize: "9px", color: "#ffd700", fontFamily: "monospace",
-                  backgroundColor: "rgba(0,0,0,0.5)", padding: { x: 5, y: 2 },
-                }).setOrigin(0.5, 1).setDepth(8);
-                houseGraphicsGroup.push(homeLabel);
-              }
-
-              // Click zone (for all non-NPC houses, or own house)
-              if (!info.isNpc && info.userId) {
-                const clickZone = this.add.zone(hx + hw2/2, hy + hh/2, hw2, hh).setInteractive({ cursor: "pointer" }).setDepth(9);
-                clickZone.on("pointerover", () => { nameText.setStyle({ color: "#ffd700" }); });
-                clickZone.on("pointerout", () => { nameText.setStyle({ color: "#fff" }); });
-                clickZone.on("pointerdown", () => {
-                  setOpenHouse({ userId: info.userId!, username: info.username });
-                });
-                houseGraphicsGroup.push(clickZone);
-              }
-              houseGraphicsGroup.push(houseG, nameText);
-              });
+            // Wire the ref so React can open it too
+            openNeighbourhoodRef.current = () => {
+              setOpenNeighbourhood(true);
+              // Pause main town Phaser while neighbourhood is open
+              (gameRef.current as import("phaser").Game | null)?.pause();
             };
-            redrawHousesRef.current = drawHouses;
-            drawHouses();
           }
 
           // ── Camera ───────────────────────────────────────────────────────────
           this.cameras.main.setBounds(0, 0, W, H);
-          this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+          this.cameras.main.startFollow(this.player, true, 0.25, 0.25);
+          // Snap camera to player immediately — prevents slow lerp catch-up on first load
+          this.cameras.main.scrollX = startX - this.cameras.main.width / 2;
+          this.cameras.main.scrollY = startY - this.cameras.main.height / 2;
           // Zoom: landscape mobile gets slight boost to fill the wider view
           const getZoom = () => {
             const isMobile = window.innerWidth < 768 || ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
             if (!isMobile) return 1.4;
-            return window.innerWidth > window.innerHeight ? 1.15 : 1.0; // landscape vs portrait
+            return window.innerWidth > window.innerHeight ? 1.3 : 1.0; // landscape vs portrait
           };
           this.cameras.main.setZoom(getZoom());
-          // Re-apply zoom on orientation/resize so landscape feels right
-          const onResize = () => this.cameras.main?.setZoom(getZoom());
-          window.addEventListener("resize", onResize);
-          this.events.on("destroy", () => window.removeEventListener("resize", onResize));
+          // Re-apply zoom on orientation change (use timeout so dimensions have settled)
+          const onResize = () => setTimeout(() => this.cameras.main?.setZoom(getZoom()), 200);
+          window.addEventListener("orientationchange", onResize);
+          window.visualViewport?.addEventListener("resize", onResize);
+          this.events.on("destroy", () => {
+            window.removeEventListener("orientationchange", onResize);
+            window.visualViewport?.removeEventListener("resize", onResize);
+          });
 
           // ── Input ────────────────────────────────────────────────────────────
           // IMPORTANT: addKey(code, enableCapture=false, emitOnRepeat=false)
@@ -3494,6 +3558,20 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           myPosRef.current = { x: startX, y: startY };
           fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ x: startX, y: startY, direction: "down", partyId: partyIdRef.current }) }).catch(() => {});
+
+          // ── Day / Night cycle overlay ────────────────────────────────────────
+          // 30-minute real-time cycle. Stored on this so update() can redraw it.
+          (this as unknown as Record<string,unknown>)._dnOverlay = this.add.graphics().setDepth(1);
+          (this as unknown as Record<string,unknown>)._dnSunLabel = this.add.text(
+            W / 2, 22, "", { fontSize: "13px", fontFamily: "monospace", color: "#fffbe0", stroke: "#000", strokeThickness: 2 }
+          ).setOrigin(0.5, 0).setDepth(200).setAlpha(0.75);
+
+          // ── PartyKit bridge: wire WS callbacks so React useEffect can drive Phaser ─
+          wsUpdateOtherRef.current = (p: TownPlayer) => this.createOrUpdateOther(p);
+          wsRemoveOtherRef.current = (id: string) => {
+            const obj = this.others.get(id);
+            if (obj) { obj.container.destroy(); this.others.delete(id); otherPositionsRef.current.delete(id); this.loadingTextures.delete(id); }
+          };
         }
 
         createOrUpdateOther(p: TownPlayer) {
@@ -3603,6 +3681,51 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
                             (_activeEl as HTMLElement)?.contentEditable === "true";
           if (_isTyping) return;
 
+          // ── Day / Night cycle (30-minute real-time period) ────────────────────
+          {
+            const rec = this as unknown as Record<string,unknown>;
+            const ov = rec._dnOverlay as Phaser.GameObjects.Graphics | undefined;
+            const lbl = rec._dnSunLabel as Phaser.GameObjects.Text | undefined;
+            // Only redraw every 3s to avoid per-frame overdraw
+            const now = Date.now();
+            const lastDN = (rec._dnLastTick as number) ?? 0;
+            if (ov && now - lastDN > 3000) {
+              rec._dnLastTick = now;
+              const CYCLE_MS = 30 * 60 * 1000; // 30 minutes
+              const phase = (now % CYCLE_MS) / CYCLE_MS; // 0→1
+              // Phase bands: 0–0.08 night, 0.08–0.18 dawn, 0.18–0.28 morning, 0.28–0.68 day, 0.68–0.78 dusk, 0.78–1.0 night
+              type DnKey = 'night'|'dawn'|'morning'|'day'|'dusk';
+              const band = (phase < 0.08 || phase >= 0.78) ? 'night' as DnKey
+                         : (phase < 0.18) ? 'dawn' as DnKey
+                         : (phase < 0.28) ? 'morning' as DnKey
+                         : (phase < 0.68) ? 'day' as DnKey
+                         : 'dusk' as DnKey;
+              const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.max(0, Math.min(1, t));
+              // Smooth 0→1 within each band
+              const bandT = band === 'night' ? (phase < 0.08 ? phase / 0.08 : (phase - 0.78) / 0.22)
+                          : band === 'dawn' ? (phase - 0.08) / 0.10
+                          : band === 'morning' ? (phase - 0.18) / 0.10
+                          : band === 'dusk' ? (phase - 0.68) / 0.10
+                          : (phase - 0.28) / 0.40;
+              // Overlay color [r,g,b] and opacity
+              const configs: Record<DnKey,{r:number,g:number,b:number,a:number,bg:string,emoji:string,label:string}> = {
+                night:   { r:20, g:28, b:80, a:0.42, bg:'#0d1a3a', emoji:'🌙', label:'Night' },
+                dawn:    { r:180,g:90, b:40, a:lerp(0.42,0.08,bandT), bg:'#3a2818', emoji:'🌅', label:'Dawn' },
+                morning: { r:255,g:200,b:80, a:lerp(0.08,0.04,bandT), bg:'#3a5a22', emoji:'🌄', label:'Morning' },
+                day:     { r:120,g:180,b:255,a:0.04, bg:'#3a5a22', emoji:'☀️', label:'Day' },
+                dusk:    { r:200,g:80, b:30, a:lerp(0.04,0.42,bandT), bg:'#2a1a30', emoji:'🌆', label:'Dusk' },
+              };
+              const cfg = configs[band];
+              // Interpolate towards neighbouring band for smooth cross-fade
+              ov.clear();
+              const dnHex = (cfg.r << 16) | (cfg.g << 8) | cfg.b;
+              ov.fillStyle(dnHex, cfg.a);
+              ov.fillRect(0, 0, W, H);
+              this.cameras.main.setBackgroundColor(cfg.bg);
+              if (lbl) lbl.setText(`${cfg.emoji} ${cfg.label}`);
+            }
+          }
+
           // Update horse & carriage animation
           const updateCarriage = (this as unknown as Record<string, unknown>)._updateCarriage as ((dt: number) => void) | undefined;
           if (updateCarriage) updateCarriage(delta);
@@ -3635,76 +3758,84 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           if (vx < 0) this.playerImg.setFlipX(true);
           else if (vx > 0) this.playerImg.setFlipX(false);
 
-          const nx = Phaser.Math.Clamp(this.player.x + vx * dt, 32, W - 32);
-          const ny = Phaser.Math.Clamp(this.player.y + vy * dt, 32, H - 32);
-          this.player.setPosition(nx, ny);
-          myPosRef.current = { x: nx, y: ny };
+          const nx = Math.round(Phaser.Math.Clamp(this.player.x + vx * dt, 32, W - 32));
+          const ny = Math.round(Phaser.Math.Clamp(this.player.y + vy * dt, 32, H - 32));
 
-          // Captain proximity hint
-          const eKeyHint = (this as unknown as Record<string, unknown>)._eKeyHint as Phaser.GameObjects.Text | undefined;
-          const captainY = (this as unknown as Record<string, unknown>)._captainY as number | undefined;
-          if (eKeyHint && captainY !== undefined) {
-            const nearCaptain = ny < 280 && Math.abs(nx - 2800) < 160;
-            const targetAlpha = nearCaptain ? 1 : 0;
-            eKeyHint.setAlpha(Phaser.Math.Linear(eKeyHint.alpha, targetAlpha, 0.12));
-            captainHintRef.current = nearCaptain;
-          }
+          // Try full move first, then slide along each axis
+          const finalX = collidesWithBuilding(nx, this.player.y) ? this.player.x : nx;
+          const finalY = collidesWithBuilding(this.player.x, ny) ? this.player.y : ny;
+          this.player.setPosition(finalX, finalY);
+          myPosRef.current = { x: finalX, y: finalY };
 
-          // Cave proximity hint
-          const caveHintObj = (this as unknown as Record<string, unknown>)._caveHint as Phaser.GameObjects.Text | undefined;
-          const cavePosX = (this as unknown as Record<string, unknown>)._cavePosX as number | undefined;
-          const cavePosY = (this as unknown as Record<string, unknown>)._cavePosY as number | undefined;
-          if (caveHintObj && cavePosX !== undefined && cavePosY !== undefined) {
-            const nearCave = Math.hypot(nx - cavePosX, ny - cavePosY) < 100;
-            caveHintObj.setAlpha(Phaser.Math.Linear(caveHintObj.alpha, nearCave ? 1 : 0, 0.12));
-            caveHintRef.current = nearCave;
-          }
+          // ── Proximity hints — debounced to 120ms (no need to run 60×/sec) ──
+          this.proximityTimer += delta;
+          if (this.proximityTimer >= 120) {
+            this.proximityTimer = 0;
 
-          // Village / Castle NPC proximity hints + nearNpcRef update
-          {
-            type VillageNpc = { id: string; x: number; y: number; hint: Phaser.GameObjects.Text };
-            const villageNpcs = (this as unknown as Record<string, unknown>)._villageNpcs as VillageNpc[] | undefined;
-            if (villageNpcs) {
-              let closestId: string | null = null;
-              let closestDist = 92;
-              for (const n of villageNpcs) {
-                const d = Math.hypot(nx - n.x, ny - n.y);
-                n.hint.setAlpha(Phaser.Math.Linear(n.hint.alpha, d < 90 ? 1 : 0, 0.12));
-                if (d < closestDist) { closestDist = d; closestId = n.id; }
-              }
-              nearNpcRef.current = closestId;
+            // Captain proximity hint
+            const eKeyHint = (this as unknown as Record<string, unknown>)._eKeyHint as Phaser.GameObjects.Text | undefined;
+            const captainY = (this as unknown as Record<string, unknown>)._captainY as number | undefined;
+            if (eKeyHint && captainY !== undefined) {
+              const nearCaptain = finalY < 280 && Math.abs(finalX - 2800) < 160;
+              eKeyHint.setAlpha(nearCaptain ? 1 : 0);
+              captainHintRef.current = nearCaptain;
             }
-          }
 
-          // Shop NPC proximity hints
-          type ShopNpc = { label: string; x: number; y: number; hint: Phaser.GameObjects.Text };
-          const shopNpcs = (this as unknown as Record<string, unknown>)._shopNpcs as ShopNpc[] | undefined;
-          if (shopNpcs) {
-            for (const npc of shopNpcs) {
-              const nearShop = Math.hypot(nx - npc.x, ny - npc.y) < 80;
-              npc.hint.setAlpha(Phaser.Math.Linear(npc.hint.alpha, nearShop ? 1 : 0, 0.12));
-              // E key: near shop + not near captain
-              if (nearShop && !captainHintRef.current && !caveHintRef.current) {
-                this.input.keyboard!.once("keydown-E", () => {
-                  if (!chatOpenRef.current && !captainHintRef.current) { setActiveRoom(npc.label); activeRoomRef.current = npc.label; }
-                });
+            // Cave proximity hint
+            const caveHintObj = (this as unknown as Record<string, unknown>)._caveHint as Phaser.GameObjects.Text | undefined;
+            const cavePosX = (this as unknown as Record<string, unknown>)._cavePosX as number | undefined;
+            const cavePosY = (this as unknown as Record<string, unknown>)._cavePosY as number | undefined;
+            if (caveHintObj && cavePosX !== undefined && cavePosY !== undefined) {
+              const nearCave = Math.hypot(finalX - cavePosX, finalY - cavePosY) < 100;
+              caveHintObj.setAlpha(nearCave ? 1 : 0);
+              caveHintRef.current = nearCave;
+            }
+
+            // Village / Castle NPC proximity hints + nearNpcRef update
+            {
+              type VillageNpc = { id: string; x: number; y: number; hint: Phaser.GameObjects.Text };
+              const villageNpcs = (this as unknown as Record<string, unknown>)._villageNpcs as VillageNpc[] | undefined;
+              if (villageNpcs) {
+                let closestId: string | null = null;
+                let closestDist = 92;
+                for (const n of villageNpcs) {
+                  const d = Math.hypot(finalX - n.x, finalY - n.y);
+                  n.hint.setAlpha(d < 90 ? 1 : 0);
+                  if (d < closestDist) { closestDist = d; closestId = n.id; }
+                }
+                nearNpcRef.current = closestId;
               }
             }
-          }
 
-          // (C key registered in create())
+            // Shop NPC proximity hints
+            type ShopNpc = { label: string; x: number; y: number; hint: Phaser.GameObjects.Text };
+            const shopNpcs = (this as unknown as Record<string, unknown>)._shopNpcs as ShopNpc[] | undefined;
+            if (shopNpcs) {
+              for (const npc of shopNpcs) {
+                const nearShop = Math.hypot(finalX - npc.x, finalY - npc.y) < 80;
+                npc.hint.setAlpha(nearShop ? 1 : 0);
+                if (nearShop && !captainHintRef.current && !caveHintRef.current) {
+                  this.input.keyboard!.once("keydown-E", () => {
+                    if (!chatOpenRef.current && !captainHintRef.current) { setActiveRoom(npc.label); activeRoomRef.current = npc.label; }
+                  });
+                }
+              }
+            }
 
-          // ── Stash / Vendor proximity hints ────────────────────────────────
-          const stashPos = (this as unknown as Record<string, unknown>)._stashPos as { x: number; y: number; hint: Phaser.GameObjects.Text } | undefined;
-          if (stashPos) {
-            const nearStash = Math.hypot(nx - stashPos.x, ny - stashPos.y) < 80;
-            stashPos.hint.setAlpha(Phaser.Math.Linear(stashPos.hint.alpha, nearStash ? 1 : 0, 0.12));
-          }
-          const vendorPos = (this as unknown as Record<string, unknown>)._vendorPos as { x: number; y: number; hint: Phaser.GameObjects.Text } | undefined;
-          if (vendorPos) {
-            const nearVendor = Math.hypot(nx - vendorPos.x, ny - vendorPos.y) < 80;
-            vendorPos.hint.setAlpha(Phaser.Math.Linear(vendorPos.hint.alpha, nearVendor ? 1 : 0, 0.12));
-          }
+            // (C key registered in create())
+
+            // ── Stash / Vendor proximity hints ──────────────────────────────
+            const stashPos = (this as unknown as Record<string, unknown>)._stashPos as { x: number; y: number; hint: Phaser.GameObjects.Text } | undefined;
+            if (stashPos) {
+              const nearStash = Math.hypot(finalX - stashPos.x, finalY - stashPos.y) < 80;
+              stashPos.hint.setAlpha(nearStash ? 1 : 0);
+            }
+            const vendorPos = (this as unknown as Record<string, unknown>)._vendorPos as { x: number; y: number; hint: Phaser.GameObjects.Text } | undefined;
+            if (vendorPos) {
+              const nearVendor = Math.hypot(finalX - vendorPos.x, finalY - vendorPos.y) < 80;
+              vendorPos.hint.setAlpha(nearVendor ? 1 : 0);
+            }
+          } // end proximity debounce
 
           // ── Ground item sprites (update each poll tick) ───────────────────
           {
@@ -3816,19 +3947,23 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             if (this.chatBubbleTimer <= 0) this.playerBubble.setVisible(false);
           }
 
-          this.others.forEach((other) => {
-            const { container, targetX, targetY, vx, vy, lastUpdateTime } = other;
-            // Extrapolate position based on last known velocity, but cap extrapolation to 300ms
-            const extraMs = Math.min(300, Date.now() - lastUpdateTime);
-            const extraX = targetX + vx * (extraMs / 1000);
-            const extraY = targetY + vy * (extraMs / 1000);
-            // Clamp extrapolated position to world bounds
-            const clampedX = Phaser.Math.Clamp(extraX, 32, W - 32);
-            const clampedY = Phaser.Math.Clamp(extraY, 32, H - 32);
-            // Smooth lerp toward extrapolated target — high factor = snappy
-            container.x = Phaser.Math.Linear(container.x, clampedX, 0.28);
-            container.y = Phaser.Math.Linear(container.y, clampedY, 0.28);
-          });
+          if (this.others.size > 0) {
+            const frameNow = Date.now(); // single call per frame
+            this.others.forEach((other) => {
+              const { container, targetX, targetY, vx, vy, lastUpdateTime } = other;
+              const extraMs = Math.min(300, frameNow - lastUpdateTime);
+              const extraX = targetX + vx * (extraMs / 1000);
+              const extraY = targetY + vy * (extraMs / 1000);
+              const clampedX = Phaser.Math.Clamp(extraX, 32, W - 32);
+              const clampedY = Phaser.Math.Clamp(extraY, 32, H - 32);
+              // Skip lerp if already within 0.5px — saves GPU submissions for idle players
+              const dx = clampedX - container.x, dy = clampedY - container.y;
+              if (dx * dx + dy * dy > 0.25) {
+                container.x = Phaser.Math.Linear(container.x, clampedX, 0.28);
+                container.y = Phaser.Math.Linear(container.y, clampedY, 0.28);
+              }
+            });
+          }
 
           this.posTimer += delta;
           this.pollTimer += delta;
@@ -3836,14 +3971,26 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           // Idle throttle: stop sending after 3 min of no keyboard/mouse input
           const afkMs = Date.now() - _lastActivityTime;
           const isIdle = afkMs > 180 * 1000; // 3 min AFK
-          const posThreshold  = isIdle ? 999999 : 1500; // stop position sends when idle
+          // WS handles real-time positions; REST POST only needed to refresh last_seen every 10s
+          const wsConnected = townSocketRef.current?.readyState === 1; // WebSocket.OPEN
+          const posThreshold  = isIdle ? 999999 : (wsConnected ? 10000 : 1500); // 10s via WS, 1.5s fallback
           const pollThreshold = isIdle ? 25000 : 3000;  // 25s poll when idle, 3s when active
 
           if (this.posTimer >= posThreshold) {
             this.posTimer = 0;
             const pos = myPosRef.current;
+            const posPayload = { x: Math.round(pos.x), y: Math.round(pos.y), direction: this.direction, partyId: partyIdRef.current };
+            // REST persist — keep last_seen fresh in DB (fallback for players not on WS)
             fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ x: Math.round(pos.x), y: Math.round(pos.y), direction: this.direction, partyId: partyIdRef.current }) }).catch(() => {});
+              body: JSON.stringify(posPayload) }).catch(() => {});
+          }
+
+          // WS broadcast every 100ms for smooth real-time movement (separate from REST timer)
+          this.wsTimer += delta;
+          if (wsConnected && this.wsTimer >= 100) {
+            this.wsTimer = 0;
+            const pos2 = myPosRef.current;
+            townSocketRef.current?.send(JSON.stringify({ type: "player-update", player: { user_id: userId, username, avatar_url: avatarUrl, x: Math.round(pos2.x), y: Math.round(pos2.y), direction: this.direction, partyId: partyIdRef.current } }));
           }
 
           if (this.pollTimer >= pollThreshold) {
@@ -3856,9 +4003,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
               // Sync ground items and event
               groundItemsRef.current = groundItems;
+              // Only re-render if event changed (id or bossHp changed)
               setActiveEvent(prev => {
-                // Auto-undismiss when a new event starts
                 if (townEvent && prev?.id !== townEvent.id) setDismissedEventId(null);
+                if (!townEvent && !prev) return prev; // both null — no change
+                if (townEvent?.id === prev?.id && townEvent?.state?.bossHp === prev?.state?.bossHp) return prev;
                 return townEvent;
               });
               activeEventRef.current = townEvent;
@@ -3915,9 +4064,9 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
               // Check proximity to ground items
               const myPosForGround = myPosRef.current;
-              const nearItem = groundItems.find((g: GroundItem) => Math.hypot(g.x - myPosForGround.x, g.y - myPosForGround.y) < 60);
-              nearGroundItemRef.current = nearItem ?? null;
-              setNearGroundItem(nearItem ?? null);
+              const nearItem = groundItems.find((g: GroundItem) => Math.hypot(g.x - myPosForGround.x, g.y - myPosForGround.y) < 60) ?? null;
+              nearGroundItemRef.current = nearItem;
+              setNearGroundItem(prev => (prev?.id === nearItem?.id ? prev : nearItem));
 
               const myPos = myPosRef.current;
               const activeIds = new Set<string>();
@@ -4039,9 +4188,12 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
                   return;
                 }
                 activeIds.add(p.user_id);
-                // Keep real-time positions in ref so tryTag() never reads stale state
-                otherPositionsRef.current.set(p.user_id, { x: p.x, y: p.y });
-                this.createOrUpdateOther(p);
+                // When WS is live, skip position updates from REST (WS is already 100ms fresh).
+                // Always call createOrUpdateOther for new players (not yet in this.others).
+                if (!wsConnected || !this.others.has(p.user_id)) {
+                  otherPositionsRef.current.set(p.user_id, { x: p.x, y: p.y });
+                  this.createOrUpdateOther(p);
+                }
                 if (Math.hypot(p.x - myPos.x, p.y - myPos.y) < NEARBY_DIST) nearby.push(p);
               });
               this.others.forEach((obj, id) => {
@@ -4052,8 +4204,13 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
                   this.loadingTextures.delete(id);
                 }
               });
-              setNearbyPlayers(nearby);
-              setPlayerCount(players.length + 1);
+              // Only trigger re-renders if values actually changed (avoids 3s stutter)
+              setNearbyPlayers(prev => {
+                if (prev.length === nearby.length && prev.every((p, i) => p.user_id === nearby[i]?.user_id)) return prev;
+                return nearby;
+              });
+              const newCount = players.length + 1;
+              setPlayerCount(prev => prev === newCount ? prev : newCount);
             }).catch(() => {});
           }
 
@@ -4081,35 +4238,39 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               // Bob up/down slightly
               dc.y = newY + Math.sin(t * 0.002) * 4;
 
-              // Update HP bar fill
-              const hpFill = dragonHpFillRef.current;
-              if (hpFill) {
-                const bossHp = Number(activeEventRef.current?.state?.bossHp ?? 1500);
-                const bossMax = Number(activeEventRef.current?.state?.bossMaxHp ?? 1500);
-                const ratio = Math.max(0, Math.min(1, bossHp / bossMax));
-                hpFill.clear();
-                const hpColor = ratio > 0.5 ? 0xff4400 : ratio > 0.25 ? 0xff8800 : 0xff0000;
-                hpFill.fillStyle(hpColor, 1);
-                hpFill.fillRoundedRect(-60, -68, Math.max(2, 120 * ratio), 14, 4);
-              }
+              // Update HP bar + fire breath — throttled to 150ms (HP doesn't change frame-by-frame)
+              this.hpBarTimer += delta;
+              if (this.hpBarTimer >= 150) {
+                this.hpBarTimer = 0;
+                const hpFill = dragonHpFillRef.current;
+                if (hpFill) {
+                  const bossHp = Number(activeEventRef.current?.state?.bossHp ?? 1500);
+                  const bossMax = Number(activeEventRef.current?.state?.bossMaxHp ?? 1500);
+                  const ratio = Math.max(0, Math.min(1, bossHp / bossMax));
+                  hpFill.clear();
+                  const hpColor = ratio > 0.5 ? 0xff4400 : ratio > 0.25 ? 0xff8800 : 0xff0000;
+                  hpFill.fillStyle(hpColor, 1);
+                  hpFill.fillRoundedRect(-60, -68, Math.max(2, 120 * ratio), 14, 4);
+                }
 
-              // Fire breath: small flame particles ahead of dragon
-              const fireLayer = (this as unknown as Record<string, unknown>)._fireLayer as import("phaser").GameObjects.Graphics | null;
-              if (fireLayer) {
-                fireLayer.clear();
-                const fireDir = { x: next.x - curr.x, y: next.y - curr.y };
-                const fireLen = Math.hypot(fireDir.x, fireDir.y) || 1;
-                const fn = { x: fireDir.x / fireLen, y: fireDir.y / fireLen };
-                for (let fi = 0; fi < 6; fi++) {
-                  const spread = (Math.random() - 0.5) * 24;
-                  const dist = 30 + Math.random() * 40 + fi * 10;
-                  const ffx = newX + fn.x * dist + fn.y * spread;
-                  const ffy = newY + fn.y * dist - fn.x * spread + Math.sin(t * 0.003 + fi) * 5;
-                  const falpha = 0.85 - fi * 0.12;
-                  const color = fi < 2 ? 0xffdd00 : fi < 4 ? 0xff6600 : 0xff2200;
-                  const size = 10 - fi * 1.2;
-                  fireLayer.fillStyle(color, falpha);
-                  fireLayer.fillCircle(ffx, ffy, size);
+                // Fire breath: 6 fillCircle calls — run at 150ms cadence (~6fps) still looks good
+                const fireLayer = (this as unknown as Record<string, unknown>)._fireLayer as import("phaser").GameObjects.Graphics | null;
+                if (fireLayer) {
+                  fireLayer.clear();
+                  const fireDir = { x: next.x - curr.x, y: next.y - curr.y };
+                  const fireLen = Math.hypot(fireDir.x, fireDir.y) || 1;
+                  const fn = { x: fireDir.x / fireLen, y: fireDir.y / fireLen };
+                  for (let fi = 0; fi < 6; fi++) {
+                    const spread = (Math.random() - 0.5) * 24;
+                    const dist = 30 + Math.random() * 40 + fi * 10;
+                    const ffx = newX + fn.x * dist + fn.y * spread;
+                    const ffy = newY + fn.y * dist - fn.x * spread + Math.sin(t * 0.003 + fi) * 5;
+                    const falpha = 0.85 - fi * 0.12;
+                    const color = fi < 2 ? 0xffdd00 : fi < 4 ? 0xff6600 : 0xff2200;
+                    const size = 10 - fi * 1.2;
+                    fireLayer.fillStyle(color, falpha);
+                    fireLayer.fillCircle(ffx, ffy, size);
+                  }
                 }
               }
             } else if (dragonContainerRef.current && activeEventRef.current?.type !== "dragon_attack") {
@@ -4137,14 +4298,17 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               bc.y = curr.y + (next.y - curr.y) * ease + Math.sin(t * 0.003 + i * 1.2) * 3;
               bc.scaleX = next.x >= curr.x ? 1 : -1;
               const nl = banditLabelsRef.current[i]; if (nl) nl.scaleX = bc.scaleX;
-              const hpFill = banditHpFillsRef.current[i];
-              if (hpFill) {
-                const bossHp = Number(activeEventRef.current?.state?.bossHp ?? 2000) / 3;
-                const bossMax = Number(activeEventRef.current?.state?.bossMaxHp ?? 2000) / 3;
-                const ratio = Math.max(0, Math.min(1, bossHp / bossMax));
-                hpFill.clear();
-                hpFill.fillStyle(ratio > 0.5 ? 0xcc33cc : ratio > 0.25 ? 0xff6633 : 0xff2200, 1);
-                hpFill.fillRoundedRect(-40, -50, Math.max(2, 80 * ratio), 9, 3);
+              // HP bar throttled via hpBarTimer (shared with dragon, already ticking above)
+              if (this.hpBarTimer === 0) {
+                const hpFill = banditHpFillsRef.current[i];
+                if (hpFill) {
+                  const bossHp = Number(activeEventRef.current?.state?.bossHp ?? 2000) / 3;
+                  const bossMax = Number(activeEventRef.current?.state?.bossMaxHp ?? 2000) / 3;
+                  const ratio = Math.max(0, Math.min(1, bossHp / bossMax));
+                  hpFill.clear();
+                  hpFill.fillStyle(ratio > 0.5 ? 0xcc33cc : ratio > 0.25 ? 0xff6633 : 0xff2200, 1);
+                  hpFill.fillRoundedRect(-40, -50, Math.max(2, 80 * ratio), 9, 3);
+                }
               }
             }
           }
@@ -4180,36 +4344,30 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       }
 
       const config: import("phaser").Types.Core.GameConfig = {
-        type: Phaser.AUTO,
-        width: containerRef.current?.clientWidth || 800,
-        height: containerRef.current?.clientHeight || 600,
+        type: Phaser.WEBGL,
+        width: window.innerWidth,
+        height: window.innerHeight,
         parent: containerRef.current!,
+        backgroundColor: "#1a2d52",
         scene: [TownScene],
-        scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+        scale: {
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+          resolution: window.devicePixelRatio || 1,
+        } as object,
         input: { keyboard: { capture: [] }, mouse: true, touch: true },
-        render: { antialias: true, pixelArt: false },
+        render: { antialias: true, pixelArt: false, powerPreference: "high-performance", roundPixels: false, batchSize: 8192 },
       };
 
       game = new Phaser.Game(config);
       gameRef.current = game;
 
-      // Fix canvas resolution for high-DPI screens (retina/mobile).
-      // Phaser's RESIZE mode sets canvas dimensions to CSS pixels; we upscale
-      // to physical pixels then shrink back via CSS so it renders sharply.
-      const dpr = window.devicePixelRatio || 1;
-      if (dpr > 1) {
-        const g = game;
-        g.events.once("ready", () => {
-          const canvas = g.canvas;
-          if (!canvas) return;
-          const w = canvas.clientWidth, h = canvas.clientHeight;
-          canvas.width  = Math.round(w * dpr);
-          canvas.height = Math.round(h * dpr);
-          canvas.style.width  = w + "px";
-          canvas.style.height = h + "px";
-          (g.renderer as unknown as { resize: (w: number, h: number) => void }).resize?.(canvas.width, canvas.height);
-        });
-      }
+      // After Phaser is ready, do a delayed refresh so it reads the container's
+      // actual painted dimensions (container may not be full size at init time)
+      const g = game;
+      g.events.once("ready", () => {
+        setTimeout(() => g.scale?.refresh(), 100);
+      });
 
       // Auto-focus canvas so WASD works immediately on load/return
       setTimeout(() => { const c = containerRef.current?.querySelector("canvas"); if (c) (c as HTMLElement).focus(); }, 300);
@@ -4228,7 +4386,26 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     document.addEventListener("click", _recordActivity, { passive: true });
     document.addEventListener("touchstart", _recordActivity, { passive: true });
 
+    // Mobile-only: refresh Phaser canvas on orientation change (portrait ↔ landscape)
+    // Uses visualViewport (most reliable on iOS/Android) + orientationchange fallback
+    const isMobileDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    const doRefresh = () => {
+      const g = gameRef.current as import("phaser").Game | null;
+      g?.scale?.refresh();
+    };
+    const onOrientationChange = () => {
+      if (!isMobileDevice) return;
+      setTimeout(doRefresh, 100);
+      setTimeout(doRefresh, 350); // second pass for slow iOS reflow
+    };
+    window.addEventListener("orientationchange", onOrientationChange);
+    window.visualViewport?.addEventListener("resize", onOrientationChange);
+    screen.orientation?.addEventListener("change", onOrientationChange);
+
     return () => {
+      window.removeEventListener("orientationchange", onOrientationChange);
+      window.visualViewport?.removeEventListener("resize", onOrientationChange);
+      screen.orientation?.removeEventListener("change", onOrientationChange);
       document.removeEventListener("keydown", startMusicOnce);
       document.removeEventListener("click", startMusicOnce);
       document.removeEventListener("keydown", _recordActivity);
@@ -4249,6 +4426,51 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       stopAmbientMusic();
       if (tagTimerRef.current) clearInterval(tagTimerRef.current);
       if (gameRef.current) { (gameRef.current as import("phaser").Game).destroy(true); gameRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── PartyKit WebSocket connection (lazy-loaded to keep partysocket out of main bundle) ──
+  useEffect(() => {
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "FILL_IN_IF_USING_PARTYKIT" || host === "DISABLED") return;
+
+    let ws: { send: (data: string) => void; close: () => void; readyState: number } | null = null;
+    let cancelled = false;
+
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      ws = new PartySocket({ host, party: "town", room: "main" });
+      townSocketRef.current = ws;
+
+      (ws as unknown as EventTarget).addEventListener("message", (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          if (msg.type === "snapshot") {
+            const players: TownPlayer[] = Object.values(msg.state?.players ?? {});
+            players.forEach((p: TownPlayer) => {
+              if (p.user_id === userId) return;
+              wsUpdateOtherRef.current?.(p);
+              otherPositionsRef.current.set(p.user_id, { x: p.x, y: p.y });
+            });
+          } else if (msg.type === "player-update") {
+            const p: TownPlayer = msg.player;
+            if (p.user_id === userId) return;
+            // If they're in the neighbourhood, skip town rendering
+            if ((p as TownPlayer & { zone?: string }).zone === "neighborhood") return;
+            wsUpdateOtherRef.current?.(p);
+            otherPositionsRef.current.set(p.user_id, { x: p.x, y: p.y });
+          } else if (msg.type === "player-leave") {
+            wsRemoveOtherRef.current?.(msg.id);
+          }
+        } catch { /* ignore parse errors */ }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      ws?.close();
+      townSocketRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -4529,13 +4751,17 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         const wpn = sd?.equipped_slots?.weapon as { emoji?: string; name?: string; ability?: string; rarity?: string } | null;
         if (wpn?.ability && wpn.emoji) slots.push({ key: "weapon-ability", emoji: wpn.emoji, name: wpn.name ?? "Weapon", ability: wpn.ability, rarity: wpn.rarity ?? "common", consumable: false, cdExpiry: 0 });
 
-        if (slots.length === 0) return null;
+        // Final dedup — remove any slots with the same emoji, keeping first occurrence
+        const seen = new Set<string>();
+        const dedupedSlots = slots.filter(s => { if (seen.has(s.emoji)) return false; seen.add(s.emoji); return true; });
+
+        if (dedupedSlots.length === 0) return null;
 
         const RARITY_COLOR: Record<string, string> = { legendary: "#ffd700", epic: "#cc44ff", rare: "#4488ff", uncommon: "#44cc66", common: "#666" };
 
         return (
           <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", display: "flex", flexDirection: "column", gap: 10, zIndex: 200, pointerEvents: "all" }}>
-            {slots.slice(0, 4).map(slot => {
+            {dedupedSlots.slice(0, 4).map(slot => {
               const onCd = slot.cdExpiry > Date.now();
               const cdSec = onCd ? Math.ceil((slot.cdExpiry - Date.now()) / 1000) : 0;
               const isActive = abilityTargetMode?.itemEmoji === slot.emoji;
@@ -4674,126 +4900,91 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         )}
       </div>
 
-      {/* ── Active Town Event Banner / Boss Fight HUD ─────────────────────── */}
-      {activeEvent && !isDead && dismissedEventId !== activeEvent.id && (
-        <div style={{
-          position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.92)",
-          border: `2px solid ${activeEvent.type === "dragon_attack" ? "#ff4444" : activeEvent.type === "bandit_raid" ? "#ff8800" : activeEvent.type === "festival" ? "#ffd700" : "#44aaff"}`,
-          borderRadius: 14, padding: "10px 20px",
-          display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch",
-          zIndex: 80, pointerEvents: "all",
-          boxShadow: "0 0 30px rgba(255,68,68,0.4)",
-          animation: "pulse 1.5s infinite",
-          fontFamily: "monospace", minWidth: 340,
-        }}>
-          {/* Close button */}
-          <button onClick={() => setDismissedEventId(activeEvent.id as string)}
-            style={{ position: "absolute", top: 6, right: 8, background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
-          {/* Title row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
-            <span style={{ fontSize: 22 }}>
+      {/* ── Active Town Event — compact bottom HUD ─────────────────────────── */}
+      {activeEvent && !isDead && dismissedEventId !== activeEvent.id && (() => {
+        const isCombat = activeEvent.type === "dragon_attack" || activeEvent.type === "bandit_raid";
+        const accentColor = activeEvent.type === "dragon_attack" ? "#ff5533" : activeEvent.type === "bandit_raid" ? "#ff8800" : activeEvent.type === "festival" ? "#ffd700" : "#44aaff";
+        const bossHp = (activeEvent.state?.bossHp as number) ?? (activeEvent.type === "bandit_raid" ? 600 : 1500);
+        const bossMax = (activeEvent.state?.bossMaxHp as number) ?? (activeEvent.type === "bandit_raid" ? 600 : 1500);
+        const bossHpPct = Math.max(0, Math.min(100, (bossHp / bossMax) * 100));
+        return (
+          <div style={{
+            position: "absolute", bottom: isTouchDevice ? 16 : 72, left: "50%", transform: "translateX(-50%)",
+            background: "rgba(8,8,12,0.88)", backdropFilter: "blur(8px)",
+            border: `1px solid ${accentColor}55`,
+            borderRadius: 12, padding: "7px 12px",
+            display: "flex", alignItems: "center", gap: 10,
+            zIndex: 80, pointerEvents: "all",
+            fontFamily: "monospace", maxWidth: 540, width: "max-content",
+            boxShadow: `0 2px 20px ${accentColor}22`,
+          }}>
+            {/* Icon + label */}
+            <span style={{ fontSize: 18, flexShrink: 0 }}>
               {activeEvent.type === "dragon_attack" ? "🐉" : activeEvent.type === "bandit_raid" ? "🗡️" : activeEvent.type === "festival" ? "🎉" : "🛒"}
             </span>
-            <span style={{ fontSize: 14, color: "#ff6644", fontWeight: 700, letterSpacing: 1 }}>
-              {activeEvent.type === "dragon_attack" ? "DRAGON ATTACK!" : activeEvent.type === "bandit_raid"
-                ? `BANDITS ATTACKING ${((activeEvent.state?.location as string) ?? "the Village").toUpperCase()}!`
-                : activeEvent.type === "festival" ? "FESTIVAL!" : "MERCHANT VISIT"}
-            </span>
-          </div>
+            {!isTouchDevice && (
+              <span style={{ fontSize: 11, color: accentColor, fontWeight: 700, letterSpacing: 0.5, flexShrink: 0, maxWidth: 110, lineHeight: 1.2 }}>
+                {activeEvent.type === "dragon_attack" ? "DRAGON\nATTACK!" : activeEvent.type === "bandit_raid"
+                  ? "BANDIT\nRAID!"
+                  : activeEvent.type === "festival" ? "FESTIVAL!" : "MERCHANT"}
+              </span>
+            )}
 
-          {/* Enemy HP bar — dragon or bandits */}
-          {(activeEvent.type === "dragon_attack" || activeEvent.type === "bandit_raid") && (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa", marginBottom: 3 }}>
-                <span>{activeEvent.type === "dragon_attack" ? "🐉 Dragon HP" : "⚔️ Bandit HP"}</span>
-                <span style={{ color: "#ff6644" }}>{(activeEvent.state?.bossHp as number) ?? (activeEvent.type === "bandit_raid" ? 600 : 1500)} / {(activeEvent.state?.bossMaxHp as number) ?? (activeEvent.type === "bandit_raid" ? 600 : 1500)}</span>
+            {isCombat && (<>
+              {/* Enemy HP */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                <span style={{ fontSize: 9, color: "#888" }}>{activeEvent.type === "dragon_attack" ? "🐉" : "⚔️"} {bossHp}/{bossMax}</span>
+                <div style={{ width: 80, height: 6, background: "#330000", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${bossHpPct}%`, borderRadius: 3, transition: "width 0.4s", background: activeEvent.type === "bandit_raid" ? "linear-gradient(90deg,#cc33cc,#ff6633)" : "linear-gradient(90deg,#ff2200,#ff6600)" }} />
+                </div>
               </div>
-              <div style={{ height: 10, background: "#330000", borderRadius: 5, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 5, transition: "width 0.4s",
-                  width: `${Math.max(0, Math.min(100, (((activeEvent.state?.bossHp as number) ?? (activeEvent.type === "bandit_raid" ? 600 : 1500)) / ((activeEvent.state?.bossMaxHp as number) || (activeEvent.type === "bandit_raid" ? 600 : 1500))) * 100))}%`,
-                  background: activeEvent.type === "bandit_raid" ? "linear-gradient(90deg, #cc33cc, #ff6633)" : "linear-gradient(90deg, #ff2200, #ff6600)",
-                }} />
-              </div>
-            </div>
-          )}
 
-          {/* Player HP bar — combat events */}
-          {(activeEvent.type === "dragon_attack" || activeEvent.type === "bandit_raid") && (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa", marginBottom: 3 }}>
-                <span>❤️ Your HP</span>
-                <span style={{ color: townHp <= 30 ? "#ff4444" : "#88ff88" }}>{townHp} / 100</span>
-              </div>
-              <div style={{ height: 8, background: "#003300", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 4, transition: "width 0.3s",
-                  width: `${townHp}%`,
-                  background: townHp <= 30 ? "linear-gradient(90deg, #ff2200, #ff4400)" : "linear-gradient(90deg, #22aa22, #44dd44)",
-                }} />
-              </div>
-            </div>
-          )}
+              {/* Divider */}
+              <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
 
-          {/* NPC defenders / performers row */}
-          {activeEvent.type === "dragon_attack" && (
-            <div style={{ display: "flex", gap: 6, fontSize: 11, color: "#aaa", justifyContent: "center" }}>
-              <span title="Capt. Aldric — Sword">⚔️</span>
-              <span title="Town Guards — Shield">🛡️🛡️</span>
-              <span title="Marcus — Ice Cream">🍦</span>
-              <span title="Old Pete — Horse Charge">🐴</span>
-              <span style={{ fontSize: 9, color: "#666" }}>NPCs defending!</span>
-            </div>
-          )}
-          {activeEvent.type === "bandit_raid" && (
-            <div style={{ display: "flex", gap: 6, fontSize: 11, color: "#aaa", justifyContent: "center" }}>
-              <span title="Cutpurse">🗡️</span>
-              <span title="Shadowblade">🥷</span>
-              <span title="Ironclub">🪓</span>
-              <span style={{ fontSize: 9, color: "#ff9966" }}>3 bandits attacking!</span>
-            </div>
-          )}
-          {activeEvent.type === "festival" && (
-            <div style={{ display: "flex", gap: 6, fontSize: 11, color: "#ffd700", justifyContent: "center" }}>
-              <span>🎭</span><span>🥁</span><span>🎶</span><span>🎪</span>
-              <span style={{ fontSize: 9, color: "#ffcc44" }}>+50% XP active!</span>
-            </div>
-          )}
-          {activeEvent.type === "merchant_visit" && (
-            <div style={{ fontSize: 10, color: "#ffd700", textAlign: "center" }}>
-              🛒 Wares at 50% discount! Find the merchant on the map!
-            </div>
-          )}
-
-          {/* Action buttons — full combat bar for battle events */}
-          {(activeEvent.type === "dragon_attack" || activeEvent.type === "bandit_raid") ? (
-            <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-              <button
-                onClick={() => handleEventAction("fight")}
-                disabled={eventActionPending}
-                style={{ flex: 1, minWidth: 72, background: "rgba(255,80,80,0.2)", border: "1px solid rgba(255,80,80,0.5)", borderRadius: 10, padding: "8px 6px", fontSize: 13, color: "#ff8888", cursor: eventActionPending ? "not-allowed" : "pointer", fontWeight: 700, opacity: eventActionPending ? 0.5 : 1 }}
-              >⚔️ Attack</button>
-              <button
-                onClick={() => handleEventAction("special")}
-                disabled={eventActionPending || eventSpecialCooldown > 0}
-                style={{ flex: 1, minWidth: 72, background: eventSpecialCooldown > 0 ? "rgba(100,100,100,0.1)" : "rgba(168,85,247,0.2)", border: `1px solid ${eventSpecialCooldown > 0 ? "rgba(100,100,100,0.3)" : "rgba(168,85,247,0.5)"}`, borderRadius: 10, padding: "8px 6px", fontSize: 13, color: eventSpecialCooldown > 0 ? "rgba(255,255,255,0.3)" : "#c084fc", cursor: (eventActionPending || eventSpecialCooldown > 0) ? "not-allowed" : "pointer", fontWeight: 700 }}
-              >✨ {eventSpecialCooldown > 0 ? `(${eventSpecialCooldown})` : "Special"}</button>
-              <button
-                onClick={() => handleEventAction("potion")}
-                disabled={eventActionPending || eventPotions <= 0}
-                style={{ flex: 1, minWidth: 72, background: eventPotions <= 0 ? "rgba(100,100,100,0.1)" : "rgba(80,255,120,0.15)", border: `1px solid ${eventPotions <= 0 ? "rgba(100,100,100,0.3)" : "rgba(80,255,120,0.4)"}`, borderRadius: 10, padding: "8px 6px", fontSize: 13, color: eventPotions <= 0 ? "rgba(255,255,255,0.3)" : "#80ff99", cursor: (eventActionPending || eventPotions <= 0) ? "not-allowed" : "pointer", fontWeight: 700 }}
-              >🧪 Potion ({eventPotions})</button>
-            </div>
-          ) : (
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              {activeEvent.type === "festival" && (
-                <button onClick={() => handleEventAction("flee")} style={{ background: "rgba(255,215,0,0.2)", border: "1px solid rgba(255,215,0,0.5)", color: "#ffd700", padding: "5px 16px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🎊 Join Festival!</button>
+              {/* Action buttons — hidden when out of melee range */}
+              {!meleeOutOfRange && (
+                <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                  <button onClick={() => handleEventAction("fight")} disabled={eventActionPending}
+                    style={{ background: "rgba(255,80,80,0.18)", border: "1px solid rgba(255,80,80,0.45)", borderRadius: 8, padding: isTouchDevice ? "8px 14px" : "5px 8px", fontSize: 12, color: "#ff9999", cursor: eventActionPending ? "not-allowed" : "pointer", fontWeight: 700, opacity: eventActionPending ? 0.5 : 1 }}>
+                    {isTouchDevice ? "⚔️" : "⚔️ Attack"}
+                  </button>
+                  <button onClick={() => handleEventAction("special")} disabled={eventActionPending || eventSpecialCooldown > 0}
+                    style={{ background: eventSpecialCooldown > 0 ? "rgba(80,80,80,0.1)" : "rgba(168,85,247,0.18)", border: `1px solid ${eventSpecialCooldown > 0 ? "rgba(100,100,100,0.25)" : "rgba(168,85,247,0.45)"}`, borderRadius: 8, padding: isTouchDevice ? "8px 14px" : "5px 8px", fontSize: 12, color: eventSpecialCooldown > 0 ? "#555" : "#c084fc", cursor: (eventActionPending || eventSpecialCooldown > 0) ? "not-allowed" : "pointer", fontWeight: 700 }}>
+                    {isTouchDevice ? (eventSpecialCooldown > 0 ? `✨(${eventSpecialCooldown})` : "✨") : `✨ ${eventSpecialCooldown > 0 ? `(${eventSpecialCooldown})` : "Special"}`}
+                  </button>
+                  <button onClick={() => handleEventAction("potion")} disabled={eventActionPending || eventPotions <= 0}
+                    style={{ background: eventPotions <= 0 ? "rgba(80,80,80,0.1)" : "rgba(80,200,100,0.15)", border: `1px solid ${eventPotions <= 0 ? "rgba(100,100,100,0.25)" : "rgba(80,200,100,0.4)"}`, borderRadius: 8, padding: isTouchDevice ? "8px 14px" : "5px 8px", fontSize: 12, color: eventPotions <= 0 ? "#555" : "#80ff99", cursor: (eventActionPending || eventPotions <= 0) ? "not-allowed" : "pointer", fontWeight: 700 }}>
+                    🧪×{eventPotions}
+                  </button>
+                </div>
               )}
-            </div>
-          )}
-        </div>
-      )}
+
+              {/* Divider */}
+              <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+
+              {/* Player HP */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                <span style={{ fontSize: 9, color: townHp <= 30 ? "#ff6644" : "#888" }}>❤️ {townHp}/100</span>
+                <div style={{ width: 60, height: 6, background: "#003300", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${townHp}%`, borderRadius: 3, transition: "width 0.3s", background: townHp <= 30 ? "linear-gradient(90deg,#ff2200,#ff4400)" : "linear-gradient(90deg,#22aa22,#44dd44)" }} />
+                </div>
+              </div>
+            </>)}
+
+            {activeEvent.type === "festival" && (
+              <button onClick={() => handleEventAction("flee")} style={{ background: "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.4)", color: "#ffd700", padding: "5px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🎊 Join!</button>
+            )}
+            {activeEvent.type === "merchant_visit" && (
+              <span style={{ fontSize: 10, color: "#ffd700" }}>50% off! Find the merchant!</span>
+            )}
+
+            {/* Dismiss */}
+            <button onClick={() => setDismissedEventId(activeEvent.id as string)}
+              style={{ marginLeft: 4, background: "transparent", border: "none", color: "rgba(255,255,255,0.25)", fontSize: 14, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          </div>
+        );
+      })()}
 
       {/* ── Death Screen ──────────────────────────────────────────────────── */}
       {isDead && (
@@ -5131,13 +5322,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       {/* ── Mobile tap-to-move hint + action buttons ───────────────────────── */}
       {isTouchDevice && !activeRoom && !showCaptainDialog && (
         <>
-          {/* Hint: tap to move */}
-          <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)",
-            background: "rgba(0,0,0,0.5)", borderRadius: 20, padding: "4px 14px",
-            fontSize: 11, color: "rgba(255,255,255,0.45)", pointerEvents: "none", zIndex: 40,
-            whiteSpace: "nowrap" }}>
-            Tap anywhere to move
-          </div>
+
           {/* Mobile chat button */}
           {!chatOpen && (
             <button
@@ -5600,64 +5785,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         );
       })()}
 
-      {/* ── NPC Dialogue ──────────────────────────────────────────────────── */}
-      {npcDialogue && (
-        <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "min(680px, 96vw)", zIndex: 300, padding: "0 0 20px" }}>
-          <div style={{ background: "linear-gradient(135deg, #0d0d1f, #060614)", border: "2px solid rgba(180,140,255,0.35)", borderRadius: 20, padding: "18px 22px", margin: "0 8px", position: "relative", boxShadow: "0 -8px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(180,140,255,0.08)" }}>
-            {/* Close */}
-            <button onClick={() => { setNpcDialogue(null); npcDialogueRef.current = false; }}
-              style={{ position: "absolute", top: 10, right: 12, background: "transparent", border: "none", color: "rgba(255,255,255,0.35)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
-            {/* NPC header */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <div style={{ fontSize: 34, lineHeight: 1, filter: "drop-shadow(0 0 10px rgba(180,140,255,0.55))" }}>{npcDialogue.npcEmoji}</div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 900, color: "#d4aaff" }}>{npcDialogue.npcName}</div>
-                <div style={{ fontSize: 10, color: "rgba(180,140,255,0.5)", fontFamily: "monospace" }}>{npcDialogue.npcTitle}</div>
-              </div>
-            </div>
-            {/* Reply bubble */}
-            <div style={{ minHeight: 48, fontSize: 13, color: "#e8e0ff", lineHeight: 1.65, marginBottom: 14, background: "rgba(180,140,255,0.07)", border: "1px solid rgba(180,140,255,0.15)", borderRadius: 12, padding: "10px 14px" }}>
-              {npcDialogue.loading
-                ? <span style={{ color: "rgba(180,140,255,0.4)", fontStyle: "italic" }}>…</span>
-                : npcDialogue.reply || <span style={{ color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>Waiting for response…</span>}
-            </div>
-            {/* Player input */}
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={npcDialogue.npcChatInput}
-                onChange={e => setNpcDialogue(d => d ? { ...d, npcChatInput: e.target.value } : null)}
-                onKeyDown={e => {
-                  e.stopPropagation();
-                  if (e.key === "Enter" && npcDialogue.npcChatInput.trim() && !npcDialogue.loading) {
-                    const msg = npcDialogue.npcChatInput.trim();
-                    const id = npcDialogue.npcId;
-                    setNpcDialogue(d => d ? { ...d, npcChatInput: "" } : null);
-                    talkToNpc(id, msg);
-                  }
-                  if (e.key === "Escape") { setNpcDialogue(null); npcDialogueRef.current = false; }
-                }}
-                placeholder={`Say something to ${npcDialogue.npcName}…`}
-                disabled={npcDialogue.loading}
-                autoFocus
-                style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(180,140,255,0.28)", borderRadius: 10, padding: "9px 12px", color: "#fff", fontSize: 12, outline: "none", fontFamily: "monospace" }}
-              />
-              <button
-                onClick={() => {
-                  if (npcDialogue.npcChatInput.trim() && !npcDialogue.loading) {
-                    const msg = npcDialogue.npcChatInput.trim();
-                    const id = npcDialogue.npcId;
-                    setNpcDialogue(d => d ? { ...d, npcChatInput: "" } : null);
-                    talkToNpc(id, msg);
-                  }
-                }}
-                disabled={!npcDialogue.npcChatInput.trim() || npcDialogue.loading}
-                style={{ background: "rgba(180,140,255,0.22)", border: "1px solid rgba(180,140,255,0.45)", borderRadius: 10, padding: "9px 18px", fontSize: 12, color: "#c8aaff", cursor: "pointer", fontWeight: 700, opacity: (!npcDialogue.npcChatInput.trim() || npcDialogue.loading) ? 0.45 : 1 }}
-              >Talk</button>
-            </div>
-            <div style={{ fontSize: 10, color: "rgba(180,140,255,0.3)", marginTop: 8, fontFamily: "monospace" }}>Esc to close · NPCs remember your conversations</div>
-          </div>
-        </div>
-      )}
 
       {/* ── Seraphina Jukebox Dialog ────────────────────────────────────────── */}
       {showJukeboxDialog && (
@@ -5725,11 +5852,50 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         </div>
       )}
 
+      {/* ── Jukebox now-playing badge (only when something is playing) ─────── */}
+      {theaterState?.jukeboxUrl && (() => {
+        const jUrl = theaterState.jukeboxUrl!;
+        const isHost = theaterState.jukeboxBy === username;
+        return (
+          <div style={{
+            position: "fixed", bottom: 70, right: 12, zIndex: 9998,
+            background: "rgba(18,10,30,0.92)", border: "1px solid rgba(255,136,204,0.35)",
+            borderRadius: 12, padding: "7px 12px", display: "flex", alignItems: "center", gap: 8,
+            backdropFilter: "blur(8px)", boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            maxWidth: 240,
+          }}>
+            <span style={{ fontSize: 15 }}>{jukeboxMuted ? "🔇" : "🎵"}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 9, color: "rgba(255,136,204,0.7)", fontFamily: "monospace", marginBottom: 1 }}>
+                {theaterState.jukeboxBy ? `♪ by ${theaterState.jukeboxBy}` : "♪ Town Minstrel"}
+              </div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {jUrl.length > 28 ? jUrl.slice(0, 28) + "…" : jUrl}
+              </div>
+            </div>
+            <button onClick={() => setJukeboxMuted(m => !m)} style={{
+              background: jukeboxMuted ? "rgba(255,136,204,0.2)" : "none",
+              border: "1px solid rgba(255,136,204,0.3)", borderRadius: 6,
+              color: "#ffaadd", fontSize: 11, cursor: "pointer", padding: "2px 6px",
+            }}>{jukeboxMuted ? "Unmute" : "Mute"}</button>
+            {isHost && (
+              <button onClick={async () => {
+                await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "theater-jukebox-stop", partyId: partyIdRef.current }) });
+              }} style={{
+                background: "none", border: "1px solid rgba(255,80,80,0.3)", borderRadius: 6,
+                color: "rgba(255,100,100,0.8)", fontSize: 11, cursor: "pointer", padding: "2px 6px",
+              }}>Stop</button>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Jukebox hidden audio iframe ──────────────────────────────────────── */}
       {(() => {
         const jUrl = theaterState?.jukeboxUrl ?? null;
         const jStartedAt = theaterState?.jukeboxStartedAt ?? null;
-        if (!jUrl) return null;
+        if (!jUrl || jukeboxMuted) return null;
         const ytId = jUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/)
           ?? jUrl.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/)
           ?? jUrl.match(/embed\/([a-zA-Z0-9_-]{11})/);
@@ -5966,129 +6132,18 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       {/* ── Arcade Modal ────────────────────────────────────────────────────────── */}
       {arcadeOpen && <ArcadeModal userId={userId} onClose={() => { setArcadeOpen(false); arcadeOpenRef.current = false; }} />}
 
-      {/* ── Party HUD ───────────────────────────────────────────────────────────── */}
-      {!theaterOpen && (
-        <div style={{ position: "fixed", bottom: 80, left: 12, zIndex: 9000, pointerEvents: "none" }}>
-          {/* My party panel */}
-          {myParty && (
-            <div style={{
-              background: "rgba(8,14,24,0.93)", border: "1px solid rgba(100,200,100,0.3)",
-              borderRadius: 10, padding: "8px 10px", marginBottom: 6, minWidth: 170, pointerEvents: "all",
-              boxShadow: "0 4px 18px rgba(0,0,0,0.5)",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 13, color: "#66dd88", fontWeight: 700 }}>⚔️ Party</span>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginLeft: "auto" }}>{myParty.members.length}/{myParty.maxSize}</span>
-              </div>
-              {myParty.members.map(m => (
-                <div key={m.userId} style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                  {m.avatarUrl ? (
-                    <img src={m.avatarUrl} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover", border: m.isLeader ? "1px solid #ffd700" : "1px solid rgba(255,255,255,0.15)" }} />
-                  ) : (
-                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>👤</div>
-                  )}
-                  <span style={{ fontSize: 11, color: m.isLeader ? "#ffd700" : "rgba(255,255,255,0.7)", fontWeight: m.isLeader ? 700 : 400 }}>
-                    {m.username}{m.isLeader ? " 👑" : ""}
-                    {m.userId === userId && " (you)"}
-                  </span>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-                {myParty.leaderId === userId ? (
-                  <button onClick={disbandPartyAction} style={{ flex: 1, padding: "3px 0", background: "rgba(200,50,50,0.2)", border: "1px solid rgba(200,50,50,0.4)", borderRadius: 5, color: "#ff8888", fontSize: 10, cursor: "pointer" }}>Disband</button>
-                ) : (
-                  <button onClick={leavePartyAction} style={{ flex: 1, padding: "3px 0", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 5, color: "rgba(255,255,255,0.6)", fontSize: 10, cursor: "pointer" }}>Leave</button>
-                )}
-                <button onClick={() => { setShowPartyInvite(p => !p); setShowPartyPanel(false); }} style={{ padding: "3px 7px", background: "rgba(100,200,100,0.1)", border: "1px solid rgba(100,200,100,0.3)", borderRadius: 5, color: "#88dd99", fontSize: 10, cursor: "pointer" }}>+</button>
-              </div>
-            </div>
-          )}
-
-          {/* Party invite panel — search all Flock users */}
-          {showPartyInvite && myParty && (
-            <InvitePanel
-              myParty={myParty}
-              myUserId={userId}
-              partyInviteSent={partyInviteSent}
-              onSend={sendPartyDmInvite}
-              onClose={() => setShowPartyInvite(false)}
-            />
-          )}
-
-          {/* No party — create or join */}
-          {!myParty && (
-            <div style={{ pointerEvents: "all" }}>
-              <button
-                onClick={() => setShowPartyPanel(p => !p)}
-                style={{
-                  background: "rgba(8,14,24,0.9)", border: "1px solid rgba(100,200,100,0.25)",
-                  borderRadius: 8, padding: "6px 10px", color: "#66dd88", fontSize: 11,
-                  cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
-                  boxShadow: "0 2px 10px rgba(0,0,0,0.4)",
-                }}
-              >
-                ⚔️ Party
-              </button>
-            </div>
-          )}
-
-          {/* Friend parties / create panel */}
-          {showPartyPanel && (
-            <div style={{
-              position: "absolute", bottom: "100%", left: 0, marginBottom: 6,
-              background: "rgba(6,10,18,0.97)", border: "1px solid rgba(100,200,100,0.3)",
-              borderRadius: 10, padding: "10px 12px", minWidth: 200,
-              boxShadow: "0 4px 24px rgba(0,0,0,0.6)", pointerEvents: "all",
-            }}>
-              <div style={{ fontSize: 12, color: "#88dd99", fontWeight: 700, marginBottom: 8 }}>⚔️ Town Parties</div>
-              {!myParty && (
-                <button onClick={() => { createPartyAction(); setShowPartyPanel(false); }} style={{
-                  width: "100%", padding: "6px 0", marginBottom: 8,
-                  background: "linear-gradient(90deg, rgba(50,180,80,0.3), rgba(30,120,60,0.3))",
-                  border: "1px solid rgba(80,200,100,0.4)", borderRadius: 7,
-                  color: "#88ff99", fontSize: 11, cursor: "pointer", fontWeight: 700,
-                }}>
-                  ✨ Create New Party
-                </button>
-              )}
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginBottom: 6 }}>
-                {friendParties.length > 0 ? "Friend Parties:" : "No friend parties open"}
-              </div>
-              {friendParties.filter(p => p.id !== myParty?.id).map(p => (
-                <div key={p.id} style={{
-                  display: "flex", alignItems: "center", gap: 6, marginBottom: 5,
-                  padding: "5px 7px", background: "rgba(255,255,255,0.04)", borderRadius: 6,
-                  border: "1px solid rgba(255,255,255,0.07)",
-                }}>
-                  {p.leaderAvatar ? (
-                    <img src={p.leaderAvatar} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
-                  ) : <span style={{ fontSize: 14 }}>👑</span>}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)" }}>{p.leaderName}&apos;s Party</div>
-                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)" }}>{p.members.length}/{p.maxSize} members</div>
-                  </div>
-                  {!myParty && p.members.length < p.maxSize && (
-                    <button onClick={() => { joinPartyAction(p.id); setShowPartyPanel(false); }} style={{
-                      padding: "2px 7px", background: "rgba(100,200,100,0.15)",
-                      border: "1px solid rgba(100,200,100,0.35)", borderRadius: 5,
-                      color: "#88dd99", fontSize: 10, cursor: "pointer",
-                    }}>Join</button>
-                  )}
-                </div>
-              ))}
-              <button onClick={() => setShowPartyPanel(false)} style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", width: "100%" }}>close</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── House Interior Overlay ── */}
-      {openHouse && (
-        <HouseInterior
-          userId={openHouse.userId}
-          viewerId={userId}
-          username={openHouse.username}
-          onClose={() => setOpenHouse(null)}
+      {openNeighbourhood && (
+        <NeighborhoodScene
+          userId={userId}
+          username={username}
+          avatarUrl={avatarUrl}
+          partyId={partyId ?? null}
+          socketRef={townSocketRef}
+          onClose={() => {
+            setOpenNeighbourhood(false);
+            // Resume main town Phaser
+            (gameRef.current as import("phaser").Game | null)?.resume();
+          }}
         />
       )}
 

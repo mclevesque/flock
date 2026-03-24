@@ -9,6 +9,7 @@ interface Player {
   moving: boolean;
   avatar_url?: string;
   party_id?: string;
+  zone?: string; // "town" | "neighborhood"
 }
 
 interface TownState {

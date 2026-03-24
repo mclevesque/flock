@@ -1,7 +1,7 @@
-import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { checkAndIncrementAiUsage } from "@/lib/db";
+import { storagePut } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -50,10 +50,8 @@ export async function POST(req: Request) {
   const ext = contentType.includes("flac") ? "flac" : contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3" : "wav";
 
   const audioBuffer = await hfRes.arrayBuffer();
-  const blob = await put(`ai-songs/${session.user.id}-${Date.now()}.${ext}`, audioBuffer, {
-    access: "public",
-    contentType,
-  });
+  const key = `ai-songs/${session.user.id}-${Date.now()}.${ext}`;
+  const { url } = await storagePut(key, Buffer.from(audioBuffer), { contentType });
 
-  return NextResponse.json({ url: blob.url, contentType });
+  return NextResponse.json({ url, contentType });
 }

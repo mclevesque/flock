@@ -35,91 +35,74 @@ export interface VibeVideo {
 
 export const VIBE_VIDEOS: VibeVideo[] = [
   // ── LOTR ────────────────────────────────────────────────────────────────
-  { id: "7EhDxtdMB4k", title: "Aragorn's Speech at the Black Gate",        tags: ["lotr","fantasy"],    type: "speech"     },
-  { id: "XjwJJFKRHHQ", title: "The Bridge of Khazad-dûm (Full Scene)",    tags: ["lotr","fantasy"],    type: "cinematic"  },
-  { id: "tHTYlsRhLec", title: "LOTR — Concerning Hobbits (Shore)",        tags: ["lotr","fantasy"],    type: "music"      },
-  { id: "r_To-s6CJas", title: "LOTR — Into the West",                     tags: ["lotr"],              type: "music"      },
-  { id: "OXnzERiPFJA", title: "Do you like wigs? Frodo compilation",      tags: ["lotr","comedy"],     type: "funny"      },
-  { id: "YeFzeNKXIQ0", title: "LOTR Motivation — Not all who wander",     tags: ["lotr","fantasy"],    type: "motivation" },
-  { id: "lnlGJoLKP_E", title: "Samwise's speech — I can't carry it",      tags: ["lotr"],              type: "speech"     },
-  { id: "9JB1q0sDMSU", title: "Théoden's Ride of the Rohirrim speech",   tags: ["lotr","fantasy"],    type: "speech"     },
+  { id: "SwMUY5ro5Xo", title: "Aragorn's Battle Speech",                   tags: ["lotr","fantasy"],    type: "speech"     },
+  { id: "CL_3mlOPnGI", title: "Concerning Hobbits",                        tags: ["lotr","fantasy"],    type: "music"      },
+  { id: "HvF31-2bVNE", title: "Into the West",                             tags: ["lotr"],              type: "music"      },
+  { id: "LhB95gMpMAQ", title: "Samwise — The Selfless Hero",               tags: ["lotr"],              type: "speech"     },
+  { id: "POdknqszMDY", title: "Théoden's Battle Speech — Ride to Ruin",   tags: ["lotr","fantasy"],    type: "speech"     },
 
   // ── ANIME ────────────────────────────────────────────────────────────────
-  { id: "6nbGSRG3WoU", title: "Demon Slayer — Gurenge (LiSA) full",       tags: ["anime"],             type: "music"      },
-  { id: "NNKB2hcQhz4", title: "My Hero Academia — You Can Become a Hero", tags: ["anime"],             type: "speech"     },
-  { id: "HVnNL0cJNPE", title: "Attack on Titan — Guren no Yumiya",        tags: ["anime"],             type: "music"      },
-  { id: "b5Nz8xHNtmY", title: "Naruto — Blue Bird opening",               tags: ["anime"],             type: "music"      },
-  { id: "edb3vXVt5e0", title: "One Piece — Bink's Sake",                  tags: ["anime","comedy"],    type: "music"      },
-  { id: "RG_3tPWKFy4", title: "JoJo's Bizarre Adventure — Giorno's Theme",tags: ["anime","jrpg"],     type: "music"      },
-  { id: "o3deZOhRqjc", title: "Haikyuu!! — Motivation AMV",               tags: ["anime","sports"],    type: "motivation" },
-  { id: "2M3CqFnDBP0", title: "Anime Workout Motivation Mix",             tags: ["anime","gym"],       type: "motivation" },
+  { id: "oomE4oltFRo", title: "Demon Slayer — Gurenge (LiSA)",             tags: ["anime"],             type: "music"      },
+  { id: "iYZIUtDAFIw", title: "My Hero Academia — You Say Run OST",        tags: ["anime"],             type: "music"      },
+  { id: "2B6nj38AdD0", title: "Attack on Titan — Guren no Yumiya",         tags: ["anime"],             type: "music"      },
+  { id: "2upuBiEiXDk", title: "Naruto Shippuden — Blue Bird Opening",      tags: ["anime"],             type: "music"      },
+  { id: "_oGEhRZkwcg", title: "Haikyuu!! — Epic Motivational Soundtrack",  tags: ["anime","sports"],    type: "motivation" },
 
   // ── GYM / GRIND ──────────────────────────────────────────────────────────
-  { id: "mgmVOusem0I", title: "David Goggins — Can't Hurt Me",            tags: ["gym"],               type: "speech"     },
-  { id: "pWMFPNRVmxI", title: "Eric Thomas — How Bad Do You Want It",     tags: ["gym","sports"],      type: "speech"     },
-  { id: "M5NM2kh3KqI", title: "Arnold Schwarzenegger — Work Ethic",       tags: ["gym"],               type: "speech"     },
-  { id: "V80-gPkpH6M", title: "Greatest Gym Motivation 2024",             tags: ["gym"],               type: "motivation" },
-  { id: "rWYnOHpPRSo", title: "Hip Hop Gym Mix — No Days Off",            tags: ["gym","hiphop"],      type: "music"      },
-  { id: "MCtxn_zxHAI", title: "Rocky Training Montage — Gonna Fly Now",   tags: ["gym","sports"],      type: "cinematic"  },
+  { id: "V80-gPkpH6M", title: "Greatest Gym Motivation 2024",              tags: ["gym"],               type: "motivation" },
+  { id: "X4nGU4DZUwE", title: "David Goggins — You Owe It To Yourself",    tags: ["gym"],               type: "speech"     },
+  { id: "6vuetQSwFW8", title: "Eric Thomas — How Bad Do You Want It",       tags: ["gym","sports"],      type: "speech"     },
+  { id: "MFyOaz6_8l0", title: "Arnold Schwarzenegger — Hard Work Is Everything", tags: ["gym"],         type: "speech"     },
+  { id: "_YYmfM2TfUA", title: "Rocky Training Montage — Gonna Fly Now",    tags: ["gym","sports"],      type: "cinematic"  },
 
   // ── DEEP FOCUS / CODING ──────────────────────────────────────────────────
-  { id: "jfKfPfyJRdk", title: "lofi hip hop radio — beats to relax/study",tags: ["coding","lofi"],     type: "music"      },
-  { id: "5qap5aO4i9A", title: "lofi hip hop radio — beats to study to",   tags: ["coding","lofi"],     type: "music"      },
-  { id: "n61ULEU7CO0", title: "Dark Ambient Study Mix",                    tags: ["coding"],            type: "music"      },
-  { id: "t1TcKcp9bbo", title: "Hans Zimmer — Interstellar OST",           tags: ["coding","fantasy"],  type: "music"      },
-  { id: "WPni755-Krg", title: "Cyberpunk 2077 OST — The Rebel Path",      tags: ["coding","jrpg"],     type: "music"      },
-  { id: "MVPTGNGiI-4", title: "Daft Punk — Tron Legacy OST",              tags: ["coding"],            type: "music"      },
+  { id: "jfKfPfyJRdk", title: "Lofi Hip Hop Radio — Beats to Relax/Study", tags: ["coding","lofi"],     type: "music"      },
+  { id: "5qap5aO4i9A", title: "Lofi Hip Hop Radio — Beats to Study To",    tags: ["coding","lofi"],     type: "music"      },
+  { id: "n61ULEU7CO0", title: "Dark Ambient Study Mix",                     tags: ["coding"],            type: "music"      },
+  { id: "WPni755-Krg", title: "Cyberpunk 2077 OST — The Rebel Path",       tags: ["coding","jrpg"],     type: "music"      },
+  { id: "MVPTGNGiI-4", title: "Daft Punk — Tron Legacy OST",               tags: ["coding"],            type: "music"      },
 
   // ── HIP-HOP ──────────────────────────────────────────────────────────────
-  { id: "uelHwf8o7_U", title: "Kendrick Lamar — HUMBLE.",                  tags: ["hiphop"],            type: "music"      },
-  { id: "Z-q6XMkFPXA", title: "Drake — Started From the Bottom",          tags: ["hiphop"],            type: "music"      },
-  { id: "ZbZSe6N_BXs", title: "Kanye West — Power",                       tags: ["hiphop","gym"],      type: "music"      },
-  { id: "R_-RvMhfpis", title: "J. Cole — Love Yourz",                     tags: ["hiphop"],            type: "music"      },
-  { id: "5qap5aO4i9A", title: "Hip-Hop Beats for Focus",                  tags: ["hiphop","coding"],   type: "music"      },
+  { id: "uelHwf8o7_U", title: "Kendrick Lamar — HUMBLE.",                   tags: ["hiphop"],            type: "music"      },
+  { id: "ZbZSe6N_BXs", title: "Kanye West — Power",                        tags: ["hiphop","gym"],      type: "music"      },
 
   // ── LO-FI / CHILL ────────────────────────────────────────────────────────
-  { id: "DWcJFNfaw9c", title: "Studio Ghibli Lofi Mix",                   tags: ["lofi","anime"],      type: "music"      },
-  { id: "_tV5KEYiSKg", title: "Peaceful Piano — Relaxing Sleep Music",    tags: ["lofi","nature"],     type: "music"      },
-  { id: "hlWiI4xVXKY", title: "Coffee Shop Ambience + Jazz",              tags: ["lofi"],              type: "music"      },
-  { id: "77ZozI0rw7w", title: "Rainy Night Lofi Mix",                     tags: ["lofi"],              type: "music"      },
+  { id: "DWcJFNfaw9c", title: "Studio Ghibli Lofi Mix",                    tags: ["lofi","anime"],      type: "music"      },
+  { id: "hlWiI4xVXKY", title: "Coffee Shop Ambience + Jazz",               tags: ["lofi"],              type: "music"      },
+  { id: "77ZozI0rw7w", title: "Rainy Night Lofi Mix",                      tags: ["lofi"],              type: "music"      },
 
   // ── FANTASY / EPIC ────────────────────────────────────────────────────────
-  { id: "v3pGMVCKK5g", title: "Two Steps From Hell — Archangel",          tags: ["fantasy","gym"],     type: "music"      },
-  { id: "M3hFN8UrBPw", title: "Skyrim — Dragonborn Theme (Epic Cover)",   tags: ["fantasy","jrpg"],    type: "music"      },
-  { id: "o0u4M6vppCI", title: "Game of Thrones — Main Theme",             tags: ["fantasy"],           type: "music"      },
-  { id: "dX3k_QDnzHE", title: "Epic Fantasy Motivation Mix",              tags: ["fantasy"],           type: "motivation" },
-  { id: "C30qqk_CY_4", title: "Two Steps From Hell — Victory",            tags: ["fantasy","sports"],  type: "music"      },
+  { id: "hKRUPYrAQoE", title: "Two Steps From Hell — Victory",             tags: ["fantasy","sports"],  type: "music"      },
+  { id: "UsnRQJxanVM", title: "Skyrim — Song of the Dragonborn",           tags: ["fantasy","jrpg"],    type: "music"      },
+  { id: "M3hFN8UrBPw", title: "Skyrim — Dragonborn Theme (Epic Cover)",    tags: ["fantasy","jrpg"],    type: "music"      },
+  { id: "o0u4M6vppCI", title: "Game of Thrones — Main Theme",              tags: ["fantasy"],           type: "music"      },
+  { id: "dX3k_QDnzHE", title: "Epic Fantasy Motivation Mix",               tags: ["fantasy"],           type: "motivation" },
 
   // ── JRPG ─────────────────────────────────────────────────────────────────
-  { id: "YkgkThdzX-8", title: "Final Fantasy VII — One Winged Angel",     tags: ["jrpg"],              type: "music"      },
-  { id: "aVbMDL0y3pk", title: "Persona 5 — Life Will Change",             tags: ["jrpg"],              type: "music"      },
-  { id: "6Fo0Ffxd42Q", title: "Undertale — Determination",                tags: ["jrpg","comedy"],     type: "music"      },
-  { id: "9naJUGKDGHQ", title: "Xenoblade Chronicles — You Will Know Our Names", tags: ["jrpg"],        type: "music"      },
-  { id: "mvqakkUS_3E", title: "NieR: Automata — Weight of the World",     tags: ["jrpg"],              type: "music"      },
+  { id: "mYdf0yqK_Fc", title: "Final Fantasy VII — One Winged Angel",      tags: ["jrpg"],              type: "music"      },
+  { id: "dsuJZx24V_A", title: "Persona 5 — Life Will Change",              tags: ["jrpg"],              type: "music"      },
+  { id: "ToBQY630PZE", title: "NieR: Automata — Weight of the World",      tags: ["jrpg"],              type: "music"      },
+  { id: "YkgkThdzX-8", title: "Final Fantasy VII — One Winged Angel (Alt)", tags: ["jrpg"],             type: "music"      },
 
   // ── SPORTS ───────────────────────────────────────────────────────────────
-  { id: "nE3UDiSGe8Y", title: "Kobe Bryant — The Mamba Mentality Speech", tags: ["sports","gym"],      type: "speech"     },
-  { id: "1y7HlRO5LLc", title: "Michael Jordan — Last Dance Motivation",   tags: ["sports"],            type: "motivation" },
-  { id: "UrZD-EKqEhg", title: "Ronaldo vs Messi — Greatest Rivalry",      tags: ["sports"],            type: "cinematic"  },
-  { id: "mkggXE5e2yk", title: "Sports Motivation — This Is Your Moment",  tags: ["sports","gym"],      type: "motivation" },
+  { id: "mkggXE5e2yk", title: "Sports Motivation — This Is Your Moment",   tags: ["sports","gym"],      type: "motivation" },
+  { id: "xd-9D3GzUpo", title: "Kobe Bryant — Mamba Mentality Speech",      tags: ["sports","gym"],      type: "speech"     },
+  { id: "GB8BB2CxQVc", title: "Michael Jordan — Leadership Has a Price",    tags: ["sports"],            type: "motivation" },
 
   // ── NATURE / ZEN ─────────────────────────────────────────────────────────
-  { id: "ZToicYcHIOU", title: "Alan Watts — What Do You Desire?",         tags: ["nature"],            type: "speech"     },
-  { id: "qp0HIF3SfI4", title: "Stoic Meditation — Marcus Aurelius",       tags: ["nature"],            type: "speech"     },
-  { id: "VpH3CZSiI00", title: "4K Nature Sounds — Mountain Stream",       tags: ["nature","lofi"],     type: "music"      },
-  { id: "eRLJscAlAys", title: "Forest Ambience — Birds & Rain",           tags: ["nature"],            type: "music"      },
+  { id: "pkWU2A9yBF4", title: "Alan Watts — What Do You Desire?",          tags: ["nature"],            type: "speech"     },
+  { id: "qp0HIF3SfI4", title: "Stoic Meditation — Marcus Aurelius",        tags: ["nature"],            type: "speech"     },
+  { id: "qHXFLsnKDq0", title: "Mountain Stream — Nature Sounds 24/7",      tags: ["nature","lofi"],     type: "music"      },
 
   // ── COMEDY RELIEF ────────────────────────────────────────────────────────
-  { id: "SZfS7XFQGUA", title: "Will Ferrell — Motivational Speech Compilation", tags: ["comedy"],      type: "funny"      },
-  { id: "5xyPdgP-8mk", title: "Shia LaBeouf — JUST DO IT",               tags: ["comedy","gym"],      type: "funny"      },
-  { id: "hFZFjoX2cGg", title: "Dwight Schrute — Motivational Speeches",   tags: ["comedy"],            type: "funny"      },
-  { id: "FoQMAnMZLQo", title: "Michael Scott — That's What She Said Compilation", tags: ["comedy"],    type: "funny"      },
+  { id: "hFZFjoX2cGg", title: "Dwight Schrute — Motivational Speeches",    tags: ["comedy"],            type: "funny"      },
+  { id: "ZXsQAXx_ao0", title: "Shia LaBeouf — Just Do It",                 tags: ["comedy","gym"],      type: "funny"      },
 
   // ── K-DRAMA / ROMANCE ────────────────────────────────────────────────────
-  { id: "gK3JKMrIBDQ", title: "BTS — Spring Day MV",                     tags: ["kdrama","lofi"],     type: "music"      },
-  { id: "gdZLi9oWNZg", title: "BTS — DNA MV",                             tags: ["kdrama"],            type: "music"      },
-  { id: "MBdVXkSdhwU", title: "Crash Landing On You OST — Here I Am",     tags: ["kdrama"],            type: "music"      },
-  { id: "IHNzOHi8sJs", title: "Goblin OST — Stay With Me",                tags: ["kdrama","fantasy"],  type: "music"      },
+  { id: "xEeFrLSkMm8", title: "BTS — Spring Day MV",                       tags: ["kdrama","lofi"],     type: "music"      },
+  { id: "gdZLi9oWNZg", title: "BTS — DNA MV",                              tags: ["kdrama"],            type: "music"      },
+  { id: "MBdVXkSdhwU", title: "Crash Landing On You OST — Here I Am",      tags: ["kdrama"],            type: "music"      },
+  { id: "IHNzOHi8sJs", title: "Goblin OST — Stay With Me",                 tags: ["kdrama","fantasy"],  type: "music"      },
 ];
 
 /** Build search entries for a custom interest (multiple queries for variety) */

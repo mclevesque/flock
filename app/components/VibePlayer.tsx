@@ -100,6 +100,28 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
   const currentVideo = playlist[currentIndex];
   const onVibePage = pathname === "/vibe";
 
+  // Auto-skip on YouTube error (removed/private/embed-blocked)
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (typeof e.data !== "string") return;
+      try {
+        const d = JSON.parse(e.data);
+        if (d.event === "infoDelivery" && d.info?.playerState === 0) {
+          // Video ended naturally — advance
+          setCurrentIndex(i => (i + 1) % Math.max(playlist.length, 1));
+          setIframeKey(k => k + 1);
+        }
+        if (d.event === "onError") {
+          // Errors 100, 101, 150 = unavailable/embed blocked — skip silently
+          setCurrentIndex(i => (i + 1) % Math.max(playlist.length, 1));
+          setIframeKey(k => k + 1);
+        }
+      } catch { /* not a YouTube message */ }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [playlist.length]);
+
   // Show mini player when playing and not on a profile page (profile has its own Vibe tab)
   const onProfilePage = pathname.startsWith("/profile");
   const showMini = currentVideo && !onVibePage && !onProfilePage;
@@ -120,7 +142,7 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
             key={iframeKey}
             ref={iframeRef}
             src={currentVideo.searchQuery
-              ? `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentVideo.searchQuery)}&autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0`
+              ? `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentVideo.searchQuery)}&autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&enablejsapi=1`
               : `https://www.youtube.com/embed/${currentVideo.id}?autoplay=${playing ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1`}
             allow="autoplay; encrypted-media"
             style={{ width: 480, height: 270, border: "none" }}

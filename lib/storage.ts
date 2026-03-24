@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const r2 = new S3Client({
   region: "auto",
@@ -43,6 +44,17 @@ export async function storagePut(
 export async function storageDel(url: string): Promise<void> {
   const key = url.replace(`${PUBLIC_URL}/`, "");
   await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {});
+}
+
+/**
+ * Generate a short-lived presigned URL for private R2 objects (e.g. stories/).
+ * The object is NOT publicly accessible — only this URL works, and only for `expiresIn` seconds.
+ * This means even we cannot casually browse story content — URLs expire quickly.
+ */
+export async function storagePresign(path: string, expiresIn = 3600): Promise<string> {
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: path });
+  return getSignedUrl(r2, cmd, { expiresIn });
 }
 
 export async function storageList(prefix: string): Promise<StorageObject[]> {

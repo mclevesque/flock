@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useState, useEffect, useRef } from "react";
 import { click, swoosh } from "@/app/components/sounds";
+import StoryRecorder from "./StoryRecorder";
 
 const navItems = [
   { href: "/feed", label: "✨ Share", short: "✨" },
@@ -16,10 +17,10 @@ const navItems = [
 ];
 
 // Top-level routes that do NOT get a back button
-const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe"];
+const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak"];
 
 // Major sections where Town/Share should always show (signed-in top bar)
-const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe"];
+const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe", "/moonhaven", "/outbreak"];
 
 const gameItems = [
   { href: "/chess", label: "♟️ Chess", desc: "Play 1v1 chess" },
@@ -29,6 +30,8 @@ const gameItems = [
   { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
   { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
   { href: "/draw", label: "🎨 Draw", desc: "Free canvas drawing" },
+  { href: "/moonhaven", label: "🌙 Moonhaven", desc: "RPG adventure" },
+  { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
 ];
 
 export default function Navbar() {
@@ -45,8 +48,11 @@ export default function Navbar() {
   const [dbAvatar, setDbAvatar] = useState<string | null>(null);
   const [firstFriendAvatar, setFirstFriendAvatar] = useState<string | null>(null);
   const [hasSnesAccess, setHasSnesAccess] = useState(false);
+  const [storyRecorderOpen, setStoryRecorderOpen] = useState(false);
   const gamesRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number>(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -138,13 +144,23 @@ export default function Navbar() {
             localStorage.setItem(storageKey, JSON.stringify(next));
             setUnreadMessages(0);
           } else {
-            // Count conversations newer than saved
-            let count = 0;
-            for (const c of convs) {
-              const last = saved[c.other_user];
-              if (!last || new Date(c.created_at) > new Date(last)) count++;
+            // If no saved data at all, seed timestamps (first visit or cleared localStorage)
+            // Don't show old messages as unread
+            const hasSavedData = Object.keys(saved).length > 0;
+            if (!hasSavedData) {
+              const next: Record<string, string> = {};
+              for (const c of convs) next[c.other_user] = c.created_at;
+              localStorage.setItem(storageKey, JSON.stringify(next));
+              setUnreadMessages(0);
+            } else {
+              // Count conversations newer than saved
+              let count = 0;
+              for (const c of convs) {
+                const last = saved[c.other_user];
+                if (!last || new Date(c.created_at) > new Date(last)) count++;
+              }
+              setUnreadMessages(count);
             }
-            setUnreadMessages(count);
           }
           initialized = true;
           return;
@@ -264,6 +280,22 @@ export default function Navbar() {
   const showTownShare = session && TOWN_SHARE_SECTIONS.some(s => path.startsWith(s));
 
   const avatar = dbAvatar ?? session?.user?.image ?? `/api/avatar/${session?.user?.id}?v=2`;
+
+  // Long-press on profile avatar → open story recorder (mobile only)
+  const avatarTouchStart = () => {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setStoryRecorderOpen(true);
+    }, 500);
+  };
+  const avatarTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    if (longPressFired.current) e.preventDefault();
+  };
+  const avatarTouchMove = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
 
   // Shared nav tab renderer for bottom bar
   const BottomTab = ({ href, icon, label, badge, onClick: onTabClick, customIcon }: { href: string; icon?: string; label: string; badge?: number; onClick?: () => void; customIcon?: React.ReactNode }) => {
@@ -440,12 +472,18 @@ export default function Navbar() {
         {/* Right anchor: avatar when signed in, Sign In button when not */}
         <div style={{ width: 40, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
           {session ? (
-            <Link href="/profile" style={{ textDecoration: "none" }}>
+            <div
+              onTouchStart={avatarTouchStart}
+              onTouchEnd={avatarTouchEnd}
+              onTouchMove={avatarTouchMove}
+              onClick={() => { if (!longPressFired.current) router.push("/profile"); }}
+              style={{ cursor: "pointer", WebkitUserSelect: "none", userSelect: "none" }}
+            >
               <div style={{ position: "relative" }}>
                 <img src={avatar} alt="avatar" onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 30, height: 30, borderRadius: "50%", border: "2px solid var(--border-bright)", display: "block" }} />
                 <span className="status-dot online" style={{ position: "absolute", bottom: 0, right: 0, width: 7, height: 7, border: "2px solid var(--bg-surface)" }} />
               </div>
-            </Link>
+            </div>
           ) : (
             <button onClick={() => router.push("/signin")} style={{ background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Sign In</button>
           )}
@@ -462,7 +500,22 @@ export default function Navbar() {
         paddingBottom: "env(safe-area-inset-bottom)",
       }}>
         <BottomTab href="/messages" icon="💬" label="Messages" badge={unreadMessages} onClick={() => setUnreadMessages(0)} />
-        <BottomTab href="/profile" label="Profile" customIcon={session ? <ProfileAvatarIcon /> : undefined} icon={session ? undefined : "👤"} />
+        {/* Profile tab — long-press opens story recorder on mobile */}
+        <div
+          onTouchStart={avatarTouchStart}
+          onTouchEnd={avatarTouchEnd}
+          onTouchMove={avatarTouchMove}
+          onClick={() => { if (!longPressFired.current) { click(); router.push("/profile"); } }}
+          style={{
+            flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            padding: "7px 4px 6px", cursor: "pointer", position: "relative", gap: 3, minHeight: 56,
+            color: path.startsWith("/profile") ? "var(--accent-purple-bright)" : "var(--text-muted)",
+            WebkitUserSelect: "none", userSelect: "none",
+          }}>
+          {path.startsWith("/profile") && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "var(--accent-purple-bright)", borderRadius: "0 0 3px 3px" }} />}
+          <div style={{ lineHeight: 1 }}>{session ? <ProfileAvatarIcon /> : <span style={{ fontSize: 22 }}>👤</span>}</div>
+          <span style={{ fontSize: 10, fontWeight: path.startsWith("/profile") ? 700 : 500, letterSpacing: 0.2 }}>Profile</span>
+        </div>
         <BottomTab href="/friends" label="Friends" badge={pendingCount} customIcon={session ? <FriendsAvatarIcon /> : undefined} icon={session ? undefined : "👥"} />
         <button onClick={() => { setMoreOpen(o => !o); swoosh(); }}
           style={{
@@ -547,6 +600,14 @@ export default function Navbar() {
       {/* Backdrop */}
       {moreOpen && (
         <div className="mobile-bottom-nav" style={{ display: "none", position: "fixed", inset: 0, bottom: "calc(56px + env(safe-area-inset-bottom))", background: "rgba(0,0,0,0.5)", zIndex: 198 }} onClick={() => setMoreOpen(false)} />
+      )}
+
+      {/* Story recorder — opened by long-pressing profile avatar on mobile */}
+      {storyRecorderOpen && session && (
+        <StoryRecorder
+          onClose={() => setStoryRecorderOpen(false)}
+          onUploaded={() => setStoryRecorderOpen(false)}
+        />
       )}
     </header>
   );

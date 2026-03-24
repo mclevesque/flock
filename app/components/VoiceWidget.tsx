@@ -2084,7 +2084,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 window.addEventListener("touchend", onEnd);
               }}
               style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
+                display: isMobile ? "none" : "flex", alignItems: "center", justifyContent: "center",
                 gap: isMobile ? 0 : 8,
                 background: inVoice
                   ? "linear-gradient(135deg, rgba(74,222,128,0.25), rgba(22,163,74,0.2))"

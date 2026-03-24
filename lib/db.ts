@@ -298,6 +298,24 @@ export async function initDb() {
   `;
   await sql`ALTER TABLE game_challenges ADD COLUMN IF NOT EXISTS netplay_room_id TEXT`;
   await sql`ALTER TABLE game_challenges ADD COLUMN IF NOT EXISTS ranked BOOLEAN DEFAULT true`;
+
+  // Stories — ephemeral 24h video clips, NEVER counted against user storage quota
+  // R2 objects under stories/ prefix should have a Cloudflare lifecycle rule set to
+  // delete objects older than 25 hours (set in Cloudflare R2 dashboard, not in code).
+  await sql`
+    CREATE TABLE IF NOT EXISTS stories (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      avatar_url TEXT,
+      video_url TEXT NOT NULL,
+      thumbnail_url TEXT,
+      duration_seconds REAL NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours'),
+      views INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `.catch(() => {});
 }
 
 // ── GAME CHALLENGES ─────────────────────────────────────────────────────────
@@ -885,37 +903,36 @@ export async function getConversations(userId: string) {
 
 export async function getFriends(userId: string) {
   return sql`
-    SELECT u.*
+    SELECT DISTINCT ON (u.id) u.*
     FROM friendships f
     JOIN users u ON u.id = CASE WHEN f.requester_id = ${userId} THEN f.addressee_id ELSE f.requester_id END
     WHERE (f.requester_id = ${userId} OR f.addressee_id = ${userId})
       AND f.status = 'accepted'
+    ORDER BY u.id
   `;
 }
 
 export async function getFriendsWithOnline(userId: string) {
   try {
-    // Use await so rejections (e.g. missing last_seen column) are caught below
     return await sql`
-      SELECT u.id, u.username, u.display_name, u.avatar_url,
+      SELECT DISTINCT ON (u.id) u.id, u.username, u.display_name, u.avatar_url,
              (u.last_seen IS NOT NULL AND u.last_seen > NOW() - INTERVAL '5 minutes') AS is_online,
              u.last_seen
       FROM friendships f
       JOIN users u ON u.id = CASE WHEN f.requester_id = ${userId} THEN f.addressee_id ELSE f.requester_id END
       WHERE (f.requester_id = ${userId} OR f.addressee_id = ${userId})
         AND f.status = 'accepted'
-      ORDER BY u.last_seen DESC NULLS LAST, u.username ASC
+      ORDER BY u.id, u.last_seen DESC NULLS LAST
     `;
   } catch {
-    // Fallback: last_seen column may not exist yet — return friends without online status
     return await sql`
-      SELECT u.id, u.username, u.display_name, u.avatar_url,
+      SELECT DISTINCT ON (u.id) u.id, u.username, u.display_name, u.avatar_url,
              false AS is_online, NULL AS last_seen
       FROM friendships f
       JOIN users u ON u.id = CASE WHEN f.requester_id = ${userId} THEN f.addressee_id ELSE f.requester_id END
       WHERE (f.requester_id = ${userId} OR f.addressee_id = ${userId})
         AND f.status = 'accepted'
-      ORDER BY u.username ASC
+      ORDER BY u.id, u.username ASC
     `;
   }
 }
@@ -4712,16 +4729,70 @@ export async function getDistrictHouses(userId: string, partyId: string | null):
     FROM users u LEFT JOIN house_configs hc ON hc.user_id = u.id
     WHERE u.id = ${userId}
   `;
-  if (!partyId) return own;
-  // Get party members' houses (excluding self)
-  const party = await sql`
-    SELECT u.id, u.username, u.avatar_url, hc.exterior_style, hc.wallpaper, hc.floor_type, hc.furniture, hc.pets
-    FROM users u LEFT JOIN house_configs hc ON hc.user_id = u.id
-    WHERE u.id IN (
-      SELECT CASE WHEN leader_id = ${userId} THEN member_id ELSE leader_id END
-      FROM party_members WHERE ${userId} IN (leader_id, member_id) AND status = 'active'
-    ) AND u.id != ${userId}
-    LIMIT 7
+  // party_members table not yet implemented — just return own house
+  return own;
+}
+
+// ── STORIES ──────────────────────────────────────────────────────────────────
+// Ephemeral 24-hour video clips. NEVER counted against user storage quota.
+
+export async function createStory(
+  id: string, userId: string, username: string, avatarUrl: string | null,
+  videoUrl: string, thumbnailUrl: string | null, durationSeconds: number
+) {
+  await sql`
+    INSERT INTO stories (id, user_id, username, avatar_url, video_url, thumbnail_url, duration_seconds)
+    VALUES (${id}, ${userId}, ${username}, ${avatarUrl}, ${videoUrl}, ${thumbnailUrl}, ${durationSeconds})
   `;
-  return [...own, ...party];
+}
+
+export async function getActiveStories(viewerUserId: string) {
+  // Returns own story + one story per accepted friend (latest), non-expired
+  const rows = await sql`
+    SELECT DISTINCT ON (s.user_id)
+      s.id, s.user_id, s.username, s.avatar_url, s.video_url, s.thumbnail_url,
+      s.duration_seconds, s.expires_at, s.views, s.created_at
+    FROM stories s
+    WHERE s.expires_at > NOW()
+      AND (
+        s.user_id = ${viewerUserId}
+        OR EXISTS (
+          SELECT 1 FROM friendships f
+          WHERE f.status = 'accepted'
+            AND ((f.requester_id = ${viewerUserId} AND f.addressee_id = s.user_id)
+              OR (f.addressee_id = ${viewerUserId} AND f.requester_id = s.user_id))
+        )
+      )
+    ORDER BY s.user_id, s.created_at DESC
+  `;
+  return rows;
+}
+
+export async function getStoriesForUser(userId: string) {
+  const rows = await sql`
+    SELECT id, user_id, username, avatar_url, video_url, thumbnail_url,
+           duration_seconds, expires_at, views, created_at
+    FROM stories
+    WHERE user_id = ${userId} AND expires_at > NOW()
+    ORDER BY created_at DESC
+  `;
+  return rows;
+}
+
+export async function deleteStory(storyId: string, requesterId: string) {
+  await sql`DELETE FROM stories WHERE id = ${storyId} AND user_id = ${requesterId}`;
+}
+
+export async function incrementStoryViews(storyId: string) {
+  await sql`UPDATE stories SET views = views + 1 WHERE id = ${storyId}`.catch(() => {});
+}
+
+export async function getUserActiveStoryCount(userId: string): Promise<number> {
+  const row = await sql`SELECT COUNT(*) as c FROM stories WHERE user_id = ${userId} AND expires_at > NOW()`;
+  return parseInt((row[0] as Record<string, string> | undefined)?.c ?? "0", 10);
+}
+
+// Clean up expired story records (call lazily)
+export async function purgeExpiredStories() {
+  await sql`DELETE FROM stories WHERE expires_at <= NOW()`.catch(() => {});
 }

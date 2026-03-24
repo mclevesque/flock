@@ -1139,10 +1139,40 @@ export default function AdventureOverlay({
           const cls = myStats.class ?? "warrior";
           const COLORS: Record<string, number> = { warrior: 0xff6644, mage: 0xaa44ff, archer: 0x88ff44, rogue: 0xee44bb };
           const col = COLORS[cls] ?? 0xffffff;
+
+          // Melee classes (warrior, rogue): slash arc at the enemy — NO flying projectile
+          if (cls === "warrior" || cls === "rogue") {
+            // Flash the player sprite
+            const slashLines = this.add.graphics().setDepth(22).setPosition(tx, ty);
+            const angle = Math.atan2(ty - fy, tx - fx);
+            // Draw 3 arc slash lines radiating from impact point
+            for (let si = -1; si <= 1; si++) {
+              const a = angle + si * 0.35;
+              slashLines.lineStyle(3, col, 0.9);
+              slashLines.beginPath();
+              slashLines.moveTo(0, 0);
+              slashLines.lineTo(Math.cos(a) * 28, Math.sin(a) * 28);
+              slashLines.strokePath();
+            }
+            slashLines.fillStyle(col, 0.7);
+            slashLines.fillCircle(0, 0, 6);
+            // Slash text pop
+            const slashTxt = this.add.text(tx, ty - 12,
+              cls === "warrior" ? "⚔️" : "🗡️",
+              { fontSize: "20px" }).setOrigin(0.5).setDepth(23);
+            this.tweens.add({
+              targets: [slashLines, slashTxt],
+              alpha: 0, scaleX: 1.8, scaleY: 1.8,
+              duration: 280,
+              onComplete: () => { slashLines.destroy(); slashTxt.destroy(); },
+            });
+            return;
+          }
+
+          // Ranged classes: flying projectile
           const proj = this.add.graphics().setDepth(20);
           proj.fillStyle(col, 0.9);
-          if (cls === "warrior") { proj.fillRect(-10, -3, 20, 6); proj.lineStyle(1, 0xffffff, 0.6); proj.strokeRect(-10, -3, 20, 6); }
-          else if (cls === "mage") { proj.fillCircle(0, 0, 8); proj.fillStyle(0xffaa44, 0.7); proj.fillCircle(0, 0, 4); }
+          if (cls === "mage") { proj.fillCircle(0, 0, 8); proj.fillStyle(0xffaa44, 0.7); proj.fillCircle(0, 0, 4); }
           else if (cls === "archer") { proj.fillRect(-12, -2, 24, 4); proj.fillStyle(0xffffff, 0.8); proj.fillTriangle(12, -4, 12, 4, 20, 0); }
           else { proj.fillTriangle(0, -7, -5, 7, 5, 7); }
           proj.setPosition(fx, fy);
