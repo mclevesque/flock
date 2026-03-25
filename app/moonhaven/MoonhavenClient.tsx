@@ -190,6 +190,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
   const playerPosRef = useRef<[number, number, number]>([...MOONHAVEN_SPAWN]);
   const otherMeshesRef = useRef<Map<string, import("three").Group>>(new Map());
   const npcMeshesRef = useRef<Map<string, import("three").Group>>(new Map());
+  const deadNpcsRef = useRef<Set<string>>(new Set());
   const clockRef = useRef<import("three").Clock | null>(null);
   const frameIdRef = useRef<number>(0);
   const keysRef = useRef<Set<string>>(new Set());
@@ -777,6 +778,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
           let closestDist = 7; // detection radius in world units
           for (const npc of MOONHAVEN_NPCS) {
             if (!npc.hostile) continue;
+            if (deadNpcsRef.current.has(npc.id)) continue;
             const [nx, , nz] = npc.position;
             const mesh = npcMeshesRef.current.get(npc.id);
             const npcPos = mesh ? mesh.position : new THREE.Vector3(nx, 0, nz);
@@ -1169,57 +1171,70 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       )}
 
       {townBattle && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#1a1230", border: "2px solid #cc3322", borderRadius: 16, padding: 28, width: 360, maxWidth: "90vw", fontFamily: "monospace", color: "#fff" }}>
-            <div style={{ textAlign: "center", fontSize: 32, marginBottom: 8 }}>{townBattle.npc.emoji}</div>
-            <div style={{ textAlign: "center", fontWeight: 700, fontSize: 18, color: "#ff6644", marginBottom: 16 }}>{townBattle.npc.name}</div>
-            {/* Enemy HP */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 3 }}>Enemy HP</div>
-              <div style={{ background: "#333", borderRadius: 6, height: 14, overflow: "hidden" }}>
-                <div style={{ background: "#cc3322", height: "100%", width: `${(townBattle.enemyHp / townBattle.maxHp) * 100}%`, transition: "width 0.3s" }} />
-              </div>
-              <div style={{ fontSize: 11, color: "#ff8866", textAlign: "right" }}>{townBattle.enemyHp}/{townBattle.maxHp}</div>
+        <div style={{
+          position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
+          zIndex: 500, background: "rgba(15,8,28,0.95)", border: "2px solid #cc3322",
+          borderRadius: 14, padding: "14px 18px", backdropFilter: "blur(8px)",
+          minWidth: 320, maxWidth: "92vw", fontFamily: "monospace", color: "#fff",
+        }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 24 }}>{townBattle.npc.emoji}</div>
+            <div style={{ fontWeight: 800, color: "#ff6644", fontSize: 14 }}>{townBattle.npc.name}</div>
+          </div>
+          {/* HP bars */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa", marginBottom: 2 }}>
+              <span>Enemy HP</span><span style={{ color: "#ff8866" }}>{townBattle.enemyHp}/{townBattle.maxHp}</span>
             </div>
-            {/* Player HP */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 3 }}>Your HP</div>
-              <div style={{ background: "#333", borderRadius: 6, height: 14, overflow: "hidden" }}>
-                <div style={{ background: "#44cc88", height: "100%", width: `${(townBattle.playerHp / townBattle.maxPlayerHp) * 100}%`, transition: "width 0.3s" }} />
-              </div>
-              <div style={{ fontSize: 11, color: "#88ffcc", textAlign: "right" }}>{townBattle.playerHp}/{townBattle.maxPlayerHp}</div>
+            <div style={{ background: "#333", borderRadius: 4, height: 8, overflow: "hidden" }}>
+              <div style={{ background: "#cc3322", height: "100%", width: `${(townBattle.enemyHp / townBattle.maxHp) * 100}%`, transition: "width 0.3s" }} />
             </div>
-            {/* Battle log */}
-            <div style={{ background: "#0d0d1a", borderRadius: 8, padding: "8px 12px", maxHeight: 80, overflowY: "auto", fontSize: 11, color: "#ccbbff", marginBottom: 16, lineHeight: 1.6 }}>
-              {townBattle.log.slice(-4).map((l, i) => <div key={i}>{l}</div>)}
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa", marginBottom: 2 }}>
+              <span>Your HP</span><span style={{ color: "#88ffcc" }}>{townBattle.playerHp}/{townBattle.maxPlayerHp}</span>
             </div>
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                style={{ flex: 1, background: "#cc3322", border: "none", borderRadius: 8, color: "#fff", padding: "10px 0", fontWeight: 700, cursor: "pointer", fontSize: 14 }}
-                onClick={() => {
-                  const dmg = 15 + Math.floor(Math.random() * 10);
-                  const enemyDmg = 8 + Math.floor(Math.random() * 8);
-                  const newEnemyHp = Math.max(0, townBattle.enemyHp - dmg);
-                  const newPlayerHp = Math.max(0, townBattle.playerHp - enemyDmg);
-                  const log = [...townBattle.log, `⚔️ You deal ${dmg}!`, `🗡️ ${townBattle.npc.name} hits ${enemyDmg}!`];
-                  if (newEnemyHp <= 0) {
-                    const reward = 50 + Math.floor(Math.random() * 30);
-                    setMyCoins(c => c + reward);
-                    setTownBattle(null);
-                    fetch("/api/town-economy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", amount: reward }) }).catch(() => {});
-                  } else if (newPlayerHp <= 0) {
-                    setTownBattle(null);
-                  } else {
-                    setTownBattle({ ...townBattle, enemyHp: newEnemyHp, playerHp: newPlayerHp, log });
-                  }
-                }}
-              >⚔️ Attack</button>
-              <button
-                style={{ flex: 1, background: "#443388", border: "none", borderRadius: 8, color: "#fff", padding: "10px 0", fontWeight: 700, cursor: "pointer", fontSize: 14 }}
-                onClick={() => setTownBattle(null)}
-              >🏃 Flee</button>
+            <div style={{ background: "#333", borderRadius: 4, height: 8, overflow: "hidden" }}>
+              <div style={{ background: "#44cc88", height: "100%", width: `${(townBattle.playerHp / townBattle.maxPlayerHp) * 100}%`, transition: "width 0.3s" }} />
             </div>
+          </div>
+          {/* Last log line */}
+          <div style={{ fontSize: 11, color: "#ccbbff", marginBottom: 10, minHeight: 16 }}>
+            {townBattle.log[townBattle.log.length - 1]}
+          </div>
+          {/* Buttons */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ flex: 1, background: "#cc3322", border: "none", borderRadius: 8, color: "#fff", padding: "8px 0", fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+              onClick={() => {
+                const dmg = 15 + Math.floor(Math.random() * 10);
+                const enemyDmg = 8 + Math.floor(Math.random() * 8);
+                const newEnemyHp = Math.max(0, townBattle.enemyHp - dmg);
+                const newPlayerHp = Math.max(0, townBattle.playerHp - enemyDmg);
+                const log = [...townBattle.log, `⚔️ You deal ${dmg}! 🗡️ ${townBattle.npc.name} hits ${enemyDmg}!`];
+                if (newEnemyHp <= 0) {
+                  const reward = 50 + Math.floor(Math.random() * 30);
+                  setMyCoins(c => c + reward);
+                  // Remove enemy mesh from scene
+                  const mesh = npcMeshesRef.current.get(townBattle.npc.id);
+                  if (mesh && sceneRef.current) { sceneRef.current.remove(mesh); npcMeshesRef.current.delete(townBattle.npc.id); }
+                  deadNpcsRef.current.add(townBattle.npc.id);
+                  setNearbyBandit(null);
+                  nearbyBanditRef.current = null;
+                  setTownBattle(null);
+                  fetch("/api/town-economy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", amount: reward }) }).catch(() => {});
+                } else if (newPlayerHp <= 0) {
+                  setTownBattle(null);
+                } else {
+                  setTownBattle({ ...townBattle, enemyHp: newEnemyHp, playerHp: newPlayerHp, log });
+                }
+              }}
+            >⚔️ Attack</button>
+            <button
+              style={{ flex: 1, background: "#443388", border: "none", borderRadius: 8, color: "#fff", padding: "8px 0", fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+              onClick={() => setTownBattle(null)}
+            >🏃 Flee</button>
           </div>
         </div>
       )}
