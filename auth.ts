@@ -4,7 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { getUserById, getUserByUsername, createUser, createUserWithPassword, updateUser } from "@/lib/db";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const nextAuthConfig = NextAuth({
   providers: [
     Credentials({
       credentials: {
@@ -76,3 +76,41 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/signin",
   },
 });
+
+export const { handlers, signIn, signOut } = nextAuthConfig;
+const nextAuthSession = nextAuthConfig.auth;
+
+// ─── Hybrid auth() ───────────────────────────────────────────────────────────
+// Checks NextAuth (credentials/GitHub users) first, then falls back to Clerk
+// (Google / Discord users). All 81 API routes import this without changes.
+import { auth as clerkServerAuth } from "@clerk/nextjs/server";
+
+export async function auth() {
+  // 1. Try NextAuth session (existing username/password + GitHub users)
+  try {
+    const naSession = await nextAuthSession();
+    if (naSession?.user?.id) return naSession;
+  } catch {
+    // NextAuth not configured or no session
+  }
+
+  // 2. Fall back to Clerk session (Google / Discord OAuth users)
+  try {
+    const { userId, sessionClaims } = await clerkServerAuth();
+    if (!userId) return null;
+    const meta = (sessionClaims?.publicMetadata ?? {}) as {
+      username?: string;
+      avatar_url?: string;
+    };
+    return {
+      user: {
+        id: userId,
+        name: meta.username ?? null,
+        image: meta.avatar_url ?? null,
+        email: null as string | null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}

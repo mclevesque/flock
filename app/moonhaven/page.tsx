@@ -3,7 +3,7 @@ import { getUserByUsername, getUserById } from "@/lib/db";
 import { redirect } from "next/navigation";
 import MoonhavenClient from "./MoonhavenClient";
 
-export const metadata = { title: "Moonhaven — Flock" };
+export const metadata = { title: "Moonhaven — Ryft" };
 
 export default async function MoonhavenPage() {
   const session = await auth();

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import Link from "next/link";
 
 interface Share {
@@ -65,7 +65,7 @@ function ShareLinkModal({ share, onClose, friends }: { share: Share; onClose: ()
   }
 
   async function sendToFriend(friendId: string, friendName: string) {
-    await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: friendId, content: `Check out this post on Flock: ${link}` }) }).catch(() => {});
+    await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: friendId, content: `Check out this post on Ryft: ${link}` }) }).catch(() => {});
     setSentTo(friendName); setTimeout(() => setSentTo(null), 2500);
   }
 
@@ -81,7 +81,7 @@ function ShareLinkModal({ share, onClose, friends }: { share: Share; onClose: ()
         </div>
         {friends.length > 0 && (
           <>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Send to a Friend on Flock</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Send to a Friend on Ryft</div>
             <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
               {friends.map(f => (
                 <button key={f.id} onClick={() => sendToFriend(f.id, f.username)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: sentTo === f.username ? "rgba(74,217,144,0.1)" : "var(--bg-surface)", border: `1px solid ${sentTo === f.username ? "rgba(74,217,144,0.3)" : "var(--border)"}`, borderRadius: 10, cursor: "pointer", width: "100%" }}>
@@ -343,7 +343,7 @@ export default function FeedClient() {
       setNsfwChecking(true);
       const isNsfw = await checkNSFW(previewImgRef.current);
       setNsfwChecking(false);
-      if (isNsfw) { setUploadError("This image was flagged as explicit or suggestive and cannot be posted on Flock."); return; }
+      if (isNsfw) { setUploadError("This image was flagged as explicit or suggestive and cannot be posted on Ryft."); return; }
     }
     setUploading(true);
     try {

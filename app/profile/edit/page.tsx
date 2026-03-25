@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 import { actionUpdateProfile } from "@/lib/actions";
 
@@ -296,7 +296,7 @@ const DICEBEAR_SEEDS = [
 
 const CUSTOM_PRESETS: { url: string; label: string }[] = [];
 
-const FAVORITES_KEY = "flock_avatar_favorites";
+const FAVORITES_KEY = "ryft_avatar_favorites";
 const MAX_FAVORITES = 20;
 
 function loadFavorites(): string[] {
@@ -793,7 +793,7 @@ export default function EditProfilePage() {
           <div className="panel-header" style={{ marginBottom: 4 }}>Privacy</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Who can reply to your wall posts and video comments.</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {[{ v: "anyone", label: "🌐 Anyone", desc: "All Flock users can reply to your posts" }, { v: "friends_only", label: "👥 Friends only", desc: "Only your friends can reply" }].map(opt => (
+            {[{ v: "anyone", label: "🌐 Anyone", desc: "All Ryft users can reply to your posts" }, { v: "friends_only", label: "👥 Friends only", desc: "Only your friends can reply" }].map(opt => (
               <label key={opt.v} style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer", padding: "10px 14px", background: replyPrivacy === opt.v ? "rgba(124,92,191,0.1)" : "var(--bg-elevated)", border: `1px solid ${replyPrivacy === opt.v ? "rgba(124,92,191,0.45)" : "var(--border)"}`, borderRadius: 10, transition: "all 0.15s" }}>
                 <input type="radio" name="reply_privacy" value={opt.v} checked={replyPrivacy === opt.v} onChange={() => setReplyPrivacy(opt.v)} style={{ accentColor: "#a78bfa", marginTop: 3, flexShrink: 0 }} />
                 <div>

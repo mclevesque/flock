@@ -12,7 +12,21 @@ interface Run {
   survived: boolean;
   weapons: { id: string; lvl: number }[];
   passives: { id: string; lvl: number }[];
+  death_cause: string | null;
+  dmg_log: { src: string; dmg: number; t: number }[] | null;
+  difficulty: number;
+  upgrade_count: number;
   created_at: string;
+}
+
+interface LeaderboardEntry {
+  username: string;
+  difficulty: number;
+  kills: number;
+  damage_dealt: number;
+  upgrade_count: number;
+  survived: boolean;
+  time_survived: number;
 }
 
 interface Totals {
@@ -50,7 +64,9 @@ export default async function OutbreakDevPage({ searchParams }: { searchParams: 
   const res = await fetch(`${baseUrl}/api/outbreak?dev=1`, { cache: "no-store" }).catch(() => null);
   const data = res?.ok ? await res.json() : null;
 
-  const { runs = [], totals = {} as Totals, perUser = [], best } = data || {};
+  const { runs = [], totals = {} as Totals, perUser = [], best, leaderboard = [] } = data || {};
+  const DIFF_NAMES = ["", "CASUAL", "NORMAL", "HARD", "NIGHTMARE"];
+  const DIFF_COLORS = ["", "#44ffaa", "#aaddff", "#ffaa44", "#ff4444"];
 
   return (
     <div style={{ fontFamily: "monospace", background: "#0a0010", color: "#c084fc", minHeight: "100vh", padding: 24 }}>
@@ -106,12 +122,45 @@ export default async function OutbreakDevPage({ searchParams }: { searchParams: 
         </tbody>
       </table>
 
+      {/* Leaderboard by difficulty */}
+      <h2 style={{ color: "#c084fc", marginBottom: 12 }}>🏆 Leaderboard</h2>
+      {[1,2,3,4].map(diff => {
+        const entries: LeaderboardEntry[] = leaderboard.filter((e: LeaderboardEntry) => e.difficulty === diff).sort((a: LeaderboardEntry, b: LeaderboardEntry) => b.kills - a.kills);
+        if(!entries.length) return null;
+        return (
+          <div key={diff} style={{ marginBottom: 24 }}>
+            <div style={{ color: DIFF_COLORS[diff], fontWeight: "bold", fontSize: 13, marginBottom: 6 }}>{DIFF_NAMES[diff]}</div>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, marginBottom: 8 }}>
+              <thead>
+                <tr style={{ color: "#888", borderBottom: "1px solid #333" }}>
+                  {["#", "Player", "Kills (Damage)", "Upgrades", "Result", "Time"].map(h => (
+                    <th key={h} style={{ textAlign: "left", padding: "4px 10px" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e: LeaderboardEntry, i: number) => (
+                  <tr key={e.username} style={{ borderBottom: "1px solid #111" }}>
+                    <td style={{ padding: "4px 10px", color: i===0?"#ffd700":i===1?"#aaaaaa":i===2?"#cc8844":"#555" }}>{i+1}</td>
+                    <td style={{ padding: "4px 10px", color: "#ffd700" }}>{e.username}</td>
+                    <td style={{ padding: "4px 10px", color: "#ff4488" }}>{Number(e.kills).toLocaleString()} <span style={{ color: "#666" }}>({Number(e.damage_dealt).toLocaleString()})</span></td>
+                    <td style={{ padding: "4px 10px", color: e.upgrade_count === 0 ? "#44ff88" : "#aaa" }}>{e.upgrade_count === 0 ? "none (fair)" : e.upgrade_count}</td>
+                    <td style={{ padding: "4px 10px", color: e.survived ? "#44ff88" : "#ff4444" }}>{e.survived ? "WIN" : "DEAD"}</td>
+                    <td style={{ padding: "4px 10px", color: "#888" }}>{fmt(e.time_survived)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+
       {/* Recent runs */}
       <h2 style={{ color: "#c084fc", marginBottom: 12 }}>Last 50 Runs</h2>
       <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
         <thead>
           <tr style={{ color: "#888", borderBottom: "1px solid #333" }}>
-            {["Player", "Kills", "LV", "Tier", "Time", "Dmg", "Result", "Weapons", "When"].map(h => (
+            {["Player", "Kills", "LV", "Tier", "Time", "Dmg", "Result", "Weapons", "Death Cause", "Last Hits", "When"].map(h => (
               <th key={h} style={{ textAlign: "left", padding: "4px 10px" }}>{h}</th>
             ))}
           </tr>
@@ -129,6 +178,14 @@ export default async function OutbreakDevPage({ searchParams }: { searchParams: 
               <td style={{ padding: "4px 10px", color: "#aaa", fontSize: 10 }}>
                 {(r.weapons || []).map((w: { id: string; lvl: number }) => `${w.id}(${w.lvl})`).join(" ")}
                 {(r.passives || []).length > 0 && <span style={{ color: "#7766aa" }}> | {(r.passives || []).map((p: { id: string; lvl: number }) => `${p.id}(${p.lvl})`).join(" ")}</span>}
+              </td>
+              <td style={{ padding: "4px 10px", color: r.death_cause ? "#ff6644" : "#444", fontSize: 10 }}>
+                {r.death_cause || (r.survived ? "—" : "?")}
+              </td>
+              <td style={{ padding: "4px 10px", color: "#888", fontSize: 9, maxWidth: 180 }}>
+                {(r.dmg_log || []).slice(-5).reverse().map((d, i) => (
+                  <div key={i}>{d.src} -{d.dmg} @{Math.floor(d.t)}s</div>
+                ))}
               </td>
               <td style={{ padding: "4px 10px", color: "#555", fontSize: 10 }}>
                 {new Date(r.created_at).toLocaleString()}

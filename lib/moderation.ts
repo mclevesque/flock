@@ -47,13 +47,13 @@ export function moderateText(text: string): ModerationResult {
 
   for (const re of BLOCKED) {
     if (re.test(trimmed)) {
-      return { ok: false, reason: "Content contains language that is not allowed on Flock." };
+      return { ok: false, reason: "Content contains language that is not allowed on Ryft." };
     }
   }
 
   for (const re of HATE_PHRASES) {
     if (re.test(trimmed)) {
-      return { ok: false, reason: "Content contains hate speech that is not allowed on Flock." };
+      return { ok: false, reason: "Content contains hate speech that is not allowed on Ryft." };
     }
   }
 

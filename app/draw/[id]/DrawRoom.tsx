@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import Link from "next/link";
 import PartySocket from "partysocket";
 import UserContextMenu, { ContextMenuUser } from "@/app/components/UserContextMenu";

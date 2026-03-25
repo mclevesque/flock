@@ -13,7 +13,7 @@
  * - Respects browser visibility API — pauses polling when tab is hidden
  */
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 

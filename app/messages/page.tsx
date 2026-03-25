@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { useSession, signIn } from "@/lib/use-session";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useVoice } from "@/app/components/VoiceWidget";
@@ -684,7 +684,7 @@ function ChatView({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "visible", padding: "16px 36px 16px 16px", display: "flex", flexDirection: "column", gap: 8, position: "relative" }}
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "visible", padding: "16px 36px 16px 16px", display: "flex", flexDirection: "column", gap: 0, position: "relative" }}
       >
         {messages.map((msg, idx) => {
           const mine = msg.sender_id === sessionUserId;
@@ -697,7 +697,7 @@ function ChatView({
             <div
               key={msg.id}
               className="msg-row"
-              style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10, position: "relative", paddingLeft: 2 }}
+              style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10, position: "relative", paddingLeft: 2, marginTop: idx === 0 ? 0 : isGrouped ? 2 : 14 }}
             >
               {/* Avatar column — always left */}
               <div style={{ width: 34, flexShrink: 0, paddingTop: 2 }}>
@@ -761,11 +761,6 @@ function ChatView({
                     >×</button>
                   )}
                 </div>
-                {isGrouped && (
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1, paddingLeft: 1 }}>
-                    {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </div>
-                )}
               </div>
             </div>
           );
@@ -1245,7 +1240,7 @@ function MessagesInner() {
     // When keyboard is closed, vpHeight ≈ full screen — add 52px padding for bottom nav
     const keyboardOpen = vpHeight !== null && vpHeight < (typeof window !== "undefined" ? window.innerHeight * 0.75 : 9999);
     // vpHeight already excludes the sticky navbar height; subtract remaining chrome
-    const containerHeight = vpHeight ? `${vpHeight - 52}px` : "calc(100svh - 52px)";
+    const containerHeight = vpHeight ? `${keyboardOpen ? vpHeight : vpHeight - 52}px` : "calc(100svh - 52px)";
     return (
       <div style={{
         height: containerHeight,
@@ -1285,6 +1280,13 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
   const [busy, setBusy] = useState(false);
   const [incomingCall, setIncomingCall] = useState<{ roomId: string; callerUsername: string; callerAvatar: string | null } | null>(null);
   const [dismissedCallId, setDismissedCallId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // Poll for incoming DM call from this specific user
   useEffect(() => {
@@ -1403,15 +1405,15 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
       <Link href={`/profile/${activeUser.username}`} style={{ fontSize: 14, color: "var(--text-primary)", textDecoration: "none", fontWeight: 700 }}>
         {activeUser.display_name || activeUser.username}
       </Link>
-      <span style={{ fontSize: 11, color: "var(--online)", background: "rgba(76,175,125,0.15)", borderRadius: 6, padding: "1px 7px" }}>Online</span>
-      <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", position: "relative" }}>
+      {!isMobile && <span style={{ fontSize: 11, color: "var(--online)", background: "rgba(76,175,125,0.15)", borderRadius: 6, padding: "1px 7px" }}>Online</span>}
+      <div style={{ marginLeft: "auto", display: "flex", gap: isMobile ? 4 : 6, alignItems: "center", position: "relative" }}>
         {/* Games dropdown */}
         <div style={{ position: "relative" }}>
           <button
             onClick={() => setShowGames(v => !v)}
             disabled={busy}
             title="Invite to game"
-            style={{ background: showGames ? "rgba(124,92,191,0.2)" : "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 10px", fontSize: 13, color: showGames ? "var(--accent-purple-bright)" : "var(--text-muted)", cursor: "pointer", fontWeight: 700 }}
+            style={{ background: showGames ? "rgba(124,92,191,0.2)" : "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: isMobile ? "4px 8px" : "4px 10px", fontSize: 13, color: showGames ? "var(--accent-purple-bright)" : "var(--text-muted)", cursor: "pointer", fontWeight: 700, minWidth: 36, minHeight: 36 }}
           >
             🎮
           </button>
@@ -1439,8 +1441,8 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
 
         {/* Call / Ringing / End */}
         {ringing ? (
-          <button onClick={leaveRoom} style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 8, padding: "4px 12px", color: "#fbbf24", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ display: "inline-block", animation: "ring 1s ease infinite" }}>📞</span> Calling… ✕
+          <button onClick={leaveRoom} style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 8, padding: "4px 10px", color: "#fbbf24", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ display: "inline-block", animation: "ring 1s ease infinite" }}>📞</span>{!isMobile && " Calling…"} ✕
           </button>
         ) : connected ? (
           <>
@@ -1450,20 +1452,20 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
               style={{
                 background: isMuted ? "rgba(239,68,68,0.18)" : "rgba(74,222,128,0.12)",
                 border: `1px solid ${isMuted ? "rgba(239,68,68,0.4)" : "rgba(74,222,128,0.3)"}`,
-                borderRadius: 8, padding: "4px 10px",
+                borderRadius: 8, padding: isMobile ? "4px 8px" : "4px 10px",
                 color: isMuted ? "#f87171" : "#4ade80",
-                fontSize: 14, cursor: "pointer",
+                fontSize: 14, cursor: "pointer", minWidth: 36, minHeight: 36,
               }}
             >
               {isMuted ? "🔇" : "🎙️"}
             </button>
-            <button onClick={leaveRoom} style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "4px 12px", color: "#f87171", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              📵 End
+            <button onClick={leaveRoom} style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: isMobile ? "4px 8px" : "4px 12px", color: "#f87171", fontSize: isMobile ? 14 : 12, fontWeight: 700, cursor: "pointer", minWidth: 36, minHeight: 36 }}>
+              {isMobile ? "📵" : "📵 End"}
             </button>
           </>
         ) : (
-          <button onClick={handleCall} disabled={calling} style={{ background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 8, padding: "4px 12px", color: "#4ade80", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: calling ? 0.7 : 1 }}>
-            {calling ? "📞…" : "📞 Call"}
+          <button onClick={handleCall} disabled={calling} style={{ background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 8, padding: isMobile ? "4px 8px" : "4px 12px", color: "#4ade80", fontSize: isMobile ? 14 : 12, fontWeight: 700, cursor: "pointer", opacity: calling ? 0.7 : 1, minWidth: 36, minHeight: 36 }}>
+            {calling ? "📞…" : isMobile ? "📞" : "📞 Call"}
           </button>
         )}
       </div>

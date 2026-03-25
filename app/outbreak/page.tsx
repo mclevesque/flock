@@ -3,7 +3,7 @@ import { getUserById } from "@/lib/db";
 import { redirect } from "next/navigation";
 import OutbreakClient from "./OutbreakClient";
 
-export const metadata = { title: "Flock: Outbreak — Flock" };
+export const metadata = { title: "Ryft: Outbreak — Ryft" };
 
 export default async function OutbreakPage() {
   const session = await auth();

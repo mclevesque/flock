@@ -31,14 +31,6 @@ interface TownPlayer {
   last_effect?: { type: string; emoji: string; from: string; fromId: string; at: number } | null;
 }
 
-interface GroundItem {
-  id: string;
-  item: { id: string; name: string; emoji: string; rarity: string; no_drop?: boolean };
-  x: number;
-  y: number;
-  dropped_by: string;
-}
-
 interface TownEvent {
   id: string;
   type: string;
@@ -555,7 +547,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const openStashRef = useRef<(() => void) | null>(null);
   const [showVendor, setShowVendor] = useState(false);
   const showVendorRef = useRef(false);
-  const [vendorStock, setVendorStock] = useState<unknown[]>([]);
   const [merchantDiscount, setMerchantDiscount] = useState(false);
   const [vendorCoins, setVendorCoins] = useState(0);
   const [showHerald, setShowHerald] = useState(false);
@@ -646,10 +637,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const spawnFestivalRef = useRef<(() => void) | null>(null);
   const despawnFestivalRef = useRef<(() => void) | null>(null);
 
-  // Ground items
-  const groundItemsRef = useRef<GroundItem[]>([]);
-  const [nearGroundItem, setNearGroundItem] = useState<GroundItem | null>(null);
-  const nearGroundItemRef = useRef<GroundItem | null>(null);
   // Frog hex
   const froggifiedRef = useRef<Map<string, number>>(new Map()); // userId → expiry timestamp
   // Gift/effect broadcast dedup: track which effect timestamps we've already animated
@@ -833,7 +820,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "get-vendor-stock" }) });
       const d = await r.json();
-      setVendorStock(d.stock ?? []);
       setVendorCoins(d.coins ?? myCoins);
       setMerchantDiscount(!!d.merchantDiscount);
     } catch { /* ignore */ }
@@ -3314,21 +3300,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             if (!chatOpenRef.current && !showHeraldRef.current) openHerald();
             else if (showHeraldRef.current) { showHeraldRef.current = false; setShowHerald(false); }
           });
-          // P key = pick up ground item
-          this.input.keyboard!.on("keydown-P", () => {
-            const nearby = nearGroundItemRef.current;
-            if (!nearby || chatOpenRef.current) return;
-            fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "pick-item", groundItemId: nearby.id }) })
-              .then(r => r.json()).then(d => {
-                if (d.ok) {
-                  groundItemsRef.current = groundItemsRef.current.filter(g => g.id !== nearby.id);
-                  nearGroundItemRef.current = null;
-                  setNearGroundItem(null);
-                }
-              }).catch(() => {});
-          });
-
           // ── My player ────────────────────────────────────────────────────────
           const startX = TCX, startY = H/2+130;
           this.player = this.add.container(startX, startY);
@@ -3837,29 +3808,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             }
           } // end proximity debounce
 
-          // ── Ground item sprites (update each poll tick) ───────────────────
-          {
-            const rec = this as unknown as Record<string, unknown>;
-            if (!rec._groundSprites) rec._groundSprites = new Map<string, Phaser.GameObjects.Container>();
-            const gMap = rec._groundSprites as Map<string, Phaser.GameObjects.Container>;
-            const currentIds = new Set(groundItemsRef.current.map((g: GroundItem) => g.id));
-            // Remove sprites for picked-up items
-            gMap.forEach((container, id) => { if (!currentIds.has(id)) { container.destroy(); gMap.delete(id); } });
-            // Add sprites for new ground items
-            groundItemsRef.current.forEach((g: GroundItem) => {
-              if (!gMap.has(g.id)) {
-                const gContainer = this.add.container(g.x, g.y);
-                const glow = this.add.graphics();
-                glow.fillStyle(0xffd700, 0.4); glow.fillCircle(0, 0, 18);
-                gContainer.add(glow);
-                const txt = this.add.text(0, 0, g.item.emoji, { fontSize: "20px" }).setOrigin(0.5);
-                gContainer.add(txt);
-                gContainer.setDepth(8);
-                gMap.set(g.id, gContainer);
-              }
-            });
-          }
-
           // ── Frog hex: overlay 🐸 on frogged players ───────────────────────
           {
             const now = Date.now();
@@ -3973,8 +3921,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           const isIdle = afkMs > 180 * 1000; // 3 min AFK
           // WS handles real-time positions; REST POST only needed to refresh last_seen every 10s
           const wsConnected = townSocketRef.current?.readyState === 1; // WebSocket.OPEN
-          const posThreshold  = isIdle ? 999999 : (wsConnected ? 10000 : 1500); // 10s via WS, 1.5s fallback
-          const pollThreshold = isIdle ? 25000 : 3000;  // 25s poll when idle, 3s when active
+          const posThreshold  = isIdle ? 999999 : (wsConnected ? 10000 : 3000); // 10s via WS, 3s fallback
+          const pollThreshold = isIdle ? 60000 : 10000;  // 60s poll when idle, 10s when active
 
           if (this.posTimer >= posThreshold) {
             this.posTimer = 0;
@@ -3995,14 +3943,10 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
 
           if (this.pollTimer >= pollThreshold) {
             this.pollTimer = 0;
-            fetch(partyIdRef.current ? `/api/town?partyId=${encodeURIComponent(partyIdRef.current)}` : "/api/town").then(r => r.json()).then((resp: { players?: TownPlayer[]; ground_items?: GroundItem[]; active_event?: TownEvent | null; recent_victory?: Record<string, unknown> | null }) => {
-              // Support both old (array) and new (object) response shapes
+            fetch(partyIdRef.current ? `/api/town?partyId=${encodeURIComponent(partyIdRef.current)}` : "/api/town").then(r => r.json()).then((resp: { players?: TownPlayer[]; active_event?: TownEvent | null; recent_victory?: Record<string, unknown> | null }) => {
               const players: TownPlayer[] = Array.isArray(resp) ? resp : (resp.players ?? []);
-              const groundItems = Array.isArray(resp) ? [] : (resp.ground_items ?? []);
               const townEvent = Array.isArray(resp) ? null : (resp.active_event ?? null);
 
-              // Sync ground items and event
-              groundItemsRef.current = groundItems;
               // Only re-render if event changed (id or bossHp changed)
               setActiveEvent(prev => {
                 if (townEvent && prev?.id !== townEvent.id) setDismissedEventId(null);
@@ -4061,12 +4005,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               // Sync theater chat
               const tc = (resp as Record<string, unknown>).theater_chat as typeof theaterChat | undefined;
               if (tc) setTheaterChat(tc);
-
-              // Check proximity to ground items
-              const myPosForGround = myPosRef.current;
-              const nearItem = groundItems.find((g: GroundItem) => Math.hypot(g.x - myPosForGround.x, g.y - myPosForGround.y) < 60) ?? null;
-              nearGroundItemRef.current = nearItem;
-              setNearGroundItem(prev => (prev?.id === nearItem?.id ? prev : nearItem));
 
               const myPos = myPosRef.current;
               const activeIds = new Set<string>();
@@ -4874,6 +4812,9 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             style={{ background: showInventory ? "rgba(120,90,255,0.3)" : "rgba(120,90,255,0.12)", border: `1px solid rgba(120,90,255,${showInventory ? "0.6" : "0.3"})`, borderRadius: 8, padding: "4px 10px", fontSize: 11, color: "#aa88ff", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
           >🎒</button>
 
+          {/* Switch to Moonhaven */}
+          <a href="/moonhaven" style={{ position: "fixed", top: 10, right: 10, zIndex: 9999, background: "rgba(30,20,60,0.95)", border: "2px solid rgba(130,100,255,0.8)", borderRadius: 10, padding: "8px 16px", fontSize: 13, color: "#e8d8ff", cursor: "pointer", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>🌙 Moonhaven</a>
+
           {/* Start Tag (only if not active and others nearby) */}
           {nearbyPlayers.length > 0 && !tagGameActive && !tagItId && (
             <button onClick={startTag} style={{ background: "rgba(255,80,80,0.2)", border: "1px solid rgba(255,80,80,0.4)", borderRadius: 8, padding: "4px 11px", fontSize: 11, color: "#ff8080", cursor: "pointer", fontWeight: 700 }}>
@@ -5073,18 +5014,6 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
         </div>
       )}
 
-      {/* ── Ground item pickup hint ─────────────────────────────────────────── */}
-      {nearGroundItem && (
-        <div style={{
-          position: "absolute", bottom: 100, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,215,0,0.5)",
-          borderRadius: 10, padding: "7px 16px",
-          fontSize: 12, color: "#ffd070", fontFamily: "monospace",
-          pointerEvents: "none", zIndex: 80,
-        }}>
-          {nearGroundItem.item.emoji} Press P to pick up <strong>{nearGroundItem.item.name}</strong>
-        </div>
-      )}
 
 
       {/* ── Ability targeting mode overlay ───────────────────────────────────── */}
@@ -6038,21 +5967,10 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       {/* ── Vendor Panel ─────────────────────────────────────────────────────── */}
       {showVendor && (
         <VendorPanel
-          stock={vendorStock as Parameters<typeof VendorPanel>[0]["stock"]}
           inventoryItems={(stashData?.inventory ?? []) as Parameters<typeof VendorPanel>[0]["inventoryItems"]}
           stashItems={(stashData?.stash_items ?? []) as Parameters<typeof VendorPanel>[0]["stashItems"]}
           coins={vendorCoins}
           onClose={() => { setShowVendor(false); showVendorRef.current = false; }}
-          onBuy={async (index) => {
-            const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "vendor-buy", itemIndex: index }) });
-            const d = await r.json();
-            if (d.ok) {
-              setMyCoins(c => c - (vendorStock[index] as { price: number }).price);
-              setVendorCoins(c => c - (vendorStock[index] as { price: number }).price);
-              await loadStashData(); // refresh inventory after purchase
-            }
-          }}
           onSellItem={async (itemId) => {
             const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "vendor-sell", itemId }) });

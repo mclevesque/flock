@@ -14,4 +14,4 @@ export default class Main implements Party.Server {
 }
 
 export const onFetch = (req: Request) =>
-  new Response("Flock PartyKit server running", { status: 200 });
+  new Response("Ryft PartyKit server running", { status: 200 });

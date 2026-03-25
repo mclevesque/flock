@@ -1,7 +1,9 @@
 const { app, BrowserWindow, session, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 
-const FLOCK_URL = 'https://flocksocial.netlify.app';
+const RYFT_URL = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
+  ? 'http://localhost:3002'
+  : 'https://flocksocial.netlify.app';
 const isMac = process.platform === 'darwin';
 
 function createWindow() {
@@ -10,7 +12,7 @@ function createWindow() {
     height: 800,
     minWidth: 380,
     minHeight: 600,
-    title: 'Flock',
+    title: 'Ryft',
     backgroundColor: '#0d0f14',
 
     // Remove the grey title bar — Discord-style
@@ -119,7 +121,7 @@ function createWindow() {
     });
   });
 
-  win.loadURL(FLOCK_URL);
+  win.loadURL(RYFT_URL);
 
   // Push Flock's sticky navbar down so it doesn't sit behind the titlebar overlay
   // Also patch requestFullscreen for Electron (video fullscreen button workaround)
@@ -169,7 +171,7 @@ function createWindow() {
 
   // Open external links in system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(FLOCK_URL)) return { action: 'allow' };
+    if (url.startsWith(RYFT_URL)) return { action: 'allow' };
     require('electron').shell.openExternal(url);
     return { action: 'deny' };
   });

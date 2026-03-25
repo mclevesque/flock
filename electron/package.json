@@ -1,22 +1,22 @@
 {
-  "name": "flock-desktop",
+  "name": "ryft-desktop",
   "version": "1.0.0",
-  "description": "Flock — desktop app for Windows & Mac",
+  "description": "Ryft — desktop app for Windows & Mac",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win --x64",
     "dist:mac": "electron-builder --mac"
   },
-  "author": "Flock",
+  "author": "Ryft",
   "license": "MIT",
   "devDependencies": {
     "electron": "^34.0.0",
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "app.flock.social",
-    "productName": "Flock",
+    "appId": "app.ryft.social",
+    "productName": "Ryft",
     "directories": {
       "output": "dist"
     },

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import Link from "next/link";
 import InviteViaDm from "@/app/components/InviteViaDm";
 import { useRouter } from "next/navigation";

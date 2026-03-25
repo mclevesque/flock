@@ -33,7 +33,7 @@ const XBOX_DEFAULTS: Record<number, number> = {
   15: 7,  // D-right → SNES →
 };
 
-const LS_KEY = "flock_gamepad_map";
+const LS_KEY = "ryft_gamepad_map";
 
 export type GamepadMap = Record<number, number>; // snesButtonId → gamepadButtonIndex
 

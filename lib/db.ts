@@ -1,10 +1,17 @@
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 
-// Lazy init — wraps neon so DATABASE_URL is only read at runtime, not build time
-export function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Record<string, unknown>[]> {
-  const db = neon(process.env.DATABASE_URL!);
-  return db(strings, ...values) as Promise<Record<string, unknown>[]>;
+// Lazy init — create client at runtime, not build time
+let _sql: ReturnType<typeof postgres> | null = null;
+function getDb() {
+  if (!_sql) _sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 5 });
+  return _sql;
 }
+
+export function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Record<string, unknown>[]> {
+  return getDb()(strings, ...values) as Promise<Record<string, unknown>[]>;
+}
+(sql as unknown as Record<string, unknown>).query = (text: string, params?: unknown[]) =>
+  getDb().unsafe(text, params as unknown[] | undefined) as Promise<Record<string, unknown>[]>;
 
 export async function initDb() {
   await sql`
@@ -235,7 +242,7 @@ export async function initDb() {
     VALUES ('bot', 'QuizBot', 'Quiz Bot', 'https://api.dicebear.com/9.x/bottts/svg?seed=quizbot', 1200)
     ON CONFLICT (id) DO NOTHING
   `.catch(() => {});
-  await sql`ALTER TABLE quiz_games ADD COLUMN IF NOT EXISTS is_bot_game BOOLEAN DEFAULT false`;
+  await sql`ALTER TABLE quiz_games ADD COLUMN IF NOT EXISTS is_bot_game BOOLEAN DEFAULT false`.catch(() => {});
   await sql`ALTER TABLE quiz_games ADD COLUMN IF NOT EXISTS dm_game BOOLEAN DEFAULT false`.catch(() => {});
   await sql`
     CREATE TABLE IF NOT EXISTS quiz_games (
@@ -3108,7 +3115,7 @@ export async function cleanupIdleDrawRooms() {
 
 let _expansionTablesReady = false;
 
-async function ensureExpansionTables() {
+export async function ensureExpansionTables() {
   if (_expansionTablesReady) return;
 
   // Extend player_adventure_stats with new columns
@@ -3349,36 +3356,6 @@ export async function updatePlayerStashAndSlots(
   }
 }
 
-// ── Ground Items ──────────────────────────────────────────────────────────────
-
-export async function dropItemOnGround(item: unknown, x: number, y: number, droppedBy: string) {
-  await ensureExpansionTables();
-  const id = `drop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  await sql`
-    INSERT INTO town_ground_items (id, item, x, y, dropped_by)
-    VALUES (${id}, ${JSON.stringify(item)}::jsonb, ${x}, ${y}, ${droppedBy})
-  `;
-  return { id, item, x, y };
-}
-
-export async function pickUpGroundItem(itemId: string) {
-  await ensureExpansionTables();
-  const rows = await sql`DELETE FROM town_ground_items WHERE id = ${itemId} RETURNING *`;
-  if (!rows[0]) return null;
-  return rows[0].item as unknown;
-}
-
-export async function cleanupExpiredGroundItems() {
-  await sql`DELETE FROM town_ground_items WHERE dropped_at < NOW() - INTERVAL '10 minutes'`.catch(() => {});
-}
-
-export async function getGroundItems() {
-  await cleanupExpiredGroundItems().catch(() => {});
-  await ensureExpansionTables();
-  const rows = await sql`SELECT id, item, x, y, dropped_by, dropped_at FROM town_ground_items`;
-  return rows;
-}
-
 // ── Frog Hex ──────────────────────────────────────────────────────────────────
 
 export async function setFrogHex(userIds: string[], durationSeconds = 12) {
@@ -3528,7 +3505,7 @@ export async function checkAndTriggerTownEvent(): Promise<Record<string, unknown
     if (Date.now() - startedAt > duration) {
       // Auto-complete expired event
       const outcomes: Record<EventType, string> = {
-        dragon_attack: "⚔️ The dragon was defeated! The Kingdom of Flock is safe... for now.",
+        dragon_attack: "⚔️ The dragon was defeated! The Kingdom of Ryft is safe... for now.",
         bandit_raid: "🗡️ The bandits have been driven off! Town guards restore order.",
         merchant_visit: "🛒 The wandering merchant packed up and departed. Until next time!",
         festival: "🎉 The festival comes to a close. Joy and laughter echo through the streets.",
@@ -3588,7 +3565,7 @@ const STORY_TEMPLATES = [
   "The village well has begun glowing faintly blue at night. Children dare each other to touch it. Adults pretend not to notice. Pip has touched it three times.",
   "Lysara's monitoring crystals all shattered simultaneously at exactly noon. She reported this to the queen calmly, then went home and baked seven cakes.",
   "A raven with a red ribbon arrived at the castle carrying no message — only a single black feather from a species thought extinct for two hundred years.",
-  "The adventurers of Flock have grown in number and in legend. Even in distant villages, people speak of the brave souls who guard the kingdom's roads and halls.",
+  "The adventurers of Ryft have grown in number and in legend. Even in distant villages, people speak of the brave souls who guard the kingdom's roads and halls.",
 ];
 
 export async function getLatestStorylines(limit = 3) {
@@ -3618,7 +3595,7 @@ async function ensureInitialStoryline() {
   // Seed chapter 1
   const content = STORY_TEMPLATES[0];
   await createStorylineChapter(content).catch(() => {});
-  await postHeraldShare(content, "📖 The Flock Gazette — Chapter 1").catch(() => {});
+  await postHeraldShare(content, "📖 The Ryft Gazette — Chapter 1").catch(() => {});
 }
 
 /** Force-post the initial Herald storyline chapter (bypasses count check) */
@@ -3626,7 +3603,7 @@ export async function forceInitialHeraldPost(): Promise<string | undefined> {
   await ensureExpansionTables();
   const content = STORY_TEMPLATES[0];
   await createStorylineChapter(content).catch(() => {});
-  return postHeraldShare(content, "📖 The Flock Gazette — Chapter 1").catch(() => undefined);
+  return postHeraldShare(content, "📖 The Ryft Gazette — Chapter 1").catch(() => undefined);
 }
 
 /** Generate next storyline chapter (called by daily cron) */
@@ -3665,7 +3642,7 @@ export async function advanceStoryline(): Promise<string> {
           messages: [
             {
               role: "system",
-              content: `You are the narrator of the Kingdom of Flock. Write daily 2-3 sentence story updates posted by the town herald. The story involves ongoing threats from the ancient sorcerer Malachar who was banished (not destroyed) 300 years ago, player adventures, and town happenings at Castle Aurvale and Millhaven village. Keep it serialized, intriguing, and slightly ominous. PG-13.`,
+              content: `You are the narrator of the Kingdom of Ryft. Write daily 2-3 sentence story updates posted by the town herald. The story involves ongoing threats from the ancient sorcerer Malachar who was banished (not destroyed) 300 years ago, player adventures, and town happenings at Castle Aurvale and Millhaven village. Keep it serialized, intriguing, and slightly ominous. PG-13.`,
             },
             {
               role: "user",
@@ -3686,7 +3663,7 @@ export async function advanceStoryline(): Promise<string> {
   }
 
   // Post to SHARE and save chapter
-  const shareId = await postHeraldShare(content, `📖 The Flock Gazette — Chapter ${chapterNum}`).catch(() => undefined);
+  const shareId = await postHeraldShare(content, `📖 The Ryft Gazette — Chapter ${chapterNum}`).catch(() => undefined);
   await createStorylineChapter(content, shareId).catch(() => {});
   return content;
 }
@@ -4795,4 +4772,23 @@ export async function getUserActiveStoryCount(userId: string): Promise<number> {
 // Clean up expired story records (call lazily)
 export async function purgeExpiredStories() {
   await sql`DELETE FROM stories WHERE expires_at <= NOW()`.catch(() => {});
+}
+
+// TEMP: Call all ensure functions for fresh DB setup
+export async function ensureAllTables() {
+  await ensureVoiceTables().catch(()=>{});
+  await ensureWatchTables().catch(()=>{});
+  await ensurePokerTables().catch(()=>{});
+  await ensureScreenShareSignals().catch(()=>{});
+  await ensureDrawTables().catch(()=>{});
+  await ensureShareTables().catch(()=>{});
+  await ensureTownTable().catch(()=>{});
+  await ensureRpsTable().catch(()=>{});
+  await ensureAdventureTables().catch(()=>{});
+  await ensurePartyTable().catch(()=>{});
+  await ensurePrivilegesTable().catch(()=>{});
+  await ensureNpcMemoryTable().catch(()=>{});
+  await ensureAiUsageTable().catch(()=>{});
+  await ensurePongTables().catch(()=>{});
+  await ensureWaddabiTables().catch(()=>{});
 }

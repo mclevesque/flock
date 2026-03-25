@@ -54,3 +54,14 @@ electron/dist
 # Local Netlify folder
 .netlify
 NETLIFY-MISSING.ENV\nAPI_KEYS_REFERENCE.txt
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# migration / temp scripts
+dump_db.mjs
+restore_db.mjs
+setup_supabase.ts
+flock_db_dump.json
+flock_db_dump.sql
+outbreak_debug.json

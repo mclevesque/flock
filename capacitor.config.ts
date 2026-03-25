@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'app.flock.social',
-  appName: 'Flock',
+  appId: 'app.ryft.social',
+  appName: 'Ryft',
   // Points to the deployed web app — no local build needed
   server: {
     url: 'https://flocksocial.netlify.app',

@@ -155,7 +155,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
   const [saveStateAvailable, setSaveStateAvailable] = useState(false); // has an existing save for this game
 
   function getSaveKey(gameName: string) {
-    return `flock_snes_save_${gameName.replace(/[^a-zA-Z0-9]/g, "_")}`;
+    return `ryft_snes_save_${gameName.replace(/[^a-zA-Z0-9]/g, "_")}`;
   }
 
   function captureAndSaveState(gameName: string): boolean {

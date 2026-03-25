@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { click, swoosh } from "@/app/components/sounds";
 import StoryRecorder from "./StoryRecorder";
@@ -12,7 +12,7 @@ const navItems = [
   { href: "/profile", label: "Profile", short: "👤" },
   { href: "/friends", label: "Friends", short: "👥" },
   { href: "/messages", label: "Messages", short: "💬" },
-  { href: "/town", label: "🏘️ Town", short: "🏘️" },
+  { href: "/moonhaven", label: "🌙 Town", short: "🌙" },
   { href: "/stremio", label: "🎬 Stream", short: "🎬" },
 ];
 
@@ -80,7 +80,7 @@ export default function Navbar() {
   // Track chronicle reply notifications
   useEffect(() => {
     if (!session?.user?.id) return;
-    const storageKey = `flock_chronicle_seen_${session.user.id}`;
+    const storageKey = `ryft_chronicle_seen_${session.user.id}`;
 
     async function checkChronicle() {
       try {
@@ -115,7 +115,7 @@ export default function Navbar() {
   // Clear chronicle badge when navigating to /chronicle
   useEffect(() => {
     if (!session?.user?.id || !path.startsWith("/chronicle")) return;
-    const storageKey = `flock_chronicle_seen_${session.user.id}`;
+    const storageKey = `ryft_chronicle_seen_${session.user.id}`;
     localStorage.setItem(storageKey, String(Date.now()));
     setChronicleUnread(0);
   }, [path, session?.user?.id]);
@@ -123,7 +123,7 @@ export default function Navbar() {
   // Track unread messages (conversations with messages newer than last visit)
   useEffect(() => {
     if (!session?.user?.id) return;
-    const storageKey = `flock_msgs_seen_${session.user.id}`;
+    const storageKey = `ryft_msgs_seen_${session.user.id}`;
     let initialized = false;
 
     async function checkUnread() {
@@ -184,7 +184,7 @@ export default function Navbar() {
   // Clear badge immediately whenever the user navigates to /messages (reactive to Next.js routing)
   useEffect(() => {
     if (!session?.user?.id || !path.startsWith("/messages")) return;
-    const storageKey = `flock_msgs_seen_${session.user.id}`;
+    const storageKey = `ryft_msgs_seen_${session.user.id}`;
     fetch("/api/messages").then(r => r.json()).then((convs: { other_user: string; created_at: string }[]) => {
       if (!Array.isArray(convs)) return;
       const next: Record<string, string> = {};
@@ -370,7 +370,11 @@ export default function Navbar() {
           </button>
         )}
         <Link href="/profile" style={{ textDecoration: "none", flexShrink: 0 }}>
-          <span className="flock-logo" style={{ fontSize: 26, letterSpacing: "-1px" }}>flock</span>
+          <img
+            src="/RYFTLOGO.png"
+            alt="RYFT"
+            style={{ height: 34, width: 34, display: "block", filter: "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
+          />
         </Link>
         <nav className="nav-links-desktop" style={{ display: "flex", gap: 2, alignItems: "center", flex: 1, justifyContent: "center" }}>
           {navItems.map(({ href, label, short }) => {
@@ -446,18 +450,22 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Center cluster: [Town] · flock · [Share] — show on all major sections when signed in */}
+        {/* Center cluster: [Town] · ryft · [Share] — show on all major sections when signed in */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {showTownShare && (
-            <Link href="/town" onClick={() => click()}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8, color: path.startsWith("/town") ? "var(--accent-purple-bright)" : "var(--text-muted)", background: path.startsWith("/town") ? "rgba(124,92,191,0.12)" : "transparent" }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>🏘️</span>
+            <Link href="/moonhaven" onClick={() => click()}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8, color: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "var(--accent-purple-bright)" : "var(--text-muted)", background: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "rgba(124,92,191,0.12)" : "transparent" }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>🌙</span>
               <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Town</span>
             </Link>
           )}
 
           <Link href={session ? "/profile" : "/"} style={{ textDecoration: "none" }}>
-            <span className="flock-logo" style={{ fontSize: 24, letterSpacing: "-1px" }}>flock</span>
+            <img
+              src="/RYFTLOGO.png"
+              alt="RYFT"
+              style={{ height: 34, width: 34, display: "block", filter: "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
+            />
           </Link>
 
           {showTownShare && (

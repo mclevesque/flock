@@ -1,7 +1,15 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSession } from "@/lib/use-session";
 import { useVoice } from "./VoiceWidget";
+
+interface PartyChatMsg {
+  userId: string;
+  username: string;
+  text: string;
+  area: string; // where the message was sent from
+  ts: number;
+}
 
 interface PartyMember {
   userId: string;
@@ -22,12 +30,75 @@ export default function GlobalPartyWidget() {
   const { isInVoice, isMuted, toggleMute, openMaxi, joinRoom, leaveRoom, currentRoomId } = useVoice();
   const [party, setParty] = useState<Party | null>(null);
   const [open, setOpen] = useState(false);
+  const [chatLog, setChatLog] = useState<PartyChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [unread, setUnread] = useState(0);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const draggedRef = useRef(false);
   const pillRef = useRef<HTMLDivElement>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
+  const partyRef = useRef<Party | null>(null);
+  const openRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const userId = (session?.user as { id?: string })?.id;
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Keep refs in sync
+  useEffect(() => { partyRef.current = party; }, [party]);
+  useEffect(() => { openRef.current = open; }, [open]);
+
+  // Party chat WebSocket — connects/reconnects when partyId changes
+  const connectPartyWS = useCallback(async (partyId: string) => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    const { PartySocket } = await import("partysocket");
+    const ws = new PartySocket({
+      host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999",
+      room: `party-${partyId}`,
+    }) as unknown as { send: (d: string) => void; close: () => void; onmessage: (e: MessageEvent) => void };
+    ws.onmessage = (e: MessageEvent) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "party_chat") {
+          const entry: PartyChatMsg = { userId: msg.userId, username: msg.username, text: msg.text, area: msg.area ?? "?", ts: msg.ts ?? Date.now() };
+          setChatLog(prev => [...prev.slice(-49), entry]);
+          if (!openRef.current) setUnread(n => n + 1);
+          setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        }
+      } catch { /* ignore */ }
+    };
+    wsRef.current = ws;
+  }, []);
+
+  useEffect(() => {
+    if (party?.id) { connectPartyWS(party.id); }
+    else { wsRef.current?.close(); wsRef.current = null; }
+    return () => { wsRef.current?.close(); wsRef.current = null; };
+  }, [party?.id, connectPartyWS]);
+
+  // Clear unread when panel opens
+  useEffect(() => { if (open) { setUnread(0); setTimeout(() => chatBottomRef.current?.scrollIntoView(), 50); } }, [open]);
+
+  const sendPartyChat = useCallback(() => {
+    const text = chatInput.trim();
+    if (!text || !partyRef.current || !wsRef.current || !userId) return;
+    const username = (session?.user as { name?: string })?.name ?? "?";
+    const area = typeof window !== "undefined" ? (window.location.pathname.replace(/^\//, "") || "home") : "?";
+    const msg = { type: "party_chat", userId, username, text, area, ts: Date.now() };
+    wsRef.current.send(JSON.stringify(msg));
+    setChatLog(prev => [...prev.slice(-49), { userId, username, text, area, ts: Date.now() }]);
+    setChatInput("");
+    setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }, [chatInput, userId, session]);
 
   // Poll party state every 12 seconds
   useEffect(() => {
@@ -65,7 +136,7 @@ export default function GlobalPartyWidget() {
 
   const containerStyle: React.CSSProperties = pos
     ? { position: "fixed", left: pos.x, top: pos.y, zIndex: 9800 }
-    : { position: "fixed", bottom: 16, left: 16, zIndex: 9800 };
+    : { position: "fixed", bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 16, left: 16, zIndex: 9800 };
 
   // Drag handlers
   const onMouseDown = (e: React.MouseEvent) => {
@@ -139,6 +210,9 @@ export default function GlobalPartyWidget() {
         ) : (
           <span>Party</span>
         )}
+        {unread > 0 && (
+          <span style={{ background: "#ff4444", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800 }}>{unread}</span>
+        )}
       </button>
 
       {/* Panel */}
@@ -200,12 +274,40 @@ export default function GlobalPartyWidget() {
                 </button>
               )}
 
+              {/* Party chat log */}
+              <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", letterSpacing: 1, marginBottom: 5, fontWeight: 700 }}>PARTY CHAT</div>
+                <div style={{ maxHeight: 100, overflowY: "auto", fontSize: 11, lineHeight: 1.5, marginBottom: 6 }}>
+                  {chatLog.length === 0 && (
+                    <div style={{ color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No messages yet…</div>
+                  )}
+                  {chatLog.map((m, i) => (
+                    <div key={i}>
+                      <span style={{ color: m.userId === userId ? "#66dd88" : "#a0b4ff", fontWeight: 700 }}>@{m.username}</span>
+                      {" "}<span style={{ color: "rgba(255,255,255,0.55)", fontSize: 9 }}>[{m.area}]</span>
+                      {" "}<span style={{ color: "rgba(255,255,255,0.85)" }}>{m.text}</span>
+                    </div>
+                  ))}
+                  <div ref={chatBottomRef} />
+                </div>
+                <div style={{ display: "flex", gap: 5 }}>
+                  <input
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); sendPartyChat(); } }}
+                    placeholder="Party chat…"
+                    style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, padding: "5px 8px", color: "#fff", fontSize: 11, outline: "none", fontFamily: "monospace" }}
+                  />
+                  <button onClick={sendPartyChat} style={{ background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.3)", borderRadius: 7, padding: "5px 9px", color: "#66dd88", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}>→</button>
+                </div>
+              </div>
+
               <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                 <button
                   onClick={disbandOrLeave}
                   style={{ flex: 1, padding: "5px 0", background: "rgba(200,50,50,0.15)", border: "1px solid rgba(200,50,50,0.35)", borderRadius: 7, color: "#ff8888", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}
                 >
-                  {party.leaderId === userId ? "Disband" : "Leave"}
+                  {party.leaderId === userId ? "⚔️ Disband Party" : "🚪 Leave Party"}
                 </button>
               </div>
             </>

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 import { useVibe } from "@/app/components/VibePlayer";
 import { VIBE_TAGS, buildPlaylist } from "./vibeData";
 

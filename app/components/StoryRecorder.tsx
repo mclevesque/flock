@@ -282,7 +282,7 @@ export default function StoryRecorder({ onClose, onUploaded }: Props) {
       <div style={{ fontSize: 56 }}>📸</div>
       <div style={{ textAlign: "center", padding: "0 32px" }}>
         <p style={{ color: "#fff", fontSize: 18, fontWeight: 700, margin: "0 0 8px" }}>Create a Story</p>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, margin: 0, lineHeight: 1.5 }}>Flock needs access to your camera and microphone to record a story.</p>
+        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, margin: 0, lineHeight: 1.5 }}>Ryft needs access to your camera and microphone to record a story.</p>
       </div>
       <button
         onClick={startCamera}

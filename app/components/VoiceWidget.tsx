@@ -2,7 +2,7 @@
 import {
   useState, useEffect, useRef, useCallback, createContext, useContext,
 } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -839,7 +839,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       : "";
     const win = window.open(
       `/voice-popup${params}`,
-      "flock-voice-popup",
+      "ryft-voice-popup",
       `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`
     );
     if (!win) { alert("Pop-up blocked — please allow pop-ups for this site."); return; }
@@ -847,7 +847,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
     // BroadcastChannel to relay commands and receive state
     if (popupBcRef.current) popupBcRef.current.close();
-    const bc = new BroadcastChannel("flock-voice");
+    const bc = new BroadcastChannel("ryft-voice");
     popupBcRef.current = bc;
 
     bc.onmessage = (e) => {
@@ -899,17 +899,17 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   // ── Persist current room to sessionStorage (survives refresh) ─────────────────
   useEffect(() => {
     if (currentRoomId && currentRoomName) {
-      sessionStorage.setItem("flock_voice_room", JSON.stringify({ id: currentRoomId, name: currentRoomName }));
+      sessionStorage.setItem("ryft_voice_room", JSON.stringify({ id: currentRoomId, name: currentRoomName }));
       setOpen(true); // keep widget open across navigation
     } else if (!currentRoomId && !popupAlive) {
-      sessionStorage.removeItem("flock_voice_room");
+      sessionStorage.removeItem("ryft_voice_room");
     }
   }, [currentRoomId, currentRoomName, popupAlive]); // eslint-disable-line
 
   // ── Auto-rejoin saved room on page load / refresh ─────────────────────────────
   useEffect(() => {
     if (!userId || currentRoomRef.current) return;
-    const saved = sessionStorage.getItem("flock_voice_room");
+    const saved = sessionStorage.getItem("ryft_voice_room");
     if (!saved) return;
     try {
       const { id, name } = JSON.parse(saved) as { id: string; name: string };
@@ -922,14 +922,14 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
             await joinRoom(id, name);
             setOpen(true);
           } else {
-            sessionStorage.removeItem("flock_voice_room");
+            sessionStorage.removeItem("ryft_voice_room");
           }
         } catch {
-          sessionStorage.removeItem("flock_voice_room");
+          sessionStorage.removeItem("ryft_voice_room");
         }
       }, 800);
       return () => clearTimeout(t);
-    } catch { sessionStorage.removeItem("flock_voice_room"); }
+    } catch { sessionStorage.removeItem("ryft_voice_room"); }
   }, [userId]); // eslint-disable-line
 
   // ── Resume audio after visibility change / tab switch ─────────────────────────
@@ -1201,7 +1201,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         <div
           onClick={focusPopup}
           style={{
-            position: "fixed", bottom: 16, right: 16, zIndex: 9500,
+            position: "fixed", bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 16, right: 16, zIndex: 9500,
             background: "rgba(13,15,20,0.94)", backdropFilter: "blur(12px)",
             border: "1px solid rgba(124,58,237,0.45)", borderRadius: 50,
             padding: "8px 16px", cursor: "pointer",

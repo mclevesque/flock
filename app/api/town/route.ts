@@ -6,9 +6,8 @@ import {
   getTownPlayerCoins, setTownEquippedDisplay,
   getOrCreateAdventureStats, updateAdventureStats,
   getPlayerStashAndSlots, updatePlayerStashAndSlots,
-  dropItemOnGround, pickUpGroundItem, getGroundItems, cleanupExpiredGroundItems,
   setFrogHex, getActiveEvent, checkAndTriggerTownEvent, updateEventState,
-  getLatestStorylines, getVendorStock,
+  getLatestStorylines,
   completeEvent, awardEventLootToAll, getRecentlyCompletedEvent,
   getTheaterState, setTheaterVideo, setTheaterSeat, clearTheaterSeat, clearTheaterAll,
   pauseTheater, unpauseTheater, seekTheater,
@@ -24,24 +23,22 @@ async function postHeraldShare(_content: string, _title: string) {
   // sql is not available in this route; handled by db.ts internally via checkAndTriggerTownEvent
 }
 
-// GET — fetch all active players + ground items + active event
+// GET — fetch all active players + active event
 export async function GET(req: NextRequest) {
   try {
-    cleanupExpiredGroundItems().catch(() => {});
     checkAndTriggerTownEvent().catch(() => {});
     const { searchParams } = new URL(req.url);
     const partyId = searchParams.get("partyId") || null;
-    const [players, ground_items, active_event, recent_victory, theater_state, theater_chat] = await Promise.all([
+    const [players, active_event, recent_victory, theater_state, theater_chat] = await Promise.all([
       getActiveTownPlayers(partyId),
-      getGroundItems().catch(() => []),
       getActiveEvent().catch(() => null),
       getRecentlyCompletedEvent().catch(() => null),
       getTheaterState(partyId).catch(() => null),
       getTheaterChat(partyId).catch(() => []),
     ]);
-    return NextResponse.json({ players, ground_items, active_event, recent_victory, theater_state, theater_chat });
+    return NextResponse.json({ players, active_event, recent_victory, theater_state, theater_chat });
   } catch {
-    return NextResponse.json({ players: [], ground_items: [], active_event: null, recent_victory: null }, { status: 200 });
+    return NextResponse.json({ players: [], active_event: null, recent_victory: null }, { status: 200 });
   }
 }
 
@@ -273,78 +270,6 @@ export async function POST(req: NextRequest) {
       const newInventory = [...data.inventory, item];
       await updatePlayerStashAndSlots(u.id, { inventory: newInventory, stash_items: newStash });
       return NextResponse.json({ ok: true });
-    }
-
-    if (body.action === "drop-item") {
-      const { itemId, x, y } = body;
-      const data = await getPlayerStashAndSlots(u.id);
-      // Find in stash or inventory
-      let item: unknown = null;
-      let newStash = data.stash_items;
-      let newInventory = data.inventory;
-      const stashIdx = data.stash_items.findIndex((i: unknown) => (i as Record<string, unknown>).id === itemId);
-      if (stashIdx >= 0) {
-        item = data.stash_items[stashIdx];
-        newStash = data.stash_items.filter((_: unknown, i: number) => i !== stashIdx);
-      } else {
-        const invIdx = data.inventory.findIndex((i: unknown) => (i as Record<string, unknown>).id === itemId);
-        if (invIdx >= 0) {
-          item = data.inventory[invIdx];
-          newInventory = data.inventory.filter((_: unknown, i: number) => i !== invIdx);
-        }
-      }
-      if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
-      // Legendaries cannot be dropped
-      if ((item as Record<string, unknown>).no_drop) return NextResponse.json({ error: "Legendary items cannot be dropped" }, { status: 403 });
-      // Unequip if this item was equipped in any slot
-      const dropEquippedSlots = { ...data.equipped_slots };
-      for (const slot of Object.keys(dropEquippedSlots)) {
-        if ((dropEquippedSlots[slot] as Record<string, unknown>)?.id === itemId) dropEquippedSlots[slot] = null;
-      }
-      await updatePlayerStashAndSlots(u.id, { stash_items: newStash, inventory: newInventory, equipped_slots: dropEquippedSlots });
-      const dropped = await dropItemOnGround(item, x ?? 800, y ?? 600, u.id);
-      return NextResponse.json({ ok: true, ground_item: dropped });
-    }
-
-    if (body.action === "pick-item") {
-      const { groundItemId } = body;
-      const item = await pickUpGroundItem(groundItemId);
-      if (!item) return NextResponse.json({ error: "Item already taken" }, { status: 404 });
-      const data = await getPlayerStashAndSlots(u.id);
-      if (data.stash_items.length < 50) {
-        await updatePlayerStashAndSlots(u.id, { stash_items: [...data.stash_items, item] });
-      } else if (data.inventory.length < 8) {
-        await updatePlayerStashAndSlots(u.id, { inventory: [...data.inventory, item] });
-      } else {
-        // Drop it back
-        const i = item as Record<string, unknown>;
-        await dropItemOnGround(item, Number(i.x ?? 800), Number(i.y ?? 600), "");
-        return NextResponse.json({ error: "No room — stash and backpack full" }, { status: 400 });
-      }
-      const dest = data.stash_items.length < 50 ? "stash" : "inventory";
-      return NextResponse.json({ ok: true, item, destination: dest });
-    }
-
-    if (body.action === "vendor-buy") {
-      const { itemIndex } = body;
-      const data = await getPlayerStashAndSlots(u.id);
-      const stats = await getOrCreateAdventureStats(u.id);
-      const level = Number((stats as Record<string, unknown>).level ?? 1);
-      const daySeed = Math.floor(Date.now() / 86400000);
-      const stock = getVendorStock(level, daySeed) as Record<string, unknown>[];
-      const item = stock[itemIndex];
-      if (!item) return NextResponse.json({ error: "Invalid item" }, { status: 400 });
-      const price = item.price as number;
-      // Check coins
-      const coins = await getTownPlayerCoins(u.id);
-      if (coins < price) return NextResponse.json({ error: "Not enough coins" }, { status: 400 });
-      if (data.stash_items.length >= 50) return NextResponse.json({ error: "Stash is full" }, { status: 400 });
-      // Deduct coins and add item to stash
-      const spendResult = await spendTownCoins(u.id, price);
-      if (!spendResult.ok) return NextResponse.json({ error: "Not enough coins" }, { status: 400 });
-      const newStash = [...data.stash_items, { ...item, price: undefined }];
-      await updatePlayerStashAndSlots(u.id, { stash_items: newStash });
-      return NextResponse.json({ ok: true, item });
     }
 
     if (body.action === "vendor-sell") {

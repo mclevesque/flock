@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/use-session";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface VoiceParticipant {
@@ -90,7 +90,7 @@ export default function VoicePopupClient() {
 
   // ── BroadcastChannel setup ────────────────────────────────────────────────────
   useEffect(() => {
-    const bc = new BroadcastChannel("flock-voice");
+    const bc = new BroadcastChannel("ryft-voice");
     bcRef.current = bc;
     // Tell the main window we're alive
     bc.postMessage({ type: "ready" });
@@ -138,7 +138,7 @@ export default function VoicePopupClient() {
       return;
     }
     // fallback: check sessionStorage
-    const saved = sessionStorage.getItem("flock_voice_room");
+    const saved = sessionStorage.getItem("ryft_voice_room");
     if (saved) {
       try {
         const { id, name } = JSON.parse(saved) as { id: string; name: string };
@@ -265,7 +265,7 @@ export default function VoicePopupClient() {
     setCurrentRoomId(roomId);
     setCurrentRoomName(roomName);
     currentRoomRef.current = roomId;
-    sessionStorage.setItem("flock_voice_room", JSON.stringify({ id: roomId, name: roomName }));
+    sessionStorage.setItem("ryft_voice_room", JSON.stringify({ id: roomId, name: roomName }));
 
     try {
       const stream = await getLocalStream();
@@ -428,7 +428,7 @@ export default function VoicePopupClient() {
     setSpeakingUsers(new Set());
     setLocalSpeaking(false);
     setRoomMessages([]);
-    sessionStorage.removeItem("flock_voice_room");
+    sessionStorage.removeItem("ryft_voice_room");
     bcRef.current?.postMessage({ type: "state", roomId: null, participants: [], speaking: [] });
   }, [userId]); // eslint-disable-line
 
