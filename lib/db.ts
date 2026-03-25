@@ -11,7 +11,7 @@ export function sql(strings: TemplateStringsArray, ...values: postgres.Parameter
   return getDb()(strings, ...values) as Promise<Record<string, unknown>[]>;
 }
 (sql as unknown as Record<string, unknown>).query = (text: string, params?: unknown[]) =>
-  getDb().unsafe(text, params as unknown[] | undefined) as Promise<Record<string, unknown>[]>;
+  getDb().unsafe(text, params as any[] | undefined) as Promise<Record<string, unknown>[]>;
 
 export async function initDb() {
   await sql`
