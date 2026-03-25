@@ -792,12 +792,12 @@ moon_wraith:{name:'MOON WRAITH',hp:6000,spd:4.2,dmg:90,size:60,color:'#2222aa',x
 
 // ========== SPAWN SCHEDULE (scaled to 6 min / 360s) ==========
 const SPAWN_SCHEDULE=[
-{t:0,  types:['shambler'],                                        rate:52, count:8},
-{t:9,  types:['shambler','raven'],                                rate:40, count:14},
-{t:21, types:['shambler','raven','swarm_larva'],                  rate:32, count:20},
-{t:33, types:['shambler','bloated','swarm_larva'],                rate:26, count:28},
-{t:48, types:['shambler','risen_bandit','runner'],                rate:20, count:36},
-{t:66, types:['risen_bandit','runner','plague_bearer'],           rate:18, count:40},
+{t:0,  types:['shambler'],                                        rate:90, count:4},
+{t:20, types:['shambler'],                                        rate:75, count:6},
+{t:35, types:['shambler','raven'],                                rate:60, count:8},
+{t:50, types:['shambler','raven'],                                rate:50, count:12},
+{t:65, types:['shambler','raven','swarm_larva'],                  rate:38, count:18},
+{t:80, types:['risen_bandit','runner','plague_bearer'],           rate:22, count:32},
 {t:78, types:['skeleton_wall'],                                   rate:180,count:1},  // wall event
 {t:84, types:['runner','plague_bearer','void_shade'],             rate:16, count:45},  // no werewolf yet
 {t:96, types:['runner','void_shade','werewolf'],                  rate:14, count:50},  // gentle werewolf intro

@@ -1297,9 +1297,10 @@ async function buildBillboard(
   // Try to load avatar image
   const bodyTex = new THREE.CanvasTexture(canvas);
   const bodyGeo = new THREE.PlaneGeometry(1.8, 1.8);
-  const bodyMat = new THREE.MeshBasicMaterial({ map: bodyTex, transparent: true, depthWrite: false });
+  const bodyMat = new THREE.MeshBasicMaterial({ map: bodyTex, transparent: true, depthWrite: false, depthTest: false });
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
   bodyMesh.position.set(0, 1.4, 0);
+  bodyMesh.renderOrder = 10;
   bodyMesh.userData.billboard = true;
 
   const img = new Image();
@@ -1322,19 +1323,21 @@ async function buildBillboard(
   // Username label
   const nameTex = new THREE.CanvasTexture(makeUsernameCanvas(name));
   const nameGeo = new THREE.PlaneGeometry(1.6, 0.3);
-  const nameMat = new THREE.MeshBasicMaterial({ map: nameTex, transparent: true, depthWrite: false });
+  const nameMat = new THREE.MeshBasicMaterial({ map: nameTex, transparent: true, depthWrite: false, depthTest: false });
   const nameMesh = new THREE.Mesh(nameGeo, nameMat);
   nameMesh.position.set(0, 2.1, 0);
+  nameMesh.renderOrder = 10;
   nameMesh.userData.billboard = true;
   group.add(nameMesh);
 
   // Chat bubble (starts hidden)
   const bubbleTex = new THREE.CanvasTexture(makeChatCanvas(""));
   const bubbleGeo = new THREE.PlaneGeometry(1.8, 0.38);
-  const bubbleMat = new THREE.MeshBasicMaterial({ map: bubbleTex, transparent: true, depthWrite: false });
+  const bubbleMat = new THREE.MeshBasicMaterial({ map: bubbleTex, transparent: true, depthWrite: false, depthTest: false });
   const bubbleMesh = new THREE.Mesh(bubbleGeo, bubbleMat);
   bubbleMesh.name = "chat_bubble";
   bubbleMesh.position.set(0, 2.55, 0);
+  bubbleMesh.renderOrder = 10;
   bubbleMesh.userData.billboard = true;
   bubbleMesh.visible = false;
   group.add(bubbleMesh);
@@ -1520,7 +1523,7 @@ function buildBuilding(THREE: ThreeModule, scene: import("three").Scene, bld: { 
   scene.add(base);
 
   const wallMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(bld.color), roughness: 0.88, metalness: 0 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(bld.roofColor), roughness: 0.8, emissive: new THREE.Color(bld.roofColor), emissiveIntensity: 0.4 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(bld.roofColor), roughness: 0.85, emissive: new THREE.Color(bld.roofColor), emissiveIntensity: 0.05 });
 
   // Walls
   const wallGeo = new THREE.BoxGeometry(bw, bh, bd);
@@ -1529,14 +1532,31 @@ function buildBuilding(THREE: ThreeModule, scene: import("three").Scene, bld: { 
   wall.castShadow = true; wall.receiveShadow = true;
   scene.add(wall);
 
-  // Roof (pyramid)
-  const roofH = bh * 0.55;
-  const roofGeo = new THREE.ConeGeometry(Math.max(bw, bd) * 0.75, roofH, 4);
-  const roof = new THREE.Mesh(roofGeo, roofMat);
-  roof.position.set(bx, bh + 0.5 + roofH / 2, bz);
-  roof.rotation.y = Math.PI / 4;
-  roof.castShadow = true;
-  scene.add(roof);
+  // Roof — flat canopy for wide/market buildings, pyramid for normal buildings
+  const isWide = bw > bh * 2;
+  if (isWide) {
+    // Flat overhanging roof/canopy
+    const roofGeo = new THREE.BoxGeometry(bw + 1.2, 0.3, bd + 1.2);
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.set(bx, bh + 0.5 + 0.15, bz);
+    roof.castShadow = true; roof.receiveShadow = true;
+    scene.add(roof);
+    // Overhang lip
+    const lipMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(bld.roofColor), roughness: 0.9 });
+    const lipGeo = new THREE.BoxGeometry(bw + 1.6, 0.15, 0.4);
+    const lip = new THREE.Mesh(lipGeo, lipMat);
+    lip.position.set(bx, bh + 0.35, bz + bd / 2 + 0.7);
+    scene.add(lip);
+  } else {
+    // Pyramid roof
+    const roofH = bh * 0.55;
+    const roofGeo = new THREE.ConeGeometry(Math.max(bw, bd) * 0.75, roofH, 4);
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.set(bx, bh + 0.5 + roofH / 2, bz);
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    scene.add(roof);
+  }
 
   // Glowing windows
   const winMat = new THREE.MeshStandardMaterial({
