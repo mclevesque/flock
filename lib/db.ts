@@ -7,7 +7,7 @@ function getDb() {
   return _sql;
 }
 
-export function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Record<string, unknown>[]> {
+export function sql(strings: TemplateStringsArray, ...values: postgres.ParameterOrFragment<any>[]): Promise<Record<string, unknown>[]> {
   return getDb()(strings, ...values) as Promise<Record<string, unknown>[]>;
 }
 (sql as unknown as Record<string, unknown>).query = (text: string, params?: unknown[]) =>
