@@ -16,6 +16,7 @@ import {
   setViewerOffer, getAllViewerOffers, clearViewerOffer, clearAllViewerOffers,
   setTheaterJukebox,
   setPlayerLastEffect,
+  getVendorStock,
 } from "@/lib/db";
 
 async function postHeraldShare(_content: string, _title: string) {
