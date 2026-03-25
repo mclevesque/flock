@@ -1077,12 +1077,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       )}
       {showVendor && (
         <VendorPanel
-          stock={vendorStock as Parameters<typeof VendorPanel>[0]["stock"]}
           inventoryItems={myInventory as Parameters<typeof VendorPanel>[0]["inventoryItems"]}
           stashItems={((stashData as { stash_items?: unknown[] } | null)?.stash_items ?? []) as Parameters<typeof VendorPanel>[0]["stashItems"]}
           coins={myCoins}
           onClose={() => setShowVendor(false)}
-          onBuy={handleVendorBuy}
           onSellItem={() => {}}
         />
       )}
