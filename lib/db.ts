@@ -4774,6 +4774,11 @@ export async function purgeExpiredStories() {
   await sql`DELETE FROM stories WHERE expires_at <= NOW()`.catch(() => {});
 }
 
+// Clean up ground items older than 10 minutes
+export async function cleanupExpiredGroundItems() {
+  await sql`DELETE FROM town_ground_items WHERE dropped_at < NOW() - INTERVAL '10 minutes'`.catch(() => {});
+}
+
 // TEMP: Call all ensure functions for fresh DB setup
 export async function ensureAllTables() {
   await ensureVoiceTables().catch(()=>{});
