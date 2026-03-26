@@ -126,7 +126,30 @@ function registerRemotePlayer(id,p){
 let _partyTick=0;
 function tickParty(){
   _partyTick++;
-  if(_partyTick%6===0)sendPartyUpdate();
+  if(_partyTick%10===0)sendPartyUpdate(); // 4x/sec instead of 6x — less GC pressure
+}
+
+// ── Spatial grid for fast enemy proximity lookups ──────────────────────────
+const _EG_CELL=80;
+let _eg={};
+const _egOut=[];
+function _egRebuild(){
+  _eg={};
+  for(const e of gs.enemies){
+    if(!e.active)continue;
+    const k=(Math.floor(e.x/_EG_CELL))+'_'+(Math.floor(e.y/_EG_CELL));
+    (_eg[k]||(_eg[k]=[])).push(e);
+  }
+}
+function _egNear(x,y,r){
+  _egOut.length=0;
+  const x0=Math.floor((x-r)/_EG_CELL),x1=Math.floor((x+r)/_EG_CELL);
+  const y0=Math.floor((y-r)/_EG_CELL),y1=Math.floor((y+r)/_EG_CELL);
+  for(let gx=x0;gx<=x1;gx++)for(let gy=y0;gy<=y1;gy++){
+    const a=_eg[gx+'_'+gy];
+    if(a)for(const e of a)_egOut.push(e);
+  }
+  return _egOut;
 }
 
 function sendPartyUpdate(){
@@ -1128,9 +1151,7 @@ const area=getArea();const amt=getAmt();
 
 switch(def.type){
 case'projectile':{
-// Find nearest enemy
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy&&gs._nearestEnemyDist<def.range*area?gs._nearestEnemy:null;
 const baseAng=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
 for(let i=0;i<amt;i++){
 const spread=(amt>1)?(i-amt/2)*0.2:0;
@@ -1140,17 +1161,14 @@ dmg:def.dmg*w.lvl*might,life:50,maxLife:50,color:def.color,size:5*area});
 }snd('shoot');break}
 
 case'pierce':{
-// Piercing projectile (aldric lance)
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy&&gs._nearestEnemyDist<def.range*area?gs._nearestEnemy:null;
 const ang=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
 gs.weaponFX.push({type:'pierce',x:gs.px,y:gs.py,vx:Math.cos(ang)*7.5,vy:Math.sin(ang)*7.5,
 dmg:def.dmg*w.lvl*might,life:60,maxLife:60,color:def.color,size:6*area,hit:new Set()});
 snd('shoot');break}
 
 case'boomerang':{
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy||null;
 const baseAng=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):(Math.random()*Math.PI*2);
 for(let i=0;i<amt;i++){
   const spread=amt>1?(i-(amt-1)/2)*0.28:0; // spread flock into a V pattern
@@ -1174,7 +1192,7 @@ for(const orb of w._orbs){
 orb.ang+=0.042;
 const ox=gs.px+Math.cos(orb.ang)*orb.r;
 const oy=gs.py+Math.sin(orb.ang)*orb.r;
-for(const e of gs.enemies){
+for(const e of _egNear(ox,oy,60)){
 if(!e.active)continue;
 if(Math.hypot(e.x-ox,e.y-oy)<e.size+10)hitEnemy(e,def.dmg*w.lvl*might*0.15);
 }
@@ -1183,7 +1201,7 @@ gs.weaponFX.push({type:'orb',x:ox,y:oy,life:2,maxLife:2,color:def.color,size:8*a
 
 case'aura':{
 const r=def.range*area;snd('aura');
-for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might*0.3)}
+for(const e of _egNear(gs.px,gs.py,r+20)){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might*0.3)}
 gs.weaponFX.push({type:'aura',x:gs.px,y:gs.py,r,life:20,maxLife:20,color:def.color});
 if(getStat('regen')>0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
 break}
@@ -1191,12 +1209,11 @@ break}
 case'bomb':{
 const r=def.range*area;
 gs.weaponFX.push({type:'bomb',x:gs.px,y:gs.py,life:22,maxLife:22,range:r,color:def.color,dmg:def.dmg*w.lvl*might});
-for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might)}
+for(const e of _egNear(gs.px,gs.py,r+20)){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might)}
 snd('kill_big');gs.shakeDur=8;break}
 
 case'wave':{
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy&&gs._nearestEnemyDist<def.range*area?gs._nearestEnemy:null;
 const ang=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
 gs.weaponFX.push({type:'wave',x:gs.px,y:gs.py,vx:Math.cos(ang)*2.5,vy:Math.sin(ang)*2.5,
 dmg:def.dmg*w.lvl*might,life:80,maxLife:80,color:def.color,size:14*area,hit:new Set()});
@@ -1204,8 +1221,7 @@ snd('aura');break}
 
 case'multishot':{
 // Fan of arrows aimed at nearest enemy
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy&&gs._nearestEnemyDist<def.range*area?gs._nearestEnemy:null;
 const baseAng2=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
 const arrowAmt=amt+Math.floor(w.lvl/2);
 for(let i=0;i<arrowAmt;i++){
@@ -1217,8 +1233,7 @@ for(let i=0;i<arrowAmt;i++){
 
 case'fire_patch':{
 // Throw a pie that lands and creates a burning patch
-let tgt=null,td=Infinity;
-for(const e of gs.enemies){if(!e.active)continue;const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<def.range*area&&d<td){td=d;tgt=e}}
+const tgt=gs._nearestEnemy&&gs._nearestEnemyDist<def.range*area?gs._nearestEnemy:null;
 const ang3=tgt?Math.atan2(tgt.y-gs.py,tgt.x-gs.px):Math.atan2(gs.pFacingY,gs.pFacing);
 const landX=gs.px+Math.cos(ang3)*def.range*area*0.7;
 const landY=gs.py+Math.sin(ang3)*def.range*area*0.7;
@@ -1232,7 +1247,7 @@ case'whip':{
 const faceAng=Math.atan2(gs.pFacingY||0,gs.pFacing||1);
 const sweepR=def.range*area;
 const hit=new Set();
-for(const e of gs.enemies){
+for(const e of _egNear(gs.px,gs.py,sweepR+20)){
   if(!e.active)continue;
   const ex=e.x-gs.px,ey=e.y-gs.py;
   const d=Math.hypot(ex,ey);if(d>sweepR)continue;
@@ -1260,7 +1275,7 @@ case'scythe':{
 // Wide sweep arc — hits all enemies in a 240° arc in front. 2× if burning.
 const faceAng2=Math.atan2(gs.pFacingY||0,gs.pFacing||1);
 const scytheR=def.range*area;
-for(const e of gs.enemies){
+for(const e of _egNear(gs.px,gs.py,scytheR+20)){
   if(!e.active)continue;
   const ex=e.x-gs.px,ey=e.y-gs.py;
   const d=Math.hypot(ex,ey);if(d>scytheR)continue;
@@ -1279,7 +1294,7 @@ snd('aura');break}
 case'nova':{
 // Radial icy burst — freezes all enemies in range for 2 seconds
 const novaR=def.range*area;
-for(const e of gs.enemies){
+for(const e of _egNear(gs.px,gs.py,novaR+20)){
   if(!e.active)continue;
   if(Math.hypot(e.x-gs.px,e.y-gs.py)<novaR){
     hitEnemy(e,def.dmg*w.lvl*might);
@@ -1293,9 +1308,10 @@ snd('aura');gs.shakeDur=Math.max(gs.shakeDur,4);break}
 case'lightning':{
 const lR=def.range*area;
 const lCount=1+Math.floor(w.lvl/2); // 1,1,2,2,3,3,4,4 per level
-const nearby=gs.enemies.filter(e=>e.active&&!e.isWall&&Math.hypot(e.x-gs.px,e.y-gs.py)<lR)
-  .sort((a,b)=>Math.hypot(a.x-gs.px,a.y-gs.py)-Math.hypot(b.x-gs.px,b.y-gs.py))
-  .slice(0,lCount);
+const _lcands=_egNear(gs.px,gs.py,lR+20);
+const nearby=[];for(const e of _lcands){if(e.active&&!e.isWall&&Math.hypot(e.x-gs.px,e.y-gs.py)<lR)nearby.push(e);}
+nearby.sort((a,b)=>Math.hypot(a.x-gs.px,a.y-gs.py)-Math.hypot(b.x-gs.px,b.y-gs.py));
+nearby.length=Math.min(nearby.length,lCount);
 for(const tgt of nearby){
   const _segs=[];for(let si=0;si<8;si++)_segs.push((Math.random()-0.5)*54);
   const _branches=[];for(let si=1;si<7;si+=2)_branches.push({si,dx:(Math.random()-0.5)*30,dy:Math.random()*0.25});
@@ -1323,7 +1339,7 @@ if(fx.life<=0){gs.weaponFX.splice(i,1);continue}
 
 if(fx.type==='proj'||fx.type==='wave'){
 fx.x+=fx.vx;fx.y+=fx.vy;
-for(const e of gs.enemies){
+for(const e of _egNear(fx.x,fx.y,60)){
 if(!e.active)continue;
 if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){
 if(fx.type==='wave'){if(!fx.hit.has(e)){{fx.hit.add(e);hitEnemy(e,fx.dmg)}}}
@@ -1332,7 +1348,7 @@ else{hitEnemy(e,fx.dmg);gs.weaponFX.splice(i,1);break}
 
 else if(fx.type==='pierce'){
 fx.x+=fx.vx;fx.y+=fx.vy;
-for(const e of gs.enemies){
+for(const e of _egNear(fx.x,fx.y,60)){
 if(!e.active||fx.hit.has(e))continue;
 if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){fx.hit.add(e);hitEnemy(e,fx.dmg)}
 }}
@@ -1342,17 +1358,17 @@ fx.age++;
 if(fx.age>fx.maxLife/2)fx.returning=true;
 if(fx.returning){const ang=Math.atan2(gs.py-fx.y,gs.px-fx.x);fx.vx=Math.cos(ang)*6;fx.vy=Math.sin(ang)*6;}
 fx.x+=fx.vx;fx.y+=fx.vy;
-for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
+for(const e of _egNear(fx.x,fx.y,60)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
 }
 
 else if(fx.type==='axe'){
 fx.rot=(fx.rot||0)+0.25;
 fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=0.18;
-for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
+for(const e of _egNear(fx.x,fx.y,60)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg)}}
 }
 else if(fx.type==='arrow'){
 fx.x+=fx.vx;fx.y+=fx.vy;
-for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg);gs.weaponFX.splice(i,1);break}}
+for(const e of _egNear(fx.x,fx.y,60)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+fx.size){hitEnemy(e,fx.dmg);gs.weaponFX.splice(i,1);break}}
 }
 else if(fx.type==='pie_flight'){
 // Arc toward target
@@ -1368,7 +1384,7 @@ if(fx.life<=1){
 else if(fx.type==='fire_patch'){
 // Damage every 8 frames
 if(gs.frame%8===0){
-  for(const e of gs.enemies){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<fx.r){hitEnemy(e,fx.dmg*0.3);e.onFire=Math.max(e.onFire||0,420);e.onFireSpreads=e.onFireSpreads||0;}}
+  for(const e of _egNear(fx.x,fx.y,fx.r+20)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<fx.r){hitEnemy(e,fx.dmg*0.3);e.onFire=Math.max(e.onFire||0,420);e.onFireSpreads=e.onFireSpreads||0;}}
   if(Math.random()<0.10)spawnP(fx.x+(Math.random()-0.5)*fx.r,fx.y+(Math.random()-0.5)*fx.r,'#ff6622',1,3);
 }
 }
@@ -1377,7 +1393,7 @@ else if(fx.type==='vortex_pull'){
 fx.x=gs.px;fx.y=gs.py;
 // Pull all enemies inward every frame. Detonate on last frame.
 const prog=1-(fx.life/fx.maxLife); // 0→1 as it runs
-for(const e of gs.enemies){
+for(const e of _egNear(fx.x,fx.y,fx.r+70)){
   if(!e.active)continue;
   const pd=Math.hypot(e.x-fx.x,e.y-fx.y);
   if(pd<fx.r+50){
@@ -1391,7 +1407,7 @@ for(const e of gs.enemies){
 }
 if(fx.life<=1&&!fx.detonated){
   fx.detonated=true;
-  for(const e of gs.enemies){
+  for(const e of _egNear(fx.x,fx.y,fx.r+20)){
     if(!e.active)continue;
     const pd2=Math.hypot(e.x-fx.x,e.y-fx.y);
     if(pd2<fx.r*0.9){
@@ -1410,7 +1426,7 @@ if(fx.life<=1&&!fx.detonated){
 else if(fx.type==='lightning_bolt'){
   if(!fx._hit){
     fx._hit=true;
-    for(const e of gs.enemies){
+    for(const e of _egNear(fx.x,fx.y,60)){
       if(!e.active)continue;
       if(Math.hypot(e.x-fx.x,e.y-fx.y)<e.size+20){
         hitEnemy(e,fx.dmg);
@@ -1739,7 +1755,7 @@ if(gs.frame%4===0)hitEnemy(e,2);
 if(gs.frame%2===0&&Math.random()<0.12)spawnP(e.x+(Math.random()-0.5)*e.size*0.8,e.y-e.size*0.6,'#ff6622',1,3);
 // Spread fire to nearby enemies every 45 frames, max 4 total spreads
 if(gs.frame%45===0&&(e.onFireSpreads||0)<4){
-for(const e2 of gs.enemies){
+for(const e2 of _egNear(e.x,e.y,80)){
 if(!e2.active||e2===e||e2.onFire>0)continue;
 if(Math.hypot(e2.x-e.x,e2.y-e.y)<58){
 e2.onFire=Math.round(360+Math.random()*60);// 6-7s for spread
@@ -1808,12 +1824,13 @@ if(pd<14){
 gs.pills.splice(i,1);
 }}
 checkLevelUp(); // called once after full loop — prevents mid-loop level-up state causing XP bar glitch
+const _mag=getMagnet(); // cache once — used by food + gold loops
 for(let i=gs.foods.length-1;i>=0;i--){
 const f=gs.foods[i];f.life--;
 f.vx=f.vx||0;f.vy=f.vy||0;
 const fd=Math.hypot(gs.px-f.x,gs.py-f.y);
 // Magnet pulls hearts like XP/gold if player has magnet stat
-if(fd<getMagnet()&&fd>0){const fspd=Math.min(fd,5+fd*0.06);f.vx=(gs.px-f.x)/fd*fspd;f.vy=(gs.py-f.y)/fd*fspd;}
+if(fd<_mag&&fd>0){const fspd=Math.min(fd,5+fd*0.06);f.vx=(gs.px-f.x)/fd*fspd;f.vy=(gs.py-f.y)/fd*fspd;}
 else{f.vx*=0.82;f.vy*=0.82;}
 f.x+=f.vx;f.y+=f.vy;
 if(fd<12){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+f.heal);floatT(gs.px,gs.py-20,'+'+f.heal,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
@@ -1824,7 +1841,7 @@ for(let i=gs.goldGems.length-1;i>=0;i--){
 const g=gs.goldGems[i];g.life--;
 const gd=Math.hypot(gs.px-g.x,gs.py-g.y);
 // Direct pull — same fix as XP gems, prevents overshoot/repel
-if(gd<getMagnet()*1.4&&gd>0){const gspd=Math.min(gd,7+gd*0.07);g.vx=(gs.px-g.x)/gd*gspd;g.vy=(gs.py-g.y)/gd*gspd;}
+if(gd<_mag*1.4&&gd>0){const gspd=Math.min(gd,7+gd*0.07);g.vx=(gs.px-g.x)/gd*gspd;g.vy=(gs.py-g.y)/gd*gspd;}
 else{g.vx*=0.84;g.vy*=0.84;}
 g.x+=g.vx;g.y+=g.vy;
 if(gd<12||g.life<=0){if(gd<12){gs.gold+=g.val;floatT(gs.px,gs.py-24,'+'+g.val+'g','#ffd700');snd('gold');}gs.goldGems.splice(i,1);}
@@ -1852,6 +1869,12 @@ if(!ch.open&&Math.hypot(gs.px-ch.x,gs.py-ch.y)<ch.size+16){
 }}
 
 // ===== WEAPON FIRE =====
+// Pre-compute nearest enemy once — shared by all weapon targeting this frame
+{let _ne=null,_ned=Infinity;
+for(const e of gs.enemies){if(!e.active)continue;const _d=Math.hypot(e.x-gs.px,e.y-gs.py);if(_d<_ned){_ned=_d;_ne=e;}}
+gs._nearestEnemy=_ne;gs._nearestEnemyDist=_ned;}
+// Rebuild spatial grid once — shared by fireWeapons + updateFX
+_egRebuild();
 fireWeapons();updateFX();
 tickParty();
 
