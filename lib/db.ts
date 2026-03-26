@@ -8,6 +8,7 @@ function getDb() {
     max: 3,           // small pool for serverless
     idle_timeout: 10, // release idle connections
     connect_timeout: 10, // fail fast instead of hanging for minutes
+    prepare: false,   // transaction pooler (port 6543) doesn't support PREPARE
   });
   return _sql;
 }
