@@ -392,13 +392,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
     const init = async () => {
       THREE = await getThree();
+      setLoadMsg("Loading scene engine…");
       const gltfMod = await import("three/examples/jsm/loaders/GLTFLoader.js").catch(() => null);
       GLTFLoader = gltfMod?.GLTFLoader ?? null;
 
       if (destroyed || !mountRef.current) return;
 
       // ── Renderer ──────────────────────────────────────────────────────────
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      setLoadMsg("Creating renderer…");
+      const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
       renderer.shadowMap.enabled = true;
@@ -501,34 +503,43 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       scene.add(grass);
 
       // ── Moon Fountain (central) ───────────────────────────────────────────
+      setLoadMsg("Building fountain…");
       buildFountain(THREE, scene);
 
       // ── Lantern posts ─────────────────────────────────────────────────────
-      for (const pos of lanternPositions) {
+      setLoadMsg("Placing lanterns…");
+      for (const pos of activeLanterns) {
         buildLanternPost(THREE, scene, pos);
       }
 
       // ── Buildings ─────────────────────────────────────────────────────────
+      setLoadMsg("Constructing buildings…");
       for (const bld of MOONHAVEN_BUILDINGS) {
         buildBuilding(THREE, scene, bld);
       }
 
       // ── Drive-In Theater ──────────────────────────────────────────────────
+      setLoadMsg("Setting up Drive-In…");
       screenMeshRef.current = buildDriveIn(THREE, scene);
 
       // ── Stars backdrop ────────────────────────────────────────────────────
+      setLoadMsg("Painting stars…");
       buildStars(THREE, scene);
 
       // ── Forest trees ──────────────────────────────────────────────────────
+      setLoadMsg("Growing forest…");
       buildForestTrees(THREE, scene);
 
       // ── Horse & Cart ──────────────────────────────────────────────────────
+      setLoadMsg("Summoning horse…");
       buildHorseAndCart(THREE, scene);
 
       // ── Market awnings ────────────────────────────────────────────────────
+      setLoadMsg("Building market…");
       buildMarketAwnings(THREE, scene);
 
       // ── Cobblestone paths ─────────────────────────────────────────────────
+      setLoadMsg("Laying cobblestones…");
       buildCobblePath(THREE, scene);
 
       // ── Castle walls & gate ───────────────────────────────────────────────
@@ -1030,6 +1041,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         }}>
           <div style={{ fontSize: 44 }}>⚠️</div>
           <div style={{ fontSize: 18, color: "#ff8866", fontWeight: 900 }}>Moonhaven failed to load</div>
+          <div style={{ fontSize: 11, color: "rgba(200,150,150,0.45)", marginBottom: 4 }}>Failed at: {loadMsg}</div>
           <div style={{ fontSize: 12, color: "rgba(200,150,150,0.6)", maxWidth: 280, textAlign: "center" }}>{initError}</div>
           <button onClick={() => window.location.reload()} style={{
             padding: "10px 28px", borderRadius: 10, border: "1px solid rgba(200,100,100,0.4)",
