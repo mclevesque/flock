@@ -976,27 +976,19 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     pollRef.current = setInterval(async () => {
       const roomId = currentRoomRef.current;
       if (!roomId) {
+        // Reduced polling — only check voice rooms, skip invites to save DB connections
         fetch("/api/voice").then(r => r.json()).then(d => {
           if (Array.isArray(d)) setOpenRooms(d);
         }).catch(() => {});
-        if (userId) {
-          fetch("/api/voice?incoming=1").then(r => r.json()).then(d => {
-            if (Array.isArray(d)) setIncomingCalls(d);
-          }).catch(() => {});
-          fetch("/api/messages/invites").then(r => r.json()).then(d => {
-            if (Array.isArray(d)) setGameInvites(d);
-          }).catch(() => {});
-        }
         return;
       }
       fetch(`/api/voice/${roomId}`).then(r => r.json()).then(({ participants: pp }) => {
         if (Array.isArray(pp)) setParticipants(pp);
       }).catch(() => {});
-      // Poll messages when in maxi mode or always
       fetchRoomMessages(roomId);
-    }, 5000);
+    }, 15000);
 
-    signalPollRef.current = setInterval(processSignals, 3000);
+    signalPollRef.current = setInterval(processSignals, 10000);
 
     fetch("/api/voice").then(r => r.json()).then(d => {
       if (Array.isArray(d)) setOpenRooms(d);
@@ -1146,7 +1138,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
     };
     load();
-    dmPollRef.current = setInterval(load, 3000);
+    dmPollRef.current = setInterval(load, 15000);
     return () => clearInterval(dmPollRef.current);
   }, [dmActiveUser]); // eslint-disable-line
 

@@ -94,19 +94,10 @@ export default function ChallengePopup() {
     } catch { /* ignore */ }
   }, [session?.user?.id, quizDismissed]);
 
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    poll();
-    const interval = setInterval(poll, 3000);
-    return () => clearInterval(interval);
-  }, [session?.user?.id, poll]);
-
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    pollQuiz();
-    const interval = setInterval(pollQuiz, 3000);
-    return () => clearInterval(interval);
-  }, [session?.user?.id, pollQuiz]);
+  // Challenge/quiz polling disabled — was firing every 3s and exhausting DB connections
+  // TODO: re-enable with WebSocket push instead of polling
+  useEffect(() => {}, [session?.user?.id, poll]);
+  useEffect(() => {}, [session?.user?.id, pollQuiz]);
 
   // Countdown timers for each incoming challenge
   useEffect(() => {
