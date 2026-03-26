@@ -263,7 +263,7 @@ function InlineQuizCard({ challengeId, sessionUserId, senderId }: { challengeId:
       } catch { /* ignore */ }
     };
     load();
-    const iv = setInterval(load, 2500);
+    const iv = setInterval(load, 15000);
     return () => clearInterval(iv);
   }, [gameId, stage]);
 
@@ -971,7 +971,7 @@ function MessagesInner() {
   useEffect(() => {
     prevMsgIds.current = new Set();
     loadMessages();
-    const t = setInterval(loadMessages, 6000);
+    const t = setInterval(loadMessages, 30000);
     return () => clearInterval(t);
   }, [loadMessages]);
 
@@ -990,7 +990,7 @@ function MessagesInner() {
   useEffect(() => {
     prevGroupMsgIds.current = new Set();
     loadGroupMessages();
-    const t = setInterval(loadGroupMessages, 6000);
+    const t = setInterval(loadGroupMessages, 30000);
     return () => clearInterval(t);
   }, [loadGroupMessages]);
 
