@@ -42,7 +42,7 @@ export default async function EmulatorPage() {
       rooms={rooms as any}
       sessionUserId={session?.user?.id ?? null}
       sessionUsername={session?.user?.name ?? null}
-      hasSnesAccess={true}
+      hasSnesAccess={hasSnesAccess}
     />
   );
 }

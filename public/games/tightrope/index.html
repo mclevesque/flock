@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="screen-orientation" content="landscape">
+    <title>Tightrope Terror — Ryft</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            background: #000;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            position: fixed;
+            inset: 0;
+        }
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        canvas {
+            image-rendering: pixelated;
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* ---- Portrait orientation lock overlay ---- */
+        #rotate-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #0a0a1a;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #ff6644;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            gap: 20px;
+        }
+        #rotate-overlay .rotate-icon {
+            font-size: 64px;
+            animation: rotateHint 2s ease-in-out infinite;
+        }
+        #rotate-overlay p { color: #aa9988; font-size: 16px; padding: 0 30px; }
+        @keyframes rotateHint {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(90deg); }
+            75% { transform: rotate(90deg); }
+        }
+        /* Show rotate overlay only on touch devices in portrait */
+        @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
+            #rotate-overlay { display: flex !important; }
+            #mobile-controls { display: none !important; }
+            canvas { visibility: hidden; }
+        }
+
+        /* ---- Mobile touch controls ---- */
+        #mobile-controls {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            pointer-events: none;
+        }
+        @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+            #mobile-controls { display: block; }
+        }
+
+        .touch-btn {
+            position: fixed;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,200,150,0.3);
+            background: rgba(20,15,25,0.5);
+            color: rgba(255,200,150,0.65);
+            font-size: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: background 0.08s, border-color 0.08s, transform 0.08s;
+            z-index: 101;
+        }
+        .touch-btn.active {
+            background: rgba(255,100,68,0.45);
+            border-color: rgba(255,100,68,0.85);
+            transform: scale(0.93);
+        }
+        .touch-btn-step {
+            position: fixed;
+            width: 74px;
+            height: 74px;
+            border-radius: 50%;
+            border: 2px solid rgba(100,200,150,0.35);
+            background: rgba(20,25,15,0.5);
+            color: rgba(150,255,150,0.65);
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: background 0.08s, border-color 0.08s, transform 0.08s;
+            z-index: 101;
+        }
+        .touch-btn-step.active {
+            background: rgba(100,200,100,0.45);
+            border-color: rgba(100,255,100,0.85);
+            transform: scale(0.93);
+        }
+
+        /* Button positioning — safe area aware */
+        #touch-left {
+            bottom: max(12px, env(safe-area-inset-bottom, 0px));
+            left: max(12px, env(safe-area-inset-left, 0px));
+        }
+        #touch-right {
+            bottom: max(12px, env(safe-area-inset-bottom, 0px));
+            left: calc(max(12px, env(safe-area-inset-left, 0px)) + 80px);
+        }
+        #touch-step {
+            bottom: max(12px, env(safe-area-inset-bottom, 0px));
+            right: max(12px, env(safe-area-inset-right, 0px));
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Rotate phone overlay (portrait only) -->
+    <div id="rotate-overlay">
+        <div class="rotate-icon">&#x1F4F1;</div>
+        <h2>Rotate Your Phone</h2>
+        <p>Tightrope Terror plays in landscape mode.</p>
+    </div>
+
+    <!-- Mobile touch controls (landscape touch devices only) -->
+    <div id="mobile-controls">
+        <div id="touch-left" class="touch-btn">&larr;</div>
+        <div id="touch-right" class="touch-btn">&rarr;</div>
+        <div id="touch-step" class="touch-btn-step">STEP</div>
+    </div>
+
+    <!-- Vibe Engine -->
+    <script src="src/engine.js"></script>
+    <script src="src/scene.js"></script>
+    <script src="src/assets.js"></script>
+    <script src="src/sprite.js"></script>
+    <script src="src/physics.js"></script>
+    <script src="src/tilemap.js"></script>
+    <script src="src/input.js"></script>
+    <script src="src/audio.js"></script>
+    <script src="src/camera.js"></script>
+    <script src="src/particles.js"></script>
+    <script src="src/effects.js"></script>
+    <script src="src/ui.js"></script>
+    <script src="src/music.js"></script>
+    <script src="src/animator.js"></script>
+
+    <script>
+    // ============================================
+    //   TIGHTROPE TERROR
+    //   A Cairn-inspired tightrope walking simulator
+    //   "Every step could be your last."
+    // ============================================
+
+    const W = 960;
+    const H = 540;
+    const engine = new VibeEngine('game-canvas', W, H);
+
+    // ---- Narrator Audio System (pre-generated files) ----
+    const narratorQueue = [];
+    let narratorBusy = false;
+    let narratorEnabled = true;
+
+    // Maps narrator line keys to audio file paths
+    // Audio files live in assets/tightrope/narrator/
+    const NARRATOR_FILES = {
+        // Start lines
+        'start_0': 'assets/tightrope/narrator/start_0.mp3',
+        'start_1': 'assets/tightrope/narrator/start_1.mp3',
+        'start_2': 'assets/tightrope/narrator/start_2.mp3',
+        // Quarter
+        'quarter_0': 'assets/tightrope/narrator/quarter_0.mp3',
+        'quarter_1': 'assets/tightrope/narrator/quarter_1.mp3',
+        'quarter_2': 'assets/tightrope/narrator/quarter_2.mp3',
+        // Half
+        'half_0': 'assets/tightrope/narrator/half_0.mp3',
+        'half_1': 'assets/tightrope/narrator/half_1.mp3',
+        'half_2': 'assets/tightrope/narrator/half_2.mp3',
+        // Three quarter
+        'threeQuarter_0': 'assets/tightrope/narrator/threeQuarter_0.mp3',
+        'threeQuarter_1': 'assets/tightrope/narrator/threeQuarter_1.mp3',
+        'threeQuarter_2': 'assets/tightrope/narrator/threeQuarter_2.mp3',
+        // Near fall
+        'nearFall_0': 'assets/tightrope/narrator/nearFall_0.mp3',
+        'nearFall_1': 'assets/tightrope/narrator/nearFall_1.mp3',
+        'nearFall_2': 'assets/tightrope/narrator/nearFall_2.mp3',
+        // Fall
+        'fall_0': 'assets/tightrope/narrator/fall_0.mp3',
+        'fall_1': 'assets/tightrope/narrator/fall_1.mp3',
+        'fall_2': 'assets/tightrope/narrator/fall_2.mp3',
+        // Win
+        'win_0': 'assets/tightrope/narrator/win_0.mp3',
+        'win_1': 'assets/tightrope/narrator/win_1.mp3',
+        // Wind
+        'wind_0': 'assets/tightrope/narrator/wind_0.mp3',
+        'wind_1': 'assets/tightrope/narrator/wind_1.mp3',
+    };
+
+    // Pre-load narrator audio
+    const narratorAudioCache = {};
+    for (const [key, path] of Object.entries(NARRATOR_FILES)) {
+        const a = new Audio(path);
+        a.preload = 'auto';
+        narratorAudioCache[key] = a;
+    }
+
+    async function narratorSpeak(text, priority = false) {
+        // Find matching key for the text
+        let audioKey = null;
+        for (const [category, lines] of Object.entries(NARRATOR)) {
+            const idx = lines.indexOf(text);
+            if (idx !== -1) {
+                audioKey = `${category}_${idx}`;
+                break;
+            }
+        }
+        if (!audioKey) return;
+
+        if (priority) {
+            narratorQueue.length = 0;
+            narratorQueue.push(audioKey);
+        } else {
+            if (narratorQueue.length < 3) narratorQueue.push(audioKey);
+        }
+        if (!narratorBusy) processNarratorQueue();
+    }
+
+    async function processNarratorQueue() {
+        if (narratorQueue.length === 0) { narratorBusy = false; return; }
+        narratorBusy = true;
+        const key = narratorQueue.shift();
+
+        try {
+            const cached = narratorAudioCache[key];
+            if (cached && cached.readyState >= 2) {
+                const clone = cached.cloneNode();
+                clone.volume = 0.8;
+                await clone.play();
+                await new Promise(r => clone.onended = r);
+            }
+        } catch (e) {
+            console.warn('Narrator playback error:', e);
+        }
+
+        narratorBusy = false;
+        processNarratorQueue();
+    }
+
+    // ---- Narrator lines ----
+    const NARRATOR = {
+        start: [
+            "One foot in front of the other. That's all there is.",
+            "The rope holds. For now.",
+            "Don't think about the drop. Think about the next step."
+        ],
+        quarter: [
+            "The wind knows you're here now.",
+            "Your arms are getting heavy. Keep them steady.",
+            "A quarter of the way. Three quarters of fear to go."
+        ],
+        half: [
+            "Halfway. The worst place to look down.",
+            "You can't go back now. Not really.",
+            "The rope sways like it's breathing."
+        ],
+        threeQuarter: [
+            "So close. This is where they all fall.",
+            "Your legs are shaking. The rope can feel it.",
+            "Almost there. Don't rush. Rushing is how it ends."
+        ],
+        nearFall: [
+            "Careful!",
+            "Steady... steady...",
+            "Not like this."
+        ],
+        fall: [
+            "And just like that... it's all gone. But the rope is still there. Waiting.",
+            "The wind carries your scream all the way down. Then silence.",
+            "You fell. Everyone falls. The question is whether you climb back up."
+        ],
+        win: [
+            "You made it. Your hands won't stop shaking for hours.",
+            "Solid ground. You'll never take it for granted again."
+        ],
+        wind: [
+            "A gust. Hold on.",
+            "The wind is testing you.",
+        ]
+    };
+
+    function pickLine(category) {
+        const lines = NARRATOR[category];
+        return lines[Math.floor(Math.random() * lines.length)];
+    }
+
+    // ============================================
+    //   PROCEDURAL AUDIO ENGINE
+    // ============================================
+    class TightropeAudio {
+        constructor(audioEngine) {
+            this.audio = audioEngine;
+            this._ctx = null;
+            this._heartbeatInterval = null;
+            this._windNode = null;
+            this._windGain = null;
+            this._ambienceStarted = false;
+            this.heartRate = 60; // BPM
+            this._heartbeatTimer = 0;
+        }
+
+        _ensureCtx() {
+            this.audio._ensureContext();
+            this._ctx = this.audio._ctx;
+        }
+
+        startAmbience() {
+            if (this._ambienceStarted) return;
+            this._ensureCtx();
+            this._ambienceStarted = true;
+
+            // Wind noise using noise buffer
+            const bufferSize = this._ctx.sampleRate * 2;
+            const buffer = this._ctx.createBuffer(1, bufferSize, this._ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.3;
+            }
+
+            this._windNode = this._ctx.createBufferSource();
+            this._windNode.buffer = buffer;
+            this._windNode.loop = true;
+
+            // Low-pass filter for wind
+            const filter = this._ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 400;
+            filter.Q.value = 1;
+
+            this._windGain = this._ctx.createGain();
+            this._windGain.gain.value = 0.08;
+
+            this._windNode.connect(filter);
+            filter.connect(this._windGain);
+            this._windGain.connect(this.audio._master);
+            this._windNode.start();
+        }
+
+        setWindIntensity(intensity) {
+            if (this._windGain) {
+                this._windGain.gain.setTargetAtTime(
+                    0.05 + intensity * 0.25, this._ctx.currentTime, 0.3
+                );
+            }
+        }
+
+        heartbeat(rate) {
+            this._ensureCtx();
+            this.heartRate = rate;
+        }
+
+        playHeartbeat() {
+            this._ensureCtx();
+            const ctx = this._ctx;
+            const now = ctx.currentTime;
+
+            // Deep thump
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(55, now);
+            osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+            osc.connect(gain);
+            gain.connect(this.audio._master);
+            osc.start(now);
+            osc.stop(now + 0.2);
+
+            // Second beat (lub-dub)
+            setTimeout(() => {
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(45, ctx.currentTime);
+                osc2.frequency.exponentialRampToValueAtTime(25, ctx.currentTime + 0.12);
+                gain2.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                osc2.connect(gain2);
+                gain2.connect(this.audio._master);
+                osc2.start(ctx.currentTime);
+                osc2.stop(ctx.currentTime + 0.15);
+            }, 120);
+        }
+
+        ropeCreak() {
+            this._ensureCtx();
+            const ctx = this._ctx;
+            const now = ctx.currentTime;
+
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(80 + Math.random() * 40, now);
+            osc.frequency.linearRampToValueAtTime(60 + Math.random() * 30, now + 0.3);
+            gain.gain.setValueAtTime(0.06, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+            osc.connect(gain);
+            gain.connect(this.audio._master);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        }
+
+        windGust() {
+            this._ensureCtx();
+            const ctx = this._ctx;
+            const now = ctx.currentTime;
+
+            // Whoosh using filtered noise
+            const bufferSize = ctx.sampleRate;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const ch = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                ch[i] = (Math.random() * 2 - 1);
+            }
+
+            const src = ctx.createBufferSource();
+            src.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(300, now);
+            filter.frequency.linearRampToValueAtTime(800, now + 0.3);
+            filter.frequency.linearRampToValueAtTime(200, now + 1.0);
+            filter.Q.value = 2;
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.3, now + 0.2);
+            gain.gain.linearRampToValueAtTime(0, now + 1.0);
+
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.audio._master);
+            src.start(now);
+            src.stop(now + 1.0);
+        }
+
+        gasp() {
+            this._ensureCtx();
+            // Quick sharp intake synth
+            this.audio.synth('sine', { frequency: 600, frequencyEnd: 900, duration: 0.08, volume: 0.15 });
+            setTimeout(() => {
+                this.audio.synth('sine', { frequency: 800, frequencyEnd: 400, duration: 0.15, volume: 0.1 });
+            }, 50);
+        }
+
+        fallScream() {
+            this._ensureCtx();
+            const ctx = this._ctx;
+            const now = ctx.currentTime;
+
+            // Descending scream - pitch drops as you fall
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 2.5);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0.3, now + 0.3);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+            osc.connect(gain);
+            gain.connect(this.audio._master);
+            osc.start(now);
+            osc.stop(now + 2.5);
+        }
+
+        stepSound() {
+            this._ensureCtx();
+            this.audio.synth('triangle', {
+                frequency: 200 + Math.random() * 60,
+                frequencyEnd: 100 + Math.random() * 30,
+                duration: 0.06,
+                volume: 0.08
+            });
+        }
+
+        victoryChime() {
+            const notes = [523, 659, 784, 1047, 1319];
+            notes.forEach((freq, i) => {
+                setTimeout(() => {
+                    this.audio.synth('sine', { frequency: freq, duration: 0.3, volume: 0.15 });
+                }, i * 150);
+            });
+        }
+
+        stopAmbience() {
+            if (this._windNode) {
+                try { this._windNode.stop(); } catch(e) {}
+                this._windNode = null;
+            }
+            this._ambienceStarted = false;
+        }
+
+        update(dt) {
+            this._heartbeatTimer += dt;
+            const interval = 60 / this.heartRate;
+            if (this._heartbeatTimer >= interval) {
+                this._heartbeatTimer -= interval;
+                this.playHeartbeat();
+            }
+        }
+    }
+
+    const tAudio = new TightropeAudio(engine.audio);
+
+    // ============================================
+    //   TITLE SCENE
+    // ============================================
+    class TitleScene extends Scene {
+        constructor() {
+            super();
+            this.titleAlpha = 0;
+            this.subtitleAlpha = 0;
+            this.promptAlpha = 0;
+            this.timer = 0;
+            this.mountainOffset = 0;
+            this.stars = [];
+            for (let i = 0; i < 100; i++) {
+                this.stars.push({
+                    x: Math.random() * W,
+                    y: Math.random() * H * 0.6,
+                    size: Math.random() * 2 + 0.5,
+                    twinkle: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        ready() {
+            this.timer = 0;
+            this.titleAlpha = 0;
+            this.subtitleAlpha = 0;
+            this.promptAlpha = 0;
+        }
+
+        update(dt) {
+            this.timer += dt;
+
+            // Fade in title
+            if (this.timer > 0.5) this.titleAlpha = Math.min(1, this.titleAlpha + dt * 1.5);
+            if (this.timer > 1.5) this.subtitleAlpha = Math.min(1, this.subtitleAlpha + dt * 1.2);
+            if (this.timer > 3.0) this.promptAlpha = Math.min(1, this.promptAlpha + dt * 2);
+
+            // Stars twinkle
+            for (const star of this.stars) {
+                star.twinkle += dt * (1 + Math.random());
+            }
+
+            if (this.timer > 2.5 && (this.engine.input.isKeyDown('Space') || touchState.spaceDown)) {
+                this.engine.switchScene('game', 'fade');
+            }
+        }
+
+        drawUI(ctx) {
+            // Sky gradient
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+            skyGrad.addColorStop(0, '#0a0a1a');
+            skyGrad.addColorStop(0.4, '#1a1a3a');
+            skyGrad.addColorStop(0.7, '#2a1a2a');
+            skyGrad.addColorStop(1, '#0a0a0a');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, W, H);
+
+            // Stars
+            for (const star of this.stars) {
+                const alpha = 0.3 + Math.sin(star.twinkle) * 0.3 + 0.4;
+                ctx.fillStyle = `rgba(255, 240, 220, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Mountain silhouettes
+            ctx.fillStyle = '#0d0d15';
+            ctx.beginPath();
+            ctx.moveTo(0, H);
+            ctx.lineTo(0, H * 0.55);
+            ctx.lineTo(W * 0.15, H * 0.35);
+            ctx.lineTo(W * 0.25, H * 0.45);
+            ctx.lineTo(W * 0.35, H * 0.3);
+            ctx.lineTo(W * 0.5, H * 0.5);
+            ctx.lineTo(W * 0.6, H * 0.38);
+            ctx.lineTo(W * 0.75, H * 0.32);
+            ctx.lineTo(W * 0.85, H * 0.42);
+            ctx.lineTo(W, H * 0.4);
+            ctx.lineTo(W, H);
+            ctx.fill();
+
+            // Rope across mountains
+            ctx.strokeStyle = `rgba(180, 160, 120, ${this.titleAlpha * 0.6})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(W * 0.15, H * 0.35);
+            ctx.quadraticCurveTo(W * 0.5, H * 0.38 + Math.sin(this.timer * 0.5) * 3, W * 0.75, H * 0.32);
+            ctx.stroke();
+
+            // Tiny figure on rope
+            if (this.titleAlpha > 0.5) {
+                const figX = W * 0.45;
+                const figY = H * 0.355 + Math.sin(this.timer * 0.5) * 2;
+                ctx.fillStyle = `rgba(200, 180, 150, ${this.titleAlpha})`;
+                // Body
+                ctx.fillRect(figX - 1, figY - 8, 3, 6);
+                // Head
+                ctx.beginPath();
+                ctx.arc(figX + 0.5, figY - 10, 2, 0, Math.PI * 2);
+                ctx.fill();
+                // Balance pole
+                ctx.strokeStyle = `rgba(200, 180, 150, ${this.titleAlpha})`;
+                ctx.lineWidth = 1;
+                const poleAngle = Math.sin(this.timer * 1.2) * 0.15;
+                ctx.beginPath();
+                ctx.moveTo(figX - Math.cos(poleAngle) * 15, figY - 4 + Math.sin(poleAngle) * 3);
+                ctx.lineTo(figX + Math.cos(poleAngle) * 15, figY - 4 - Math.sin(poleAngle) * 3);
+                ctx.stroke();
+            }
+
+            // Title
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Title shadow
+            ctx.fillStyle = `rgba(0, 0, 0, ${this.titleAlpha * 0.5})`;
+            ctx.font = 'bold 52px "Courier New", monospace';
+            ctx.fillText('TIGHTROPE TERROR', W / 2 + 3, H * 0.62 + 3);
+
+            // Title
+            ctx.fillStyle = `rgba(255, 100, 68, ${this.titleAlpha})`;
+            ctx.fillText('TIGHTROPE TERROR', W / 2, H * 0.62);
+
+            // Subtitle
+            ctx.font = '16px "Courier New", monospace';
+            ctx.fillStyle = `rgba(180, 160, 140, ${this.subtitleAlpha})`;
+            ctx.fillText('"Every step could be your last."', W / 2, H * 0.72);
+
+            // Controls
+            if (this.promptAlpha > 0) {
+                ctx.font = '14px "Courier New", monospace';
+                ctx.fillStyle = `rgba(255, 200, 150, ${this.promptAlpha * (0.5 + Math.sin(this.timer * 3) * 0.3)})`;
+                const isMobile = 'ontouchstart' in window;
+                ctx.fillText(isMobile ? '[ TAP TO BEGIN ]' : '[ PRESS SPACE TO BEGIN ]', W / 2, H * 0.85);
+
+                ctx.font = '11px "Courier New", monospace';
+                ctx.fillStyle = `rgba(140, 130, 120, ${this.promptAlpha * 0.7})`;
+                ctx.fillText(isMobile ? 'Use on-screen buttons to balance and step' : 'LEFT / RIGHT  arrows to balance    |    UP to take a step', W / 2, H * 0.92);
+            }
+        }
+    }
+
+    // ============================================
+    //   GAME SCENE - THE MAIN EVENT
+    // ============================================
+    class GameScene extends Scene {
+        constructor() {
+            super();
+            this.reset();
+        }
+
+        reset() {
+            // Rope properties
+            this.ropeLength = 3000; // pixels total
+            this.ropeY = H * 0.35;  // rope height on screen
+            this.ropeSag = 30;      // max sag in middle
+
+            // Player position along rope (0 = start, ropeLength = end)
+            this.playerX = 50;
+            this.playerSpeed = 0;
+
+            // Physics: inverted pendulum
+            this.angle = 0;           // lean angle in radians
+            this.angularVel = 0;      // angular velocity
+            this.angularAcc = 0;      // angular acceleration
+            this.gravity = 3.5;       // gravity pull on lean
+            this.damping = 0.985;     // friction/air resistance
+            this.inputForce = 7.0;    // how much arrow keys affect
+            this.maxAngle = Math.PI / 3; // fall threshold (~60 degrees)
+
+            // Balance pole
+            this.poleAngle = 0;
+            this.poleTarget = 0;
+
+            // Wind system
+            this.windForce = 0;
+            this.windTarget = 0;
+            this.windGustTimer = 0;
+            this.windGustInterval = 4;
+            this.baseWindChance = 0.3;
+
+            // State
+            this.state = 'walking'; // 'walking', 'falling', 'victory', 'ready'
+            this.stateTimer = 0;
+            this.fallVelocity = 0;
+            this.fallY = 0;
+            this.fallRotation = 0;
+
+            // Camera
+            this.cameraX = 0;
+            this.cameraShake = 0;
+
+            // Progress tracking
+            this.progress = 0; // 0-1
+            this.bestProgress = 0;
+            this.attempts = 0;
+            this.stepTimer = 0;
+            this.stepCooldown = 0;
+
+            // Narrator triggers
+            this.narratorTriggers = {
+                start: false,
+                quarter: false,
+                half: false,
+                threeQuarter: false,
+                nearFall: false,
+                wind: false
+            };
+            this.nearFallCooldown = 0;
+
+            // Visual
+            this.dangerLevel = 0; // 0-1 for screen effects
+            this.vignetteIntensity = 0;
+            this.time = 0;
+            this.sweatDrops = [];
+            this.ropeWobble = 0;
+            this.ropeWobbleDecay = 0;
+
+            // Clouds
+            this.clouds = [];
+            for (let i = 0; i < 8; i++) {
+                this.clouds.push({
+                    x: Math.random() * (this.ropeLength + W),
+                    y: H * 0.5 + Math.random() * H * 0.3,
+                    w: 60 + Math.random() * 120,
+                    h: 20 + Math.random() * 30,
+                    speed: 5 + Math.random() * 15,
+                    alpha: 0.03 + Math.random() * 0.06
+                });
+            }
+
+            // Birds
+            this.birds = [];
+            this.birdTimer = 0;
+
+            // Distant details below
+            this.canyonDetails = [];
+            for (let i = 0; i < 30; i++) {
+                this.canyonDetails.push({
+                    x: Math.random() * (this.ropeLength + 400),
+                    y: H * 0.6 + Math.random() * H * 0.4,
+                    type: Math.random() > 0.5 ? 'rock' : 'tree',
+                    size: 2 + Math.random() * 6,
+                    shade: Math.random() * 0.3
+                });
+            }
+
+            // Particles
+            this.dustParticles = [];
+        }
+
+        ready() {
+            this.reset();
+            this.state = 'ready';
+            this.stateTimer = 0;
+
+            engine.audio.resume();
+            tAudio.startAmbience();
+            tAudio.heartRate = 55;
+
+            // Start narrator
+            setTimeout(() => narratorSpeak(pickLine('start')), 2000);
+        }
+
+        update(dt) {
+            this.time += dt;
+            this.stateTimer += dt;
+
+            if (this.state === 'ready') {
+                if (this.stateTimer > 1.0) {
+                    this.state = 'walking';
+                    this.stateTimer = 0;
+                    this.narratorTriggers.start = true;
+                }
+                return;
+            }
+
+            if (this.state === 'walking') {
+                this.updateWalking(dt);
+            } else if (this.state === 'falling') {
+                this.updateFalling(dt);
+            } else if (this.state === 'victory') {
+                this.updateVictory(dt);
+            }
+
+            // Update audio
+            tAudio.update(dt);
+
+            // Update clouds
+            for (const cloud of this.clouds) {
+                cloud.x += cloud.speed * dt;
+                if (cloud.x > this.cameraX + W + 200) {
+                    cloud.x = this.cameraX - 200;
+                }
+            }
+
+            // Update birds
+            this.birdTimer += dt;
+            if (this.progress > 0.3 && this.birdTimer > 3 + Math.random() * 5) {
+                this.birdTimer = 0;
+                this.birds.push({
+                    x: this.cameraX + W + 50,
+                    y: this.ropeY - 80 + Math.random() * 60,
+                    vx: -120 - Math.random() * 80,
+                    wingPhase: Math.random() * Math.PI * 2,
+                    size: 3 + Math.random() * 3
+                });
+            }
+            for (let i = this.birds.length - 1; i >= 0; i--) {
+                const bird = this.birds[i];
+                bird.x += bird.vx * dt;
+                bird.wingPhase += dt * 8;
+                bird.y += Math.sin(this.time * 2 + i) * 0.3;
+                if (bird.x < this.cameraX - 100) {
+                    this.birds.splice(i, 1);
+                }
+            }
+        }
+
+        updateWalking(dt) {
+            const input = engine.input;
+
+            // Progress
+            this.progress = this.playerX / this.ropeLength;
+            if (this.progress > this.bestProgress) this.bestProgress = this.progress;
+
+            // Difficulty scaling
+            const diff = this.progress;
+            const gravityMul = 1 + diff * 1.8;          // Gravity gets stronger
+            const windMul = diff * 2.5;                   // More wind
+            const dampingReduction = diff * 0.012;        // Less damping (harder to stabilize)
+
+            // ---- WIND ----
+            this.windGustTimer += dt;
+            const gustInterval = Math.max(1.5, this.windGustInterval - diff * 2);
+            if (this.windGustTimer >= gustInterval) {
+                this.windGustTimer = 0;
+                if (Math.random() < this.baseWindChance + diff * 0.5) {
+                    this.windTarget = (Math.random() - 0.5) * 2.5 * windMul;
+                    tAudio.windGust();
+                    tAudio.setWindIntensity(Math.abs(this.windTarget));
+
+                    if (Math.abs(this.windTarget) > 1.5 && !this.narratorTriggers.wind) {
+                        this.narratorTriggers.wind = true;
+                        narratorSpeak(pickLine('wind'));
+                        setTimeout(() => { this.narratorTriggers.wind = false; }, 8000);
+                    }
+                }
+            }
+            this.windForce += (this.windTarget - this.windForce) * dt * 2;
+            this.windTarget *= 0.98; // Wind dies down
+
+            // ---- INPUT ----
+            let inputTorque = 0;
+            if (input.isKey('ArrowLeft') || input.isKey('KeyA') || touchState.left) {
+                inputTorque = -this.inputForce;
+                this.poleTarget = -0.4;
+            } else if (input.isKey('ArrowRight') || input.isKey('KeyD') || touchState.right) {
+                inputTorque = this.inputForce;
+                this.poleTarget = 0.4;
+            } else {
+                this.poleTarget = 0;
+            }
+
+            // Smooth pole animation
+            this.poleAngle += (this.poleTarget - this.poleAngle) * dt * 8;
+
+            // ---- STEPPING ----
+            this.stepCooldown -= dt;
+            if ((input.isKey('ArrowUp') || input.isKey('KeyW') || touchState.step) && this.stepCooldown <= 0) {
+                // Can only step when relatively balanced
+                if (Math.abs(this.angle) < this.maxAngle * 0.6) {
+                    this.playerSpeed = 60 + 40 * (1 - Math.abs(this.angle) / this.maxAngle);
+                    this.stepCooldown = 0.3;
+                    tAudio.stepSound();
+
+                    // Stepping destabilizes slightly
+                    this.angularVel += (Math.random() - 0.5) * 0.8;
+                    this.ropeWobble = 3 + diff * 5;
+                    this.ropeWobbleDecay = 0;
+                }
+            }
+
+            // Move forward
+            this.playerX += this.playerSpeed * dt;
+            this.playerSpeed *= 0.92;
+
+            // ---- PHYSICS: INVERTED PENDULUM ----
+            // Gravity component: wants to tip you over
+            this.angularAcc = this.gravity * gravityMul * Math.sin(this.angle);
+
+            // Add wind
+            this.angularAcc += this.windForce;
+
+            // Add player input
+            this.angularAcc += inputTorque;
+
+            // Natural wobble that increases with progress
+            this.angularAcc += Math.sin(this.time * (1.5 + diff * 2)) * (0.3 + diff * 1.0);
+
+            // Rope sway (more in the middle)
+            const middleFactor = 1 - Math.abs(this.progress - 0.5) * 2;
+            this.angularAcc += Math.sin(this.time * 0.7) * middleFactor * 0.5;
+
+            // Update angular velocity
+            this.angularVel += this.angularAcc * dt;
+            this.angularVel *= (this.damping - dampingReduction);
+
+            // Update angle
+            this.angle += this.angularVel * dt;
+
+            // Rope wobble
+            if (this.ropeWobble > 0) {
+                this.ropeWobbleDecay += dt;
+                this.ropeWobble *= 0.95;
+            }
+
+            // ---- DANGER LEVEL ----
+            const absAngle = Math.abs(this.angle);
+            this.dangerLevel = Math.pow(absAngle / this.maxAngle, 2);
+
+            // Heartbeat increases with danger
+            tAudio.heartRate = 55 + this.dangerLevel * 140;
+
+            // Camera shake with danger
+            this.cameraShake = this.dangerLevel * 4;
+
+            // Near-fall audio
+            this.nearFallCooldown -= dt;
+            if (this.dangerLevel > 0.7 && this.nearFallCooldown <= 0) {
+                tAudio.gasp();
+                tAudio.ropeCreak();
+                this.nearFallCooldown = 1.5;
+
+                if (!this.narratorTriggers.nearFall) {
+                    this.narratorTriggers.nearFall = true;
+                    narratorSpeak(pickLine('nearFall'), true);
+                    setTimeout(() => { this.narratorTriggers.nearFall = false; }, 6000);
+                }
+            }
+
+            // Rope creak periodically
+            if (Math.random() < 0.005 + this.dangerLevel * 0.02) {
+                tAudio.ropeCreak();
+            }
+
+            // ---- NARRATOR TRIGGERS ----
+            if (this.progress > 0.25 && !this.narratorTriggers.quarter) {
+                this.narratorTriggers.quarter = true;
+                narratorSpeak(pickLine('quarter'));
+            }
+            if (this.progress > 0.5 && !this.narratorTriggers.half) {
+                this.narratorTriggers.half = true;
+                narratorSpeak(pickLine('half'));
+            }
+            if (this.progress > 0.75 && !this.narratorTriggers.threeQuarter) {
+                this.narratorTriggers.threeQuarter = true;
+                narratorSpeak(pickLine('threeQuarter'));
+            }
+
+            // ---- FALL CHECK ----
+            if (absAngle >= this.maxAngle) {
+                this.state = 'falling';
+                this.stateTimer = 0;
+                this.fallVelocity = 0;
+                this.fallY = 0;
+                this.fallRotation = this.angle;
+                tAudio.fallScream();
+                tAudio.setWindIntensity(1.0);
+                engine.shake(12, 0.9);
+
+                setTimeout(() => narratorSpeak(pickLine('fall'), true), 1500);
+            }
+
+            // ---- VICTORY CHECK ----
+            if (this.playerX >= this.ropeLength - 30) {
+                this.state = 'victory';
+                this.stateTimer = 0;
+                tAudio.victoryChime();
+                narratorSpeak(pickLine('win'), true);
+            }
+
+            // ---- CAMERA ----
+            const targetCamX = this.playerX - W * 0.3;
+            this.cameraX += (targetCamX - this.cameraX) * dt * 3;
+            if (this.cameraX < 0) this.cameraX = 0;
+
+            // Sweat drops when stressed
+            if (this.dangerLevel > 0.5 && Math.random() < this.dangerLevel * 0.1) {
+                this.sweatDrops.push({
+                    x: 0, y: -12,
+                    vy: 30 + Math.random() * 20,
+                    life: 0.5
+                });
+            }
+            for (let i = this.sweatDrops.length - 1; i >= 0; i--) {
+                this.sweatDrops[i].y += this.sweatDrops[i].vy * dt;
+                this.sweatDrops[i].life -= dt;
+                if (this.sweatDrops[i].life <= 0) this.sweatDrops.splice(i, 1);
+            }
+        }
+
+        updateFalling(dt) {
+            this.fallVelocity += 600 * dt; // gravity
+            this.fallY += this.fallVelocity * dt;
+            this.fallRotation += (this.angle > 0 ? 3 : -3) * dt;
+
+            // Camera follows the fall slightly
+            this.cameraShake = Math.max(0, this.cameraShake - dt * 2);
+
+            if (this.stateTimer > 3.5) {
+                // Reset
+                this.attempts++;
+                this.state = 'ready';
+                this.stateTimer = 0;
+                this.angle = 0;
+                this.angularVel = 0;
+                this.playerX = 50;
+                this.playerSpeed = 0;
+                this.dangerLevel = 0;
+                this.fallY = 0;
+                this.fallVelocity = 0;
+                this.fallRotation = 0;
+                this.windForce = 0;
+                this.windTarget = 0;
+                this.sweatDrops = [];
+                this.narratorTriggers = {
+                    start: false, quarter: false, half: false,
+                    threeQuarter: false, nearFall: false, wind: false
+                };
+                tAudio.setWindIntensity(0.1);
+                tAudio.heartRate = 55;
+            }
+        }
+
+        updateVictory(dt) {
+            tAudio.heartRate = Math.max(50, tAudio.heartRate - dt * 30);
+            this.dangerLevel = Math.max(0, this.dangerLevel - dt);
+        }
+
+        // ---- RENDERING ----
+        drawUI(ctx) {
+            ctx.save();
+
+            // Apply camera shake
+            if (this.cameraShake > 0.1) {
+                ctx.translate(
+                    (Math.random() - 0.5) * this.cameraShake * 2,
+                    (Math.random() - 0.5) * this.cameraShake * 2
+                );
+            }
+
+            this.drawSky(ctx);
+            this.drawMountains(ctx);
+            this.drawCanyon(ctx);
+            this.drawClouds(ctx);
+            this.drawRope(ctx);
+            this.drawBirds(ctx);
+            this.drawPlayer(ctx);
+            this.drawHUD(ctx);
+            this.drawVignette(ctx);
+
+            // Danger red overlay
+            if (this.dangerLevel > 0.3) {
+                const alpha = (this.dangerLevel - 0.3) * 0.3;
+                ctx.fillStyle = `rgba(180, 20, 0, ${alpha * (0.7 + Math.sin(this.time * 8) * 0.3)})`;
+                ctx.fillRect(0, 0, W, H);
+            }
+
+            // Fall fade to black
+            if (this.state === 'falling' && this.stateTimer > 2) {
+                const fadeAlpha = Math.min(1, (this.stateTimer - 2) / 1.5);
+                ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+                ctx.fillRect(0, 0, W, H);
+            }
+
+            ctx.restore();
+        }
+
+        drawSky(ctx) {
+            // Time-of-day-ish sky
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+            skyGrad.addColorStop(0, '#1a1a2e');
+            skyGrad.addColorStop(0.3, '#2d2d5e');
+            skyGrad.addColorStop(0.6, '#4a3a5e');
+            skyGrad.addColorStop(1, '#6e4a5a');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, W, H * 0.5);
+
+            // Stars (very faint)
+            ctx.fillStyle = 'rgba(255, 240, 220, 0.3)';
+            for (let i = 0; i < 40; i++) {
+                const sx = ((i * 137 + 50) % W);
+                const sy = ((i * 89 + 20) % (H * 0.3));
+                const twinkle = 0.3 + Math.sin(this.time * 1.5 + i * 2.3) * 0.3;
+                ctx.globalAlpha = twinkle;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 0.5 + (i % 3) * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        drawMountains(ctx) {
+            const camX = this.cameraX;
+
+            // Far mountains (parallax 0.1)
+            ctx.fillStyle = '#1a1525';
+            ctx.beginPath();
+            ctx.moveTo(0, H);
+            for (let x = 0; x <= W; x += 20) {
+                const worldX = x + camX * 0.05;
+                const mtnY = H * 0.4 + Math.sin(worldX * 0.003) * 40 + Math.sin(worldX * 0.007) * 25;
+                ctx.lineTo(x, mtnY);
+            }
+            ctx.lineTo(W, H);
+            ctx.fill();
+
+            // Mid mountains (parallax 0.2)
+            ctx.fillStyle = '#12101a';
+            ctx.beginPath();
+            ctx.moveTo(0, H);
+            for (let x = 0; x <= W; x += 15) {
+                const worldX = x + camX * 0.15;
+                const mtnY = H * 0.42 + Math.sin(worldX * 0.005) * 35 + Math.sin(worldX * 0.012 + 1) * 20;
+                ctx.lineTo(x, mtnY);
+            }
+            ctx.lineTo(W, H);
+            ctx.fill();
+
+            // Near cliff edges (left and right platforms)
+            const leftCliffEnd = 80 - camX;
+            const rightCliffStart = this.ropeLength - 30 - camX;
+
+            // Left cliff
+            if (leftCliffEnd > -100) {
+                ctx.fillStyle = '#2a2035';
+                ctx.beginPath();
+                ctx.moveTo(Math.min(leftCliffEnd, 0) - 200, this.ropeY - 5);
+                ctx.lineTo(leftCliffEnd, this.ropeY - 5);
+                ctx.lineTo(leftCliffEnd + 10, this.ropeY + 5);
+                ctx.lineTo(leftCliffEnd + 30, H);
+                ctx.lineTo(-200, H);
+                ctx.fill();
+
+                // Cliff face detail
+                ctx.fillStyle = '#221a2d';
+                ctx.fillRect(leftCliffEnd - 5, this.ropeY - 5, 15, H);
+            }
+
+            // Right cliff
+            if (rightCliffStart < W + 100) {
+                ctx.fillStyle = '#2a2035';
+                ctx.beginPath();
+                ctx.moveTo(rightCliffStart, this.ropeY - 5);
+                ctx.lineTo(rightCliffStart + 400, this.ropeY - 5);
+                ctx.lineTo(rightCliffStart + 400, H);
+                ctx.lineTo(rightCliffStart - 20, H);
+                ctx.lineTo(rightCliffStart - 10, this.ropeY + 5);
+                ctx.fill();
+
+                ctx.fillStyle = '#221a2d';
+                ctx.fillRect(rightCliffStart - 10, this.ropeY - 5, 20, H);
+            }
+        }
+
+        drawCanyon(ctx) {
+            // Deep canyon below - fog layers
+            const camX = this.cameraX;
+
+            // Canyon walls gradient
+            const canyonGrad = ctx.createLinearGradient(0, this.ropeY + 20, 0, H);
+            canyonGrad.addColorStop(0, '#0e0a14');
+            canyonGrad.addColorStop(0.3, '#0a0810');
+            canyonGrad.addColorStop(0.6, '#06050a');
+            canyonGrad.addColorStop(1, '#020204');
+            ctx.fillStyle = canyonGrad;
+            ctx.fillRect(0, this.ropeY + 10, W, H);
+
+            // Canyon details (tiny rocks/trees far below)
+            for (const detail of this.canyonDetails) {
+                const screenX = detail.x - camX * 0.3;
+                if (screenX < -20 || screenX > W + 20) continue;
+
+                ctx.fillStyle = `rgba(30, 25, 40, ${0.3 + detail.shade})`;
+                if (detail.type === 'rock') {
+                    ctx.beginPath();
+                    ctx.arc(screenX, detail.y, detail.size, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(screenX - 0.5, detail.y - detail.size, 1, detail.size);
+                    ctx.beginPath();
+                    ctx.arc(screenX, detail.y - detail.size, detail.size * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // Fog layers
+            for (let i = 0; i < 3; i++) {
+                const fogY = this.ropeY + 60 + i * 80;
+                const fogAlpha = 0.04 - i * 0.01;
+                ctx.fillStyle = `rgba(60, 50, 80, ${fogAlpha})`;
+                for (let x = 0; x < W; x += 40) {
+                    const worldX = x + camX * (0.1 + i * 0.05) + this.time * (3 + i * 2);
+                    const fogH = 30 + Math.sin(worldX * 0.01) * 20;
+                    ctx.beginPath();
+                    ctx.ellipse(x, fogY, 50, fogH, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        drawClouds(ctx) {
+            for (const cloud of this.clouds) {
+                const screenX = cloud.x - this.cameraX * 0.2;
+                if (screenX < -200 || screenX > W + 200) continue;
+
+                ctx.fillStyle = `rgba(80, 70, 100, ${cloud.alpha})`;
+                ctx.beginPath();
+                ctx.ellipse(screenX, cloud.y, cloud.w / 2, cloud.h / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(screenX - cloud.w * 0.25, cloud.y + 5, cloud.w * 0.3, cloud.h * 0.4, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(screenX + cloud.w * 0.3, cloud.y + 3, cloud.w * 0.25, cloud.h * 0.35, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        drawRope(ctx) {
+            const camX = this.cameraX;
+            const startX = 80;
+            const endX = this.ropeLength - 30;
+
+            ctx.strokeStyle = '#8a7a60';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            const segments = 100;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const worldX = startX + t * (endX - startX);
+                const screenX = worldX - camX;
+
+                if (screenX < -50 || screenX > W + 50) continue;
+
+                // Catenary sag
+                const sag = Math.sin(t * Math.PI) * this.ropeSag;
+
+                // Rope wobble from stepping
+                const wobble = this.ropeWobble * Math.sin(t * Math.PI * 3 + this.time * 8) *
+                    Math.exp(-this.ropeWobbleDecay * 2);
+
+                // Wind sway
+                const windSway = Math.sin(t * Math.PI * 2 + this.time * 1.5) * Math.abs(this.windForce) * 2;
+
+                const y = this.ropeY + sag + wobble + windSway;
+
+                if (i === 0) ctx.moveTo(screenX, y);
+                else ctx.lineTo(screenX, y);
+            }
+            ctx.stroke();
+
+            // Rope attachment points (pitons)
+            ctx.fillStyle = '#665540';
+            const leftPitonX = startX - camX;
+            const rightPitonX = endX - camX;
+            if (leftPitonX > -20 && leftPitonX < W + 20) {
+                ctx.fillRect(leftPitonX - 3, this.ropeY - 8, 6, 12);
+            }
+            if (rightPitonX > -20 && rightPitonX < W + 20) {
+                ctx.fillRect(rightPitonX - 3, this.ropeY - 8, 6, 12);
+            }
+        }
+
+        drawBirds(ctx) {
+            for (const bird of this.birds) {
+                const screenX = bird.x - this.cameraX;
+                if (screenX < -30 || screenX > W + 30) continue;
+
+                ctx.strokeStyle = '#3a3040';
+                ctx.lineWidth = 1.5;
+                const wingY = Math.sin(bird.wingPhase) * bird.size;
+
+                ctx.beginPath();
+                ctx.moveTo(screenX - bird.size * 2, bird.y + wingY);
+                ctx.quadraticCurveTo(screenX - bird.size * 0.5, bird.y - bird.size * 0.5, screenX, bird.y);
+                ctx.quadraticCurveTo(screenX + bird.size * 0.5, bird.y - bird.size * 0.5, screenX + bird.size * 2, bird.y + wingY);
+                ctx.stroke();
+            }
+        }
+
+        drawPlayer(ctx) {
+            const screenX = this.playerX - this.cameraX;
+            const t = this.playerX / (this.ropeLength - 110);
+            const ropeSagAtPlayer = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * this.ropeSag;
+            let playerScreenY = this.ropeY + ropeSagAtPlayer;
+
+            // Apply fall offset
+            if (this.state === 'falling') {
+                playerScreenY += this.fallY;
+            }
+
+            ctx.save();
+            ctx.translate(screenX, playerScreenY);
+
+            if (this.state === 'falling') {
+                ctx.rotate(this.fallRotation);
+            }
+
+            // Lean the body
+            const leanAngle = this.state === 'falling' ? 0 : this.angle;
+            ctx.rotate(leanAngle * 0.6); // Body leans less than full physics angle
+
+            // Scale based on danger for "anxiety" effect
+            const breathScale = 1 + Math.sin(this.time * tAudio.heartRate / 15) * this.dangerLevel * 0.02;
+            ctx.scale(breathScale, breathScale);
+
+            // ---- DRAW CHARACTER ----
+            // Shadow on rope
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(-3, -1, 6, 2);
+
+            // Feet
+            ctx.fillStyle = '#4a3a2a';
+            ctx.fillRect(-3, -3, 3, 3);  // left foot
+            ctx.fillRect(1, -3, 3, 3);   // right foot
+
+            // Legs
+            ctx.fillStyle = '#5a4a3a';
+            ctx.fillRect(-2, -10, 2, 8);  // left leg
+            ctx.fillRect(1, -10, 2, 8);   // right leg
+
+            // Body (torso)
+            ctx.fillStyle = '#884422';
+            ctx.fillRect(-3, -20, 7, 11);
+
+            // Arms (affected by pole)
+            ctx.save();
+            ctx.translate(0, -16);
+
+            // Left arm
+            ctx.fillStyle = '#aa6633';
+            ctx.save();
+            ctx.rotate(-0.3 + this.poleAngle * 0.5);
+            ctx.fillRect(-8, -1, 6, 2);
+            ctx.restore();
+
+            // Right arm
+            ctx.save();
+            ctx.rotate(0.3 + this.poleAngle * 0.5);
+            ctx.fillRect(3, -1, 6, 2);
+            ctx.restore();
+
+            ctx.restore();
+
+            // Head
+            ctx.fillStyle = '#cc9966';
+            ctx.beginPath();
+            ctx.arc(0.5, -23, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hat
+            ctx.fillStyle = '#553322';
+            ctx.fillRect(-4, -28, 9, 3);
+            ctx.fillRect(-2, -31, 5, 4);
+
+            // Eyes (tiny dots that look down when scared)
+            ctx.fillStyle = '#222';
+            const eyeYOffset = this.dangerLevel > 0.5 ? 1 : 0;
+            ctx.fillRect(-2, -24 + eyeYOffset, 1, 1);
+            ctx.fillRect(2, -24 + eyeYOffset, 1, 1);
+
+            // Mouth (grimace when scared)
+            if (this.dangerLevel > 0.4) {
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(-1, -21);
+                ctx.lineTo(2, -21 + this.dangerLevel);
+                ctx.stroke();
+            }
+
+            // ---- BALANCE POLE ----
+            ctx.save();
+            ctx.translate(0, -16);
+            ctx.rotate(this.poleAngle);
+
+            // Pole
+            ctx.strokeStyle = '#8a7a50';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-28, 0);
+            ctx.lineTo(28, 0);
+            ctx.stroke();
+
+            // Pole weights (ends droop with gravity)
+            const leftDroop = Math.sin(this.angle - this.poleAngle) * 3;
+            const rightDroop = -Math.sin(this.angle - this.poleAngle) * 3;
+            ctx.fillStyle = '#665530';
+            ctx.beginPath();
+            ctx.arc(-28, leftDroop + 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(28, rightDroop + 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // Sweat drops
+            for (const drop of this.sweatDrops) {
+                ctx.fillStyle = `rgba(100, 180, 255, ${drop.life * 1.5})`;
+                ctx.beginPath();
+                ctx.arc(drop.x + (Math.random() - 0.5) * 3, drop.y, 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        drawHUD(ctx) {
+            // ---- PROGRESS BAR ----
+            const barW = 300;
+            const barH = 6;
+            const barX = W / 2 - barW / 2;
+            const barY = 20;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+
+            // Track
+            ctx.fillStyle = 'rgba(60, 50, 40, 0.6)';
+            ctx.fillRect(barX, barY, barW, barH);
+
+            // Progress fill
+            const progColor = this.dangerLevel > 0.6 ? '#cc3322' : this.dangerLevel > 0.3 ? '#cc8822' : '#44aa44';
+            ctx.fillStyle = progColor;
+            ctx.fillRect(barX, barY, barW * this.progress, barH);
+
+            // Best progress marker
+            if (this.bestProgress > this.progress) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(barX + barW * this.bestProgress - 1, barY - 1, 2, barH + 2);
+            }
+
+            // Labels
+            ctx.textAlign = 'center';
+            ctx.font = '10px "Courier New", monospace';
+            ctx.fillStyle = 'rgba(200, 180, 160, 0.6)';
+            ctx.fillText(`${Math.floor(this.progress * 100)}%`, W / 2, barY + barH + 14);
+
+            // ---- ANGLE INDICATOR ----
+            const indicW = 80;
+            const indicX = W - indicW - 20;
+            const indicY = 30;
+
+            ctx.strokeStyle = 'rgba(200, 180, 160, 0.3)';
+            ctx.lineWidth = 1;
+
+            // Arc background
+            ctx.beginPath();
+            ctx.arc(indicX + indicW / 2, indicY + 20, 18, Math.PI, 0);
+            ctx.stroke();
+
+            // Danger zones
+            ctx.strokeStyle = 'rgba(200, 50, 30, 0.3)';
+            ctx.beginPath();
+            ctx.arc(indicX + indicW / 2, indicY + 20, 18, Math.PI, Math.PI + Math.PI * 0.2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(indicX + indicW / 2, indicY + 20, 18, -Math.PI * 0.2, 0);
+            ctx.stroke();
+
+            // Needle
+            const needleAngle = Math.PI + (this.angle / this.maxAngle) * (Math.PI / 2) + Math.PI / 2;
+            const needleLen = 15;
+            const needleColor = this.dangerLevel > 0.6 ? '#ff4422' : this.dangerLevel > 0.3 ? '#ffaa22' : '#88cc88';
+            ctx.strokeStyle = needleColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(indicX + indicW / 2, indicY + 20);
+            ctx.lineTo(
+                indicX + indicW / 2 + Math.cos(needleAngle) * needleLen,
+                indicY + 20 + Math.sin(needleAngle) * needleLen
+            );
+            ctx.stroke();
+
+            // Label
+            ctx.font = '9px "Courier New", monospace';
+            ctx.fillStyle = 'rgba(200, 180, 160, 0.5)';
+            ctx.textAlign = 'center';
+            ctx.fillText('BALANCE', indicX + indicW / 2, indicY + 45);
+
+            // ---- WIND INDICATOR ----
+            if (Math.abs(this.windForce) > 0.2) {
+                const windDir = this.windForce > 0 ? '>>>' : '<<<';
+                const windStr = Math.abs(this.windForce) > 1.5 ? 'STRONG' : 'light';
+                ctx.font = '11px "Courier New", monospace';
+                ctx.fillStyle = `rgba(150, 200, 255, ${Math.min(1, Math.abs(this.windForce) * 0.4)})`;
+                ctx.textAlign = 'left';
+                ctx.fillText(`WIND ${windDir} ${windStr}`, 20, 30);
+            }
+
+            // ---- ATTEMPTS ----
+            if (this.attempts > 0) {
+                ctx.font = '10px "Courier New", monospace';
+                ctx.fillStyle = 'rgba(200, 180, 160, 0.4)';
+                ctx.textAlign = 'left';
+                ctx.fillText(`attempt ${this.attempts + 1}`, 20, H - 20);
+            }
+
+            // ---- CONTROLS REMINDER (first few seconds) ----
+            if (this.state === 'ready' || (this.state === 'walking' && this.stateTimer < 5 && this.attempts === 0)) {
+                const alpha = this.state === 'ready' ? 0.7 : Math.max(0, 1 - this.stateTimer / 5);
+                const mob = 'ontouchstart' in window;
+                ctx.font = '12px "Courier New", monospace';
+                ctx.fillStyle = `rgba(200, 180, 160, ${alpha})`;
+                ctx.textAlign = 'center';
+                if (!mob) ctx.fillText('LEFT/RIGHT to balance  |  UP to step forward', W / 2, H - 40);
+            }
+
+            // ---- VICTORY SCREEN ----
+            if (this.state === 'victory') {
+                const alpha = Math.min(1, this.stateTimer / 2);
+
+                ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.5})`;
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 36px "Courier New", monospace';
+                ctx.fillStyle = `rgba(255, 220, 150, ${alpha})`;
+                ctx.fillText('YOU MADE IT', W / 2, H * 0.4);
+
+                ctx.font = '14px "Courier New", monospace';
+                ctx.fillStyle = `rgba(200, 180, 160, ${alpha})`;
+                ctx.fillText(`Attempts: ${this.attempts + 1}`, W / 2, H * 0.52);
+
+                if (this.stateTimer > 3) {
+                    ctx.fillStyle = `rgba(255, 200, 150, ${0.5 + Math.sin(this.time * 3) * 0.3})`;
+                    ctx.fillText('ontouchstart' in window ? '[ TAP to walk again ]' : '[ SPACE to walk again ]', W / 2, H * 0.65);
+
+                    if (engine.input.isKeyDown('Space') || touchState.spaceDown) {
+                        this.reset();
+                        this.state = 'ready';
+                        this.stateTimer = 0;
+                        tAudio.startAmbience();
+                    }
+                }
+            }
+
+            // ---- FALL MESSAGE ----
+            if (this.state === 'falling' && this.stateTimer > 1.5) {
+                const alpha = Math.min(1, (this.stateTimer - 1.5) / 1);
+                ctx.textAlign = 'center';
+                ctx.font = '18px "Courier New", monospace';
+                ctx.fillStyle = `rgba(200, 80, 60, ${alpha})`;
+
+                const fallMsgs = [
+                    'You fell.',
+                    `${Math.floor(this.progress * 100)}% across.`,
+                    this.attempts > 2 ? 'The rope waits.' : ''
+                ];
+                fallMsgs.forEach((msg, i) => {
+                    if (msg) ctx.fillText(msg, W / 2, H * 0.4 + i * 25);
+                });
+            }
+
+            // ---- NARRATOR TEXT (subtle) ----
+            // Show current narrator text as subtitle
+        }
+
+        drawVignette(ctx) {
+            // Always-on subtle vignette
+            const baseIntensity = 0.35 + this.dangerLevel * 0.4;
+            const gradient = ctx.createRadialGradient(W / 2, H / 2, W * 0.25, W / 2, H / 2, W * 0.7);
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, `rgba(0,0,0,${baseIntensity})`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, W, H);
+        }
+    }
+
+    // ============================================
+    //   MOBILE TOUCH CONTROLS
+    // ============================================
+    const touchState = { left: false, right: false, step: false, stepDown: false, spaceDown: false };
+
+    function setupTouchBtn(id, stateKey) {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        const activate = (e) => {
+            e.preventDefault();
+            touchState[stateKey] = true;
+            if (stateKey === 'step') touchState.stepDown = true;
+            el.classList.add('active');
+        };
+        const deactivate = (e) => {
+            e.preventDefault();
+            touchState[stateKey] = false;
+            el.classList.remove('active');
+        };
+
+        el.addEventListener('touchstart', activate, { passive: false });
+        el.addEventListener('touchend', deactivate, { passive: false });
+        el.addEventListener('touchcancel', deactivate, { passive: false });
+    }
+
+    setupTouchBtn('touch-left', 'left');
+    setupTouchBtn('touch-right', 'right');
+    setupTouchBtn('touch-step', 'step');
+
+    // Tap anywhere on canvas = SPACE (for title screen / restart)
+    document.getElementById('game-canvas').addEventListener('touchstart', (e) => {
+        touchState.spaceDown = true;
+        engine.audio.resume();
+    }, { passive: true });
+    document.getElementById('game-canvas').addEventListener('touchend', () => {
+        touchState.spaceDown = false;
+    }, { passive: true });
+
+    // Prevent all default touch behaviors on body (iOS bounce, zoom, scroll)
+    document.body.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    document.body.addEventListener('touchstart', (e) => {
+        // Resume audio on any touch
+        engine.audio.resume();
+        // Prevent double-tap zoom
+        if (e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+
+    // Request landscape orientation lock if available
+    try {
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+    } catch(e) {}
+
+    // Resize canvas to fill screen on orientation change / resize
+    function resizeCanvas() {
+        const canvas = document.getElementById('game-canvas');
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        // Keep internal resolution at 960x540 but fill the viewport
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+    }
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
+    resizeCanvas();
+
+    // Consume stepDown each frame (like isKeyDown)
+    const origLateUpdate = engine.input._lateUpdate.bind(engine.input);
+    engine.input._lateUpdate = function() {
+        origLateUpdate();
+        touchState.stepDown = false;
+        touchState.spaceDown = false;
+    };
+
+    // ============================================
+    //   BOOT
+    // ============================================
+    engine.addScene('title', new TitleScene());
+    engine.addScene('game', new GameScene());
+
+    // Boot - always start immediately
+    engine.start('title');
+    </script>
+</body>
+</html>

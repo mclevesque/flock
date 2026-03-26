@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   if (body.action === "theater-chat") {
     const message = String(body.message ?? "").trim();
     if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
-    await addTheaterChat(u.id, u.name ?? "Anonymous", u.image ?? "", message, PARTY_ID);
+    await addTheaterChat(u.id, u.name ?? "Anonymous", u.image ?? `/api/avatar/${u.id}`, message, PARTY_ID);
     return NextResponse.json({ ok: true });
   }
 

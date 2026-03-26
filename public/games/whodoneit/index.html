@@ -522,7 +522,14 @@
 
     // ===================== INPUT =====================
     const keys = {};
-    window.addEventListener('keydown', e => { keys[e.code] = true; Audio_.resume(); });
+    let _escPrompt = false;
+    window.addEventListener('keydown', e => {
+      keys[e.code] = true; Audio_.resume();
+      if (e.code === 'Escape') {
+        if (_escPrompt) { window.location.href = '/profile'; }
+        else { _escPrompt = true; setTimeout(() => { _escPrompt = false; }, 3000); }
+      }
+    });
     window.addEventListener('keyup', e => { keys[e.code] = false; });
 
     let mouseX = W / 2, mouseY = H / 2;

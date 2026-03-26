@@ -40,7 +40,7 @@ export default function OnboardingClient({ userId, displayName, isDiscord, disco
     }
     // Force Clerk to refetch the session token so publicMetadata.username is included
     await session?.reload();
-    window.location.href = "/profile";
+    router.push("/profile");
   }
 
   return (

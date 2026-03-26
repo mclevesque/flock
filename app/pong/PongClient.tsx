@@ -142,6 +142,7 @@ interface GameState {
   padL: number; padR: number;
   scoreL: number; scoreR: number;
   waitFrames: number; // frames to skip after a score (prevents ghost scores)
+  _lastT: number; // last frame timestamp for delta-time
 }
 
 interface Leaderboard { user_id: string; username: string; elo: number; wins: number; losses: number; }
@@ -162,6 +163,7 @@ function initState(): GameState {
     padR: H / 2 - PAD_H / 2,
     scoreL: 0, scoreR: 0,
     waitFrames: 0,
+    _lastT: 0,
   };
 }
 
@@ -387,8 +389,13 @@ export default function PongClient() {
     const s = stateRef.current;
     const keys = keysRef.current;
 
+    // Delta-time: normalize to 60fps so speed is consistent across refresh rates
+    const now = performance.now();
+    const dt = s._lastT ? Math.min((now - s._lastT) / 16.667, 3) : 1; // cap at 3× to avoid huge jumps
+    s._lastT = now;
+
     if (s.waitFrames > 0) {
-      s.waitFrames--;
+      s.waitFrames -= dt;
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (ctx) drawFrame(ctx, s, null, false, false, true);
@@ -396,19 +403,19 @@ export default function PongClient() {
       return;
     }
 
-    // Player movement
-    if ((keys["w"] || keys["W"] || keys["ArrowUp"]) && s.padL > 0) s.padL = Math.max(0, s.padL - PAD_SPEED);
-    if ((keys["s"] || keys["S"] || keys["ArrowDown"]) && s.padL < H - PAD_H) s.padL = Math.min(H - PAD_H, s.padL + PAD_SPEED);
+    // Player movement (scaled by dt)
+    if ((keys["w"] || keys["W"] || keys["ArrowUp"]) && s.padL > 0) s.padL = Math.max(0, s.padL - PAD_SPEED * dt);
+    if ((keys["s"] || keys["S"] || keys["ArrowDown"]) && s.padL < H - PAD_H) s.padL = Math.min(H - PAD_H, s.padL + PAD_SPEED * dt);
 
-    // AI (right paddle)
+    // AI (right paddle, scaled by dt)
     const aiCenter = s.padR + PAD_H / 2;
     const diff = s.ballY - aiCenter;
-    if (Math.abs(diff) > 3) s.padR += diff > 0 ? Math.min(AI_SPEED, diff) : Math.max(-AI_SPEED, diff);
+    if (Math.abs(diff) > 3) s.padR += (diff > 0 ? Math.min(AI_SPEED, diff) : Math.max(-AI_SPEED, diff)) * dt;
     s.padR = Math.max(0, Math.min(H - PAD_H, s.padR));
 
-    // Ball movement
-    s.ballX += s.ballVX;
-    s.ballY += s.ballVY;
+    // Ball movement (scaled by dt)
+    s.ballX += s.ballVX * dt;
+    s.ballY += s.ballVY * dt;
 
     // Top/bottom walls
     if (s.ballY - BALL_R <= 0) { s.ballY = BALL_R; s.ballVY = Math.abs(s.ballVY); sfxWall(); }
@@ -447,7 +454,7 @@ export default function PongClient() {
       if (s.scoreR >= WINNING_SCORE) { sfxLose(); stopMusic(); setModeSync("lost"); return; }
       const v = serveBall(false);
       s.ballX = W / 2; s.ballY = H / 2; s.ballVX = v.vx; s.ballVY = v.vy;
-      s.waitFrames = 40;
+      s.waitFrames = 180; // 3 second delay after score
     } else if (s.ballX - BALL_R > W) {
       s.scoreL++;
       setScores({ l: s.scoreL, r: s.scoreR });
@@ -456,7 +463,7 @@ export default function PongClient() {
       if (s.scoreL >= WINNING_SCORE) { sfxWin(); stopMusic(); setModeSync("won"); return; }
       const v = serveBall(true);
       s.ballX = W / 2; s.ballY = H / 2; s.ballVX = v.vx; s.ballVY = v.vy;
-      s.waitFrames = 40;
+      s.waitFrames = 180; // 3 second delay after score
     }
 
     const canvas = canvasRef.current;
@@ -754,11 +761,18 @@ export default function PongClient() {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       keysRef.current[e.key] = true;
-      if (e.key === " " || e.key === "Escape") {
+      if (e.key === " ") {
         if (modeRef.current === "playing" && !mpRoomRef.current) setModeSync("paused");
         else if (modeRef.current === "paused") {
           setModeSync("playing");
           animRef.current = requestAnimationFrame(soloLoop);
+        }
+      }
+      if (e.key === "Escape") {
+        if (modeRef.current === "playing" && !mpRoomRef.current) setModeSync("paused");
+        else if (modeRef.current === "paused") {
+          // Double-escape: exit back to profile
+          window.location.href = "/profile";
         }
       }
       if (["ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();

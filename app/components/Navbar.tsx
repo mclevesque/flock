@@ -17,10 +17,10 @@ const navItems = [
 ];
 
 // Top-level routes that do NOT get a back button
-const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak", "/whodoneit"];
+const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
 
 // Major sections where Town/Share should always show (signed-in top bar)
-const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe", "/moonhaven", "/outbreak", "/whodoneit"];
+const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
 
 const gameItems = [
   { href: "/chess", label: "♟️ Chess", desc: "Play 1v1 chess" },
@@ -33,6 +33,7 @@ const gameItems = [
   { href: "/moonhaven", label: "🌙 Moonhaven", desc: "RPG adventure" },
   { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
   { href: "/whodoneit", label: "🔪 Who Done It?", desc: "Murder mystery party" },
+  { href: "/tightrope", label: "🪢 Tightrope Terror", desc: "Balance or fall" },
 ];
 
 export default function Navbar() {

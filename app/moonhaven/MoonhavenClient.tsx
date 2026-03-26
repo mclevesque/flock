@@ -2336,7 +2336,7 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import(
   const beam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.22, 0.6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.03 }));
   beam.position.set(16 + 1.8 + beamLen / 2, 1.7, SZ); scene.add(beam);
   // Booth point light
-  scene.add(Object.assign(new THREE.PointLight(0xffcc44, 1.0, 9), { position: { x: 17.8, y: 1.8, z: SZ } }));
+  { const l = new THREE.PointLight(0xffcc44, 1.0, 9); l.position.set(17.8, 1.8, SZ); scene.add(l); }
   // Booth sign canvas
   const bsc = document.createElement("canvas"); bsc.width = 200; bsc.height = 52;
   const bctx = bsc.getContext("2d")!;
@@ -2355,7 +2355,7 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import(
     // Top sphere finial
     const finial = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), new THREE.MeshStandardMaterial({ color: 0x9966ff, emissive: new THREE.Color(0x6633cc), emissiveIntensity: 0.8 }));
     finial.position.set(px, 6.8, 41); scene.add(finial);
-    scene.add(Object.assign(new THREE.PointLight(0x9966ff, 0.8, 6), { position: { x: px, y: 7.2, z: 41 } }));
+    { const l = new THREE.PointLight(0x9966ff, 0.8, 6); l.position.set(px, 7.2, 41); scene.add(l); }
   }
   // Cross beam
   const archBar = new THREE.Mesh(new THREE.BoxGeometry(27.2, 0.55, 0.38), archMat);
@@ -2373,7 +2373,7 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import(
   mctx.fillText("🚗 ✨ 🍿 🌟 🎥 🌟 🍿 ✨ 🚗", 256, 74);
   const marquee = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 1.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(msc), side: THREE.DoubleSide }));
   marquee.position.set(26, 6.7, 41); scene.add(marquee);
-  scene.add(Object.assign(new THREE.PointLight(0x9966ff, 2.0, 18), { position: { x: 26, y: 7, z: 41 } }));
+  { const l = new THREE.PointLight(0x9966ff, 2.0, 18); l.position.set(26, 7, 41); scene.add(l); }
 
   // ── Fairy lights along arch top ────────────────────────────────────────────
   const fLightMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
@@ -2403,12 +2403,12 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import(
   cctx.fillText("🍿🥤", 64, 32);
   const cartSign = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.42), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(csc), side: THREE.DoubleSide }));
   cartSign.position.set(14.22, 1.05, 36.5); scene.add(cartSign);
-  scene.add(Object.assign(new THREE.PointLight(0xff8833, 0.6, 5), { position: { x: 13.5, y: 2, z: 36.5 } }));
+  { const l = new THREE.PointLight(0xff8833, 0.6, 5); l.position.set(13.5, 2, 36.5); scene.add(l); }
 
   // ── Big moon above the screen ──────────────────────────────────────────────
   const moon = new THREE.Mesh(new THREE.SphereGeometry(2.8, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfff5dd }));
   moon.position.set(SX + 2, 24, SZ - 4); scene.add(moon);
-  scene.add(Object.assign(new THREE.PointLight(0xffeebb, 1.5, 42), { position: { x: SX + 2, y: 24, z: SZ - 4 } }));
+  { const l = new THREE.PointLight(0xffeebb, 1.5, 42); l.position.set(SX + 2, 24, SZ - 4); scene.add(l); }
 
   return screenMesh;
 }
