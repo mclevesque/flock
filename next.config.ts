@@ -3,6 +3,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["192.168.1.213"],
   // Bake build timestamp into the client bundle — readable on mclevesque's profile
   env: {
     NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),

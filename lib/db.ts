@@ -3,7 +3,12 @@ import postgres from "postgres";
 // Lazy init — create client at runtime, not build time
 let _sql: ReturnType<typeof postgres> | null = null;
 function getDb() {
-  if (!_sql) _sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 5 });
+  if (!_sql) _sql = postgres(process.env.DATABASE_URL!, {
+    ssl: "require",
+    max: 2,           // serverless: keep pool tiny
+    idle_timeout: 20, // close idle connections after 20s
+    connect_timeout: 10, // fail fast instead of hanging for minutes
+  });
   return _sql;
 }
 

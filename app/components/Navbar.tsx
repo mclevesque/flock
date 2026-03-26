@@ -12,7 +12,7 @@ const navItems = [
   { href: "/profile", label: "Profile", short: "👤" },
   { href: "/friends", label: "Friends", short: "👥" },
   { href: "/messages", label: "Messages", short: "💬" },
-  { href: "/moonhaven", label: "🌙 Town", short: "🌙" },
+  { href: "/town", label: "🏘️ Town", short: "🏘️" },
   { href: "/stremio", label: "🎬 Stream", short: "🎬" },
 ];
 
@@ -453,9 +453,9 @@ export default function Navbar() {
         {/* Center cluster: [Town] · ryft · [Share] — show on all major sections when signed in */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {showTownShare && (
-            <Link href="/moonhaven" onClick={() => click()}
+            <Link href="/town" onClick={() => click()}
               style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8, color: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "var(--accent-purple-bright)" : "var(--text-muted)", background: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "rgba(124,92,191,0.12)" : "transparent" }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>🌙</span>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>🏘️</span>
               <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Town</span>
             </Link>
           )}
