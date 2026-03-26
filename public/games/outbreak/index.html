@@ -1001,7 +1001,7 @@ gs.chests.push({x,y,life:9999,size:14,open:false});
 }
 
 // ========== PARTICLES ==========
-const MAX_PARTICLES=450;
+const MAX_PARTICLES=350;
 function spawnP(x,y,color,count,spread,sz){
 const room=MAX_PARTICLES-gs.particles.length;if(room<=0)return;
 const n=Math.min(count,room);
@@ -1019,7 +1019,8 @@ if(critChance>0&&Math.random()<critChance){dmg*=2;floatT(e.x,e.y-e.size-12,'CRIT
 if(e.defPct>0)dmg=Math.max(1,dmg*(1-e.defPct));
 e.hp-=dmg;e.flash=6;
 gs.totalDamage+=Math.floor(dmg);
-floatT(e.x,e.y-e.size,Math.floor(dmg)+'',gs.streakTier>=3?'#ff4444':'#ffffff',gs.streakTier>=3);
+// Skip damage numbers when too many float texts — keeps text readable and saves CPU
+if(gs.floatTexts.length<18||gs.streakTier>=3||e.isBoss)floatT(e.x,e.y-e.size,Math.floor(dmg)+'',gs.streakTier>=3?'#ff4444':'#ffffff',gs.streakTier>=3);
 if(e.hp<=0){
 e.active=false;gs.kills++;gs.streakKills++;
 if(!gs._killsByType)gs._killsByType={};gs._killsByType[e.type]=(gs._killsByType[e.type]||0)+1;
@@ -1122,10 +1123,10 @@ function generateChoices(){
     if(owned)return owned.lvl<8; // upgrade available
     return true; // always offer new passives — replace weakest if full
   });
-  // Weight weapons 3x over passives — weapons appear far more often in choices
   const weapW=availW.map(k=>({id:k,isWeapon:true}));
-  const passW=availP.map(k=>({id:k,isWeapon:false}));
-  const pool=[...weapW,...weapW,...weapW,...passW]; // 3 copies of weapons, 1 of passives
+  // Passives weighted 1.5× — VS shows passives frequently, weapons outnumber passives 15 vs 12
+  const passW=[...availP,...availP.slice(0,Math.ceil(availP.length/2))].map(k=>({id:k,isWeapon:false}));
+  const pool=[...weapW,...passW];
   for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
   // Pick 3 unique choices from weighted shuffle
   const seen=new Set();
@@ -2429,7 +2430,6 @@ const px2=p.x-cx,py2=p.y-cy;
 const pulse=0.8+Math.sin(gs.time*0.12+p.x)*0.18;
 X.globalAlpha=pulse;
 X.save();
-X.shadowColor=p.color;X.shadowBlur=10;
 // Crystal: hexagon shape
 X.fillStyle=p.color;
 X.beginPath();
@@ -2451,8 +2451,8 @@ const gx=g.x-cx,gy=g.y-cy;
 const pulse=0.82+Math.sin(gs.time*0.18+g.x*0.05)*0.18;
 X.save();
 X.globalAlpha=pulse;
-// BTC orange glow
-X.shadowColor='#f7931a';X.shadowBlur=g.val>=5?20:g.val>=3?15:10;
+// BTC orange glow — reduced blur for perf (many coins on screen late game)
+X.shadowColor='#f7931a';X.shadowBlur=g.val>=5?8:4;
 // Drop shadow
 X.fillStyle='rgba(0,0,0,0.3)';X.beginPath();X.ellipse(gx+1,gy+3,g.size*0.88,g.size*0.28,0,0,Math.PI*2);X.fill();
 // Coin body — BTC orange gradient
@@ -3019,27 +3019,23 @@ if(e.type==='wurm'){
   X.restore();
 }
 X.globalAlpha=1;
-// Frozen visual: ice crystal overlay
+// Frozen visual: ice crystal overlay (no shadowBlur — drawn per-enemy per frame)
 if(e.frozen>0){
 const fa2=Math.min(1,e.frozen/60);
-X.save();X.globalAlpha=fa2*0.55;X.shadowColor='#88ddff';X.shadowBlur=12;
+X.save();X.globalAlpha=fa2*0.55;
 X.fillStyle='rgba(136,221,255,0.4)';X.beginPath();X.arc(ex,ey,e.size*1.2,0,Math.PI*2);X.fill();
 X.strokeStyle='#aaeeff';X.lineWidth=1.5;
 for(let fi2=0;fi2<4;fi2++){const fc=fi2*(Math.PI/2)+0.3;X.beginPath();X.moveTo(ex,ey);X.lineTo(ex+Math.cos(fc)*e.size*1.1,ey+Math.sin(fc)*e.size*1.1);X.stroke();}
 X.restore();
 }
-// On-fire visual effect
+// On-fire visual — flat orange ring (no radialGradients per-enemy per frame)
 if(e.onFire>0){
 const fa=Math.min(1,e.onFire/180);
-X.save();X.globalAlpha=fa*0.82;X.shadowColor='#ff6622';X.shadowBlur=16;
-for(let fi=0;fi<5;fi++){
-const fang=fi*(Math.PI*2/5)+gs.time*0.2+e.bob*0.5;
-const fdr=e.size*(0.38+Math.sin(gs.time*0.28+fi)*0.14);
-const fgx=ex+Math.cos(fang)*fdr,fgy=ey-e.size*0.35+Math.sin(fang)*fdr*0.5;
-const fgr=X.createRadialGradient(fgx,fgy,0,fgx,fgy,e.size*0.6);
-fgr.addColorStop(0,'#ffee44');fgr.addColorStop(0.45,'#ff5500');fgr.addColorStop(1,'rgba(200,30,0,0)');
-X.fillStyle=fgr;X.beginPath();X.arc(fgx,fgy,e.size*0.6,0,Math.PI*2);X.fill();
-}
+X.save();X.globalAlpha=fa*0.7;
+X.strokeStyle=gs.frame%4<2?'#ff6622':'#ffcc00';X.lineWidth=3;
+X.beginPath();X.arc(ex,ey,e.size*1.15,0,Math.PI*2);X.stroke();
+X.globalAlpha=fa*0.25;X.fillStyle='#ff4400';
+X.beginPath();X.arc(ex,ey,e.size*1.1,0,Math.PI*2);X.fill();
 X.restore();
 }
 // HP bar (show when damaged)
