@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getOpenWatchRooms, getTheaterState, getTheaterChat } from "@/lib/db";
 import StremioLobby from "./StremioLobby";
