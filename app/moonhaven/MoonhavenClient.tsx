@@ -127,6 +127,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
   // ── Loading ───────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [loadMsg, setLoadMsg] = useState("Entering Moonhaven…");
+  const [initError, setInitError] = useState<string | null>(null);
 
   // ── Chat ──────────────────────────────────────────────────────────────────
   const [chatInput, setChatInput] = useState("");
@@ -428,7 +429,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       const moon = new THREE.DirectionalLight(0xddeeff, 5.5);
       moon.position.set(20, 40, -10);
       moon.castShadow = true;
-      moon.shadow.mapSize.setScalar(2048);
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || ('ontouchstart' in window);
+      moon.shadow.mapSize.setScalar(isMobile ? 512 : 1024);
       moon.shadow.camera.near = 1;
       moon.shadow.camera.far = 120;
       moon.shadow.camera.left = -60;
@@ -442,13 +444,14 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       fountainGlow.position.set(0, 2, 0);
       scene.add(fountainGlow);
 
-      // Lantern lights (warm orange)
+      // Lantern lights (warm orange) — reduce on mobile for perf
       const lanternPositions: [number, number, number][] = [
         [8, 2.5, 0], [-8, 2.5, 0], [0, 2.5, 8], [0, 2.5, -8],
         [12, 2.5, 12], [-12, 2.5, 12], [12, 2.5, -12], [-12, 2.5, -12],
       ];
-      for (const pos of lanternPositions) {
-        const lantern = new THREE.PointLight(0xffcc66, 3.0, 22);
+      const activeLanterns = isMobile ? lanternPositions.slice(0, 3) : lanternPositions;
+      for (const pos of activeLanterns) {
+        const lantern = new THREE.PointLight(0xffcc66, isMobile ? 4.5 : 3.0, isMobile ? 35 : 22);
         lantern.position.set(...pos);
         scene.add(lantern);
       }
@@ -644,9 +647,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
       // ── Resize ────────────────────────────────────────────────────────────
       const onResize = () => {
-        if (!mountRef.current) return;
-        const w = mountRef.current.clientWidth;
-        const h = mountRef.current.clientHeight;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
         renderer.setSize(w, h);
@@ -861,8 +863,19 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       animate();
       setLoading(false);
 
+      // Pause on tab hide to save battery
+      const onVisChange = () => {
+        if (document.hidden) {
+          cancelAnimationFrame(frameIdRef.current);
+        } else if (!destroyed) {
+          animate();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisChange);
+
       return () => {
         destroyed = true;
+        document.removeEventListener("visibilitychange", onVisChange);
         cancelAnimationFrame(frameIdRef.current);
         renderer.domElement.removeEventListener("click", onCanvasClick);
         renderer.domElement.removeEventListener("mousedown", onMouseDown);
@@ -877,7 +890,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       };
     };
 
-    const cleanup = init();
+    const cleanup = init().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setInitError(msg || "WebGL context failed. Try a different browser or device.");
+      setLoading(false);
+      return undefined;
+    });
     return () => { destroyed = true; cleanup.then(fn => fn?.()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -980,7 +998,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ position: "relative", width: "100%", height: "100vh", background: "#0a0820", overflow: "hidden", fontFamily: "monospace" }}>
+    <div style={{ position: "relative", width: "100%", height: "100dvh", background: "#0a0820", overflow: "hidden", fontFamily: "monospace" }}>
       {/* Three.js canvas mount */}
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
 
@@ -1001,6 +1019,23 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         </div>
       )}
 
+      {/* Error recovery screen */}
+      {initError && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 110,
+          background: "radial-gradient(ellipse at center, #1a0828 0%, #050514 100%)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18,
+        }}>
+          <div style={{ fontSize: 44 }}>⚠️</div>
+          <div style={{ fontSize: 18, color: "#ff8866", fontWeight: 900 }}>Moonhaven failed to load</div>
+          <div style={{ fontSize: 12, color: "rgba(200,150,150,0.6)", maxWidth: 280, textAlign: "center" }}>{initError}</div>
+          <button onClick={() => window.location.reload()} style={{
+            padding: "10px 28px", borderRadius: 10, border: "1px solid rgba(200,100,100,0.4)",
+            background: "rgba(200,80,80,0.2)", color: "#ff9988", fontSize: 14, cursor: "pointer", fontFamily: "monospace",
+          }}>Reload</button>
+        </div>
+      )}
+
       {/* HUD — top bar */}
       <div style={{
         position: "absolute", top: 0, left: 0, right: 0, zIndex: 50,
@@ -1010,7 +1045,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         pointerEvents: "none",
       }}>
         <div style={{ pointerEvents: "all", display: "flex", alignItems: "center", gap: 10 }}>
-          <Link href="/town" style={{ position: "fixed", top: 10, left: 10, zIndex: 9999, background: "rgba(30,20,60,0.95)", border: "2px solid rgba(130,100,255,0.8)", borderRadius: 10, padding: "8px 16px", color: "#e8d8ff", fontWeight: 700, fontSize: 13, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+          <Link href="/town" style={{ background: "rgba(30,20,60,0.95)", border: "2px solid rgba(130,100,255,0.8)", borderRadius: 10, padding: "8px 16px", color: "#e8d8ff", fontWeight: 700, fontSize: 13, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
             🏘️ Classic Town
           </Link>
           <div style={{ fontSize: 10, color: "rgba(150,170,255,0.4)" }}>
@@ -1356,8 +1391,26 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         />
       )}
 
+      {/* Portrait mode warning (mobile only) */}
+      <div id="mh-portrait-warn" style={{
+        display: "none", position: "fixed", inset: 0, zIndex: 200,
+        background: "rgba(5,3,20,0.97)", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 16,
+        fontFamily: "monospace",
+      }}>
+        <div style={{ fontSize: 52 }}>📱</div>
+        <div style={{ fontSize: 18, color: "#aabbff", fontWeight: 900 }}>Rotate to Landscape</div>
+        <div style={{ fontSize: 12, color: "rgba(150,170,255,0.5)" }}>Moonhaven works best in landscape mode</div>
+      </div>
+
+      {/* Mobile virtual joystick */}
+      <MobileJoystick keysRef={keysRef} />
+
       <style>{`
         @keyframes npc-pop { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+        @media (max-width: 768px) and (orientation: portrait) {
+          #mh-portrait-warn { display: flex !important; }
+        }
       `}</style>
     </div>
   );
@@ -1405,6 +1458,80 @@ function makeNPCCanvas(emoji: string, bgColor: string): HTMLCanvasElement {
   ctx.textBaseline = "middle";
   ctx.fillText(emoji, 128, 136);
   return canvas;
+}
+
+// ── Mobile virtual joystick ───────────────────────────────────────────────────
+function MobileJoystick({ keysRef }: { keysRef: React.MutableRefObject<Set<string>> }) {
+  const outerRef = React.useRef<HTMLDivElement>(null);
+  const innerRef = React.useRef<HTMLDivElement>(null);
+  const activeRef = React.useRef(false);
+  const centerRef = React.useRef({ x: 0, y: 0 });
+
+  // Only show on touch devices
+  const [isTouch] = React.useState(() => typeof window !== "undefined" && ('ontouchstart' in window));
+  if (!isTouch) return null;
+
+  const RADIUS = 48;
+
+  const onStart = (cx: number, cy: number) => {
+    activeRef.current = true;
+    if (outerRef.current) {
+      const rect = outerRef.current.getBoundingClientRect();
+      centerRef.current = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    onMove(cx, cy);
+  };
+  const onMove = (cx: number, cy: number) => {
+    if (!activeRef.current) return;
+    const dx = cx - centerRef.current.x;
+    const dy = cy - centerRef.current.y;
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), RADIUS);
+    const ang = Math.atan2(dy, dx);
+    const tx = Math.cos(ang) * dist;
+    const ty = Math.sin(ang) * dist;
+    if (innerRef.current) {
+      innerRef.current.style.transform = `translate(${tx}px, ${ty}px)`;
+    }
+    // Map to WASD
+    const keys = keysRef.current;
+    const threshold = RADIUS * 0.3;
+    dx > threshold ? keys.add("KeyD") : keys.delete("KeyD");
+    dx < -threshold ? keys.add("KeyA") : keys.delete("KeyA");
+    dy > threshold ? keys.add("KeyS") : keys.delete("KeyS");
+    dy < -threshold ? keys.add("KeyW") : keys.delete("KeyW");
+  };
+  const onEnd = () => {
+    activeRef.current = false;
+    if (innerRef.current) innerRef.current.style.transform = "translate(0,0)";
+    ["KeyW","KeyA","KeyS","KeyD"].forEach(k => keysRef.current.delete(k));
+  };
+
+  return (
+    <div
+      ref={outerRef}
+      onTouchStart={e => { e.preventDefault(); const t = e.touches[0]; onStart(t.clientX, t.clientY); }}
+      onTouchMove={e => { e.preventDefault(); const t = e.touches[0]; onMove(t.clientX, t.clientY); }}
+      onTouchEnd={e => { e.preventDefault(); onEnd(); }}
+      style={{
+        position: "fixed", bottom: "env(safe-area-inset-bottom, 80px)", left: 20,
+        width: RADIUS * 2, height: RADIUS * 2,
+        background: "rgba(80,60,180,0.18)", border: "2px solid rgba(130,100,255,0.35)",
+        borderRadius: "50%", zIndex: 55, touchAction: "none",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      <div
+        ref={innerRef}
+        style={{
+          width: RADIUS * 0.7, height: RADIUS * 0.7,
+          background: "rgba(130,100,255,0.45)", borderRadius: "50%",
+          border: "2px solid rgba(180,160,255,0.5)",
+          transition: activeRef.current ? "none" : "transform 0.15s ease",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
 }
 
 // ── Three.js scene building helpers ──────────────────────────────────────────
