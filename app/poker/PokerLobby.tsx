@@ -33,7 +33,7 @@ export default function PokerLobby({ lobbies, sessionUserId }: Props) {
   const [localLobbies, setLocalLobbies] = useState<LobbyRoom[]>(lobbies);
 
   async function createRoom() {
-    if (!sessionUserId) return;
+    if (!sessionUserId) { alert("Not signed in — sessionUserId is null"); return; }
     setCreating(true);
     try {
       const res = await fetch("/api/poker", {
@@ -41,9 +41,15 @@ export default function PokerLobby({ lobbies, sessionUserId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: roomName, buyIn, maxPlayers }),
       });
-      const { id } = await res.json();
-      if (id) router.push(`/poker/${id}`);
-    } catch { /* ignore */ }
+      const data = await res.json();
+      if (data.id) {
+        router.push(`/poker/${data.id}`);
+      } else {
+        alert("Create failed: " + JSON.stringify(data));
+      }
+    } catch (err) {
+      alert("Create error: " + String(err));
+    }
     setCreating(false);
   }
 
