@@ -17,12 +17,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
     if (!user) notFound();
     const uid = user.id as string;
     [videos, wallPosts, friendship, friends, storageBytes, lastChessGame, lastSnesGame, privileges, adventureStats] = await Promise.all([
-      getVideosByUser(uid),
-      getWallPosts(uid),
-      session?.user?.id ? getFriendshipStatus(session.user.id, uid) : Promise.resolve(null),
-      getFriends(uid),
-      getUserStorageBytes(uid),
-      getLastChessGame(uid),
+      getVideosByUser(uid).catch(() => []),
+      getWallPosts(uid).catch(() => []),
+      session?.user?.id ? getFriendshipStatus(session.user.id, uid).catch(() => null) : Promise.resolve(null),
+      getFriends(uid).catch(() => []),
+      getUserStorageBytes(uid).catch(() => 0),
+      getLastChessGame(uid).catch(() => null),
       getLastSnesGame(uid).catch(() => null),
       getPrivileges(uid).catch(() => null),
       getOrCreateAdventureStats(uid).catch(() => null),
