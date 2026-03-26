@@ -24,6 +24,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdventureOverlay, { generateMission } from "@/app/town/AdventureOverlay";
+import TheaterRoom from "@/app/town/TheaterRoom";
 import StashPanel from "@/app/components/StashPanel";
 import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
@@ -160,6 +161,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
   const [showAdventure, setShowAdventure] = useState(false);
   const [activeMission, setActiveMission] = useState<unknown>(null);
 
+  // ── Drive-In Theater ──────────────────────────────────────────────────────
+  type TheaterState = { videoUrl: string | null; startedAt: number | null; hostId: string | null; seats: Record<string, { userId: string; username: string }>; isPaused?: boolean; pausedAt?: number | null; jukeboxUrl?: string | null; jukeboxStartedAt?: number | null; jukeboxBy?: string | null };
+  const [theaterOpen, setTheaterOpen] = useState(false);
+  const [theaterState, setTheaterState] = useState<TheaterState | null>(null);
+  const theaterStateRef = useRef<TheaterState | null>(null);
+  const [driveInNear, setDriveInNear] = useState(false);
+  const driveInNearRef = useRef(false);
+  const screenMeshRef = useRef<import("three").Mesh | null>(null);
+
   // ── Town battle (hostile NPC inline combat) ───────────────────────────────
   const [townBattle, setTownBattle] = useState<{ npc: MoonhavenNPC; enemyHp: number; maxHp: number; playerHp: number; maxPlayerHp: number; log: string[] } | null>(null);
   const [nearbyBandit, setNearbyBandit] = useState<MoonhavenNPC | null>(null);
@@ -233,6 +243,23 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
     if (showStash || showCharacter) fetchStashData();
   }, [showStash, showCharacter, fetchStashData]);
 
+  // ── Theater state polling (shared with classic town) ──────────────────────
+  useEffect(() => {
+    const pollTheater = async () => {
+      try {
+        const r = await fetch("/api/town", { method: "GET" });
+        const d = await r.json() as Record<string, unknown>;
+        const ts = d.theater_state as TheaterState | null;
+        if (ts) { setTheaterState(ts); theaterStateRef.current = ts; }
+        if (d.coins !== undefined) setMyCoins(d.coins as number);
+      } catch { /* silent */ }
+    };
+    pollTheater();
+    const iv = setInterval(pollTheater, 4000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Keep chatOpenRef in sync with chatOpen state ──────────────────────────
   useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
   useEffect(() => { townBattleRef.current = townBattle; }, [townBattle]);
@@ -285,6 +312,16 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
     setTimeout(() => setActiveNPC(null), 4000);
   }, [playNPCVoice]);
+
+  // ── Drive-in open/close ───────────────────────────────────────────────────
+  const openDriveIn = useCallback(() => {
+    fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-sit" }) }).catch(() => {});
+    setTheaterOpen(true);
+  }, []);
+  const closeDriveIn = useCallback(() => {
+    fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-stand" }) }).catch(() => {});
+    setTheaterOpen(false);
+  }, []);
 
   // ── WebSocket (PartyKit) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -473,6 +510,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         buildBuilding(THREE, scene, bld);
       }
 
+      // ── Drive-In Theater ──────────────────────────────────────────────────
+      screenMeshRef.current = buildDriveIn(THREE, scene);
+
       // ── Stars backdrop ────────────────────────────────────────────────────
       buildStars(THREE, scene);
 
@@ -577,6 +617,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         if (e.code === "Escape") { setChatOpen(false); setActiveNPC(null); }
         if (e.code === "KeyC" && !chatOpenRef.current) { setShowCharacter(c => !c); e.preventDefault(); }
         if (e.code === "KeyB" && !chatOpenRef.current) { setShowStash(s => !s); e.preventDefault(); }
+        if (e.code === "KeyE" && !chatOpenRef.current && driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
         if (e.code === "Space" && jumpRef.current.grounded && !chatOpenRef.current) {
           jumpRef.current.vy = 9;
           jumpRef.current.grounded = false;
@@ -791,6 +832,26 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
           }
         }
 
+        // Drive-in proximity — screen at [38, 0, 30], interact within 10 units
+        const distToScreen = Math.hypot(cpx - 38, cpz - 30);
+        const nearScreen = distToScreen < 10;
+        if (nearScreen !== driveInNearRef.current) {
+          driveInNearRef.current = nearScreen;
+          setDriveInNear(nearScreen);
+        }
+
+        // Screen glow pulse when theater is active
+        if (screenMeshRef.current) {
+          const sLight = screenMeshRef.current.userData.screenLight as import("three").PointLight | undefined;
+          if (sLight) {
+            const isActive = !!theaterStateRef.current?.videoUrl;
+            sLight.intensity = isActive
+              ? 2.5 + Math.sin(clock.elapsedTime * 2) * 0.5
+              : 0.8 + Math.sin(clock.elapsedTime * 0.8) * 0.2;
+            sLight.color.set(isActive ? 0x8899ff : 0x4455cc);
+          }
+        }
+
         // Fountain glow pulse
         fountainGlow.intensity = 2 + Math.sin(clock.elapsedTime * 1.5) * 0.5;
 
@@ -959,6 +1020,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
              currentZone === "forest" ? "🌲 Moonwood Forest" :
              currentZone === "tavern" ? "🍺 Silver Moon Tavern" :
              currentZone === "workshop" ? "⚒️ Forge District" :
+             currentZone === "drive_in" ? "🎬 Moonhaven Drive-In" :
              "🌙 Moonhaven"}
           </div>
         </div>
@@ -1025,6 +1087,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
           { icon: "⚔️", label: "Adventure", onClick: () => setShowAdventure(true) },
           { icon: "🧙", label: "Character", onClick: () => setShowCharacter(true) },
           { icon: "🗞️", label: "Herald", onClick: () => { setShowHerald(true); fetchHerald(); } },
+          { icon: "🎬", label: "Drive-In Theater", onClick: openDriveIn },
         ];
         return (
           <div style={{
@@ -1237,6 +1300,60 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
             >🏃 Flee</button>
           </div>
         </div>
+      )}
+
+      {/* Drive-In proximity prompt */}
+      {driveInNear && !theaterOpen && (
+        <div style={{
+          position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
+          zIndex: 500, background: "rgba(10,6,28,0.95)", border: "2px solid rgba(100,80,220,0.7)",
+          borderRadius: 14, padding: "12px 20px", display: "flex", alignItems: "center",
+          gap: 14, backdropFilter: "blur(8px)", minWidth: 280,
+          animation: "npc-pop 0.2s ease-out",
+        }}>
+          <div style={{ fontSize: 32 }}>🎬</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, color: "#ccbbff", fontSize: 13, marginBottom: 3 }}>
+              🌙 Moonhaven Drive-In
+            </div>
+            <div style={{ fontSize: 11, color: "rgba(180,160,255,0.6)" }}>
+              {theaterState?.videoUrl ? "🔴 Now Showing" : "🎥 Screen is ready"}
+            </div>
+          </div>
+          <button
+            style={{ background: "rgba(80,60,200,0.8)", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#eeddff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+            onClick={openDriveIn}
+          >🎬 Watch [E]</button>
+        </div>
+      )}
+
+      {/* Drive-In TheaterRoom */}
+      {theaterOpen && (
+        <TheaterRoom
+          theaterState={theaterState}
+          userId={userId}
+          username={username}
+          avatarUrl={avatarUrl}
+          myCoins={myCoins}
+          hostId={theaterState?.hostId ?? null}
+          partyId={partyIdRef.current}
+          onClose={closeDriveIn}
+          onSetVideo={async (videoUrl: string) => {
+            const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-set-video", videoUrl }) });
+            const d = await r.json() as Record<string, unknown>;
+            if (d.theater_state) { setTheaterState(d.theater_state as TheaterState); theaterStateRef.current = d.theater_state as TheaterState; }
+          }}
+          onClearVideo={async () => {
+            await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-clear-video" }) });
+            setTheaterState(ts => ts ? { ...ts, videoUrl: null, startedAt: null } : ts);
+          }}
+          onPause={async () => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-pause" }) }); }}
+          onUnpause={async () => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-unpause" }) }); }}
+          onSeek={async (t: number) => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-seek", seekTo: t }) }); }}
+          onChat={async (msg: string) => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-chat", message: msg }) }); }}
+          onSit={() => {}}
+          onStand={closeDriveIn}
+        />
       )}
 
       <style>{`
@@ -1938,4 +2055,215 @@ function buildCastleWalls(THREE: ThreeModule, scene: import("three").Scene) {
     flame.position.set(tx, ty + 0.35, tz);
     scene.add(flame);
   }
+}
+
+// ── Drive-In Theater ──────────────────────────────────────────────────────────
+function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import("three").Mesh {
+  const SX = 38, SZ = 30, SW = 14, SH = 9; // screen position & size
+
+  // ── Dark asphalt lot ───────────────────────────────────────────────────────
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.96 });
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(34, 28), padMat);
+  pad.rotation.x = -Math.PI / 2; pad.position.set(26, 0.01, 31); pad.receiveShadow = true;
+  scene.add(pad);
+  // Lane stripe lines
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.9 });
+  for (let row = 0; row < 4; row++) {
+    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(22, 0.12), stripeMat);
+    stripe.rotation.x = -Math.PI / 2; stripe.position.set(27, 0.02, 23 + row * 5);
+    scene.add(stripe);
+  }
+
+  // ── Screen scaffold frame ──────────────────────────────────────────────────
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.8, metalness: 0.35 });
+  // Two support poles
+  for (const sz of [SZ - SW * 0.52, SZ + SW * 0.52]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, SH + 2.5, 8), frameMat);
+    pole.position.set(SX, (SH + 2.5) / 2, sz); pole.castShadow = true; scene.add(pole);
+    // Diagonal brace
+    const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 4.5, 6), frameMat);
+    brace.position.set(SX - 1.4, 2.4, sz); brace.rotation.z = Math.PI / 5; scene.add(brace);
+  }
+  // Top bar
+  const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, SW + 2.5), frameMat);
+  topBar.position.set(SX, SH + 1.5, SZ); scene.add(topBar);
+  // Bottom sill
+  const botBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, SW + 2), frameMat);
+  botBar.position.set(SX, 0.35, SZ); scene.add(botBar);
+  // Frame border strip (vertical left+right edges of screen)
+  const borderMat = new THREE.MeshStandardMaterial({ color: 0x44445a, roughness: 0.6, metalness: 0.5 });
+  const border = new THREE.Mesh(new THREE.BoxGeometry(0.18, SH + 0.5, SW + 0.5), borderMat);
+  border.position.set(SX - 0.08, SH / 2 + 0.4, SZ); scene.add(border);
+
+  // ── Screen surface ─────────────────────────────────────────────────────────
+  const sc = document.createElement("canvas");
+  sc.width = 512; sc.height = 288;
+  const ctx = sc.getContext("2d")!;
+  // Dark night-sky gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, 288);
+  bg.addColorStop(0, "#06061a"); bg.addColorStop(1, "#030310");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, 512, 288);
+  // Scan-line texture
+  for (let y = 0; y < 288; y += 4) { ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.fillRect(0, y, 512, 1); }
+  // Outer glow border
+  ctx.strokeStyle = "rgba(100,120,255,0.35)"; ctx.lineWidth = 5;
+  ctx.strokeRect(4, 4, 504, 280);
+  // Big moon
+  ctx.font = "88px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("🌙", 256, 108);
+  // Title
+  ctx.font = "bold 30px monospace"; ctx.fillStyle = "#aabbff";
+  ctx.fillText("MOONHAVEN DRIVE-IN", 256, 192);
+  // Sub text
+  ctx.font = "16px monospace"; ctx.fillStyle = "rgba(140,160,255,0.55)";
+  ctx.fillText("🎬  Walk up & press E to watch  🎬", 256, 234);
+  // Star sprinkles
+  ctx.fillStyle = "#ffffff"; ctx.font = "10px serif";
+  const stars = ["✨","⭐","🌟","✨","⭐","🌟"];
+  for (let i = 0; i < 6; i++) ctx.fillText(stars[i], 44 + i * 74, 60);
+
+  const screenTex = new THREE.CanvasTexture(sc);
+  const screenMat = new THREE.MeshBasicMaterial({ map: screenTex, side: THREE.DoubleSide });
+  const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), screenMat);
+  screenMesh.rotation.y = -Math.PI / 2; // face west toward plaza
+  screenMesh.position.set(SX, SH / 2 + 0.4, SZ);
+  scene.add(screenMesh);
+  // Screen glow light (stored in userData for animation)
+  const screenLight = new THREE.PointLight(0x4455cc, 1.0, 22);
+  screenLight.position.set(SX - 5, SH / 2, SZ);
+  scene.add(screenLight);
+  screenMesh.userData.screenLight = screenLight;
+
+  // ── Cars — 3 rows × 4 spots ────────────────────────────────────────────────
+  const carColors = [0x1e3a8a, 0x991b1b, 0x14532d, 0x78350f, 0x581c87, 0x164e63];
+  let ci = 0;
+  for (let row = 0; row < 3; row++) {
+    const carX = 22 + row * 4.8;
+    for (let col = 0; col < 4; col++) {
+      const carZ = 23 + col * 4.5;
+      const col6 = carColors[ci++ % 6];
+      const carMat = new THREE.MeshStandardMaterial({ color: col6, roughness: 0.28, metalness: 0.72 });
+      // Car body
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.75, 3.6), carMat);
+      body.position.set(carX, 0.48, carZ); body.castShadow = true; scene.add(body);
+      // Roof
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 2.0), carMat);
+      roof.position.set(carX, 1.0, carZ - 0.25); scene.add(roof);
+      // Front windscreen (dark)
+      const winMat = new THREE.MeshStandardMaterial({ color: 0x0a1a2a, roughness: 0.05, metalness: 0.95, transparent: true, opacity: 0.82 });
+      const win = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.38, 0.06), winMat);
+      win.position.set(carX, 1.0, carZ - 1.28); scene.add(win);
+      // Headlights (pointing west toward screen)
+      const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.08), hlMat);
+      hl.position.set(carX - 1.02, 0.56, carZ); scene.add(hl);
+      // Taillights
+      const tlMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.06), tlMat);
+      tl.position.set(carX + 1.02, 0.56, carZ); scene.add(tl);
+      // Wheels (4 simple dark cylinders)
+      const wMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+      for (const [wx2, wz2] of [[-0.9, -1.3],[-0.9, 1.3],[0.9, -1.3],[0.9, 1.3]] as [number,number][]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 10), wMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(carX + wx2, 0.28, carZ + wz2); scene.add(wheel);
+      }
+      // Speaker pole on driver side
+      const spkMat = new THREE.MeshStandardMaterial({ color: 0x444455, roughness: 0.9 });
+      const spkPole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6), spkMat);
+      spkPole.position.set(carX + 1.15, 0.55, carZ - 1.5); scene.add(spkPole);
+      const spkBox = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.1), spkMat);
+      spkBox.position.set(carX + 1.15, 1.05, carZ - 1.5); scene.add(spkBox);
+    }
+  }
+
+  // ── Projector booth ────────────────────────────────────────────────────────
+  const boothMat = new THREE.MeshStandardMaterial({ color: 0x22223a, roughness: 0.85 });
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.0, 3.2), boothMat);
+  booth.position.set(16, 1.5, SZ); booth.castShadow = true; scene.add(booth);
+  const boothRoof = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.18, 3.8), new THREE.MeshStandardMaterial({ color: 0x181828 }));
+  boothRoof.position.set(16, 3.1, SZ); scene.add(boothRoof);
+  // Projector window glow
+  const projWin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.38, 0.06), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
+  projWin.position.set(16 + 1.64, 1.7, SZ); scene.add(projWin);
+  // Projector beam (subtle)
+  const beamLen = SX - 18;
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.22, 0.6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.03 }));
+  beam.position.set(16 + 1.8 + beamLen / 2, 1.7, SZ); scene.add(beam);
+  // Booth point light
+  scene.add(Object.assign(new THREE.PointLight(0xffcc44, 1.0, 9), { position: { x: 17.8, y: 1.8, z: SZ } }));
+  // Booth sign canvas
+  const bsc = document.createElement("canvas"); bsc.width = 200; bsc.height = 52;
+  const bctx = bsc.getContext("2d")!;
+  bctx.fillStyle = "#12122a"; bctx.fillRect(0,0,200,52);
+  bctx.font = "bold 18px monospace"; bctx.fillStyle = "#aabbff"; bctx.textAlign = "center"; bctx.textBaseline = "middle";
+  bctx.fillText("🎬 BOOTH", 100, 26);
+  const boothSign = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.52), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bsc), side: THREE.DoubleSide }));
+  boothSign.position.set(16 + 1.63, 2.5, SZ); scene.add(boothSign);
+
+  // ── Entrance arch and marquee sign ────────────────────────────────────────
+  const archMat = new THREE.MeshStandardMaterial({ color: 0x2e1a5e, roughness: 0.65, metalness: 0.35, emissive: new THREE.Color(0x180830), emissiveIntensity: 0.5 });
+  // Left + right pillars
+  for (const px of [13, 39]) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.46, 6.5, 8), archMat);
+    pillar.position.set(px, 3.25, 41); pillar.castShadow = true; scene.add(pillar);
+    // Top sphere finial
+    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), new THREE.MeshStandardMaterial({ color: 0x9966ff, emissive: new THREE.Color(0x6633cc), emissiveIntensity: 0.8 }));
+    finial.position.set(px, 6.8, 41); scene.add(finial);
+    scene.add(Object.assign(new THREE.PointLight(0x9966ff, 0.8, 6), { position: { x: px, y: 7.2, z: 41 } }));
+  }
+  // Cross beam
+  const archBar = new THREE.Mesh(new THREE.BoxGeometry(27.2, 0.55, 0.38), archMat);
+  archBar.position.set(26, 6.65, 41); scene.add(archBar);
+  // Marquee sign
+  const msc = document.createElement("canvas"); msc.width = 512; msc.height = 96;
+  const mctx = msc.getContext("2d")!;
+  const mg = mctx.createLinearGradient(0,0,512,0);
+  mg.addColorStop(0,"#140830"); mg.addColorStop(0.5,"#220f48"); mg.addColorStop(1,"#140830");
+  mctx.fillStyle = mg; mctx.fillRect(0,0,512,96);
+  mctx.strokeStyle = "rgba(150,110,255,0.65)"; mctx.lineWidth = 3; mctx.strokeRect(3,3,506,90);
+  mctx.font = "bold 30px serif"; mctx.fillStyle = "#e0d0ff"; mctx.textAlign = "center"; mctx.textBaseline = "middle";
+  mctx.fillText("🌙 MOONHAVEN DRIVE-IN 🎬", 256, 42);
+  mctx.font = "17px monospace"; mctx.fillStyle = "rgba(180,155,255,0.65)";
+  mctx.fillText("🚗 ✨ 🍿 🌟 🎥 🌟 🍿 ✨ 🚗", 256, 74);
+  const marquee = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 1.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(msc), side: THREE.DoubleSide }));
+  marquee.position.set(26, 6.7, 41); scene.add(marquee);
+  scene.add(Object.assign(new THREE.PointLight(0x9966ff, 2.0, 18), { position: { x: 26, y: 7, z: 41 } }));
+
+  // ── Fairy lights along arch top ────────────────────────────────────────────
+  const fLightMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
+  for (let li = 0; li < 14; li++) {
+    const lx = 13 + li * 2;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 4, 4), fLightMat);
+    dot.position.set(lx, 6.55 + Math.sin(li * 0.65) * 0.22, 41); scene.add(dot);
+    if (li % 4 === 0) {
+      const dl = new THREE.PointLight(0xffee88, 0.35, 2.5);
+      dl.position.set(lx, 6.55, 41); scene.add(dl);
+    }
+  }
+
+  // ── Snack cart ─────────────────────────────────────────────────────────────
+  const cartMat = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.55 });
+  const cart = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 1.4), cartMat);
+  cart.position.set(13.5, 0.55, 36.5); scene.add(cart);
+  const umbrella = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.55, 8), new THREE.MeshStandardMaterial({ color: 0xeecc22, roughness: 0.65 }));
+  umbrella.position.set(13.5, 1.7, 36.5); scene.add(umbrella);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.7, 6), new THREE.MeshStandardMaterial({ color: 0x888888 }));
+  pole.position.set(13.5, 0.85, 36.5); scene.add(pole);
+  // Snack sign
+  const csc = document.createElement("canvas"); csc.width = 128; csc.height = 64;
+  const cctx = csc.getContext("2d")!;
+  cctx.fillStyle = "#1a0808"; cctx.fillRect(0,0,128,64);
+  cctx.font = "28px serif"; cctx.textAlign = "center"; cctx.textBaseline = "middle";
+  cctx.fillText("🍿🥤", 64, 32);
+  const cartSign = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.42), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(csc), side: THREE.DoubleSide }));
+  cartSign.position.set(14.22, 1.05, 36.5); scene.add(cartSign);
+  scene.add(Object.assign(new THREE.PointLight(0xff8833, 0.6, 5), { position: { x: 13.5, y: 2, z: 36.5 } }));
+
+  // ── Big moon above the screen ──────────────────────────────────────────────
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(2.8, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfff5dd }));
+  moon.position.set(SX + 2, 24, SZ - 4); scene.add(moon);
+  scene.add(Object.assign(new THREE.PointLight(0xffeebb, 1.5, 42), { position: { x: SX + 2, y: 24, z: SZ - 4 } }));
+
+  return screenMesh;
 }

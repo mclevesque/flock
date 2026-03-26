@@ -209,6 +209,21 @@ export const MOONHAVEN_NPCS: MoonhavenNPC[] = [
     zone: "plaza",
     interaction: "dialogue",
   },
+
+  // ── DRIVE-IN ───────────────────────────────────────────────────────────────
+  {
+    id: "stella_projectionist",
+    name: "Stella",
+    emoji: "🎬",
+    position: [15, 0, 34],
+    patrol: [[15, 0, 34], [16, 0, 36], [15, 0, 38], [14, 0, 36]],
+    color: "#cc4488",
+    role: "Drive-In Projectionist",
+    dialogueCount: 4,
+    traitLines: [],
+    zone: "market",
+    interaction: "dialogue",
+  },
 ];
 
 // Dialogue for Moonhaven-original NPCs (not in ElevenLabs set yet)
@@ -226,6 +241,12 @@ export const MOONHAVEN_DIALOGUE: Record<string, string[]> = {
     "The fountain has run since before the first stone was laid. No one knows why.",
     "Moonhaven exists between places. That's why visitors always find it.",
     "Rest here. This is a safe square. The moon promises it.",
+  ],
+  stella_projectionist: [
+    "Tonight's showing starts whenever you walk up to the screen. 🎬",
+    "Best seat in Moonhaven? Any spot with a good view of the moon. 🌙",
+    "I've been running the projector since the first night. The film never runs out.",
+    "Grab some popcorn from the cart. The show's about to begin. 🍿",
   ],
 };
 
@@ -316,4 +337,5 @@ export const MOONHAVEN_ZONES = [
   { id: "forest",   bounds: { minX: -40, maxX: -14, minZ: 8, maxZ: 36 }, ambient: "forest" },
   { id: "tavern",   bounds: { minX: 10, maxX: 26, minZ: -10, maxZ: 2 },   ambient: "tavern" },
   { id: "workshop", bounds: { minX: -26, maxX: -10, minZ: -6, maxZ: 8 },  ambient: "forge" },
+  { id: "drive_in", bounds: { minX: 12, maxX: 44, minZ: 22, maxZ: 44 },   ambient: "outdoor" },
 ];
