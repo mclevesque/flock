@@ -3,11 +3,13 @@ import bcrypt from "bcryptjs";
 import { getUserByUsername, createUserWithPassword, sql } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
-  const { username, password } = await req.json();
+  const { username, password, email } = await req.json();
 
   const clean = (username ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
   if (!clean || clean.length < 2) return NextResponse.json({ error: "Username must be at least 2 characters." }, { status: 400 });
   if (!password || password.length < 3) return NextResponse.json({ error: "Password must be at least 3 characters." }, { status: 400 });
+  const cleanEmail = (email ?? "").trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes("@")) return NextResponse.json({ error: "A valid email is required for password resets." }, { status: 400 });
 
   try {
     // Ensure password_hash column exists
@@ -18,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const hash = await bcrypt.hash(password, 10);
     const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await createUserWithPassword(id, clean, clean, hash);
+    await createUserWithPassword(id, clean, clean, hash, cleanEmail);
     // New users don't get SNES access by default — a moderator must grant it
     await sql`
       CREATE TABLE IF NOT EXISTS user_privileges (

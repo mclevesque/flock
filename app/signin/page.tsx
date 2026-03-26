@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 
 export default function SignInPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"signin" | "register" | "oauth">("signin");
+  const [tab, setTab] = useState<"signin" | "register" | "oauth" | "forgot">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -30,7 +32,7 @@ export default function SignInPage() {
     const res = await fetch("/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, email: email || undefined }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -139,10 +141,13 @@ export default function SignInPage() {
                   {loading ? "Signing in..." : "Sign In"}
                 </button>
                 <p style={{ margin: 0, textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
+                  <button type="button" onClick={() => { setTab("forgot"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Forgot password?</button>
+                </p>
+                <p style={{ margin: "4px 0 0", textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
                   No account? <button type="button" onClick={() => { setTab("register"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Create one →</button>
                 </p>
               </form>
-            ) : (
+            ) : tab === "register" ? (
               <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <p style={{ margin: "0 0 4px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                   Pick a username and password. Your profile goes live instantly.
@@ -152,6 +157,12 @@ export default function SignInPage() {
                   <input type="text" value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} placeholder="yourname" required autoFocus
                     style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Letters, numbers, underscores only. This becomes your URL.</div>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>EMAIL</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" required
+                    style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>For password resets only. Never shared.</div>
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>PASSWORD</label>
@@ -164,6 +175,39 @@ export default function SignInPage() {
                   {loading ? "Creating account..." : "Create Account"}
                 </button>
               </form>
+            ) : (
+              /* Forgot password */
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {forgotSent ? (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+                    <p style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>Check your email</p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.5 }}>If an account exists with that username or email, we sent a reset link. Check spam too.</p>
+                    <button onClick={() => { setTab("signin"); setForgotSent(false); setError(""); }} style={{ marginTop: 16, background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>← Back to sign in</button>
+                  </div>
+                ) : (
+                  <form onSubmit={async (e) => {
+                    e.preventDefault(); setError(""); setLoading(true);
+                    const res = await fetch("/api/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: username }) });
+                    setLoading(false);
+                    if (res.ok) setForgotSent(true);
+                    else { const d = await res.json(); setError(d.error ?? "Something went wrong."); }
+                  }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>Enter your username or email and we&apos;ll send a reset link.</p>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>USERNAME OR EMAIL</label>
+                      <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="yourname or you@email.com" required autoFocus
+                        style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
+                    </div>
+                    {error && <div style={{ background: "rgba(191,92,92,0.15)", border: "1px solid rgba(191,92,92,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#f08080" }}>{error}</div>}
+                    <button type="submit" disabled={loading}
+                      style={{ width: "100%", background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 15, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                      {loading ? "Sending..." : "Send Reset Link"}
+                    </button>
+                    <button type="button" onClick={() => { setTab("signin"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>← Back to sign in</button>
+                  </form>
+                )}
+              </div>
             )}
           </div>
         )}

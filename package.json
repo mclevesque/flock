@@ -39,6 +39,7 @@
     "react": "19.2.3",
     "react-chessboard": "^5.10.0",
     "react-dom": "19.2.3",
+    "resend": "^6.9.4",
     "three": "^0.183.2"
   },
   "devDependencies": {

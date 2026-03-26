@@ -37,6 +37,9 @@ export async function initDb() {
     )
   `;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMP`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_handle TEXT DEFAULT ''`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS steam_handle TEXT DEFAULT ''`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS chess_rating INTEGER DEFAULT 1200`;
@@ -600,14 +603,32 @@ export async function getUserByUsername(username: string) {
   return rows[0] ?? null;
 }
 
-export async function createUserWithPassword(id: string, username: string, displayName: string, passwordHash: string) {
+export async function createUserWithPassword(id: string, username: string, displayName: string, passwordHash: string, email?: string) {
   const rows = await sql`
-    INSERT INTO users (id, username, display_name, password_hash)
-    VALUES (${id}, ${username}, ${displayName}, ${passwordHash})
+    INSERT INTO users (id, username, display_name, password_hash, email)
+    VALUES (${id}, ${username}, ${displayName}, ${passwordHash}, ${email ?? null})
     ON CONFLICT (id) DO NOTHING
     RETURNING *
   `;
   return rows[0] ?? null;
+}
+
+export async function getUserByEmail(email: string) {
+  const rows = await sql`SELECT * FROM users WHERE email = ${email}`;
+  return rows[0] ?? null;
+}
+
+export async function setPasswordResetToken(userId: string, token: string, expires: Date) {
+  await sql`UPDATE users SET password_reset_token = ${token}, password_reset_expires = ${expires.toISOString()} WHERE id = ${userId}`;
+}
+
+export async function getUserByResetToken(token: string) {
+  const rows = await sql`SELECT * FROM users WHERE password_reset_token = ${token} AND password_reset_expires > NOW()`;
+  return rows[0] ?? null;
+}
+
+export async function updatePasswordHash(userId: string, passwordHash: string) {
+  await sql`UPDATE users SET password_hash = ${passwordHash}, password_reset_token = NULL, password_reset_expires = NULL WHERE id = ${userId}`;
 }
 
 export async function createUser(id: string, username: string, displayName: string, avatarUrl: string) {
