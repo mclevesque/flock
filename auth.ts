@@ -35,16 +35,17 @@ const nextAuthConfig = NextAuth({
         try {
           const existing = await getUserByUsername(username);
           if (existing) {
-            if (!existing.password_hash) return null;
+            if (!existing.password_hash) { console.error("[AUTH] No password_hash for user:", username); return null; }
             const valid = await bcrypt.compare(password, existing.password_hash as string);
-            if (!valid) return null;
+            if (!valid) { console.error("[AUTH] bcrypt.compare failed for user:", username); return null; }
             return { id: existing.id as string, name: existing.username as string, email: null, image: null };
           }
           const hash = await bcrypt.hash(password, 10);
           const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           await createUserWithPassword(id, username, username, hash);
           return { id, name: username, email: null, image: null };
-        } catch {
+        } catch (err) {
+          console.error("[AUTH] credentials login error:", err);
           return null;
         }
       },
