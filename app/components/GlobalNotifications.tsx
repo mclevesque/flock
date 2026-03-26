@@ -16,6 +16,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { useNotifications, type PushNotification } from "@/lib/useNotifications";
 
 interface Conversation {
   other_user: string;
@@ -36,7 +37,6 @@ interface Notification {
   partyId?: string; // set when this notification is a party invite
 }
 
-const POLL_INTERVAL_MS = 30_000;
 const AUTO_DISMISS_MS = 10_000;
 const PARTY_DISMISS_MS = 3 * 60 * 1000; // 3 minutes for party invites
 
@@ -44,10 +44,8 @@ export default function GlobalNotifications() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const [notification, setNotification] = useState<Notification | null>(null);
-  const lastSeenTimestamps = useRef<Record<string, string>>({});
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const initialized = useRef(false);
+  const { onNotification } = useNotifications();
 
   // ── Global keyboard fix ──────────────────────────────────────────────────────
   // Stop keydown events from propagating out of ANY text input sitewide.
@@ -88,93 +86,34 @@ export default function GlobalNotifications() {
     dismissTimer.current = setTimeout(dismiss, duration);
   }, [clearDismissTimer, dismiss]);
 
-  const checkForNewMessages = useCallback(async () => {
-    if (!session?.user?.id || isMessagesPage) return;
-    if (document.hidden) return; // don't ping while tab is hidden
-
-    try {
-      const r = await fetch("/api/messages");
-      if (!r.ok) return;
-      const conversations: Conversation[] = await r.json();
-
-      if (!Array.isArray(conversations)) return;
-
-      // First poll: just seed timestamps, don't show notifications yet
-      if (!initialized.current) {
-        for (const c of conversations) {
-          lastSeenTimestamps.current[c.other_user] = c.created_at;
-        }
-        initialized.current = true;
-        return;
-      }
-
-      // Find conversations with newer messages than last seen — only from others, never our own outgoing
-      const newOnes = conversations.filter(c => {
-        if (c.last_sender_id === session?.user?.id) return false; // skip messages we sent
-        const last = lastSeenTimestamps.current[c.other_user];
-        if (!last) return true; // brand new sender
-        return new Date(c.created_at) > new Date(last);
-      });
-
-      if (newOnes.length === 0) return;
-
-      // Update last-seen for all
-      for (const c of conversations) {
-        lastSeenTimestamps.current[c.other_user] = c.created_at;
-      }
-
-      // Detect party invite (single sender, message is [party:id])
-      const partyInvite = newOnes.length === 1 && newOnes[0].last_message?.startsWith("[party:")
-        ? newOnes[0].last_message.slice(7, -1)
-        : undefined;
-
-      const previewText = partyInvite
-        ? "🎮 Invited you to their party!"
-        : newOnes.length === 1
-          ? (newOnes[0].last_message?.startsWith("[")
-              ? "Sent you a message"
-              : (newOnes[0].last_message?.slice(0, 60) || "Sent you a message"))
-          : `${newOnes.length} new conversations`;
-
-      // Build notification
-      const notif: Notification = {
-        id: Date.now().toString(),
-        senderIds: newOnes.map(c => c.other_user),
-        senders: newOnes.slice(0, 3).map(c => ({
-          userId: c.other_user,
-          username: c.username,
-          avatarUrl: c.avatar_url,
-        })),
-        preview: previewText,
-        count: newOnes.length,
-        partyId: partyInvite,
-      };
-
-      showNotification(notif, partyInvite ? PARTY_DISMISS_MS : AUTO_DISMISS_MS);
-    } catch { /* silently ignore network errors */ }
-  }, [session, isMessagesPage, showNotification]);
-
-  // Setup polling
+  // Subscribe to push notifications instead of polling
   useEffect(() => {
     if (!session?.user?.id) return;
+    const unsub = onNotification((n: PushNotification) => {
+      if (isMessagesPage && n.type === "new-message") return; // don't toast on messages page
+      if (document.hidden) return;
 
-    // Initial check slightly delayed to let page settle
-    const initTimeout = setTimeout(checkForNewMessages, 3000);
-    pollTimer.current = setInterval(checkForNewMessages, POLL_INTERVAL_MS);
+      const isPartyInvite = n.type === "new-message" && n.preview?.startsWith("[party:");
+      const partyId = isPartyInvite ? n.preview?.slice(7, -1) : undefined;
 
-    // Also re-check when tab becomes visible
-    const handleVisibilityChange = () => {
-      if (!document.hidden) checkForNewMessages();
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+      const notif: Notification = {
+        id: n.id || Date.now().toString(),
+        senderIds: n.from ? [n.from.userId] : [],
+        senders: n.from ? [{ userId: n.from.userId, username: n.from.username, avatarUrl: n.from.avatarUrl || null }] : [],
+        preview: isPartyInvite ? "🎮 Invited you to their party!"
+          : n.type === "friend-request" ? `${n.from?.username || "Someone"} sent you a friend request!`
+          : n.type === "friend-accepted" ? `${n.from?.username || "Someone"} accepted your friend request!`
+          : n.type === "chronicle-reply" ? `${n.from?.username || "Someone"} replied to your chronicle entry`
+          : n.type === "challenge" ? `${n.from?.username || "Someone"} challenged you to ${n.gameType || "a game"}!`
+          : n.preview || "New notification",
+        count: 1,
+        partyId,
+      };
 
-    return () => {
-      clearTimeout(initTimeout);
-      if (pollTimer.current) clearInterval(pollTimer.current);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      clearDismissTimer();
-    };
-  }, [session, checkForNewMessages, clearDismissTimer]);
+      showNotification(notif, partyId ? PARTY_DISMISS_MS : AUTO_DISMISS_MS);
+    });
+    return () => { unsub(); clearDismissTimer(); };
+  }, [session?.user?.id, isMessagesPage, onNotification, showNotification, clearDismissTimer]);
 
   // Dismiss when navigating to messages
   useEffect(() => {

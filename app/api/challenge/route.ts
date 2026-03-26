@@ -32,5 +32,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Can't challenge yourself" }, { status: 400 });
 
   const result = await createGameChallenge(session.user.id, toUserId, gameType, gameName, ranked !== false);
+  // Push notification to challenged user
+  import("@/lib/pushNotification").then(({ pushNotification }) =>
+    pushNotification(toUserId, {
+      type: "challenge",
+      from: { userId: session.user!.id, username: session.user!.name || "Someone" },
+      gameType: gameName || gameType,
+    })
+  ).catch(() => {});
   return NextResponse.json(result);
 }

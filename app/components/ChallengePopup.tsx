@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter, usePathname } from "next/navigation";
+import { useNotifications, type PushNotification } from "@/lib/useNotifications";
 
 interface IncomingChallenge {
   id: string;
@@ -94,10 +95,28 @@ export default function ChallengePopup() {
     } catch { /* ignore */ }
   }, [session?.user?.id, quizDismissed]);
 
-  // Challenge/quiz polling disabled — was firing every 3s and exhausting DB connections
-  // TODO: re-enable with WebSocket push instead of polling
-  useEffect(() => {}, [session?.user?.id, poll]);
-  useEffect(() => {}, [session?.user?.id, pollQuiz]);
+  // Receive challenges via PartyKit push instead of polling
+  const { onNotification } = useNotifications();
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const unsub = onNotification((n: PushNotification) => {
+      if (n.type === "challenge" && n.from) {
+        const challenge: IncomingChallenge = {
+          id: n.id || Date.now().toString(),
+          from_user_id: n.from.userId,
+          from_username: n.from.username,
+          from_avatar: n.from.avatarUrl || null,
+          game_type: (n.gameType || "chess") as "chess" | "quiz" | "emulator",
+          game_name: n.gameType || "Chess",
+          expires_at: new Date(Date.now() + 60000).toISOString(),
+        };
+        if (!dismissed.has(challenge.id)) {
+          setIncoming(prev => [...prev, challenge]);
+        }
+      }
+    });
+    return unsub;
+  }, [session?.user?.id, onNotification, dismissed]);
 
   // Countdown timers for each incoming challenge
   useEffect(() => {

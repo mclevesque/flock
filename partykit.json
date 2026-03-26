@@ -5,7 +5,9 @@
   "parties": {
     "theater": "party/theater.ts",
     "draw": "party/draw.ts",
-    "town": "party/town.ts"
+    "town": "party/town.ts",
+    "presence": "party/presence.ts",
+    "notifications": "party/notifications.ts"
   },
   "compatibilityDate": "2024-09-23"
 }

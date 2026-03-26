@@ -34,11 +34,19 @@ export async function POST(req: NextRequest) {
     const existing = await getFriendshipStatus(session.user.id, toId);
     if (existing) return NextResponse.json({ error: existing.status === "accepted" ? "Already friends" : "Request already sent" }, { status: 400 });
     await sendFriendRequest(session.user.id, toId);
+    // Push notification to recipient
+    import("@/lib/pushNotification").then(({ pushNotification }) =>
+      pushNotification(toId, { type: "friend-request", from: { userId: session.user!.id, username: session.user!.name || "Someone" } })
+    ).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 
   if (action === "accept") {
     await acceptFriendRequest(requesterId, session.user.id);
+    // Push notification to requester that their request was accepted
+    import("@/lib/pushNotification").then(({ pushNotification }) =>
+      pushNotification(requesterId, { type: "friend-accepted", from: { userId: session.user!.id, username: session.user!.name || "Someone" } })
+    ).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 

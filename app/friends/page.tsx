@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { usePresence } from "@/lib/usePresence";
 
 interface FriendUser {
   id: string; username: string; display_name: string; avatar_url: string;
@@ -97,15 +98,8 @@ export default function FriendsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Re-poll online status every 30s
-  useEffect(() => {
-    const iv = setInterval(() => {
-      fetch("/api/friends").then(r => r.json()).then(d => {
-        if (Array.isArray(d)) setFriends(d);
-      }).catch(() => {});
-    }, 30000);
-    return () => clearInterval(iv);
-  }, []);
+  // Online status from PartyKit presence (no polling)
+  const { isOnline } = usePresence();
 
   async function act(action: string, targetId: string, requesterId?: string) {
     setBusy(b => ({ ...b, [targetId]: true }));
@@ -144,7 +138,7 @@ export default function FriendsPage() {
 
   if (status === "loading") return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", color: "var(--text-muted)" }}>Loading...</div>;
 
-  const onlineCount = friends.filter(f => f.is_online).length;
+  const onlineCount = friends.filter(f => isOnline(f.id) || f.is_online).length;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 16px 80px" }}>
@@ -164,7 +158,7 @@ export default function FriendsPage() {
           <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "12px 0" }}>No friends yet — add some!</div>
         ) : (
           <div>
-            {[...friends.filter(f => f.is_online), ...friends.filter(f => !f.is_online)].map(u => (
+            {[...friends.filter(f => isOnline(f.id) || f.is_online), ...friends.filter(f => !isOnline(f.id) && !f.is_online)].map(u => (
               <UserRow key={u.id} u={u} showOnline actions={
                 <Link href={`/messages?with=${u.id}`} style={{
                   background: "rgba(124,92,191,0.15)", border: "1px solid rgba(124,92,191,0.3)",

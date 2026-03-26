@@ -5,6 +5,7 @@ import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { click, swoosh } from "@/app/components/sounds";
 import StoryRecorder from "./StoryRecorder";
+import { useNotifications } from "@/lib/useNotifications";
 
 const navItems = [
   { href: "/feed", label: "✨ Share", short: "✨" },
@@ -56,15 +57,28 @@ export default function Navbar() {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
+  // PartyKit push — replaces all polling for friend requests, messages, chronicle
+  const {
+    friendRequestCount: pushFriendRequests,
+    unreadMessageCount: pushUnreadMessages,
+    chronicleReplyCount: pushChronicleReplies,
+    clearFriendRequests,
+    clearUnreadMessages,
+    clearChronicleReplies,
+  } = useNotifications();
+
+  // Sync push counts to local state
+  useEffect(() => { setPendingCount(pushFriendRequests); }, [pushFriendRequests]);
+  useEffect(() => { setUnreadMessages(pushUnreadMessages); }, [pushUnreadMessages]);
+  useEffect(() => { setChronicleUnread(pushChronicleReplies); }, [pushChronicleReplies]);
+
+  // One-time mount fetches (no polling — just seed data)
   useEffect(() => {
     if (!session?.user?.id) return;
-    function check() {
-      fetch("/api/friend-requests").then(r => r.json()).then(d => {
-        setPendingCount(Array.isArray(d.incoming) ? d.incoming.length : 0);
-      }).catch(() => {});
-    }
-    check();
-    const t = setInterval(check, 30000);
+    // Seed friend request count from DB on mount
+    fetch("/api/friend-requests").then(r => r.json()).then(d => {
+      setPendingCount(Array.isArray(d.incoming) ? d.incoming.length : 0);
+    }).catch(() => {});
     // Fetch first friend's avatar for the Friends tab icon
     fetch("/api/friends").then(r => r.json()).then((friends: { avatar_url?: string | null }[]) => {
       if (Array.isArray(friends) && friends.length > 0 && friends[0].avatar_url) {
@@ -76,125 +90,21 @@ export default function Navbar() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.snes_access) setHasSnesAccess(true); })
       .catch(() => {});
-    return () => clearInterval(t);
-  }, [session?.user?.id]);
-
-  // Track chronicle reply notifications
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    const storageKey = `ryft_chronicle_seen_${session.user.id}`;
-
-    async function checkChronicle() {
-      try {
-        const onChroniclePage = window.location.pathname.startsWith("/chronicle");
-        if (onChroniclePage) {
-          // Mark all current comments as seen
-          localStorage.setItem(storageKey, String(Date.now()));
-          setChronicleUnread(0);
-          return;
-        }
-
-        const since = localStorage.getItem(storageKey);
-        if (!since) {
-          // First visit ever — seed the timestamp, show no badge
-          localStorage.setItem(storageKey, String(Date.now()));
-          setChronicleUnread(0);
-          return;
-        }
-
-        const r = await fetch(`/api/notifications?since=${since}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        setChronicleUnread(d.chronicleReplies ?? 0);
-      } catch { /* ignore */ }
-    }
-
-    checkChronicle();
-    const t = setInterval(checkChronicle, 60000);
-    return () => clearInterval(t);
   }, [session?.user?.id]);
 
   // Clear chronicle badge when navigating to /chronicle
   useEffect(() => {
     if (!session?.user?.id || !path.startsWith("/chronicle")) return;
-    const storageKey = `ryft_chronicle_seen_${session.user.id}`;
-    localStorage.setItem(storageKey, String(Date.now()));
+    clearChronicleReplies();
     setChronicleUnread(0);
-  }, [path, session?.user?.id]);
+  }, [path, session?.user?.id, clearChronicleReplies]);
 
-  // Track unread messages (conversations with messages newer than last visit)
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    const storageKey = `ryft_msgs_seen_${session.user.id}`;
-    let initialized = false;
-
-    async function checkUnread() {
-      try {
-        const r = await fetch("/api/messages");
-        if (!r.ok) return;
-        const convs: { other_user: string; created_at: string }[] = await r.json();
-        if (!Array.isArray(convs)) return;
-        const saved = JSON.parse(localStorage.getItem(storageKey) ?? "{}") as Record<string, string>;
-
-        if (!initialized) {
-          // First load: seed timestamps, don't show badge (unless navigated away)
-          const onMessagesPage = window.location.pathname.startsWith("/messages");
-          if (onMessagesPage) {
-            // Mark all as seen
-            const next: Record<string, string> = {};
-            for (const c of convs) next[c.other_user] = c.created_at;
-            localStorage.setItem(storageKey, JSON.stringify(next));
-            setUnreadMessages(0);
-          } else {
-            // If no saved data at all, seed timestamps (first visit or cleared localStorage)
-            // Don't show old messages as unread
-            const hasSavedData = Object.keys(saved).length > 0;
-            if (!hasSavedData) {
-              const next: Record<string, string> = {};
-              for (const c of convs) next[c.other_user] = c.created_at;
-              localStorage.setItem(storageKey, JSON.stringify(next));
-              setUnreadMessages(0);
-            } else {
-              // Count conversations newer than saved
-              let count = 0;
-              for (const c of convs) {
-                const last = saved[c.other_user];
-                if (!last || new Date(c.created_at) > new Date(last)) count++;
-              }
-              setUnreadMessages(count);
-            }
-          }
-          initialized = true;
-          return;
-        }
-
-        let count = 0;
-        for (const c of convs) {
-          const last = saved[c.other_user];
-          if (!last || new Date(c.created_at) > new Date(last)) count++;
-        }
-        setUnreadMessages(count);
-      } catch { /* ignore */ }
-    }
-
-    checkUnread();
-    const t = setInterval(checkUnread, 30000);
-
-    return () => clearInterval(t);
-  }, [session?.user?.id]);
-
-  // Clear badge immediately whenever the user navigates to /messages (reactive to Next.js routing)
+  // Clear message badge when navigating to /messages
   useEffect(() => {
     if (!session?.user?.id || !path.startsWith("/messages")) return;
-    const storageKey = `ryft_msgs_seen_${session.user.id}`;
-    fetch("/api/messages").then(r => r.json()).then((convs: { other_user: string; created_at: string }[]) => {
-      if (!Array.isArray(convs)) return;
-      const next: Record<string, string> = {};
-      for (const c of convs) next[c.other_user] = c.created_at;
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      setUnreadMessages(0);
-    }).catch(() => {});
-  }, [path, session?.user?.id]);
+    clearUnreadMessages();
+    setUnreadMessages(0);
+  }, [path, session?.user?.id, clearUnreadMessages]);
 
   // Fetch actual DB avatar (may differ from OAuth session image after profile edit).
   // If no avatar is in DB yet, or the stored URL is a raw OAuth URL that can expire,

@@ -33,5 +33,13 @@ export async function POST(req: Request) {
 
   const { receiverId, content } = await req.json();
   await sendMessage(session.user.id, receiverId, content);
+  // Push notification to recipient
+  import("@/lib/pushNotification").then(({ pushNotification }) =>
+    pushNotification(receiverId, {
+      type: "new-message",
+      from: { userId: session.user!.id, username: session.user!.name || "Someone" },
+      preview: typeof content === "string" ? content.slice(0, 60) : "New message",
+    })
+  ).catch(() => {});
   return NextResponse.json({ ok: true });
 }
