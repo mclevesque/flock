@@ -9,6 +9,13 @@ const TownClient = dynamic(() => import("./TownClient"), { ssr: false, loading: 
   </div>
 ) });
 
+const MoonhavenClient = dynamic(() => import("@/app/moonhaven/MoonhavenClient"), { ssr: false, loading: () => (
+  <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, background: "#0a0a1a" }}>
+    <div style={{ fontSize: 36 }}>🌙</div>
+    <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)" }}>Loading Moonhaven…</div>
+  </div>
+) });
+
 interface PartyMember { userId: string; username: string; avatarUrl: string; isLeader: boolean }
 interface Party {
   id: string;
@@ -22,6 +29,8 @@ interface Party {
 type Phase = "loading" | "lobby" | "town";
 
 export default function TownWrapper(props: { userId: string; username: string; avatarUrl: string }) {
+  const [tab, setTab] = useState<"town" | "moonhaven">("town");
+  const [moonhavenLoaded, setMoonhavenLoaded] = useState(false);
   const [phase, setPhase] = useState<Phase>("loading");
   const [myParty, setMyParty] = useState<Party | null>(null);
   const [joinableParties, setJoinableParties] = useState<Party[]>([]);
@@ -54,20 +63,16 @@ export default function TownWrapper(props: { userId: string; username: string; a
       return;
     }
 
-    Promise.all([
-      fetch("/api/party?action=my-party").then(r => r.json()).catch(() => ({ party: null })),
-      fetch("/api/party?action=friend-parties").then(r => r.json()).catch(() => ({ parties: [] })),
-    ]).then(([mp, fp]) => {
-      const party = mp.party ?? null;
-      setMyParty(party);
-      setJoinableParties(fp.parties ?? []);
-      // If already in a party → skip lobby entirely
-      if (party) {
-        setPhase("town");
-      } else {
-        setPhase("lobby");
-      }
-    });
+    // Resolve my-party first — unblocks the UI immediately
+    fetch("/api/party?action=my-party").then(r => r.json()).catch(() => ({ party: null }))
+      .then(mp => {
+        const party = mp.party ?? null;
+        setMyParty(party);
+        setPhase(party ? "town" : "lobby");
+      });
+    // Load joinable parties in background — doesn't block loading
+    fetch("/api/party?action=friend-parties").then(r => r.json()).catch(() => ({ parties: [] }))
+      .then(fp => setJoinableParties(fp.parties ?? []));
   }, []);
 
   async function handleStart() {
@@ -104,26 +109,48 @@ export default function TownWrapper(props: { userId: string; username: string; a
     }
   }
 
+  const tabBar = (
+    <div style={{ position: "fixed", top: 56, left: 0, right: 0, zIndex: 9200, display: "flex", background: "rgba(6,10,14,0.95)", borderBottom: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(10px)" }}>
+      {(["town", "moonhaven"] as const).map(t => (
+        <button key={t} onClick={() => { setTab(t); if (t === "moonhaven") setMoonhavenLoaded(true); }}
+          style={{ flex: 1, padding: "10px 0", border: "none", background: "transparent", cursor: "pointer", fontWeight: 700, fontSize: 13, letterSpacing: 0.5,
+            color: tab === t ? "#88ff99" : "rgba(255,255,255,0.4)",
+            borderBottom: tab === t ? "2px solid #88ff99" : "2px solid transparent",
+            transition: "color 0.15s, border-color 0.15s" }}>
+          {t === "town" ? "🏘️ Town" : "🌙 Moonhaven"}
+        </button>
+      ))}
+    </div>
+  );
+
   if (phase === "loading") {
     return (
-      <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#060a0e" }}>
-        <div style={{ fontSize: 32, animation: "pulse 1.2s ease-in-out infinite", opacity: 0.7 }}>⚔️</div>
-        <style>{`@keyframes pulse { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }`}</style>
-      </div>
+      <>
+        {tabBar}
+        <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#060a0e" }}>
+          <div style={{ fontSize: 32, animation: "pulse 1.2s ease-in-out infinite", opacity: 0.7 }}>⚔️</div>
+          <style>{`@keyframes pulse { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }`}</style>
+        </div>
+      </>
     );
   }
 
   if (phase === "town") {
-    return <TownClient {...props} partyId={myParty?.id ?? null} />;
+    if (tab === "moonhaven") return <>{tabBar}<MoonhavenClient {...props} /></>;
+    return <>{tabBar}<TownClient {...props} partyId={myParty?.id ?? null} /></>;
   }
 
   // LOBBY
+  if (tab === "moonhaven") return <>{tabBar}<MoonhavenClient {...props} /></>;
+
   return (
+    <>
+    {tabBar}
     <div style={{
       minHeight: "100dvh",
       background: "radial-gradient(ellipse at 50% 0%, rgba(20,50,30,0.5) 0%, #060a0e 60%)",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      padding: "20px 16px", fontFamily: "monospace",
+      padding: "80px 16px 20px", fontFamily: "monospace",
       position: "relative", overflow: "hidden",
     }}>
       {/* Background glow */}
@@ -247,8 +274,9 @@ export default function TownWrapper(props: { userId: string; username: string; a
       </div>
 
       <div style={{ position: "absolute", bottom: 24, fontSize: 10, color: "rgba(255,255,255,0.15)", letterSpacing: 1 }}>
-        FLOCK · KINGDOM OF FLOCK
+        RYFT · KINGDOM OF FLOCK
       </div>
     </div>
+    </>
   );
 }

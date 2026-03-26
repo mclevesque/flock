@@ -306,8 +306,8 @@ function playSFX(key,vol,rate){
 // WEAPON SELECT — WAR CRY (herald_shout):
 //   herald_shout: "That sound alone stops them cold. Use it well."
 // ────────────────────────────────────────────────────────────────────────────
-const SURVIVE_TIME=360; // 6 minute run
-const ZOOM=1.45; // zoom in — player feels closer, world feels more intense
+const SURVIVE_TIME=1800; // 30 minute run
+const ZOOM=1.1; // VS-style: slight zoom but battlefield stays readable
 const VOICE_LINES={
   // Level up — all 5 base lines × 4 variants each (A/B/C/D)
   lvlup:[
@@ -590,7 +590,7 @@ xp:0,xpNeeded:5,level:1,
 streakKills:0,streakTier:0,
 streakNames:['ASLEEP','AWAKE','BASED!','ASCENDED!','GOD TIER'],
 streakColors:['#555','#88ffaa','#44ccff','#ff6600','#ffcc00'],
-streakThresholds:[0,50,150,418,1250], // AWAKE ~1min, BASED ~2min, ASCENDED +10%→418, GOD TIER +25%→1250
+streakThresholds:[0,75,250,700,2000], // scaled for 30min — AWAKE ~3min, BASED ~7min, ASCENDED ~15min, GOD TIER ~25min
 // Flavor shown as subtitle when tier is reached
 streakQuotes:['',
   'The horde is gathering. Stand firm.',
@@ -599,16 +599,16 @@ streakQuotes:['',
   'You are UNSTOPPABLE!'
 ],
 streakDmgMult:[1,1.25,1.65,2.3,3.2],   // much more impactful
-streakSpdMult:[1,1.12,1.26,1.42,1.60], // noticeable speed gains
+streakSpdMult:[1,1.08,1.18,1.28,1.40], // noticeable but not crazy
 // Weapons / passives
-weapons:[],maxWeapons:4,
-passives:[],maxPassives:2,
+weapons:[],maxWeapons:6,
+passives:[],maxPassives:6,
 // Kills
 kills:0,totalDamage:0,gold:0,
 // Drops
 pills:[],foods:[],goldGems:[],chests:[],
 // Enemies
-enemies:[],enemyPool:[],maxEnemies:180,
+enemies:[],enemyPool:[],maxEnemies:300,
 // Particles
 particles:[],floatTexts:[],
 // Camera
@@ -786,26 +786,31 @@ const META_CATEGORIES=['all','combat','survival','utility'];
 // 10X aggression = 5x speed, 4x damage — intense but survivable with skill
 // Player base speed=3, so shamblers (2.4) are barely catchable. Runners (6.0) must be fought.
 // Max player HP ramps to ~260 with passives. Boss hits ~30-50 = 5-8 hits to die = intense
+// ── Speed tuning vs player base 3px/frame (capped at 7) ──
+// VS rule: walkers < player speed, runners ≈ player, chargers > player but beatable
+// Shambler 1.8 = ~60% player speed (VS walkers)
+// Runner 3.2 = barely faster than base player — must kite
+// Void shade 4.5 = fast threat, needs dodging
+// Werewolf 4.8 = fastest regular enemy
 const ENEMY_DEFS={
-shambler:{name:'Shambler',hp:28,spd:2.4,dmg:10,size:14,color:'#558855',xp:2,emoji:'🧟'},
-raven:{name:'Zombie Raven',hp:18,spd:4.2,dmg:8,size:10,color:'#111111',xp:2,emoji:'🪶'},
-bloated:{name:'Bloated Zombie',hp:110,spd:1.5,dmg:25,size:22,color:'#33aa33',xp:5,emoji:'🧟‍♂️',defPct:0.15},
-risen_bandit:{name:'Risen Bandit',hp:60,spd:3.0,dmg:18,size:16,color:'#885533',xp:4,emoji:'💀'},
-runner:{name:'Runner',hp:35,spd:6.0,dmg:12,size:12,color:'#226622',xp:3,emoji:'🏃'},
-risen_knight:{name:'Risen Knight',hp:220,spd:1.9,dmg:35,size:20,color:'#445566',xp:10,emoji:'⚔️',defPct:0.25},
-witch_spawn:{name:'Corrupted Mage',hp:75,spd:2.6,dmg:22,size:16,color:'#441166',xp:7,emoji:'🧙',defPct:0.12},
-ancient:{name:'Ancient Horror',hp:550,spd:2.8,dmg:48,size:32,color:'#882200',xp:20,emoji:'👹',defPct:0.35},
+shambler:{name:'Shambler',hp:24,spd:1.8,dmg:8,size:14,color:'#558855',xp:2,emoji:'🧟'},
+raven:{name:'Zombie Raven',hp:14,spd:3.6,dmg:6,size:10,color:'#111111',xp:2,emoji:'🪶'},
+bloated:{name:'Bloated Zombie',hp:95,spd:1.1,dmg:22,size:22,color:'#33aa33',xp:5,emoji:'🧟‍♂️',defPct:0.15},
+risen_bandit:{name:'Risen Bandit',hp:50,spd:2.4,dmg:16,size:16,color:'#885533',xp:4,emoji:'💀'},
+runner:{name:'Runner',hp:30,spd:3.2,dmg:10,size:12,color:'#226622',xp:3,emoji:'🏃'},
+risen_knight:{name:'Risen Knight',hp:200,spd:1.6,dmg:30,size:20,color:'#445566',xp:10,emoji:'⚔️',defPct:0.25},
+witch_spawn:{name:'Corrupted Mage',hp:65,spd:2.2,dmg:20,size:16,color:'#441166',xp:7,emoji:'🧙',defPct:0.12},
+ancient:{name:'Ancient Horror',hp:480,spd:2.0,dmg:42,size:32,color:'#882200',xp:20,emoji:'👹',defPct:0.35},
 // New enemy types
-plague_bearer:{name:'Plague Bearer',hp:85,spd:2.0,dmg:20,size:18,color:'#226633',xp:6,emoji:'🤢',onDeathSpread:true,defPct:0.10},
-void_shade:{name:'Void Shade',hp:30,spd:5.5,dmg:15,size:11,color:'#220044',xp:3,emoji:'👤',phasing:true},
-bone_archer:{name:'Bone Archer',hp:45,spd:2.2,dmg:14,size:13,color:'#997755',xp:4,emoji:'🏹',ranged:true,shootCd:0},
-swarm_larva:{name:'Larva',hp:8,spd:4.8,dmg:6,size:8,color:'#338833',xp:1,emoji:'🪲'},
-werewolf:{name:'Werewolf',hp:220,spd:5.2,dmg:29,size:22,color:'#886644',xp:14,emoji:'🐺',defPct:0.22},
+plague_bearer:{name:'Plague Bearer',hp:75,spd:1.7,dmg:18,size:18,color:'#226633',xp:6,emoji:'🤢',onDeathSpread:true,defPct:0.10},
+void_shade:{name:'Void Shade',hp:26,spd:4.5,dmg:14,size:11,color:'#220044',xp:3,emoji:'👤',phasing:true},
+bone_archer:{name:'Bone Archer',hp:40,spd:1.9,dmg:12,size:13,color:'#997755',xp:4,emoji:'🏹',ranged:true,shootCd:0},
+swarm_larva:{name:'Larva',hp:6,spd:3.8,dmg:5,size:8,color:'#338833',xp:1,emoji:'🪲'},
+werewolf:{name:'Werewolf',hp:200,spd:4.8,dmg:26,size:22,color:'#886644',xp:14,emoji:'🐺',defPct:0.22},
 // ── WURM: underground tremor beast. Burrows, erupts, launches player/enemies. ──
 wurm:{name:'WURM',hp:900,spd:0,dmg:0,size:36,color:'#5a3a1a',xp:25,emoji:'🪱',defPct:0.3,isWurm:true},
-// ── Skeleton Wall: stationary barricade. Each segment is an individual killable enemy. ──
-// Spawns as an interlocked line of 4–6. Block movement. Break them to carve a path.
-skeleton_wall:{name:'Bone Wall',hp:2200,spd:0,dmg:0,size:26,color:'#c8b870',xp:8,emoji:'💀',isWall:true,defPct:0},
+// skeleton_wall retained for legacy freeEnemy pool compatibility but never spawned
+skeleton_wall:{name:'Bone Wall',hp:1,spd:0,dmg:0,size:1,color:'#000',xp:0,emoji:'💀',isWall:true,defPct:0},
 };
 const BOSS_DEFS={
 bandit_warlord:{name:'BANDIT WARLORD',hp:800,spd:2.4,dmg:45,size:40,color:'#cc4411',xp:80,emoji:'💣',defPct:0.28},
@@ -813,31 +818,46 @@ zombie_dragon:{name:'ZOMBIE DRAGON',hp:4000,spd:3.2,dmg:70,size:55,color:'#11662
 moon_wraith:{name:'MOON WRAITH',hp:6000,spd:4.2,dmg:90,size:60,color:'#2222aa',xp:500,emoji:'👻',defPct:0.45},
 };
 
-// ========== SPAWN SCHEDULE (scaled to 6 min / 360s) ==========
+// ========== SPAWN SCHEDULE (scaled to 30 min / 1800s — VS-style escalation) ==========
 const SPAWN_SCHEDULE=[
-{t:0,  types:['shambler'],                                        rate:90, count:4},
-{t:20, types:['shambler'],                                        rate:75, count:6},
-{t:35, types:['shambler','raven'],                                rate:60, count:8},
-{t:50, types:['shambler','raven'],                                rate:50, count:12},
-{t:65, types:['shambler','raven','swarm_larva'],                  rate:38, count:18},
-{t:80, types:['risen_bandit','runner','plague_bearer'],           rate:22, count:32},
-{t:78, types:['skeleton_wall'],                                   rate:180,count:1},  // wall event
-{t:84, types:['runner','plague_bearer','void_shade'],             rate:16, count:45},  // no werewolf yet
-{t:96, types:['runner','void_shade','werewolf'],                  rate:14, count:50},  // gentle werewolf intro
-{t:120,types:['risen_bandit','void_shade','bone_archer','werewolf'], rate:12, count:58},
-{t:138,types:['risen_knight','bone_archer','werewolf','runner'],  rate:10, count:66},
-{t:156,types:['risen_knight','witch_spawn','void_shade','werewolf'],rate:8, count:75},
-{t:180,types:['risen_knight','witch_spawn','plague_bearer'],      rate:7,  count:85},
-{t:204,types:['witch_spawn','ancient','bone_archer','werewolf'],  rate:5,  count:100},
-{t:216,types:['ancient','risen_knight','void_shade'],             rate:4,  count:120},
-{t:252,types:['ancient','witch_spawn','swarm_larva','werewolf'],  rate:3,  count:130},
-{t:288,types:['ancient','void_shade','bone_archer'],              rate:2,  count:140},
-{t:324,types:['ancient','risen_knight','plague_bearer','werewolf'],rate:2, count:150},
+// ── Minutes 0-2: calm intro, learn movement ──
+{t:0,   types:['shambler'],                                          rate:120,count:4},
+{t:30,  types:['shambler'],                                          rate:95, count:6},
+{t:60,  types:['shambler','raven'],                                  rate:75, count:8},
+// ── Minutes 2-5: first mix, pick up pace ──
+{t:90,  types:['shambler','raven'],                                  rate:60, count:10},
+{t:150, types:['shambler','raven','swarm_larva'],                    rate:50, count:14},
+{t:210, types:['risen_bandit','runner','plague_bearer'],             rate:38, count:20},
+// ── Minutes 5-8: pressure builds, runners appear ──
+{t:300, types:['risen_bandit','runner'],                             rate:30, count:28},
+{t:390, types:['runner','plague_bearer','void_shade'],               rate:24, count:36},
+{t:450, types:['runner','void_shade','risen_bandit'],                rate:20, count:44},
+// ── Minutes 8-12: elite enemies introduced ──
+{t:480, types:['risen_bandit','void_shade','bone_archer'],           rate:17, count:52},
+{t:570, types:['risen_bandit','bone_archer','werewolf'],             rate:14, count:58},
+{t:660, types:['risen_knight','bone_archer','werewolf','runner'],    rate:11, count:66},
+// ── Minutes 12-16: mid-game grind, witch_spawn enters ──
+{t:720, types:['risen_knight','witch_spawn','void_shade','werewolf'],rate:9,  count:74},
+{t:840, types:['risen_knight','witch_spawn','plague_bearer'],        rate:8,  count:82},
+{t:900, types:['witch_spawn','ancient','bone_archer','werewolf'],    rate:7,  count:90},
+// ── Minutes 16-20: ancient horror wave ──
+{t:960, types:['ancient','risen_knight','void_shade'],               rate:6,  count:100},
+{t:1080,types:['ancient','witch_spawn','swarm_larva','werewolf'],    rate:5,  count:110},
+{t:1140,types:['ancient','void_shade','bone_archer'],                rate:4,  count:118},
+// ── Minutes 20-25: full chaos ──
+{t:1200,types:['ancient','risen_knight','plague_bearer','werewolf'], rate:3,  count:126},
+{t:1380,types:['ancient','witch_spawn','void_shade','bone_archer'],  rate:3,  count:132},
+// ── Minutes 25-30: final onslaught ──
+{t:1500,types:['ancient','werewolf','void_shade','runner'],          rate:2,  count:250},
+{t:1620,types:['ancient','risen_knight','witch_spawn','werewolf'],   rate:2,  count:300},
 ];
 const BOSS_SCHEDULE=[
-{t:72, type:'bandit_warlord'},  // ~1:12
-{t:180,type:'zombie_dragon'},   // ~3:00
-{t:342,type:'moon_wraith'},     // ~5:42
+{t:180, type:'bandit_warlord'},  // 3 min — first taste
+{t:480, type:'bandit_warlord'},  // 8 min — second wave
+{t:780, type:'zombie_dragon'},   // 13 min — mid-game escalation
+{t:1080,type:'zombie_dragon'},   // 18 min — returns stronger (HP scaled ~5×)
+{t:1380,type:'moon_wraith'},     // 23 min — endgame begins
+{t:1620,type:'moon_wraith'},     // 27 min — final boss, scaled ~32×
 ];
 
 // ========== STAT HELPERS (identical pattern to Truthseeker) ==========
@@ -862,7 +882,7 @@ function getCooldown(){return Math.max(0.25,1-getStat('cooldown'))}
 function getProjSpd(){return 1+getStat('projspd')||1}
 function getMagnet(){return 80*(1+getStat('magnet'))}
 function getGrowth(){return 1+getStat('growth')}
-function getMoveSpd(){return(gs.pSpeed+gs.pSpeed*getStat('movespd'))*gs.streakSpdMult[gs.streakTier]}
+function getMoveSpd(){return Math.min(7,(gs.pSpeed+gs.pSpeed*getStat('movespd'))*gs.streakSpdMult[gs.streakTier])}
 function getAmt(){return 1+Math.floor(getStat('amount'))}
 
 // ========== OBJECT POOL ==========
@@ -883,15 +903,15 @@ e.x=gs.px+Math.cos(ang)*dist+(Math.random()-0.5)*30;
 e.y=gs.py+Math.sin(ang)*dist+(Math.random()-0.5)*30;
 e.x=Math.max(MAP_SAFE,Math.min(WORLD_W-MAP_SAFE,e.x));
 e.y=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,e.y));
-// Piecewise scaling: gentle first 3min, gradual second 3min — no sudden wall
-// HP: 0.55→1.2 first half, 1.2→2.2 second half
+// VS-style piecewise scaling: 0.5× at start → ~40× at 30min
+// 0-3min: 0.5→1.0  |  3-10min: 1.0→4.0  |  10-20min: 4.0→16.0  |  20-30min: 16.0→40.0
 const p=gs.gameTime/SURVIVE_TIME;
-const timeScale=p<0.5?0.55+p*2*0.65:1.2+(p-0.5)*2*1.0;
+const timeScale=p<0.1?0.5+p*5.0:p<0.333?1.0+(p-0.1)*13.0:p<0.667?4.0+(p-0.333)*36.0:16.0+(p-0.667)*72.0;
 const _diff=DIFFICULTIES[(gs.difficulty||2)-1]||DIFFICULTIES[1];
 e.hp=def.hp*timeScale*0.7*_diff.hpMult;e.maxHp=e.hp;
 e.spd=def.spd*_diff.spdMult;
-// Damage: piecewise + difficulty multiplier
-const dmgScale=(p<0.5?0.45+p*2*0.25:0.7+(p-0.5)*2*0.5)*1.072*_diff.dmgMult;
+// Damage: similar curve but tops out at 10× (player HP also scales up)
+const dmgScale=(p<0.1?0.35+p*3.5:p<0.333?0.7+(p-0.1)*5.6:p<0.667?2.0+(p-0.333)*14.4:6.8+(p-0.667)*9.6)*_diff.dmgMult;
 e.dmg=Math.ceil(def.dmg*dmgScale);
 e.size=def.size;
 e.color=def.color;e.xp=def.xp;e.type=type;e.name=def.name;
@@ -1065,7 +1085,7 @@ playSFX(e.isBoss?'wolf_attack':isElite||gs.streakTier>=2?'shatter':'impact',e.is
 if(e.isBoss)floatT(e.x,e.y-30,'BOSS DEFEATED!','#ffcc00',true);
 freeEnemy(e);
 }else{
-const kb=3;const ang=Math.atan2(e.y-gs.py,e.x-gs.px);
+const kb=10;const ang=Math.atan2(e.y-gs.py,e.x-gs.px);
 e.vx+=Math.cos(ang)*kb;e.vy+=Math.sin(ang)*kb;
 }}
 
@@ -1580,8 +1600,8 @@ return
 // HP regen
 if(getStat('regen')>0&&gs.frame%60===0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
 
-// ===== TIMED WORLD CHESTS — 3 per match, very rare =====
-const chestIntervals=[90,210,330];
+// ===== TIMED WORLD CHESTS — 6 per match, every 5 minutes =====
+const chestIntervals=[300,600,900,1200,1500,1700];
 for(const ct of chestIntervals){
   if(Math.floor(gs.gameTime)===ct&&gs.frame%60===0){
     const cx2=gs.px+(Math.random()-0.5)*340,cy2=gs.py+(Math.random()-0.5)*340;
@@ -1591,12 +1611,7 @@ for(const ct of chestIntervals){
   }
 }
 
-// ===== SKELETON WALL LINE EVENTS (every 35–50s after t=90) =====
-if(gs.gameTime>=90){
-  gs._wallTimer=(gs._wallTimer||0)+1/60;
-  const wallInterval=35+((gs.frame%17)+2); // pseudo-random 35–53s
-  if(gs._wallTimer>=wallInterval){gs._wallTimer=0;spawnWallLine();}
-}
+// Bone wall events removed — caused O(n²) separation lag and glitchy feel
 
 // ===== PLAYER MOVEMENT — EXACT TRUTHSEEKER PATTERN =====
 const spd=getMoveSpd();
@@ -1608,20 +1623,7 @@ gs.px=Math.max(MAP_SAFE,Math.min(WORLD_W-MAP_SAFE,gs.px+gs.pvx));
 gs.py=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,gs.py+gs.pvy));
 if(dx!==0)gs.pFacing=dx;
 if(dy!==0)gs.pFacingY=dy;
-// Skeleton wall collision — solid pushout + contact damage
-for(const _we of gs.enemies){
-  if(!_we.active||!_we.isWall)continue;
-  const _wd=Math.hypot(gs.px-_we.x,gs.py-_we.y);
-  if(_wd<_we.size+17&&_wd>0){
-    const _wa=Math.atan2(gs.py-_we.y,gs.px-_we.x);
-    gs.px+=Math.cos(_wa)*(_we.size+17-_wd);
-    gs.py+=Math.sin(_wa)*(_we.size+17-_wd);
-    if(gs.pInvince===0){gs.pHP-=_we.dmg;gs.pInvince=35;gs.shakeDur=Math.max(gs.shakeDur,5);}
-  }
-}
-// Re-clamp after wall pushouts to prevent going off-map
-gs.px=Math.max(MAP_SAFE,Math.min(WORLD_W-MAP_SAFE,gs.px));
-gs.py=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,gs.py));
+// (bone wall collision removed)
 gs.pBob=(gs.pBob||0)+(len>0?0.15:0);
 
 // Camera (exact Truthseeker)
@@ -1641,8 +1643,8 @@ const partyMult=Math.max(1,1+(Object.keys(remotePlayers).length)*0.35);
 const spawnRate=(sched.rate/60)/partyMult; // faster with bigger party
 if(gs.spawnTimer>=spawnRate){
 gs.spawnTimer=0;
-// Volume scales aggressively over time — more enemies, not just harder ones
-const batch=Math.ceil((1+Math.floor(gs.gameTime/80))*partyMult);
+// Volume scales gradually — 1 per spawn early, up to 4 by late game
+const batch=Math.ceil((1+Math.floor(gs.gameTime/450))*partyMult);
 // Wolf howl: play once per 30s when schedule includes werewolves
 if(sched.types.includes('werewolf')&&(!gs._lastHowl||gs.gameTime-gs._lastHowl>=30)){
   gs._lastHowl=gs.gameTime;snd('wolf_howl');
@@ -1661,8 +1663,8 @@ gs.flash=12;gs.flashColor='#ff4444';gs.shakeDur=15;
 floatT(gs.px,gs.py-60,BOSS_DEFS[bs.type].name+' APPEARS!','#ff4444',true);
 }}
 
-// WURM: spawns with 3 min left (t=180 in 6-min game), once every 45s, max 1 active at a time
-if(gs.gameTime>=120&&(!gs._lastWurm||gs.gameTime-gs._lastWurm>=20)&&!gs.enemies.find(e=>e.active&&e.type==='wurm')){
+// WURM: starts at 4min, max 1 active, every 45s
+if(gs.gameTime>=240&&(!gs._lastWurm||gs.gameTime-gs._lastWurm>=45)&&!gs.enemies.find(e=>e.active&&e.type==='wurm')){
   gs._lastWurm=gs.gameTime;
   const def=ENEMY_DEFS.wurm;
   // Pick a random point near the player to burrow up from
@@ -1678,8 +1680,8 @@ if(gs.gameTime>=120&&(!gs._lastWurm||gs.gameTime-gs._lastWurm>=20)&&!gs.enemies.
     _wurmTargetX:gs.px,_wurmTargetY:gs.py, // where it's moving underground
     _wurmTrailX:wx,_wurmTrailY:wy, // visual trail position underground
   });
-  const _p2=gs.gameTime/SURVIVE_TIME;const ts2=Math.max(0.7,_p2<0.5?0.55+_p2*2*0.65:1.2+(_p2-0.5)*2*1.0);
-  e.hp=Math.round(def.hp*Math.min(ts2,2.5));e.maxHp=e.hp;e.size=def.size;e.spd=0;e.dmg=0;
+  const _p2=gs.gameTime/SURVIVE_TIME;const ts2=_p2<0.1?0.5+_p2*5.0:_p2<0.333?1.0+(_p2-0.1)*13.0:_p2<0.667?4.0+(_p2-0.333)*36.0:16.0+(_p2-0.667)*72.0;
+  e.hp=Math.round(def.hp*ts2*0.7);e.maxHp=e.hp;e.size=def.size;e.spd=0;e.dmg=0;
   gs.enemies.push(e);
   snd('boss'); // rumble sound
   floatT(gs.px,gs.py-40,'🌍 TREMOR…','#8b5e2a',true);
@@ -1742,7 +1744,7 @@ if(e.isWall){
 }
 const edx=nt.x-e.x,edy=nt.y-e.y;
 const ed=Math.sqrt(edx*edx+edy*edy);
-if(ed>0){e.vx=(edx/ed)*e.spd*frozenSpd+(e.vx-((edx/ed)*e.spd*frozenSpd))*0.85;e.vy=(edy/ed)*e.spd*frozenSpd+(e.vy-((edy/ed)*e.spd*frozenSpd))*0.85;}
+if(ed>0){e.vx=(edx/ed)*e.spd*frozenSpd+(e.vx-((edx/ed)*e.spd*frozenSpd))*0.92;e.vy=(edy/ed)*e.spd*frozenSpd+(e.vy-((edy/ed)*e.spd*frozenSpd))*0.92;}
 e.x+=e.vx;e.y+=e.vy;
 e.bob+=0.06;
 if(e.flash>0)e.flash--;
@@ -1922,13 +1924,14 @@ for(const k in jp)jp[k]=false;gp.jp.fill(false);
 function checkLevelUp(){
 if(gs.xp>=gs.xpNeeded&&gs.state!=='levelup'){
 gs.xp-=gs.xpNeeded;gs.level++;
-// VS-style additive scaling — steeper mid/late to counteract AoE kill rates:
-// Levels 1-5:  +5  (5,10,15,20,25)
-// Levels 6-10: +20 (45,65,85,105,125)
-// Levels 11-15:+50 (175,225,275,325,375)
-// Levels 16-20:+100(475,575,675,775,875)
-// Levels 21+:  +150
-const inc=gs.level<=5?5:gs.level<=10?20:gs.level<=15?50:gs.level<=20?100:150;
+// VS-style additive XP scaling for 30-min run — ~30 levels reachable by end
+// Levels 1-5:  +5   (5,10,15,20,25 cumulative: 75)
+// Levels 6-10: +15  (40,55,70,85,100 → 325)
+// Levels 11-15:+35  (135,170,205,240,275 → 1325)
+// Levels 16-20:+65  (340,405,470,535,600 → 3725)
+// Levels 21-25:+100 (+100 each → 6225 total to reach 25)
+// Levels 26+:  +150
+const inc=gs.level<=5?5:gs.level<=10?15:gs.level<=15?35:gs.level<=20?65:gs.level<=25?100:150;
 gs.xpNeeded=gs.xpNeeded+inc;
 // +2% max HP per level — steady growth throughout run
 const hpBonus=Math.ceil(gs.pMaxHP*0.02);
@@ -1981,7 +1984,7 @@ gs.particles=[];gs.floatTexts=[];gs.weaponFX=[];
 gs.spawnTimer=0;gs.bossTimer=0;
 gs.shakeDur=0;gs.shakeX=0;gs.shakeY=0;gs.flash=0;gs.hitFreeze=0;
 gs.survived=false;
-gs._wallTimer=0;
+gs._wallTimer=0;gs._lastWurm=0;
 }
 
 // ========== PROCEDURAL MUSIC ==========
@@ -1993,7 +1996,7 @@ function _scheduleMusicLoop(){
   if(!_musicRunning||!musicEnabled){_musicRunning=false;return;}
   if(!AX){setTimeout(_scheduleMusicLoop,200);return;}
   const now=AX.currentTime;
-  const intensity=Math.min(1,(gs.gameTime||0)/SURVIVE_TIME);
+  const intensity=Math.min(1,Math.pow((gs.gameTime||0)/(SURVIVE_TIME*0.5),0.7)); // full intensity by ~15min
   while(_musicNext<now+0.6){
     const t=_musicNext,b=_musicBeat%8;
     // Kick every beat
@@ -3175,9 +3178,9 @@ function drawClairvoyance(){
     gs._fpsSmooth=Math.round(gs._fpsCount*2);gs._fpsCount=0;gs._fpsLast=now;
     // Dynamic enemy cap: shed enemies on FPS drop, recover when FPS is healthy
     if(gs.state==='playing'){
-      if(gs._fpsSmooth<40)      gs.maxEnemies=Math.max(25, gs.maxEnemies-15);
-      else if(gs._fpsSmooth<50) gs.maxEnemies=Math.max(25, gs.maxEnemies-5);
-      else if(gs._fpsSmooth>=55)gs.maxEnemies=Math.min(180,gs.maxEnemies+8);
+      if(gs._fpsSmooth<40)      gs.maxEnemies=Math.max(50, gs.maxEnemies-20);
+      else if(gs._fpsSmooth<50) gs.maxEnemies=Math.max(50, gs.maxEnemies-8);
+      else if(gs._fpsSmooth>=55)gs.maxEnemies=Math.min(300,gs.maxEnemies+12);
     }
   }
 
@@ -3187,7 +3190,7 @@ function drawClairvoyance(){
 
   // WURM status
   const wurm=gs.enemies.find(e=>e.active&&e.type==='wurm');
-  const wurmNextIn=gs._lastWurm?Math.max(0,Math.ceil(120-(gs.gameTime-gs._lastWurm))):'t<2min';
+  const wurmNextIn=gs.gameTime<240?'t<4min':gs._lastWurm?Math.max(0,Math.ceil(45-(gs.gameTime-gs._lastWurm))):0;
   const wurmStatus=wurm?`ACTIVE phase=${wurm._wurmPhase} t=${wurm._wurmTimer}`:`next ~${wurmNextIn}s`;
 
   // Weapon FX
@@ -3204,7 +3207,7 @@ function drawClairvoyance(){
   // Build line list
   const allLines=[
     ['⚡ CLAIRVOYANCE  [` to hide]','#00ccff','bold 11px'],
-    ['FPS: '+(gs._fpsSmooth||0)+'  EnemyCap: '+gs.maxEnemies+'/180  Frame: '+gs.frame,'#aaddff','10px'],
+    ['FPS: '+(gs._fpsSmooth||0)+'  EnemyCap: '+gs.maxEnemies+'/300  Frame: '+gs.frame,'#aaddff','10px'],
     ['Time: '+Math.floor(gs.gameTime)+'s  HP: '+Math.round(gs.pHP)+'/'+gs.pMaxHP+'  LV'+gs.level+' XP:'+Math.round(gs.xp)+'/'+gs.xpNeeded,'#aaddff','10px'],
     ['Kills: '+gs.kills+'  Gold: '+gs.gold+'  Streak: '+gs.streakKills+'  Tier: '+gs.streakTier,'#aaddff','10px'],
     ['Enemies: '+gs.enemies.filter(e=>e.active).length+'  FX: '+gs.weaponFX.length+'  Pills: '+gs.pills.length,'#aaddff','10px'],
