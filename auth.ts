@@ -10,8 +10,25 @@ const nextAuthConfig = NextAuth({
       credentials: {
         username: { label: "Username" },
         password: { label: "Password", type: "password" },
+        guestToken: {},
       },
       async authorize(credentials) {
+        // ── Guest / Warrior mode ─────────────────────────────────────────────
+        if (credentials?.guestToken) {
+          const validToken = process.env.GUEST_TOKEN ?? "ryft_warrior_guest";
+          if (credentials.guestToken !== validToken) return null;
+          const WARRIOR_ID = "warrior_guest";
+          try {
+            const existing = await getUserById(WARRIOR_ID);
+            if (existing) return { id: WARRIOR_ID, name: "warrior", email: null, image: null };
+          } catch { /* create below */ }
+          try {
+            await createUser(WARRIOR_ID, "warrior", "WARRIOR", "/warrior-avatar.svg");
+          } catch { /* may already exist from race */ }
+          return { id: WARRIOR_ID, name: "warrior", email: null, image: null };
+        }
+
+        // ── Normal credentials login ──────────────────────────────────────────
         const username = (credentials?.username as string ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
         const password = credentials?.password as string ?? "";
         if (!username || !password || username.length < 2 || password.length < 3) return null;

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="bg" cx="45%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#3a1a6e"/>
+      <stop offset="100%" stop-color="#0d0520"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#c8a60044"/>
+      <stop offset="100%" stop-color="#c8a60000"/>
+    </radialGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="100" fill="url(#bg)"/>
+  <!-- Glow halo -->
+  <circle cx="100" cy="100" r="100" fill="url(#glow)"/>
+  <!-- Gold border ring -->
+  <circle cx="100" cy="100" r="96" fill="none" stroke="#c8a600" stroke-width="2.5" opacity="0.9"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="#c8a60044" stroke-width="1"/>
+  <!-- Shield shape -->
+  <path d="M100 30 L140 50 L140 100 Q140 135 100 155 Q60 135 60 100 L60 50 Z" fill="#1a0a3a" stroke="#c8a600" stroke-width="2"/>
+  <!-- Cross on shield -->
+  <line x1="100" y1="45" x2="100" y2="140" stroke="#c8a600" stroke-width="3" opacity="0.8"/>
+  <line x1="70" y1="85" x2="130" y2="85" stroke="#c8a600" stroke-width="3" opacity="0.8"/>
+  <!-- Sword overlay -->
+  <line x1="100" y1="38" x2="100" y2="148" stroke="#e8d0a0" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="82" y1="75" x2="118" y2="75" stroke="#e8d0a0" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="100" cy="72" rx="4" ry="5" fill="#c8a600"/>
+  <!-- Name label -->
+  <rect x="30" y="160" width="140" height="26" rx="4" fill="#0d0520cc"/>
+  <text x="100" y="177" font-size="14" font-weight="900" text-anchor="middle" font-family="'Courier New', monospace" fill="#c8a600" letter-spacing="4">WARRIOR</text>
+</svg>

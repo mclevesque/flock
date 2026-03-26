@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.id === "warrior_guest") return NextResponse.json({ error: "Guest accounts cannot post." }, { status: 403 });
   const u = session.user as { id: string; name?: string | null; image?: string | null };
   const body = await req.json();
   const { type, title, caption, imageData, imageUrl, videoUrl, gameData } = body;

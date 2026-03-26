@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.id === "warrior_guest") return NextResponse.json({ error: "Guest accounts cannot edit their profile." }, { status: 403 });
   try {
     const body = await req.json();
     const allowed = ["banner_url", "avatar_url", "bio", "display_name", "location", "website"];
