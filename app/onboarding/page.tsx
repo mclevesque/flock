@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth as clerkAuth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getUserById } from "@/lib/db";

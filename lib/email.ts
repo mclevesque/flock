@@ -1,13 +1,17 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY!);
+  return _resend;
+}
 
 // Use Resend's free tier default sender until a custom domain is added
 const FROM = process.env.RESEND_FROM ?? "RYFT <onboarding@resend.dev>";
 
 export async function sendPasswordResetEmail(to: string, username: string, resetUrl: string) {
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to,
       subject: "RYFT — Reset Your Password",

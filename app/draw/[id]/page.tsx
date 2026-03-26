@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getDrawRoom } from "@/lib/db";
 import { redirect } from "next/navigation";

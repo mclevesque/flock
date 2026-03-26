@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getSnesLeaderboard, getSfLeaderboard, getMkLeaderboard, getActiveEmulatorRooms, getPrivileges } from "@/lib/db";
 import EmulatorClient from "./EmulatorClient";

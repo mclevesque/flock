@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getUserByUsername, getVideosByUser, getWallPosts, getWallRepliesBatch, getFriendshipStatus, getFriends, getUserStorageBytes, getLastChessGame, getUserReplyPrivacy, getLastSnesGame, getPrivileges, getOrCreateAdventureStats } from "@/lib/db";
 import { auth } from "@/auth";
 import { notFound } from "next/navigation";

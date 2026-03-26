@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getChronicleEntries } from "@/lib/db";
 import ChronicleClient from "./ChronicleClient";

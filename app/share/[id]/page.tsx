@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getShareById, getFriendshipStatus } from "@/lib/db";
 import { notFound } from "next/navigation";

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { auth } from "@/auth";
 import { getPokerLobbies } from "@/lib/db";
 import PokerLobby from "./PokerLobby";
