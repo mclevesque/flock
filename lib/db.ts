@@ -5,8 +5,8 @@ let _sql: ReturnType<typeof postgres> | null = null;
 function getDb() {
   if (!_sql) _sql = postgres(process.env.DATABASE_URL!, {
     ssl: "require",
-    max: 1,           // serverless: single connection per function
-    idle_timeout: 5,  // release idle connections fast
+    max: 3,           // small pool for serverless
+    idle_timeout: 10, // release idle connections
     connect_timeout: 10, // fail fast instead of hanging for minutes
   });
   return _sql;
