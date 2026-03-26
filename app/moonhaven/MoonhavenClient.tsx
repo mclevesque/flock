@@ -541,15 +541,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       playerMeshRef.current = playerGroup;
       playerPosRef.current = [...MOONHAVEN_SPAWN];
 
-      // ── NPCs ──────────────────────────────────────────────────────────────
+      // ── NPCs — load in parallel (sequential await was hanging init on missing GLBs) ──
       setLoadMsg("Summoning NPCs…");
-      for (const npc of MOONHAVEN_NPCS) {
-        const group = await buildNPCBillboard(THREE, npc, GLTFLoader);
+      const npcGroups = await Promise.all(MOONHAVEN_NPCS.map(npc => buildNPCBillboard(THREE, npc, GLTFLoader)));
+      if (destroyed) return () => {};
+      MOONHAVEN_NPCS.forEach((npc, i) => {
+        const group = npcGroups[i];
         group.position.set(...npc.position);
         group.scale.set(1.5, 1.5, 1.5);
         scene.add(group);
         npcMeshesRef.current.set(npc.id, group);
-      }
+      });
 
       // ── Raycaster (click-to-move + NPC click) ─────────────────────────────
       const raycaster = new THREE.Raycaster();
@@ -1685,10 +1687,14 @@ async function buildNPCBillboard(
 }
 
 function loadGLB(GLTFLoader: unknown, path: string): Promise<import("three").Object3D | null> {
-  return new Promise((resolve) => {
-    const loader = new (GLTFLoader as new () => { load: (p: string, ok: (g: { scene: import("three").Object3D }) => void, _: unknown, err: () => void) => void })();
-    loader.load(path, gltf => resolve(gltf.scene), undefined, () => resolve(null));
-  });
+  return Promise.race([
+    new Promise<import("three").Object3D | null>((resolve) => {
+      const loader = new (GLTFLoader as new () => { load: (p: string, ok: (g: { scene: import("three").Object3D }) => void, _: unknown, err: () => void) => void })();
+      loader.load(path, gltf => resolve(gltf.scene), undefined, () => resolve(null));
+    }),
+    // Timeout: if GLB doesn't load in 4s, fall back to billboard (never hang init)
+    new Promise<null>(resolve => setTimeout(() => resolve(null), 4000)),
+  ]);
 }
 
 function buildFountain(THREE: ThreeModule, scene: import("three").Scene) {
