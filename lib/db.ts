@@ -9,6 +9,7 @@ function getDb() {
     idle_timeout: 10, // release idle connections
     connect_timeout: 10, // fail fast instead of hanging for minutes
     prepare: false,   // transaction pooler (port 6543) doesn't support PREPARE
+        connection: { statement_timeout: 8000 }, // kill any query hanging >8s (prevents 60s Netlify timeout / 502)
   });
   return _sql;
 }
