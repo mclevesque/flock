@@ -43,3 +43,4 @@
   from   = "/watch/*"
   to     = "/stremio"
   status = 301
+// deploy 1774638505
