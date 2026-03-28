@@ -1,12 +1,12 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { actionSendFriendRequest, actionAcceptFriendRequest, actionPostWallComment } from "@/lib/actions";
+import { actionSendFriendRequest, actionAcceptFriendRequest } from "@/lib/actions";
 import ProfileMusicPlayer from "@/app/components/ProfileMusicPlayer";
 import { useVoice } from "@/app/components/VoiceWidget";
 import { VIBE_TAGS } from "@/app/vibe/vibeData";
 import { useVibe } from "@/app/components/VibePlayer";
-import { friendAdded, drop as dropSound, pop, swoosh, click as clickSound } from "@/app/components/sounds";
+import { friendAdded, drop as dropSound, pop } from "@/app/components/sounds";
 import StoryViewer from "@/app/components/StoryViewer";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
@@ -36,8 +36,6 @@ interface ChessGame {
 }
 
 interface Video { id: number; title: string; url: string; views: number; created_at: string; }
-interface WallPost { id: number; author_id: string; content: string; created_at: string; username: string; avatar_url: string; }
-interface WallReply { id: number; post_id: number; author_id: string; content: string; created_at: string; username: string; avatar_url: string | null; parent_id?: number | null; edited_at?: string | null; }
 interface Friendship { status: string; requester_id: string; }
 interface Friend { id: string; username: string; display_name: string; avatar_url: string; }
 
@@ -53,8 +51,6 @@ interface Privileges {
 interface Props {
   user: User | null;
   videos: Video[];
-  wallPosts: WallPost[];
-  initialReplies?: Record<number, WallReply[]>;
   friendship: Friendship | null;
   friends: Friend[];
   sessionUserId: string | null;
@@ -62,7 +58,6 @@ interface Props {
   username: string;
   storageBytes: number;
   lastChessGame: ChessGame | null;
-  replyPrivacy: string;
   lastSnesGame: SnesGame | null;
   privileges: Privileges | null;
   adventureStats: { level: number; xp: number; class: string | null; wins: number; quests_completed: number } | null;
@@ -103,38 +98,14 @@ function fmtBytes(b: number) {
 
 const MODERATORS = ["mclevesque"];
 
-export default function ProfileClient({ user, videos, wallPosts: initialWallPosts, initialReplies, friendship, friends, sessionUserId, sessionUsername, username, storageBytes, lastChessGame, replyPrivacy: _replyPrivacy, lastSnesGame, privileges: initialPrivileges, adventureStats }: Props) {
-  void _replyPrivacy; // used server-side only; editing is in /profile/edit
+export default function ProfileClient({ user, videos, friendship, friends, sessionUserId, sessionUsername, username, storageBytes, lastChessGame, lastSnesGame, privileges: initialPrivileges, adventureStats }: Props) {
   const isMod = MODERATORS.includes((sessionUsername ?? "").toLowerCase());
   const [privileges, setPrivileges] = useState<Privileges>(initialPrivileges ?? { snes_access: true, can_post: true, can_comment: true, can_voice: true, site_ban_until: null });
   const [privSaving, setPrivSaving] = useState(false);
   const [privSaved, setPrivSaved] = useState(false);
-  const [wallPosts, setWallPosts] = useState(initialWallPosts);
-  const [wallInput, setWallInput] = useState("");
-  const [wallError, setWallError] = useState("");
   const [vibeInterests, setVibeInterests] = useState<string[]>([]);
   const { setInterests: setMyVibe, play: playVibe, playlist: vibePlaylist, playing: vibePlaying, pause: vibePause, stop: vibeStop } = useVibe();
-  const [profileTab, setProfileTab] = useState<"videos" | "vibe" | "wall">("videos");
-  // replies: map of postId → replies array (seeded from SSR batch load, refreshed client-side)
-  const [replies, setReplies] = useState<Record<number, WallReply[]>>(initialReplies ?? {});
-  // which posts have their replies expanded (Set of postIds)
-  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(() => {
-    // Auto-expand posts that already have replies from SSR
-    return new Set(Object.keys(initialReplies ?? {}).map(Number).filter(id => (initialReplies?.[id]?.length ?? 0) > 0));
-  });
-  // which post's reply input is open (only one at a time)
-  const [replyingTo, setReplyingTo] = useState<number | null>(null);
-  // reply input text
-  const [replyInput, setReplyInput] = useState("");
-  const [replyLoading, setReplyLoading] = useState<number | null>(null);
-  const [editingReply, setEditingReply] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const [replyingToReply, setReplyingToReply] = useState<{ replyId: number; username: string; postId: number } | null>(null);
-  const [nestedReplyInput, setNestedReplyInput] = useState("");
-  const [nestedReplyLoading, setNestedReplyLoading] = useState(false);
-  const [replyError, setReplyError] = useState<string | null>(null);
-  const [deletingPost, setDeletingPost] = useState<number | null>(null);
-  const [deletingReply, setDeletingReply] = useState<number | null>(null);
+  const [profileTab, setProfileTab] = useState<"videos" | "vibe">("videos");
   const [friendStatus, setFriendStatus] = useState(friendship?.status ?? null);
   const [showGames, setShowGames] = useState(false);
   const [launchingGame, setLaunchingGame] = useState(false);
@@ -175,26 +146,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const touchDragOver = useRef<number | null>(null);
   const friendsGridRef = useRef<HTMLDivElement>(null);
 
-  // Client-side reply refresh — always fetch fresh replies so they never go missing.
-  // We MERGE (not replace) into existing state so SSR-loaded replies aren't lost if the
-  // API fetch returns empty or partial results due to a transient DB error.
-  useEffect(() => {
-    if (!wallPosts.length) return;
-    const ids = wallPosts.map(p => p.id).join(",");
-    fetchWithTimeout(`/api/wall-reply?postIds=${ids}`, {}, 5000)
-      .then(r => r.ok ? r.json() : null)
-      .then((grouped: Record<string, WallReply[]> | null) => {
-        if (!grouped || Object.keys(grouped).length === 0) return;
-        setReplies(prev => {
-          const merged = { ...prev };
-          for (const [k, v] of Object.entries(grouped)) merged[Number(k)] = v;
-          return merged;
-        });
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallPosts.length]);
-
   // Load vibe interests for this profile
   useEffect(() => {
     fetchWithTimeout(`/api/vibe?username=${encodeURIComponent(username)}`, {}, 5000)
@@ -228,7 +179,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const avatar = user?.id ? `/api/avatar/${user.id}?v=2` : `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`;
   const displayName = user?.display_name || username;
 
-  const displayWallPosts = wallPosts;
   const displayVideos = videos;
 
   const profileTrack = user?.profile_song_url ? {
@@ -272,129 +222,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
       return next;
     });
     dropSound();
-  }
-
-  async function handleWallPost() {
-    if (!wallInput.trim() || !user || !sessionUserId) return;
-    setWallError("");
-    try {
-      await actionPostWallComment(user.id, wallInput.trim());
-      setWallPosts(prev => [{
-        id: Date.now(), author_id: sessionUserId, content: wallInput.trim(),
-        created_at: new Date().toISOString(), username: "you", avatar_url: avatar,
-      }, ...prev]);
-      setWallInput("");
-    } catch (e: unknown) {
-      setWallError(e instanceof Error ? e.message : "Failed to post");
-    }
-  }
-
-  // Replies are pre-loaded SSR via initialReplies — no client fetch needed on mount.
-  // After new posts are added (optimistic), replies for them will be empty until page refresh,
-  // which is correct since a brand-new post has no replies yet.
-
-  async function submitReply(postId: number) {
-    const content = replyInput.trim();
-    if (!content || !sessionUserId) return;
-    setReplyLoading(postId);
-    setReplyError(null);
-    setReplyInput(""); // optimistic clear
-    try {
-      const res = await fetch("/api/wall-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, content }),
-      });
-      if (res.ok) {
-        const updated = await res.json() as WallReply[];
-        setReplies(prev => ({ ...prev, [postId]: Array.isArray(updated) ? updated : prev[postId] ?? [] }));
-        setExpandedReplies(prev => { const n = new Set(prev); n.add(postId); return n; });
-        setReplyingTo(null);
-      } else {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        setReplyInput(content); // restore what they typed
-        setReplyError(body.error ?? "Couldn't send reply — try again");
-      }
-    } catch {
-      setReplyInput(content); // restore on network error
-      setReplyError("Network error — check connection and try again");
-    } finally {
-      setReplyLoading(null);
-    }
-  }
-
-  async function handleDeletePost(postId: number) {
-    if (!confirm("Delete this wall post?")) return;
-    setDeletingPost(postId);
-    try {
-      const res = await fetch(`/api/wall-post?id=${postId}`, { method: "DELETE" });
-      if (res.ok) {
-        setWallPosts(prev => prev.filter(p => p.id !== postId));
-        setReplies(prev => { const n = { ...prev }; delete n[postId]; return n; });
-      }
-    } catch { /* ignore */ } finally {
-      setDeletingPost(null);
-    }
-  }
-
-  async function handleDeleteReply(replyId: number, postId: number) {
-    if (!confirm("Delete this reply?")) return;
-    setDeletingReply(replyId);
-    try {
-      const res = await fetch(`/api/wall-reply?id=${replyId}`, { method: "DELETE" });
-      if (res.ok) {
-        setReplies(prev => ({
-          ...prev,
-          [postId]: (prev[postId] ?? []).filter(r => r.id !== replyId),
-        }));
-      }
-    } catch { /* ignore */ } finally {
-      setDeletingReply(null);
-    }
-  }
-
-  async function handleEditReply(replyId: number, postId: number) {
-    if (!editContent.trim()) return;
-    try {
-      const res = await fetch("/api/wall-reply", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: replyId, content: editContent.trim() }),
-      });
-      if (res.ok) {
-        setReplies(prev => ({
-          ...prev,
-          [postId]: (prev[postId] ?? []).map(r =>
-            r.id === replyId ? { ...r, content: editContent.trim(), edited_at: new Date().toISOString() } : r
-          ),
-        }));
-        setEditingReply(null);
-        setEditContent("");
-      }
-    } catch { /* ignore */ }
-  }
-
-  async function submitNestedReply() {
-    if (!nestedReplyInput.trim() || !replyingToReply || !sessionUserId) return;
-    setNestedReplyLoading(true);
-    const { replyId, postId } = replyingToReply;
-    const content = nestedReplyInput.trim();
-    setNestedReplyInput("");
-    try {
-      const res = await fetch("/api/wall-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, content, parentId: replyId }),
-      });
-      if (res.ok) {
-        const updated = await res.json() as WallReply[];
-        setReplies(prev => ({ ...prev, [postId]: updated }));
-        setExpandedReplies(prev => { const n = new Set(prev); n.add(postId); return n; });
-        setReplyingToReply(null);
-      }
-    } catch { /* ignore */ } finally {
-      setNestedReplyLoading(false);
-    }
   }
 
   // Touch drag handlers for mobile friend reorder
@@ -507,7 +334,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
                     {[
                       { label: "♟ Chess", href: `/messages?with=${user?.id}&game=chess` },
                       { label: "🧠 Quiz", href: `/messages?with=${user?.id}&game=quiz` },
-                      { label: "🃏 Poker", href: `/poker` },
                       { label: "🎮 SNES", href: `/emulator` },
                     ].map(item => (
                       <Link key={item.label} href={item.href} onClick={() => setShowGames(false)}
@@ -926,9 +752,8 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
             {[
               { key: "videos", label: `🎬 Videos (${videos.length})` },
               { key: "vibe", label: "⚡ Vibe" },
-              { key: "wall", label: "💬 Wall" },
             ].map(t => (
-              <button key={t.key} onClick={() => setProfileTab(t.key as "videos" | "vibe" | "wall")}
+              <button key={t.key} onClick={() => setProfileTab(t.key as "videos" | "vibe")}
                 style={{
                   background: "none", border: "none", borderBottom: profileTab === t.key ? "2px solid var(--accent-purple-bright)" : "2px solid transparent",
                   marginBottom: -1, padding: "8px 16px", fontSize: 13, fontWeight: profileTab === t.key ? 800 : 500,
@@ -1035,231 +860,6 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
             );
           })()}
 
-          {/* Wall */}
-          {profileTab === "wall" && <div className="panel">
-            <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>Wall</span>
-              {isOwn && (
-                <Link href="/profile/edit" style={{ fontSize: 11, color: "var(--text-muted)", textDecoration: "none", opacity: 0.7 }}>⚙ Privacy settings</Link>
-              )}
-            </div>
-            <div style={{ padding: 14 }}>
-              {sessionUserId && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <img src={avatar} onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${user?.id ?? "placeholder"}`; (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0 }} alt="you" />
-                    <div style={{ flex: 1, display: "flex", gap: 8 }}>
-                      <textarea
-                        value={wallInput}
-                        onChange={e => setWallInput(e.target.value)}
-                        placeholder="Leave a comment..."
-                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text-primary)", fontSize: 13, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 60 }}
-                      />
-                      <button onClick={() => { handleWallPost(); clickSound(); }} style={{ alignSelf: "flex-end", background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Post</button>
-                    </div>
-                  </div>
-                  {wallError && <div style={{ fontSize: 12, color: "#f08080", marginTop: 6, paddingLeft: 42 }}>{wallError}</div>}
-                </div>
-              )}
-              {displayWallPosts.length === 0 && (
-                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-muted)", fontSize: 13 }}>
-                  No posts yet — be the first to leave a message!
-                </div>
-              )}
-              {displayWallPosts.map(post => {
-                const postReplies = replies[post.id] ?? [];
-                const replyCount = postReplies.length;
-                const showingInput = replyingTo === post.id;
-                return (
-                  <div key={post.id} style={{ marginBottom: 4 }}>
-                    {/* Main post */}
-                    <div style={{ display: "flex", gap: 10, padding: "12px 0" }}>
-                      <img src={`/api/avatar/${post.author_id}?v=2`} onError={e => { (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0, marginTop: 1 }} alt={post.username} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4, flexWrap: "wrap" }}>
-                          <Link href={`/profile/${post.username}`} style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{post.username}</Link>
-                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{new Date(post.created_at).toLocaleDateString()}</span>
-                        </div>
-                        {(() => {
-                          const ytId = extractYouTubeId(post.content);
-                          const textOnly = ytId ? stripYouTubeUrl(post.content) : post.content;
-                          return (
-                            <>
-                              {textOnly && <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>{textOnly}</p>}
-                              {ytId && (
-                                <div style={{ position: "relative", width: "100%", paddingBottom: "56.25%", borderRadius: 10, overflow: "hidden", background: "#000", marginBottom: 8 }}>
-                                  <iframe
-                                    src={`https://www.youtube-nocookie.com/embed/${ytId}?controls=1&rel=0&modestbranding=1`}
-                                    style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
-                                    allow="encrypted-media; picture-in-picture"
-                                    allowFullScreen
-                                    loading="lazy"
-                                    title="YouTube video"
-                                  />
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                        {/* Reply / collapse button + delete */}
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          {sessionUserId && (
-                            <button
-                              onClick={() => {
-                                if (showingInput) { setReplyingTo(null); setReplyInput(""); }
-                                else {
-                                  setReplyingTo(post.id); setReplyInput("");
-                                  // Auto-expand replies when opening reply input
-                                  setExpandedReplies(prev => { const n = new Set(prev); n.add(post.id); return n; });
-                                }
-                              }}
-                              style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}
-                            >
-                              {showingInput ? "✕ Cancel" : "💬 Reply"}
-                            </button>
-                          )}
-                          {replyCount > 0 && (
-                            <button
-                              onClick={() => setExpandedReplies(prev => {
-                                const n = new Set(prev);
-                                if (n.has(post.id)) n.delete(post.id); else n.add(post.id);
-                                return n;
-                              })}
-                              style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", fontSize: 11, cursor: "pointer", padding: 0, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}
-                            >
-                              {expandedReplies.has(post.id) ? "▲" : "▼"} {replyCount} repl{replyCount === 1 ? "y" : "ies"}
-                            </button>
-                          )}
-                          {sessionUserId && (sessionUserId === post.author_id || sessionUserId === user?.id) && (
-                            <button
-                              onClick={() => handleDeletePost(post.id)}
-                              disabled={deletingPost === post.id}
-                              title="Delete post"
-                              style={{ background: "none", border: "none", color: "#ef4444", fontSize: 11, cursor: "pointer", padding: 0, opacity: 0.7, marginLeft: "auto" }}
-                            >{deletingPost === post.id ? "…" : "🗑"}</button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Replies — nested, editable, deletable. Expandable via toggle. */}
-                    {(expandedReplies.has(post.id) && postReplies.length > 0 || showingInput) && (
-                      <div style={{ marginLeft: 36, borderLeft: "2px solid rgba(124,58,237,0.18)", paddingLeft: 12, marginBottom: 8 }}>
-                        {postReplies.map(r => {
-                          const isMyReply = sessionUserId === r.author_id;
-                          const canDelete = sessionUserId && (isMyReply || sessionUserId === user?.id);
-                          const parentReply = r.parent_id ? postReplies.find(p => p.id === r.parent_id) : null;
-                          const isEditing = editingReply === r.id;
-                          return (
-                            <div key={r.id} style={{ marginBottom: 10, marginLeft: r.parent_id ? 20 : 0 }}>
-                              <div style={{ display: "flex", gap: 7 }}>
-                                <img src={`/api/avatar/${r.author_id}?v=2`} onError={e => { (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid var(--border)", flexShrink: 0, marginTop: 1 }} alt={r.username} />
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", marginBottom: 2 }}>
-                                    <Link href={`/profile/${r.username}`} style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{r.username}</Link>
-                                    {parentReply && (
-                                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>↩ @{parentReply.username}</span>
-                                    )}
-                                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
-                                    {r.edited_at && <span style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>(edited)</span>}
-                                    <div style={{ display: "flex", gap: 3, marginLeft: "auto" }}>
-                                      {/* Reply to this reply — wall owner or friends */}
-                                      {sessionUserId && sessionUserId !== r.author_id && (
-                                        <button
-                                          onClick={() => { setReplyingToReply({ replyId: r.id, username: r.username, postId: post.id }); setNestedReplyInput(""); }}
-                                          style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: "1px 4px", opacity: 0.6 }}
-                                          title="Reply"
-                                        >↩</button>
-                                      )}
-                                      {/* Edit own reply */}
-                                      {isMyReply && !isEditing && (
-                                        <button
-                                          onClick={() => { setEditingReply(r.id); setEditContent(r.content); }}
-                                          style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: "1px 4px", opacity: 0.5 }}
-                                          title="Edit"
-                                        >✏️</button>
-                                      )}
-                                      {/* Delete */}
-                                      {canDelete && (
-                                        <button
-                                          onClick={() => handleDeleteReply(r.id, post.id)}
-                                          disabled={deletingReply === r.id}
-                                          style={{ background: "none", border: "none", color: "#ef4444", fontSize: 10, cursor: "pointer", padding: "1px 4px", opacity: 0.7 }}
-                                          title="Delete"
-                                        >{deletingReply === r.id ? "…" : "🗑"}</button>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {isEditing ? (
-                                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                                      <input
-                                        autoFocus
-                                        value={editContent}
-                                        onChange={e => setEditContent(e.target.value)}
-                                        onKeyDown={e => { if (e.key === "Enter") handleEditReply(r.id, post.id); if (e.key === "Escape") { setEditingReply(null); setEditContent(""); } }}
-                                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid rgba(124,58,237,0.4)", borderRadius: 7, padding: "4px 8px", color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "inherit", minWidth: 0 }}
-                                        maxLength={500}
-                                      />
-                                      <button onClick={() => handleEditReply(r.id, post.id)} style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 7, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
-                                      <button onClick={() => { setEditingReply(null); setEditContent(""); }} style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 7, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                                    </div>
-                                  ) : (
-                                    <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, wordBreak: "break-word" }}>{r.content}</p>
-                                  )}
-                                  {/* Nested reply input for this specific reply */}
-                                  {replyingToReply?.replyId === r.id && (
-                                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                                      <input
-                                        autoFocus
-                                        value={nestedReplyInput}
-                                        onChange={e => setNestedReplyInput(e.target.value)}
-                                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitNestedReply(); } if (e.key === "Escape") setReplyingToReply(null); }}
-                                        placeholder={`Reply to @${r.username}…`}
-                                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: 7, padding: "5px 9px", color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "inherit", minWidth: 0 }}
-                                        maxLength={500}
-                                      />
-                                      <button onClick={submitNestedReply} disabled={nestedReplyLoading || !nestedReplyInput.trim()} style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: nestedReplyInput.trim() ? 1 : 0.5 }}>{nestedReplyLoading ? "…" : "↩"}</button>
-                                      <button onClick={() => setReplyingToReply(null)} style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {/* Reply to post input */}
-                        {showingInput && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: postReplies.length > 0 ? 6 : 0 }}>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <input
-                                autoFocus
-                                value={replyInput}
-                                onChange={e => { setReplyInput(e.target.value); setReplyError(null); }}
-                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitReply(post.id); } if (e.key === "Escape") { setReplyingTo(null); setReplyInput(""); setReplyError(null); } }}
-                                placeholder="Write a reply…"
-                                style={{ flex: 1, background: "var(--bg-elevated)", border: `1px solid ${replyError && replyingTo === post.id ? "#f87171" : "var(--border)"}`, borderRadius: 8, padding: "6px 10px", color: "var(--text-primary)", fontSize: 16, outline: "none", fontFamily: "inherit", minWidth: 0 }}
-                                maxLength={500}
-                              />
-                              <button
-                                onClick={() => submitReply(post.id)}
-                                disabled={replyLoading === post.id || !replyInput.trim()}
-                                style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: replyInput.trim() ? 1 : 0.5, flexShrink: 0 }}
-                              >{replyLoading === post.id ? "…" : "Reply"}</button>
-                            </div>
-                            {replyError && replyingTo === post.id && (
-                              <div style={{ fontSize: 11, color: "#f87171", paddingLeft: 2 }}>{replyError}</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div style={{ borderBottom: "1px solid var(--border)" }} />
-                  </div>
-                );
-              })}
-            </div>
-          </div>}
         </div>
       </div>
 

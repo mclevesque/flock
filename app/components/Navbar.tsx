@@ -3,615 +3,260 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
-import { click, swoosh } from "@/app/components/sounds";
-import StoryRecorder from "./StoryRecorder";
 import { useNotifications } from "@/lib/useNotifications";
-import { usePortal } from "./PortalContext";
 
-const navItems = [
-  { href: "/feed", label: "✨ Share", short: "✨" },
-  { href: "/chronicle", label: "📜 Chronicle", short: "📜" },
-  { href: "/profile", label: "Profile", short: "👤" },
-  { href: "/friends", label: "Friends", short: "👥" },
-  { href: "/messages", label: "Messages", short: "💬" },
-  { href: "/town", label: "🏘️ Town", short: "🏘️" },
-  { href: "/stremio", label: "🎬 Stream", short: "🎬" },
-  { href: "/leaderboards", label: "🏆 Ranks", short: "🏆" },
-];
-
-// Top-level routes that do NOT get a back button
-const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/leaderboards", "/games"];
-
-// Major sections where Town/Share should always show (signed-in top bar)
-const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
-
-const gameItems = [
-  { href: "/games", label: "🎮 All Games", desc: "Browse all games" },
-  { href: "/chess", label: "♟️ Chess", desc: "Play 1v1 chess" },
-  { href: "/quiz", label: "🧠 Quiz", desc: "Trivia with friends" },
-  { href: "/pong", label: "🏓 Paddle", desc: "Classic back-and-forth" },
-  { href: "/emulator", label: "🎮 SNES", desc: "Classic games", snesOnly: true },
-  { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
-  { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
-  { href: "/draw", label: "🎨 Draw", desc: "Free canvas drawing" },
-  { href: "/moonhaven", label: "🌙 Moonhaven", desc: "RPG adventure" },
-  { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
-  { href: "/whodoneit", label: "🔪 Who Done It?", desc: "Murder mystery party" },
-  { href: "/tightrope", label: "🪢 Tightrope Terror", desc: "Balance or fall" },
-];
+const TOP_LEVEL = ["/", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
 
 const gameSections = [
   { label: "⚔️ BATTLE ARENA", items: [
-    { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
-    { href: "/whodoneit", label: "🔪 Who Done It?", desc: "Murder mystery party" },
-    { href: "/tightrope", label: "🎪 Tightrope Terror", desc: "Balance or fall" },
-    { href: "/games/matty-milkers", label: "🥛 Matty Milkers", desc: "Raw milk platformer" },
-    { href: "/games/wingman", label: "💘 Wingman", desc: "Dating platformer" },
+    { href: "/outbreak",          label: "🧟 Outbreak",         desc: "Co-op zombie survival" },
+    { href: "/waddabi",           label: "🎨 Wadabbi?!",         desc: "Draw it. Guess it. Win." },
+    { href: "/tightrope",         label: "🎪 Tightrope Terror",  desc: "Balance or fall" },
+    { href: "/games/matty-milkers", label: "🥛 Matty Milkers",   desc: "Raw milk platformer" },
+    { href: "/games/wingman",     label: "💘 Wingman",           desc: "Dating platformer" },
   ]},
   { label: "🎲 TABLE GAMES", items: [
-    { href: "/chess", label: "♟️ Chess", desc: "1v1 with ELO rating" },
-    { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
-    { href: "/pong", label: "🏓 Paddle", desc: "Classic back-and-forth" },
+    { href: "/chess", label: "♟️ Chess",  desc: "1v1 with ELO rating" },
+    { href: "/pong",  label: "🏓 Paddle", desc: "Classic back-and-forth" },
   ]},
-  { label: "🎉 PARTY GAMES", items: [
-    { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
-    { href: "/quiz", label: "🧠 Quiz", desc: "Trivia with friends" },
-    { href: "/draw", label: "🖌️ Draw", desc: "Free canvas drawing" },
-  ]},
-  { label: "🗺️ ADVENTURE", items: [
-    { href: "/moonhaven", label: "🌙 Moonhaven", desc: "RPG adventure world" },
-    { href: "/town", label: "🏘️ Town", desc: "Hang out in the square" },
+  { label: "🕹️ RETRO", items: [
+    { href: "/emulator", label: "🕹️ SNES", desc: "Classic retro games" },
   ]},
 ];
 
 export default function Navbar() {
   const path = usePathname();
-  // Voice popup runs in its own window — no navbar needed
   if (path === "/voice-popup") return null;
+
   const router = useRouter();
   const { data: session } = useSession();
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [chronicleUnread, setChronicleUnread] = useState(0);
   const [gamesOpen, setGamesOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [dbAvatar, setDbAvatar] = useState<string | null>(null);
+  const [avatar, setAvatar] = useState<string>(`/api/avatar/${session?.user?.id}?v=2`);
   const [firstFriendAvatar, setFirstFriendAvatar] = useState<string | null>(null);
-  const [hasSnesAccess, setHasSnesAccess] = useState(false);
-  const [storyRecorderOpen, setStoryRecorderOpen] = useState(false);
-  const [hasVisitedGs, setHasVisitedGs] = useState(false);
-
-  const { portal, setPortal } = usePortal();
-  useEffect(() => {
-    try { if (localStorage.getItem("ryft_gs_visited")) setHasVisitedGs(true); } catch {}
-  }, [path]);
   const gamesRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number>(0);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFired = useRef(false);
 
-  // PartyKit push — replaces all polling for friend requests, messages, chronicle
-  const {
-    friendRequestCount: pushFriendRequests,
-    unreadMessageCount: pushUnreadMessages,
-    chronicleReplyCount: pushChronicleReplies,
-    clearFriendRequests,
-    clearUnreadMessages,
-    clearChronicleReplies,
-  } = useNotifications();
+  const { friendRequestCount, unreadMessageCount, clearUnreadMessages } = useNotifications();
+  useEffect(() => { setPendingCount(friendRequestCount); }, [friendRequestCount]);
+  useEffect(() => { setUnreadMessages(unreadMessageCount); }, [unreadMessageCount]);
 
-  // Sync push counts to local state
-  useEffect(() => { setPendingCount(pushFriendRequests); }, [pushFriendRequests]);
-  useEffect(() => { setUnreadMessages(pushUnreadMessages); }, [pushUnreadMessages]);
-  useEffect(() => { setChronicleUnread(pushChronicleReplies); }, [pushChronicleReplies]);
-
-  // One-time mount fetches (no polling — just seed data)
   useEffect(() => {
     if (!session?.user?.id) return;
-    // Seed friend request count from DB on mount
     fetch("/api/friend-requests").then(r => r.json()).then(d => {
       setPendingCount(Array.isArray(d.incoming) ? d.incoming.length : 0);
     }).catch(() => {});
-    // Fetch first friend's avatar for the Friends tab icon
     fetch("/api/friends").then(r => r.json()).then((friends: { avatar_url?: string | null }[]) => {
-      if (Array.isArray(friends) && friends.length > 0 && friends[0].avatar_url) {
-        setFirstFriendAvatar(friends[0].avatar_url);
-      }
+      if (Array.isArray(friends) && friends.length > 0 && friends[0].avatar_url) setFirstFriendAvatar(friends[0].avatar_url);
     }).catch(() => {});
-    // Fetch SNES access once on mount
-    fetch(`/api/privileges?userId=${session.user.id}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.snes_access) setHasSnesAccess(true); })
-      .catch(() => {});
+    fetch(`/api/users?id=${session.user.id}`).then(r => r.json()).then(d => {
+      if (d?.avatar_url) setAvatar(d.avatar_url);
+    }).catch(() => {});
   }, [session?.user?.id]);
 
-  // Clear chronicle badge when navigating to /chronicle
   useEffect(() => {
-    if (!session?.user?.id || !path.startsWith("/chronicle")) return;
-    clearChronicleReplies();
-    setChronicleUnread(0);
-  }, [path, session?.user?.id, clearChronicleReplies]);
+    if (path.startsWith("/messages")) { clearUnreadMessages(); setUnreadMessages(0); }
+  }, [path, clearUnreadMessages]);
 
-  // Clear message badge when navigating to /messages
   useEffect(() => {
-    if (!session?.user?.id || !path.startsWith("/messages")) return;
-    clearUnreadMessages();
-    setUnreadMessages(0);
-  }, [path, session?.user?.id, clearUnreadMessages]);
-
-  // Fetch actual DB avatar (may differ from OAuth session image after profile edit).
-  // If no avatar is in DB yet, or the stored URL is a raw OAuth URL that can expire,
-  // upload it to Vercel Blob for a permanent CDN URL.
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    fetch(`/api/users?id=${session.user.id}`)
-      .then(r => r.json())
-      .then(d => {
-        const storedUrl: string | undefined = d?.avatar_url;
-        const sessionImg: string | undefined = session?.user?.image ?? undefined;
-
-        // Helper: returns true for raw OAuth image URLs that can expire
-        function isVolatileUrl(url: string) {
-          return (
-            url.includes("googleusercontent.com") ||
-            url.includes("avatars.githubusercontent.com") ||
-            url.includes("pbs.twimg.com") ||
-            url.includes("platform-lookaside.fbsbx.com")
-          );
-        }
-
-        // Helper: upload a URL to Vercel Blob and persist permanent URL to DB
-        function persistToBlobAndSave(imageUrl: string) {
-          fetch("/api/avatar-upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageUrl }),
-          })
-            .then(r => r.json())
-            .then(uploadData => {
-              const permanentUrl: string = uploadData.url ?? imageUrl;
-              setDbAvatar(permanentUrl);
-              fetch("/api/users", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ avatar_url: permanentUrl }),
-              }).catch(() => {});
-            })
-            .catch(() => {
-              // Blob upload failed — fall back to saving the raw URL so at least
-              // the avatar shows until the next session migration attempt
-              setDbAvatar(imageUrl);
-              fetch("/api/users", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ avatar_url: imageUrl }),
-              }).catch(() => {});
-            });
-        }
-
-        if (storedUrl) {
-          // Show whatever we have immediately
-          setDbAvatar(storedUrl);
-          // If it's a volatile OAuth URL, silently migrate it to Blob in the background
-          if (isVolatileUrl(storedUrl) && sessionImg) {
-            persistToBlobAndSave(sessionImg);
-          }
-        } else if (sessionImg) {
-          // No avatar in DB yet — show the OAuth image immediately, then persist to Blob
-          setDbAvatar(sessionImg);
-          persistToBlobAndSave(sessionImg);
-        }
-      })
-      .catch(() => {});
-  }, [session?.user?.id]);
-
-  // Close games dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (gamesRef.current && !gamesRef.current.contains(e.target as Node)) {
-        setGamesOpen(false);
-      }
-    }
-    if (gamesOpen) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    if (!gamesOpen) return;
+    function close(e: MouseEvent) { if (gamesRef.current && !gamesRef.current.contains(e.target as Node)) setGamesOpen(false); }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [gamesOpen]);
 
-  const visibleGameItems = gameItems.filter(g => g.href !== "/emulator" || hasSnesAccess);
-  const isGameActive = visibleGameItems.some(g => path.startsWith(g.href));
-  // Show back button on any subpage (dynamic routes, /profile/edit, etc.)
-  const isSubpage = !TOP_LEVEL.some(r => path === r || (r !== "/" && path === r + "/")) && path !== "/";
+  const isSubpage = !TOP_LEVEL.some(r => path === r || path === r + "/") && path !== "/";
+  const isGame = gameSections.flatMap(s => s.items).some(g => path.startsWith(g.href));
 
-  // Show Town/Share whenever signed in on any major section (not just root-level)
-  const showTownShare = session && TOWN_SHARE_SECTIONS.some(s => path.startsWith(s));
+  // Gold active indicator
+  const activeStyle = (active: boolean): React.CSSProperties => ({
+    padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+    textDecoration: "none", cursor: "pointer", background: "transparent", border: "none",
+    color: active ? "#d4a942" : "#666",
+    borderBottom: active ? "2px solid #d4a942" : "2px solid transparent",
+    fontFamily: "'Cinzel', serif", letterSpacing: "0.06em", transition: "color 0.15s",
+    whiteSpace: "nowrap" as const,
+  });
 
-  const avatar = dbAvatar ?? session?.user?.image ?? `/api/avatar/${session?.user?.id}?v=2`;
+  const Badge = ({ n }: { n: number }) => n > 0 ? (
+    <span style={{ position: "absolute", top: -4, right: -4, background: "#c4531a", color: "#fff", borderRadius: 999, minWidth: 15, height: 15, fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
+      {n > 99 ? "99+" : n}
+    </span>
+  ) : null;
 
-  // Long-press on profile avatar → open story recorder (mobile only)
-  const avatarTouchStart = () => {
-    longPressFired.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      setStoryRecorderOpen(true);
-    }, 500);
-  };
-  const avatarTouchEnd = (e: React.TouchEvent) => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-    if (longPressFired.current) e.preventDefault();
-  };
-  const avatarTouchMove = () => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-  };
-
-  // Shared nav tab renderer for bottom bar
-  const BottomTab = ({ href, icon, label, badge, onClick: onTabClick, customIcon }: { href: string; icon?: string; label: string; badge?: number; onClick?: () => void; customIcon?: React.ReactNode }) => {
-    const active = path.startsWith(href);
+  const BottomTab = ({ href, icon, label, badge, onClick: cb }: { href: string; icon: string; label: string; badge?: number; onClick?: () => void }) => {
+    const active = href === "/" ? path === "/" : path.startsWith(href);
     return (
-      <Link href={href}
-        onClick={() => { click(); onTabClick?.(); setMoreOpen(false); }}
-        style={{
-          flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          padding: "7px 4px 6px", textDecoration: "none", position: "relative", gap: 3, minHeight: 56,
-          color: active ? "var(--accent-purple-bright)" : "var(--text-muted)",
-        }}>
-        {active && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "var(--accent-purple-bright)", borderRadius: "0 0 3px 3px" }} />}
-        {customIcon ? (
-          <div style={{ lineHeight: 1 }}>{customIcon}</div>
-        ) : (
-          <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
-        )}
-        <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, letterSpacing: 0.2 }}>{label}</span>
-        {(badge ?? 0) > 0 && (
-          <span style={{ position: "absolute", top: 5, left: "calc(50% + 6px)", background: "#e05555", color: "#fff", borderRadius: 999, minWidth: 15, height: 15, fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
-            {(badge ?? 0) > 99 ? "99+" : badge}
-          </span>
-        )}
+      <Link href={href} onClick={cb} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "7px 4px 6px", textDecoration: "none", position: "relative", gap: 3, minHeight: 56, color: active ? "#d4a942" : "#555" }}>
+        {active && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "#d4a942", borderRadius: "0 0 3px 3px" }} />}
+        <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
+        <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, fontFamily: "'Cinzel', serif", letterSpacing: "0.05em" }}>{label}</span>
+        {(badge ?? 0) > 0 && <Badge n={badge!} />}
       </Link>
     );
   };
 
-  // Profile avatar icon for bottom tab
-  const ProfileAvatarIcon = () => (
-    <img
-      src={avatar}
-      alt="profile"
-      onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session?.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }}
-      style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", border: "1.5px solid var(--border-bright)", display: "block" }}
-    />
-  );
-
-  // Friends dual-avatar icon for bottom tab
-  const FriendsAvatarIcon = () => (
-    <div style={{ position: "relative", width: 30, height: 22, flexShrink: 0 }}>
-      {/* User avatar on left */}
-      <img
-        src={avatar}
-        alt="you"
-        onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session?.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }}
-        style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", border: "1.5px solid var(--border-bright)", position: "absolute", left: 0, top: 2, zIndex: 2 }}
-      />
-      {/* First friend's avatar on right */}
-      {firstFriendAvatar ? (
-        <img
-          src={firstFriendAvatar}
-          alt="friend"
-          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", border: "1.5px solid rgba(255,255,255,0.25)", position: "absolute", left: 12, top: 2, zIndex: 1 }}
-        />
-      ) : (
-        <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "1.5px solid rgba(255,255,255,0.25)", position: "absolute", left: 12, top: 2, zIndex: 1 }} />
-      )}
-    </div>
-  );
-
-  const isGS = portal === "greatsouls";
-
   return (
-    <header style={{
-      background: isGS ? "rgba(10,8,4,0.97)" : "var(--bg-surface)",
-      borderBottom: isGS ? "1px solid rgba(212,169,66,0.25)" : "1px solid var(--border)",
-      position: "sticky", top: 0, zIndex: 1000,
-    }}>
+    <header style={{ background: "rgba(10,8,4,0.97)", borderBottom: "1px solid rgba(212,169,66,0.2)", position: "sticky", top: 0, zIndex: 1000 }}>
 
-      {/* ── DESKTOP header row ───────────────────────────────────────────────── */}
-      <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 12px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      {/* ── Desktop ──────────────────────────────────────────────────────────── */}
+      <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 16px", height: 52, display: "flex", alignItems: "center", gap: 8 }}>
         {isSubpage && (
-          <button onClick={() => router.back()} title="Go back"
-            style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 16, color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 1 }}>
-            ←
-          </button>
+          <button onClick={() => router.back()} style={{ background: "transparent", border: "1px solid #2a2a2a", borderRadius: 8, padding: "5px 10px", fontSize: 16, color: "#666", cursor: "pointer", flexShrink: 0 }}>←</button>
         )}
-        <Link href="/profile" style={{ textDecoration: "none", flexShrink: 0 }}>
-          <img
-            src="/RYFTLOGO.png"
-            alt="RYFT"
-            style={{ height: 34, width: 34, display: "block", filter: "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
-          />
+
+        {/* Logo */}
+        <Link href="/" style={{ textDecoration: "none", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 22 }}>🔥</span>
+          <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 15, color: "#d4a942", letterSpacing: "0.1em" }}>GREAT SOULS</span>
         </Link>
-        {isGS ? (
-          <button onClick={() => setPortal("ryft")} style={{
-            display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
-            background: "rgba(139,60,247,0.12)", border: "1px solid rgba(139,60,247,0.35)",
-            borderRadius: 6, padding: "3px 9px", cursor: "pointer",
-            color: "#a78bfa", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
-          }}>
-            ⚡ RYFT
-          </button>
-        ) : hasVisitedGs ? (
-          <Link href="/greatsouls/hub" style={{
-            display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
-            background: "rgba(212,169,66,0.12)", border: "1px solid rgba(212,169,66,0.35)",
-            borderRadius: 6, padding: "3px 9px", textDecoration: "none",
-            color: "#d4a942", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
-          }}>
-            🔥 GS
-          </Link>
-        ) : null}
-        <nav className="nav-links-desktop" style={{ display: "flex", gap: 2, alignItems: "center", flex: 1, justifyContent: "center" }}>
-          {navItems.map(({ href, label, short }) => {
-            const active = path.startsWith(href);
-            const isMessages = href === "/messages";
-            const isChronicle = href === "/chronicle";
-            const isFriends = href === "/friends";
-            return (
-              <Link key={href} href={href} className="nav-item-mobile"
-                onClick={() => { click(); if (isMessages) setUnreadMessages(0); if (isChronicle) setChronicleUnread(0); }}
-                style={{ position: "relative", padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: "none", color: active ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-secondary)", background: active ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.15)") : "transparent", border: active ? (isGS ? "1px solid rgba(212,169,66,0.3)" : "1px solid rgba(124,92,191,0.3)") : "1px solid transparent", transition: "all 0.15s ease", whiteSpace: "nowrap" }}>
-                <span className="nav-link-label">{label}</span>
-                <span className="nav-link-short">{short}</span>
-                {isFriends && pendingCount > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e05555", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{pendingCount}</span>}
-                {isMessages && unreadMessages > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e05555", color: "#fff", borderRadius: "50%", minWidth: 16, height: 16, padding: "0 3px", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{unreadMessages > 99 ? "99+" : unreadMessages}</span>}
-                {isChronicle && chronicleUnread > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e05555", color: "#fff", borderRadius: "50%", minWidth: 16, height: 16, padding: "0 3px", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{chronicleUnread > 99 ? "99+" : chronicleUnread}</span>}
-              </Link>
-            );
-          })}
+
+        {/* Nav */}
+        <nav style={{ display: "flex", gap: 2, alignItems: "center", flex: 1, justifyContent: "center" }}>
+          {/* Games dropdown */}
           <div ref={gamesRef} style={{ position: "relative" }}>
-            <button onClick={() => { setGamesOpen(o => !o); swoosh(); }} className="nav-item-mobile"
-              style={{ padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600, color: isGameActive ? "var(--accent-purple-bright)" : "var(--text-secondary)", background: isGameActive ? "rgba(124,92,191,0.15)" : gamesOpen ? "rgba(124,92,191,0.1)" : "transparent", border: isGameActive ? "1px solid rgba(124,92,191,0.3)" : "1px solid transparent", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, transition: "all 0.15s ease", whiteSpace: "nowrap" }}>
-              <span className="nav-link-label">🕹️ Games</span>
-              <span className="nav-link-short">🕹️</span>
-              <span style={{ fontSize: 9, opacity: 0.7, transition: "transform 0.15s ease", display: "inline-block", transform: gamesOpen ? "rotate(180deg)" : "none" }}>▼</span>
+            <button onClick={() => setGamesOpen(o => !o)} style={{ ...activeStyle(isGame || gamesOpen), display: "flex", alignItems: "center", gap: 4 }}>
+              🕹️ Games
+              <span style={{ fontSize: 9, opacity: 0.6, transform: gamesOpen ? "rotate(180deg)" : "none", display: "inline-block", transition: "transform 0.15s" }}>▼</span>
             </button>
             {gamesOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 12, padding: "8px 6px", minWidth: 240, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 10000 }}>
-                <Link href="/games" onClick={() => setGamesOpen(false)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 8, textDecoration: "none", color: "var(--accent-purple-bright)", fontWeight: 700, fontSize: 12, letterSpacing: "0.05em" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "#1a1a1a", border: "1px solid rgba(212,169,66,0.25)", borderRadius: 12, padding: "8px 6px", minWidth: 240, boxShadow: "0 12px 40px rgba(0,0,0,0.7)", zIndex: 10000 }}>
+                <Link href="/" onClick={() => setGamesOpen(false)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 8, textDecoration: "none", color: "#d4a942", fontFamily: "'Cinzel', serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.06em" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(212,169,66,0.08)")}
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  🎮 All Games →
+                  🏠 All Games →
                 </Link>
-                <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0 6px" }} />
+                <div style={{ borderTop: "1px solid #2a2a2a", margin: "4px 0 6px" }} />
                 {gameSections.map(section => (
                   <div key={section.label}>
-                    <div style={{ padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--accent-purple-bright)", letterSpacing: "0.12em", opacity: 0.7 }}>
-                      {section.label}
-                    </div>
+                    <div style={{ padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "#8a6d2b", letterSpacing: "0.12em" }}>{section.label}</div>
                     {section.items.map(g => {
                       const active = path.startsWith(g.href);
                       return (
                         <Link key={g.href} href={g.href} onClick={() => setGamesOpen(false)}
-                          style={{ display: "flex", flexDirection: "column", padding: "6px 10px", borderRadius: 7, textDecoration: "none", background: active ? "rgba(124,92,191,0.15)" : "transparent", color: active ? "var(--accent-purple-bright)" : "var(--text-primary)", transition: "background 0.1s ease" }}
-                          onMouseEnter={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.2)" : "rgba(255,255,255,0.05)")}
-                          onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.15)" : "transparent")}>
+                          style={{ display: "flex", flexDirection: "column", padding: "6px 10px", borderRadius: 7, textDecoration: "none", background: active ? "rgba(212,169,66,0.1)" : "transparent", color: active ? "#d4a942" : "#e8dcc8", transition: "background 0.1s" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = active ? "rgba(212,169,66,0.15)" : "rgba(255,255,255,0.04)")}
+                          onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(212,169,66,0.1)" : "transparent")}>
                           <span style={{ fontWeight: 600, fontSize: 12 }}>{g.label}</span>
-                          <span style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{g.desc}</span>
+                          <span style={{ fontSize: 10, color: "#555", marginTop: 1 }}>{g.desc}</span>
                         </Link>
                       );
                     })}
-                    <div style={{ height: 6 }} />
+                    <div style={{ height: 4 }} />
                   </div>
                 ))}
-                {hasSnesAccess && (
-                  <Link href="/emulator" onClick={() => setGamesOpen(false)}
-                    style={{ display: "flex", flexDirection: "column", padding: "6px 10px", borderRadius: 7, textDecoration: "none", color: "var(--text-primary)" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                    <span style={{ fontWeight: 600, fontSize: 12 }}>🕹️ SNES</span>
-                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Classic retro games + netplay</span>
-                  </Link>
-                )}
               </div>
             )}
           </div>
+
+          <Link href="/friends" style={{ ...activeStyle(path.startsWith("/friends")), position: "relative", display: "inline-block" } as React.CSSProperties}>
+            👥 Friends
+            <Badge n={pendingCount} />
+          </Link>
+          <Link href="/messages" onClick={() => setUnreadMessages(0)} style={{ ...activeStyle(path.startsWith("/messages")), position: "relative", display: "inline-block" } as React.CSSProperties}>
+            💬 Messages
+            <Badge n={unreadMessages} />
+          </Link>
+          <Link href="/leaderboards" style={activeStyle(path.startsWith("/leaderboards")) as React.CSSProperties}>🏆 Leaderboards</Link>
         </nav>
+
+        {/* Right: avatar + sign out */}
         {session ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <Link href="/profile" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
-              <div style={{ position: "relative" }}>
-                <img src={avatar} alt="avatar" onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid var(--border-bright)", display: "block" }} />
-                <span className="status-dot online" style={{ position: "absolute", bottom: 0, right: 0, width: 8, height: 8, border: "2px solid var(--bg-surface)" }} />
-              </div>
-              <span className="nav-username" style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>@{session.user?.name?.toLowerCase().replace(/\s/g, "") ?? "you"}</span>
+            <Link href={`/profile/${session.user?.name}`} style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+              <img src={avatar} alt="avatar" onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid rgba(212,169,66,0.5)", display: "block", objectFit: "cover" }} />
+              <span style={{ fontSize: 13, color: "#8a6d2b", fontWeight: 600 }}>@{session.user?.name}</span>
             </Link>
-            <button onClick={() => signOut()} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", borderRadius: 7, padding: "4px 8px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>Out</button>
+            <button onClick={() => signOut()} style={{ background: "transparent", border: "1px solid #2a2a2a", color: "#555", borderRadius: 7, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>Out</button>
           </div>
         ) : (
-          <button onClick={() => router.push("/signin")} style={{ background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Sign In</button>
+          <button onClick={() => router.push("/signin")} className="btn-gold" style={{ flexShrink: 0 }}>Enter</button>
         )}
       </div>
 
-      {/* ── MOBILE header row ────────────────────────────────────────────────── */}
+      {/* ── Mobile header ────────────────────────────────────────────────────── */}
       <div className="mobile-only" style={{ height: 52, alignItems: "center", justifyContent: "space-between", padding: "0 12px" }}>
-
-        {/* Left anchor: back button on subpages, else fixed-width spacer */}
         <div style={{ width: 40, flexShrink: 0 }}>
           {isSubpage && (
-            <button onClick={() => router.back()}
-              style={{ background: "transparent", border: "none", fontSize: 20, color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", minWidth: 40, minHeight: 44, padding: 0 }}>
-              ←
-            </button>
+            <button onClick={() => router.back()} style={{ background: "transparent", border: "none", fontSize: 20, color: "#666", cursor: "pointer", minWidth: 40, minHeight: 44, padding: 0 }}>←</button>
           )}
         </div>
-
-        {/* Center cluster: [Town] · ryft · [Share] — show on all major sections when signed in */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          {showTownShare && (
-            <Link href="/moonhaven" onClick={() => click()}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8,
-                color: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-muted)",
-                background: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.12)") : "transparent" }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>🌙</span>
-              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Town</span>
-            </Link>
-          )}
-
-          <Link href={session ? "/profile" : "/"} style={{ textDecoration: "none" }}>
-            <img
-              src="/RYFTLOGO.png"
-              alt="RYFT"
-              style={{ height: 34, width: 34, display: "block", filter: isGS ? "drop-shadow(0 0 6px rgba(212,169,66,0.6)) drop-shadow(0 0 12px rgba(212,169,66,0.3))" : "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
-            />
-          </Link>
-
-          {showTownShare && (
-            <Link href="/feed" onClick={() => click()}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8,
-                color: path.startsWith("/feed") ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-muted)",
-                background: path.startsWith("/feed") ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.12)") : "transparent" }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>✨</span>
-              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Share</span>
-            </Link>
-          )}
-        </div>
-
-        {/* Right anchor: avatar when signed in, Sign In button when not */}
+        <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 24 }}>🔥</span>
+          <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 14, color: "#d4a942", letterSpacing: "0.1em" }}>GREAT SOULS</span>
+        </Link>
         <div style={{ width: 40, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
           {session ? (
-            <div
-              onTouchStart={avatarTouchStart}
-              onTouchEnd={avatarTouchEnd}
-              onTouchMove={avatarTouchMove}
-              onClick={() => { if (!longPressFired.current) router.push("/profile"); }}
-              style={{ cursor: "pointer", WebkitUserSelect: "none", userSelect: "none" }}
-            >
-              <div style={{ position: "relative" }}>
-                <img src={avatar} alt="avatar" onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 30, height: 30, borderRadius: "50%", border: "2px solid var(--border-bright)", display: "block" }} />
-                <span className="status-dot online" style={{ position: "absolute", bottom: 0, right: 0, width: 7, height: 7, border: "2px solid var(--bg-surface)" }} />
-              </div>
-            </div>
+            <Link href={`/profile/${session.user?.name}`}>
+              <img src={avatar} alt="avatar" onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                style={{ width: 30, height: 30, borderRadius: "50%", border: "2px solid rgba(212,169,66,0.4)", display: "block", objectFit: "cover" }} />
+            </Link>
           ) : (
-            <button onClick={() => router.push("/signin")} style={{ background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Sign In</button>
+            <button onClick={() => router.push("/signin")} style={{ background: "linear-gradient(135deg, #8a6d2b, #d4a942)", color: "#0d0d0d", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Enter</button>
           )}
         </div>
       </div>
 
-      {/* ── Mobile bottom tab bar: Messages · Profile · Friends · More ────── */}
+      {/* ── Mobile bottom bar ────────────────────────────────────────────────── */}
       <div className="mobile-bottom-nav" style={{
-        display: "none",
-        position: "fixed", bottom: 0, left: 0, right: 0,
-        background: isGS ? "rgba(8,6,2,0.97)" : "rgba(13,15,20,0.97)", backdropFilter: "blur(12px)",
-        borderTop: isGS ? "1px solid rgba(212,169,66,0.2)" : "1px solid rgba(255,255,255,0.08)",
-        zIndex: 200, alignItems: "stretch",
-        paddingBottom: "env(safe-area-inset-bottom)",
+        display: "none", position: "fixed", bottom: 0, left: 0, right: 0,
+        background: "rgba(8,6,2,0.97)", backdropFilter: "blur(12px)",
+        borderTop: "1px solid rgba(212,169,66,0.15)",
+        zIndex: 200, alignItems: "stretch", paddingBottom: "env(safe-area-inset-bottom)",
       }}>
+        <BottomTab href="/" icon="🏠" label="Games" />
         <BottomTab href="/messages" icon="💬" label="Messages" badge={unreadMessages} onClick={() => setUnreadMessages(0)} />
-        {/* Profile tab — long-press opens story recorder on mobile */}
-        <div
-          onTouchStart={avatarTouchStart}
-          onTouchEnd={avatarTouchEnd}
-          onTouchMove={avatarTouchMove}
-          onClick={() => { if (!longPressFired.current) { click(); router.push("/profile"); } }}
-          style={{
-            flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            padding: "7px 4px 6px", cursor: "pointer", position: "relative", gap: 3, minHeight: 56,
-            color: path.startsWith("/profile") ? "var(--accent-purple-bright)" : "var(--text-muted)",
-            WebkitUserSelect: "none", userSelect: "none",
-          }}>
-          {path.startsWith("/profile") && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "var(--accent-purple-bright)", borderRadius: "0 0 3px 3px" }} />}
-          <div style={{ lineHeight: 1 }}>{session ? <ProfileAvatarIcon /> : <span style={{ fontSize: 22 }}>👤</span>}</div>
-          <span style={{ fontSize: 10, fontWeight: path.startsWith("/profile") ? 700 : 500, letterSpacing: 0.2 }}>Profile</span>
-        </div>
-        <BottomTab href="/friends" label="Friends" badge={pendingCount} customIcon={session ? <FriendsAvatarIcon /> : undefined} icon={session ? undefined : "👥"} />
-        <button onClick={() => { setMoreOpen(o => !o); swoosh(); }}
-          style={{
-            flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            padding: "7px 4px 6px", background: "transparent", border: "none", cursor: "pointer", position: "relative",
-            color: moreOpen ? "var(--accent-purple-bright)" : "var(--text-muted)", gap: 3, minHeight: 56,
-          }}>
-          {moreOpen && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "var(--accent-purple-bright)", borderRadius: "0 0 3px 3px" }} />}
-          <span style={{ fontSize: 22, lineHeight: 1 }}>{moreOpen ? "✕" : "☰"}</span>
-          <span style={{ fontSize: 10, fontWeight: moreOpen ? 700 : 500, letterSpacing: 0.2 }}>More</span>
+        <BottomTab href="/friends" icon="👥" label="Friends" badge={pendingCount} />
+        <BottomTab href="/leaderboards" icon="🏆" label="Ranks" />
+        {/* Profile tab */}
+        <Link href={session ? `/profile/${session.user?.name}` : "/signin"} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "7px 4px 6px", textDecoration: "none", position: "relative", gap: 3, minHeight: 56, color: path.startsWith("/profile") ? "#d4a942" : "#555" }}>
+          {path.startsWith("/profile") && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "#d4a942", borderRadius: "0 0 3px 3px" }} />}
+          {session ? (
+            <img src={avatar} alt="me" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", border: `1.5px solid ${path.startsWith("/profile") ? "#d4a942" : "#333"}` }} onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${session.user?.id}?v=2`; }} />
+          ) : <span style={{ fontSize: 22 }}>👤</span>}
+          <span style={{ fontSize: 10, fontWeight: path.startsWith("/profile") ? 700 : 500, fontFamily: "'Cinzel', serif", letterSpacing: "0.05em" }}>Me</span>
+        </Link>
+
+        {/* More drawer button */}
+        <button onClick={() => setMoreOpen(o => !o)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "7px 4px 6px", background: "transparent", border: "none", cursor: "pointer", color: moreOpen ? "#d4a942" : "#555", gap: 3, minHeight: 56, position: "relative" }}>
+          {moreOpen && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "#d4a942", borderRadius: "0 0 3px 3px" }} />}
+          <span style={{ fontSize: 22 }}>{moreOpen ? "✕" : "☰"}</span>
+          <span style={{ fontSize: 10, fontFamily: "'Cinzel', serif", letterSpacing: "0.05em" }}>More</span>
         </button>
       </div>
 
-      {/* ── More drawer ──────────────────────────────────────────────────────── */}
+      {/* More drawer */}
       {moreOpen && (
-        <div
-          className="mobile-bottom-nav"
-          onTouchStart={e => { touchStartYRef.current = e.touches[0].clientY; }}
-          onTouchEnd={e => {
-            const delta = e.changedTouches[0].clientY - touchStartYRef.current;
-            if (delta > 60) { setMoreOpen(false); swoosh(); }
-          }}
-          style={{
-            display: "none",
-            position: "fixed", bottom: "calc(56px + env(safe-area-inset-bottom))", left: 0, right: 0,
-            background: "rgba(13,15,20,0.98)", backdropFilter: "blur(20px)",
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-            zIndex: 199, flexDirection: "column", padding: "20px 16px 12px",
-            boxShadow: "0 -16px 48px rgba(0,0,0,0.7)",
-            borderRadius: "20px 20px 0 0",
-          }}>
-          {/* Handle bar */}
-          <div style={{ width: 36, height: 3, background: "rgba(255,255,255,0.15)", borderRadius: 99, margin: "0 auto 16px" }} />
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12, fontWeight: 700 }}>Explore</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
-            {[
-              { href: "/chronicle", icon: "📜", label: "Chronicle", badge: chronicleUnread },
-              { href: "/draw", icon: "🎨", label: "Draw" },
-              { href: "/stremio", icon: "🎬", label: "Stream" },
-            ].map(item => {
-              const active = path.startsWith(item.href);
-              return (
-                <Link key={item.href} href={item.href}
-                  onClick={() => { click(); setMoreOpen(false); if (item.href === "/chronicle") setChronicleUnread(0); }}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", borderRadius: 16, textDecoration: "none", position: "relative", background: active ? "rgba(124,92,191,0.18)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(124,92,191,0.35)" : "rgba(255,255,255,0.07)"}`, color: active ? "var(--accent-purple-bright)" : "var(--text-secondary)" }}>
-                  <span style={{ fontSize: 26 }}>{item.icon}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600 }}>{item.label}</span>
-                  {"badge" in item && (item.badge as number) > 0 && (
-                    <span style={{ position: "absolute", top: 5, right: 7, background: "#e05555", color: "#fff", borderRadius: 999, minWidth: 15, height: 15, fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{(item.badge as number) > 99 ? "99+" : item.badge}</span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12, fontWeight: 700 }}>Games</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
-            {visibleGameItems.map(g => {
-              const active = path.startsWith(g.href);
-              return (
-                <Link key={g.href} href={g.href} onClick={() => { click(); setMoreOpen(false); }}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", borderRadius: 16, textDecoration: "none", background: active ? "rgba(124,92,191,0.18)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(124,92,191,0.35)" : "rgba(255,255,255,0.07)"}`, color: active ? "var(--accent-purple-bright)" : "var(--text-secondary)" }}>
-                  <span style={{ fontSize: 24 }}>{g.label.split(" ")[0]}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600 }}>{g.label.replace(/^[^\s]+\s/, "")}</span>
-                </Link>
-              );
-            })}
-          </div>
-          {session && (
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
-              <img src={avatar} style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--border-bright)" }} alt="" />
-              <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600, flex: 1 }}>@{session.user?.name?.toLowerCase().replace(/\s/g, "") ?? "you"}</span>
-              <Link href="/messages" onClick={() => { click(); setMoreOpen(false); }}
-                style={{ background: "rgba(124,92,191,0.15)", border: "1px solid rgba(124,92,191,0.3)", borderRadius: 10, padding: "7px 12px", color: "var(--accent-purple-bright)", fontSize: 12, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-                🎤 Voice
-              </Link>
-              <button onClick={() => signOut()} style={{ background: "rgba(255,80,80,0.12)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: 10, padding: "7px 16px", color: "#f87171", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Sign Out</button>
+        <>
+          <div className="mobile-bottom-nav" onTouchStart={e => { touchStartYRef.current = e.touches[0].clientY; }} onTouchEnd={e => { if (e.changedTouches[0].clientY - touchStartYRef.current > 60) setMoreOpen(false); }}
+            style={{ display: "none", position: "fixed", bottom: "calc(56px + env(safe-area-inset-bottom))", left: 0, right: 0, background: "rgba(10,8,4,0.98)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(212,169,66,0.2)", zIndex: 199, flexDirection: "column", padding: "20px 16px 12px", boxShadow: "0 -16px 48px rgba(0,0,0,0.8)", borderRadius: "20px 20px 0 0" }}>
+            <div style={{ width: 36, height: 3, background: "rgba(212,169,66,0.2)", borderRadius: 99, margin: "0 auto 16px" }} />
+            <div style={{ fontSize: 10, color: "#8a6d2b", textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: 12, fontFamily: "'Cinzel', serif", fontWeight: 700 }}>Games</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
+              {gameSections.flatMap(s => s.items).map(g => {
+                const active = path.startsWith(g.href);
+                return (
+                  <Link key={g.href} href={g.href} onClick={() => setMoreOpen(false)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", borderRadius: 12, textDecoration: "none", background: active ? "rgba(212,169,66,0.12)" : "rgba(255,255,255,0.03)", border: `1px solid ${active ? "rgba(212,169,66,0.3)" : "rgba(255,255,255,0.06)"}`, color: active ? "#d4a942" : "#888" }}>
+                    <span style={{ fontSize: 24 }}>{g.label.split(" ")[0]}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, textAlign: "center" }}>{g.label.replace(/^[^\s]+\s/, "")}</span>
+                  </Link>
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Backdrop */}
-      {moreOpen && (
-        <div className="mobile-bottom-nav" style={{ display: "none", position: "fixed", inset: 0, bottom: "calc(56px + env(safe-area-inset-bottom))", background: "rgba(0,0,0,0.5)", zIndex: 198 }} onClick={() => setMoreOpen(false)} />
-      )}
-
-      {/* Story recorder — opened by long-pressing profile avatar on mobile */}
-      {storyRecorderOpen && session && (
-        <StoryRecorder
-          onClose={() => setStoryRecorderOpen(false)}
-          onUploaded={() => setStoryRecorderOpen(false)}
-        />
+            {session && (
+              <div style={{ borderTop: "1px solid rgba(212,169,66,0.15)", paddingTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <img src={avatar} style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(212,169,66,0.4)" }} alt="" />
+                <span style={{ fontSize: 13, color: "#8a6d2b", fontWeight: 600, flex: 1 }}>@{session.user?.name}</span>
+                <button onClick={() => signOut()} style={{ background: "rgba(196,83,26,0.15)", border: "1px solid rgba(196,83,26,0.3)", borderRadius: 10, padding: "7px 16px", color: "#c4531a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Sign Out</button>
+              </div>
+            )}
+          </div>
+          <div className="mobile-bottom-nav" style={{ display: "none", position: "fixed", inset: 0, bottom: "calc(56px + env(safe-area-inset-bottom))", background: "rgba(0,0,0,0.6)", zIndex: 198 }} onClick={() => setMoreOpen(false)} />
+        </>
       )}
     </header>
   );
