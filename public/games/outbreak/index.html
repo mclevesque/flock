@@ -652,6 +652,18 @@ C.addEventListener('touchend',e=>{
     if(t.identifier===vJoy.id){
       // Short tap with no drag = confirm
       if(Math.abs(vJoy.dx)<0.1&&Math.abs(vJoy.dy)<0.1&&!vJoy.tapFired){
+        // Level-up: detect which card was tapped before firing Space
+        if(gs.state==='levelup'&&gs.lvlChoices.length>0){
+          const r=_getDrawRect();
+          const tx=(vJoy.bx-r.left)*(C.width/r.width),ty=(vJoy.by-r.top)*(C.height/r.height);
+          const cw=220,ch=170,gap=20;
+          const startX=C.width/2-(gs.lvlChoices.length*cw+(gs.lvlChoices.length-1)*gap)/2;
+          const by=C.height/2-80;
+          for(let i=0;i<gs.lvlChoices.length;i++){
+            const bx=startX+i*(cw+gap);
+            if(tx>=bx&&tx<=bx+cw&&ty>=by&&ty<=by+ch){gs.lvlSelected=i;break;}
+          }
+        }
         jp['Space']=true;vJoy.tapFired=true;
       }
       vJoy.active=false;vJoy.dx=0;vJoy.dy=0;

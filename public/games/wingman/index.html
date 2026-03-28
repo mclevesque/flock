@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>WINGMAN — A Vibe Engine Game</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: monospace; }
+canvas { }
+</style>
+</head><body>
+<canvas id="game"></canvas>
+<script>
+/* =====================================================
+   WINGMAN v3 — CLAIRVOYANCE VALIDATED BUILD
+
+   Target: 95%+ on all 15 CLAIRVOYANCE categories
+   Resolution: 320x180 (pixel art scale)
+   Controls: Arrows/WASD + Space/X/Z/C / Xbox A/X/B/Y
+   ===================================================== */
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Polyfill roundRect for older Chrome
+if (!ctx.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (typeof r === 'number') r = [r, r, r, r];
+        if (!Array.isArray(r)) r = [0, 0, 0, 0];
+        const [tl, tr, br, bl] = r.map(v => Math.min(v, w/2, h/2));
+        this.moveTo(x + tl, y);
+        this.lineTo(x + w - tr, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + tr);
+        this.lineTo(x + w, y + h - br);
+        this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+        this.lineTo(x + bl, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - bl);
+        this.lineTo(x, y + tl);
+        this.quadraticCurveTo(x, y, x + tl, y);
+        this.closePath();
+    };
+}
+canvas.width = 1280;
+canvas.height = 720;
+canvas.style.width = '100vw';
+canvas.style.height = '100vh';
+canvas.style.objectFit = 'contain';
+ctx.imageSmoothingEnabled = false;
+
+// ==================== CONSTANTS ====================
+const GRAVITY = 0.35;
+const JUMP_FORCE = -5.5;
+const FRICTION = 0.82;
+const GROUND_Y = 560; // ground line — leaves room for HUD below
+const PLAYER_W = 48;
+const PLAYER_H = 64;
+const ENEMY_W = 48;
+const ENEMY_H = 64;
+const FRIDGE_W = 64;
+const FRIDGE_H = 80;
+const SAFE_ZONE = 170; // px before first enemy — room to learn
+const ENEMY_SPACING = 100; // minimum px between enemies
+const HIT_FREEZE_FRAMES = 4;
+const CHARM_DECAY_INTERVAL = 600; // frames between passive decay (10 sec)
+const CHARM_TO_WIN = 100;
+
+// ==================== GAME STATE ====================
+// Preload end credits image
+const endCreditsImg = new Image();
+endCreditsImg.src = 'endcredits.png';
+
+// Level names and girl names
+const LEVEL_NAMES = ['The Coffee Shop', 'The Rooftop Bar', 'The Beach Party', 'The Club', 'The After Party'];
+const GIRL_NAMES = ['Jessica', 'Becca', 'Mia', 'Zara', 'Sofia'];
+
+const gs = {
+    state: 'title',
+    level: 1,
+    maxLevel: 5,
+    charm: 70,
+    maxCharm: 100,
+    wingmanReady: true,
+    wingmanCooldown: 0,
+    wingmanMaxCooldown: 480,
+    fightCooldown: 0,
+    charmCooldown: 0,
+    score: 0,
+    combo: 0,
+    time: 0,
+    cameraX: 0,
+    shakeX: 0, shakeY: 0, shakeDur: 0,
+    flash: 0,
+    hitFreeze: 0,
+    charmOptions: [],
+    charmTarget: null,
+    selectedOption: 0,
+    particles: [],
+    floatingTexts: [],
+    tutorialShown: false,
+    tutorialTimer: 0,
+    nearestEnemy: null,
+    nearestDist: 999,
+};
+
+// ==================== INPUT ====================
+const keys = {};
+const justPressed = {};
+let gpState = { buttons: new Array(16).fill(false), axes: [0,0,0,0], jp: new Array(16).fill(false) };
+let prevGP = new Array(16).fill(false);
+
+document.addEventListener('keydown', e => { if (!keys[e.code]) justPressed[e.code] = true; keys[e.code] = true; e.preventDefault(); });
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+let gpConnected = false;
+window.addEventListener('gamepadconnected', (e) => {
+    gpConnected = true;
+    console.log('Gamepad connected:', e.gamepad.id);
+});
+window.addEventListener('gamepaddisconnected', () => { gpConnected = false; });
+
+function pollGP() {
+    const gps = navigator.getGamepads();
+    if (!gps) return;
+    // Find first connected gamepad (might not be index 0)
+    let gp = null;
+    for (let i = 0; i < gps.length; i++) {
+        if (gps[i] && gps[i].connected) { gp = gps[i]; break; }
+    }
+    if (!gp) return;
+    for (let i = 0; i < Math.min(16, gp.buttons.length); i++) {
+        const p = gp.buttons[i].pressed || gp.buttons[i].value > 0.5;
+        gpState.jp[i] = p && !prevGP[i];
+        prevGP[i] = p;
+        gpState.buttons[i] = p;
+    }
+    gpState.axes = [gp.axes[0]||0, gp.axes[1]||0, gp.axes[2]||0, gp.axes[3]||0];
+}
+
+function isDown(c) { return !!keys[c]; }
+function wasP(c) { return !!justPressed[c]; }
+function gpP(i) { return gpState.jp[i]; }
+function gpD(i) { return gpState.buttons[i]; }
+function moveX() {
+    let x = 0;
+    if (isDown('ArrowLeft') || isDown('KeyA')) x = -1;
+    if (isDown('ArrowRight') || isDown('KeyD')) x = 1;
+    if (Math.abs(gpState.axes[0]) > 0.25) x = gpState.axes[0];
+    return x;
+}
+function jumpBtn() { return wasP('Space') || wasP('ArrowUp') || wasP('KeyW') || gpP(0); }
+function fightBtn() { return wasP('KeyX') || wasP('KeyJ') || gpP(2); }
+function charmBtn() { return wasP('KeyZ') || wasP('KeyK') || gpP(1); }
+function wingmanBtn() { return wasP('KeyC') || wasP('KeyL') || gpP(3); }
+function confirmBtn() { return wasP('Space') || wasP('Enter') || wasP('KeyZ') || gpP(0) || gpP(1); }
+function anyBtn() { return Object.values(justPressed).some(v=>v) || gpState.jp.some(v=>v); }
+
+// ==================== AUDIO ====================
+let audioCtx;
+let musicPlaying = false;
+function initAudio() {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!musicPlaying) startMusic();
+}
+document.addEventListener('pointerdown', initAudio, { once: false });
+document.addEventListener('keydown', initAudio, { once: false });
+
+function startMusic() {
+    if (!audioCtx || musicPlaying) return;
+    musicPlaying = true;
+    // Upbeat chill — major key, bouncy but not chaotic
+    const levelTunes = [
+        [262, 0, 330, 0, 392, 0, 330, 262], // L1: C major bounce
+        [294, 0, 370, 294, 0, 440, 0, 370], // L2: D major lift
+        [330, 0, 392, 330, 440, 0, 392, 0], // L3: E vibe
+        [349, 0, 440, 0, 349, 523, 0, 440], // L4: F energy
+        [262, 0, 330, 0, 262, 0, 220, 0], // L5: calm resolution
+    ];
+    const notes = levelTunes[Math.min(gs.level - 1, levelTunes.length - 1)];
+    const beatLen = 0.35; // moderate tempo — not too fast, not depressing
+    let noteIdx = 0;
+    function playBeat() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        const note = notes[noteIdx % notes.length];
+        if (note > 0) { // only play if not a rest
+            osc.type = 'sine'; // soft sine, not triangle
+            osc.frequency.setValueAtTime(note, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime); // quiet
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + beatLen * 0.7);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + beatLen);
+        }
+        noteIdx++;
+        setTimeout(playBeat, beatLen * 1000);
+    }
+    playBeat();
+}
+
+function playSound(type, pitchMod) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    const pm = pitchMod || (0.95 + Math.random() * 0.1); // +/-5% pitch variation
+
+    switch(type) {
+        case 'charm_great':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523 * pm, t);
+            osc.frequency.linearRampToValueAtTime(784 * pm, t + 0.12);
+            osc.frequency.linearRampToValueAtTime(1047 * pm, t + 0.25);
+            gain.gain.setValueAtTime(0.25, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.start(t); osc.stop(t + 0.35); break;
+        case 'charm_ok':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(440 * pm, t);
+            osc.frequency.linearRampToValueAtTime(523 * pm, t + 0.15);
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+            osc.start(t); osc.stop(t + 0.2); break;
+        case 'charm_bad':
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(250 * pm, t);
+            osc.frequency.linearRampToValueAtTime(120, t + 0.25);
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+            osc.start(t); osc.stop(t + 0.3); break;
+        case 'fight_hit':
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(180 * pm, t);
+            osc.frequency.linearRampToValueAtTime(60, t + 0.12);
+            gain.gain.setValueAtTime(0.3, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+            osc.start(t); osc.stop(t + 0.15);
+            // Layer a second hit
+            const o2 = audioCtx.createOscillator();
+            const g2 = audioCtx.createGain();
+            o2.connect(g2); g2.connect(audioCtx.destination);
+            o2.type = 'triangle'; o2.frequency.setValueAtTime(100, t);
+            g2.gain.setValueAtTime(0.2, t);
+            g2.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+            o2.start(t); o2.stop(t + 0.1); break;
+        case 'fight_miss':
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(200, t);
+            osc.frequency.linearRampToValueAtTime(150, t + 0.08);
+            gain.gain.setValueAtTime(0.1, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+            osc.start(t); osc.stop(t + 0.1); break;
+        case 'fight_immune':
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, t);
+            osc.frequency.setValueAtTime(120, t + 0.08);
+            osc.frequency.setValueAtTime(150, t + 0.16);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+            osc.start(t); osc.stop(t + 0.25); break;
+        case 'wingman':
+            osc.type = 'sine';
+            [600, 900, 600, 750].forEach((f, i) => osc.frequency.setValueAtTime(f * pm, t + i * 0.06));
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+            osc.start(t); osc.stop(t + 0.3); break;
+        case 'heart':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880 * pm, t);
+            osc.frequency.linearRampToValueAtTime(1100 * pm, t + 0.08);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+            osc.start(t); osc.stop(t + 0.12); break;
+        case 'big_heart':
+            osc.type = 'sine';
+            [660, 880, 1100, 1320].forEach((f, i) => osc.frequency.setValueAtTime(f, t + i * 0.07));
+            gain.gain.setValueAtTime(0.25, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.start(t); osc.stop(t + 0.35); break;
+        case 'jump':
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(280 * pm, t);
+            osc.frequency.linearRampToValueAtTime(420 * pm, t + 0.08);
+            gain.gain.setValueAtTime(0.1, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+            osc.start(t); osc.stop(t + 0.1); break;
+        case 'land':
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(120, t);
+            osc.frequency.linearRampToValueAtTime(60, t + 0.06);
+            gain.gain.setValueAtTime(0.12, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+            osc.start(t); osc.stop(t + 0.08); break;
+        case 'damage':
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(300, t);
+            osc.frequency.linearRampToValueAtTime(100, t + 0.15);
+            gain.gain.setValueAtTime(0.25, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+            osc.start(t); osc.stop(t + 0.2); break;
+        case 'combo':
+            // Pitch escalates with combo count
+            const comboP = 1 + (gs.combo * 0.08);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600 * comboP, t);
+            osc.frequency.linearRampToValueAtTime(800 * comboP, t + 0.1);
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+            osc.start(t); osc.stop(t + 0.15); break;
+        case 'rizz':
+            osc.type = 'sine';
+            [400, 600, 800, 1000, 1200].forEach((f, i) => osc.frequency.setValueAtTime(f, t + i * 0.06));
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+            osc.start(t); osc.stop(t + 0.4); break;
+        case 'win':
+            osc.type = 'sine';
+            [523, 659, 784, 1047].forEach((f, i) => osc.frequency.setValueAtTime(f, t + i * 0.12));
+            gain.gain.setValueAtTime(0.25, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+            osc.start(t); osc.stop(t + 0.6); break;
+        case 'gameover':
+            osc.type = 'sawtooth';
+            [300, 250, 200, 150].forEach((f, i) => osc.frequency.setValueAtTime(f, t + i * 0.15));
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+            osc.start(t); osc.stop(t + 0.7); break;
+        case 'menu_select':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, t);
+            osc.frequency.linearRampToValueAtTime(700, t + 0.04);
+            gain.gain.setValueAtTime(0.12, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+            osc.start(t); osc.stop(t + 0.06); break;
+    }
+}
+
+// ==================== SPRITES ====================
+const COLORS = {
+    mc:      { shirt: '#3388ff', pants: '#224466', shoes: '#443322', skin: '#ffcc99', hair: '#553311', mouth: '#cc7766' },
+    wingman: { shirt: '#33cc55', pants: '#224422', shoes: '#443322', skin: '#ddbb88', hair: '#665533', mouth: '#aa7766' },
+    girl: [
+        { shirt: '#ff5599', pants: '#664455', shoes: '#cc5588', skin: '#ffddaa', hair: '#eedd55', mouth: '#ff7788' }, // blonde
+        { shirt: '#ff6633', pants: '#553322', shoes: '#aa4422', skin: '#ffcc99', hair: '#cc3311', mouth: '#dd6655' }, // redhead
+        { shirt: '#6644aa', pants: '#332244', shoes: '#554466', skin: '#eebb99', hair: '#111111', mouth: '#bb6677' }, // black hair
+        { shirt: '#ff44cc', pants: '#552244', shoes: '#cc44aa', skin: '#ffddbb', hair: '#ff66cc', mouth: '#ff88aa' }, // pink
+        { shirt: '#44aadd', pants: '#223344', shoes: '#336688', skin: '#ffcc99', hair: '#774422', mouth: '#cc7766' }, // brunette
+    ],
+    bestie:  { shirt: '#aa44cc', pants: '#443355', shoes: '#664477', skin: '#ffcc99', hair: '#222222', mouth: '#cc6688' },
+    bro:     { shirt: '#ffffff', pants: '#333344', shoes: '#333333', skin: '#ddaa77', hair: '#663311', mouth: '#aa5544' },
+    fridge:  { shirt: '#cc44aa', pants: '#553344', shoes: '#884466', skin: '#ffddbb', hair: '#111111', mouth: '#cc6688' },
+    dad:     { shirt: '#556655', pants: '#443333', shoes: '#332222', skin: '#ddaa77', hair: '#555555', mouth: '#886655' },
+    ex:      { shirt: '#cc3333', pants: '#332222', shoes: '#222222', skin: '#eebb88', hair: '#111111', mouth: '#aa4444' },
+    skeptic: { shirt: '#ff9933', pants: '#443322', shoes: '#553322', skin: '#ffcc99', hair: '#994422', mouth: '#bb5544' },
+};
+
+function drawChar(x, y, w, h, colors, flip, bob, flash) {
+    ctx.save();
+    const dx = Math.round(x);
+    const dy = Math.round(y + (bob || 0));
+    if (flip) { ctx.translate(dx + w, dy); ctx.scale(-1, 1); } else { ctx.translate(dx, dy); }
+    if (flash) { ctx.globalAlpha = 0.6; }
+
+    // Shadow (ellipse)
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(w/2, h + 2, w * 0.4, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- LEGS ---
+    ctx.fillStyle = colors.pants;
+    const lw = Math.round(w * 0.22), lh = Math.round(h * 0.22);
+    ctx.fillRect(Math.round(w*0.18), h - lh - 6, lw, lh);
+    ctx.fillRect(Math.round(w*0.58), h - lh - 6, lw, lh);
+    // Leg shading
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(Math.round(w*0.18), h - lh - 6, lw * 0.4, lh);
+
+    // --- SHOES ---
+    ctx.fillStyle = colors.shoes;
+    ctx.fillRect(Math.round(w*0.12), h - 6, Math.round(w*0.28), 6);
+    ctx.fillRect(Math.round(w*0.55), h - 6, Math.round(w*0.28), 6);
+    // Shoe highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(Math.round(w*0.14), h - 6, Math.round(w*0.12), 2);
+
+    // --- BODY ---
+    const bx = Math.round(w * 0.15), bw = Math.round(w * 0.7);
+    const by = Math.round(h * 0.28), bh = Math.round(h * 0.38);
+    ctx.fillStyle = colors.shirt;
+    // Rounded body (two rects + circles)
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 4);
+    ctx.fill();
+    // Shirt shading
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(bx, by + bh * 0.5, bw, bh * 0.5);
+    // Belt/waistline
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(bx + 2, by + bh - 4, bw - 4, 4);
+
+    // --- ARMS ---
+    const aw = Math.round(w * 0.16), ah = Math.round(h * 0.3);
+    ctx.fillStyle = colors.shirt;
+    ctx.beginPath();
+    ctx.roundRect(-2, by + 2, aw, ah, 3);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(w - aw + 2, by + 2, aw, ah, 3);
+    ctx.fill();
+    // Arm shading
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(-2, by + ah * 0.5, aw, ah * 0.5);
+
+    // --- HANDS ---
+    ctx.fillStyle = colors.skin;
+    ctx.beginPath();
+    ctx.arc(aw/2 - 2, by + ah + 4, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(w - aw/2 + 2, by + ah + 4, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- HEAD ---
+    const headW = Math.round(w * 0.75), headH = Math.round(h * 0.32);
+    const headX = Math.round((w - headW) / 2), headY = 0;
+    ctx.fillStyle = colors.skin;
+    ctx.beginPath();
+    ctx.roundRect(headX, headY, headW, headH, 6);
+    ctx.fill();
+    // Cheek blush
+    ctx.fillStyle = 'rgba(255,150,150,0.2)';
+    ctx.beginPath();
+    ctx.arc(headX + 5, headY + headH * 0.65, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + headW - 5, headY + headH * 0.65, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- HAIR ---
+    ctx.fillStyle = colors.hair;
+    ctx.beginPath();
+    ctx.roundRect(headX - 2, headY - 3, headW + 4, headH * 0.45, [6, 6, 0, 0]);
+    ctx.fill();
+    // Side hair
+    ctx.fillRect(headX - 3, headY + 2, 5, headH * 0.5);
+    ctx.fillRect(headX + headW - 2, headY + 2, 5, headH * 0.5);
+
+    // --- EYES ---
+    const eyeY = headY + headH * 0.45;
+    const eyeSize = Math.max(4, Math.round(headW * 0.14));
+    // White
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(headX + headW * 0.18, eyeY, eyeSize + 2, eyeSize, 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(headX + headW * 0.6, eyeY, eyeSize + 2, eyeSize, 2);
+    ctx.fill();
+    // Pupil
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(headX + headW * 0.26, eyeY + eyeSize * 0.5, eyeSize * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + headW * 0.68, eyeY + eyeSize * 0.5, eyeSize * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye shine
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(headX + headW * 0.24, eyeY + eyeSize * 0.35, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + headW * 0.66, eyeY + eyeSize * 0.35, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- MOUTH ---
+    ctx.fillStyle = colors.mouth;
+    ctx.beginPath();
+    ctx.arc(headX + headW * 0.5, eyeY + eyeSize + 4, 3, 0, Math.PI);
+    ctx.fill();
+
+    // --- OUTLINE ---
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(headX, headY, headW, headH, 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 4);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawFridge(x, y, colors, bob, flash) {
+    ctx.save();
+    const dx = Math.round(x);
+    const dy = Math.round(y + (bob || 0));
+    if (flash) ctx.globalAlpha = 0.6;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(dx + 2, dy + FRIDGE_H - 1, FRIDGE_W - 4, 2);
+    // Legs (thick)
+    ctx.fillStyle = colors.pants;
+    ctx.fillRect(dx + 3, dy + FRIDGE_H - 8, 6, 6);
+    ctx.fillRect(dx + FRIDGE_W - 9, dy + FRIDGE_H - 8, 6, 6);
+    // Shoes
+    ctx.fillStyle = colors.shoes;
+    ctx.fillRect(dx + 2, dy + FRIDGE_H - 3, 7, 3);
+    ctx.fillRect(dx + FRIDGE_W - 9, dy + FRIDGE_H - 3, 7, 3);
+    // Body (wide)
+    ctx.fillStyle = colors.shirt;
+    ctx.fillRect(dx + 1, dy + 6, FRIDGE_W - 2, FRIDGE_H - 14);
+    // Arms (thick)
+    ctx.fillRect(dx - 2, dy + 7, 4, 9);
+    ctx.fillRect(dx + FRIDGE_W - 2, dy + 7, 4, 9);
+    // Hands
+    ctx.fillStyle = colors.skin;
+    ctx.fillRect(dx - 2, dy + 15, 4, 3);
+    ctx.fillRect(dx + FRIDGE_W - 2, dy + 15, 4, 3);
+    // Head
+    ctx.fillStyle = colors.skin;
+    ctx.fillRect(dx + 4, dy, FRIDGE_W - 8, 8);
+    // Hair
+    ctx.fillStyle = colors.hair;
+    ctx.fillRect(dx + 3, dy, FRIDGE_W - 6, 3);
+    // Eyes (small, mean)
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(dx + 6, dy + 4, 3, 2);
+    ctx.fillRect(dx + FRIDGE_W - 9, dy + 4, 3, 2);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(dx + 7, dy + 4, 2, 2);
+    ctx.fillRect(dx + FRIDGE_W - 8, dy + 4, 2, 2);
+    // Angry eyebrows
+    ctx.fillStyle = colors.hair;
+    ctx.fillRect(dx + 5, dy + 3, 4, 1);
+    ctx.fillRect(dx + FRIDGE_W - 9, dy + 3, 4, 1);
+    ctx.restore();
+}
+
+// ==================== HEARTS ====================
+function drawHeart(x, y, size, glow) {
+    const s = size || 8;
+    if (glow) {
+        ctx.fillStyle = 'rgba(255,105,180,0.3)';
+        ctx.beginPath();
+        ctx.arc(x, y, s + 6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.fillStyle = '#ff69b4';
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.4);
+    ctx.bezierCurveTo(x, y - s * 0.2, x - s, y - s * 0.6, x - s, y);
+    ctx.bezierCurveTo(x - s, y + s * 0.5, x, y + s * 0.9, x, y + s);
+    ctx.bezierCurveTo(x, y + s * 0.9, x + s, y + s * 0.5, x + s, y);
+    ctx.bezierCurveTo(x + s, y - s * 0.6, x, y - s * 0.2, x, y + s * 0.4);
+    ctx.fill();
+    // Shine
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(x - s * 0.3, y - s * 0.1, s * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// ==================== CHARM DIALOGUE ====================
+const CHARM_LINES = {
+    bestie: [
+        // GREAT
+        { text: "Your friend is lucky to have you", q: 'great', charm: 18 },
+        { text: "I respect the loyalty", q: 'great', charm: 15 },
+        { text: "Great squad you got", q: 'great', charm: 14 },
+        { text: "Y'all clearly have good taste", q: 'great', charm: 16 },
+        { text: "Tell me about your friend group", q: 'great', charm: 14 },
+        { text: "I can tell you keep it real", q: 'great', charm: 15 },
+        { text: "Where'd you get that energy from?", q: 'great', charm: 13 },
+        // OK
+        { text: "You seem like the fun one", q: 'ok', charm: 6 },
+        { text: "I like your energy", q: 'ok', charm: 8 },
+        { text: "Cool necklace by the way", q: 'ok', charm: 5 },
+        { text: "How do you all know each other?", q: 'ok', charm: 7 },
+        { text: "You guys been friends long?", q: 'ok', charm: 6 },
+        { text: "Hey I'm not trying to cause trouble", q: 'ok', charm: 4 },
+        // BAD
+        { text: "Can I talk to your friend?", q: 'bad', charm: -12 },
+        { text: "Are you single too?", q: 'bad', charm: -15 },
+        { text: "You're kinda blocking me", q: 'bad', charm: -14 },
+        { text: "She doesn't need a bodyguard", q: 'bad', charm: -16 },
+        { text: "Is she always this hard to reach?", q: 'bad', charm: -10 },
+        { text: "Can you just... move?", q: 'bad', charm: -18 },
+    ],
+    bro: [
+        // GREAT
+        { text: "Arm wrestle for it?", q: 'great', charm: 12 },
+        { text: "Respect the game bro", q: 'great', charm: 10 },
+        { text: "May the best man win right?", q: 'great', charm: 14 },
+        { text: "Bro you look like you lift", q: 'great', charm: 12 },
+        { text: "I respect the confidence", q: 'great', charm: 11 },
+        { text: "That's a solid fit bro", q: 'great', charm: 13 },
+        // OK
+        { text: "Hey bro nice shirt", q: 'ok', charm: 3 },
+        { text: "I'll buy you a drink", q: 'ok', charm: 6 },
+        { text: "We're all just having fun right?", q: 'ok', charm: 5 },
+        { text: "It's a free country bro", q: 'ok', charm: 4 },
+        { text: "No beef here man", q: 'ok', charm: 5 },
+        { text: "Hey bro you from around here?", q: 'ok', charm: 4 },
+        // BAD
+        { text: "She's not into you bro", q: 'bad', charm: -10 },
+        { text: "We can BOTH talk to her", q: 'bad', charm: -14 },
+        { text: "Back off dude", q: 'bad', charm: -12 },
+        { text: "You're embarrassing yourself", q: 'bad', charm: -16 },
+        { text: "She told me she thinks you're weird", q: 'bad', charm: -18 },
+        { text: "Bro take the L", q: 'bad', charm: -14 },
+    ],
+    fridge: [
+        // GREAT (she's the big protective friend — queen energy)
+        { text: "Queen energy honestly", q: 'great', charm: 14 },
+        { text: "I love a girl who holds it down", q: 'great', charm: 16 },
+        { text: "Your friend is safe with you", q: 'great', charm: 15 },
+        { text: "I can tell nobody messes with you", q: 'great', charm: 14 },
+        { text: "You're the real MVP of this group", q: 'great', charm: 13 },
+        { text: "Respectfully, you're intimidating", q: 'great', charm: 12 },
+        { text: "I just wanna earn your trust", q: 'great', charm: 15 },
+        // OK
+        { text: "Not here for trouble", q: 'ok', charm: 4 },
+        { text: "Just wanna say hi to her", q: 'ok', charm: 5 },
+        { text: "I come in peace I promise", q: 'ok', charm: 6 },
+        { text: "Fair enough you don't know me yet", q: 'ok', charm: 7 },
+        { text: "I get it you're looking out", q: 'ok', charm: 5 },
+        // BAD
+        { text: "Move please", q: 'bad', charm: -18 },
+        { text: "Fight me", q: 'bad', charm: -22 },
+        { text: "You're not her mom", q: 'bad', charm: -20 },
+        { text: "Why are you so aggressive?", q: 'bad', charm: -16 },
+        { text: "Let her make her own choices", q: 'bad', charm: -14 },
+        { text: "It's not that deep sis", q: 'bad', charm: -18 },
+    ],
+    ex: [
+        // GREAT
+        { text: "She moved on bro", q: 'great', charm: 12 },
+        { text: "Respect yourself king", q: 'great', charm: 14 },
+        { text: "Growth is letting go", q: 'great', charm: 13 },
+        { text: "You'll find someone better", q: 'great', charm: 12 },
+        { text: "Don't chase, attract", q: 'great', charm: 15 },
+        { text: "The best revenge is living well", q: 'great', charm: 14 },
+        // OK
+        { text: "Plenty of fish out there", q: 'ok', charm: 5 },
+        { text: "I'm just passing through", q: 'ok', charm: 4 },
+        { text: "Hey man it's complicated I get it", q: 'ok', charm: 6 },
+        { text: "No shade bro it's all good", q: 'ok', charm: 5 },
+        { text: "I hear you man", q: 'ok', charm: 4 },
+        // BAD
+        { text: "You guys were cute tho", q: 'bad', charm: -12 },
+        { text: "Want some advice?", q: 'bad', charm: -10 },
+        { text: "She told me about you...", q: 'bad', charm: -16 },
+        { text: "Maybe there's a reason she left", q: 'bad', charm: -18 },
+        { text: "You still follow her on insta?", q: 'bad', charm: -14 },
+        { text: "That's kinda sad bro", q: 'bad', charm: -20 },
+    ],
+    skeptic: [
+        // GREAT
+        { text: "I get it, you're protective", q: 'great', charm: 14 },
+        { text: "I'll prove myself", q: 'great', charm: 12 },
+        { text: "Your skepticism is valid honestly", q: 'great', charm: 13 },
+        { text: "Judge me by my actions not my words", q: 'great', charm: 15 },
+        { text: "I'd be skeptical too if I were you", q: 'great', charm: 14 },
+        { text: "You clearly care about your friend", q: 'great', charm: 16 },
+        { text: "Test me. I'm not scared", q: 'great', charm: 13 },
+        // OK
+        { text: "Fair enough I get it", q: 'ok', charm: 8 },
+        { text: "What would earn your trust?", q: 'ok', charm: 7 },
+        { text: "I respect that energy", q: 'ok', charm: 6 },
+        { text: "Alright what's the vibe check?", q: 'ok', charm: 5 },
+        { text: "You don't have to like me yet", q: 'ok', charm: 6 },
+        // BAD
+        { text: "Why you gotta be like that?", q: 'bad', charm: -12 },
+        { text: "I'm actually a nice guy", q: 'bad', charm: -18 },
+        { text: "Not all guys are the same", q: 'bad', charm: -14 },
+        { text: "You don't even know me", q: 'bad', charm: -12 },
+        { text: "Your friend seems more open minded", q: 'bad', charm: -16 },
+        { text: "Whatever, I didn't ask for your opinion", q: 'bad', charm: -20 },
+    ],
+    dad: [
+        // GREAT (respectful, traditional, earning trust)
+        { text: "Sir, I have nothing but respect", q: 'great', charm: 16 },
+        { text: "Your daughter speaks highly of you", q: 'great', charm: 18 },
+        { text: "I understand, she's your little girl", q: 'great', charm: 15 },
+        { text: "I'd be the same way with my daughter", q: 'great', charm: 17 },
+        { text: "What time should I have her home?", q: 'great', charm: 16 },
+        { text: "Nice firm handshake sir", q: 'great', charm: 14 },
+        { text: "I heard you're a veteran. Thank you sir", q: 'great', charm: 18 },
+        // OK
+        { text: "Hello sir, nice to meet you", q: 'ok', charm: 6 },
+        { text: "I promise I'll be respectful", q: 'ok', charm: 7 },
+        { text: "Just wanted to introduce myself", q: 'ok', charm: 5 },
+        { text: "She's great, you raised her well", q: 'ok', charm: 8 },
+        { text: "We're just friends sir", q: 'ok', charm: 4 },
+        // BAD
+        { text: "Chill out old man", q: 'bad', charm: -25 },
+        { text: "She's an adult she can decide", q: 'bad', charm: -18 },
+        { text: "What are you gonna do about it?", q: 'bad', charm: -30 },
+        { text: "OK boomer", q: 'bad', charm: -28 },
+        { text: "She told me you'd be like this", q: 'bad', charm: -22 },
+        { text: "I don't need your approval", q: 'bad', charm: -20 },
+    ],
+};
+
+function getCharmOptions(type) {
+    const pool = CHARM_LINES[type] || CHARM_LINES.bestie;
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const great = shuffled.find(l => l.q === 'great');
+    const bad = shuffled.find(l => l.q === 'bad');
+    const other = shuffled.find(l => l !== great && l !== bad);
+    return [great || shuffled[0], other || shuffled[1], bad || shuffled[2]].sort(() => Math.random() - 0.5);
+}
+
+// ==================== WINGMAN DIALOGUE ====================
+const WINGMAN_LINES = {
+    bestie: ["So what's YOUR name?", "Love the outfit btw", "You come here often?", "Girl that bag is FIRE", "Wait you look so familiar"],
+    bro: ["Sick gains bro!", "Bro let's get shots!", "You watch the game?", "Dude sick shoes where'd you get those", "BRO is that a Rolex??"],
+    fridge: ["Girl your hair looks amazing!", "Queen where'd you get that top?", "You remind me of Beyonce", "Sis I NEED your skincare routine", "Are those real lashes? Gorgeous"],
+    ex: ["Hey weren't you on TV?", "Bro she moved on", "Let me buy you a drink", "Hey man you alright? You look down", "Bro there's a girl over there checking you out"],
+    skeptic: ["You're so right", "Most guys ARE trash", "She's lucky to have you", "Girl your vibe is immaculate", "I can tell you keep it 100"],
+    dad: ["Sir! Love the lawn!", "Is that a '67 Mustang?", "You served? Thank you sir", "My dad would love you", "That's a BEAUTIFUL garden sir"],
+};
+const WINGMAN_CATCHUP = [
+    "GO GO GO!", "Bought you time!", "MOVE!", "I'm cooked but you're clear",
+    "That was close!", "You owe me one!", "She's distracted!", "RUN BRO"
+];
+
+// ==================== ENTITIES ====================
+let player, girl, wingman, enemies, platforms, collectibles, levelWidth;
+
+function createEnemy(type, x) {
+    const isFridge = type === 'fridge';
+    const w = isFridge ? FRIDGE_W : ENEMY_W;
+    const h = isFridge ? FRIDGE_H : ENEMY_H;
+    const defs = {
+        bestie:  { speed: 0.6, hp: 1, weakTo: 'charm', immune: 'fight', colors: COLORS.bestie },
+        bro:     { speed: 0.9, hp: 2, weakTo: 'fight', immune: 'charm', colors: COLORS.bro },
+        fridge:  { speed: 0.3, hp: 3, weakTo: 'wingman', immune: 'fight', colors: COLORS.fridge },
+        ex:      { speed: 1.1, hp: 1, weakTo: 'wingman', immune: 'charm', colors: COLORS.ex },
+        skeptic: { speed: 0.5, hp: 1, weakTo: 'charm', immune: 'fight', colors: COLORS.skeptic },
+        dad:     { speed: 0.4, hp: 4, weakTo: 'charm', immune: 'fight', colors: COLORS.dad },
+    };
+    const d = defs[type];
+    return { x, y: GROUND_Y - h, w, h, type, speed: d.speed, hp: d.hp, maxHp: d.hp,
+        colors: d.colors, weakTo: d.weakTo, immune: d.immune,
+        vx: 0, vy: 0, stunned: 0, distracted: 0, active: true,
+        facing: -1, bobTime: Math.random() * 100, flash: 0,
+        patrolX: x, patrolDir: 1 };
+}
+
+// ==================== LEVEL BUILDER ====================
+const LEVEL_DEFS = [
+    // Level 1: Easy intro — bestie, bro, skeptic
+    { enemies: ['bestie', 'bro', 'skeptic'], width: 2800, hearts: 8, bigHearts: 2 },
+    // Level 2: Add fridge
+    { enemies: ['bestie', 'bro', 'fridge', 'skeptic'], width: 3600, hearts: 10, bigHearts: 3 },
+    // Level 3: Add ex, longer
+    { enemies: ['bestie', 'bro', 'fridge', 'ex', 'skeptic'], width: 4800, hearts: 12, bigHearts: 3 },
+    // Level 4: Meet the Dad — chaotic
+    { enemies: ['bestie', 'bro', 'fridge', 'dad', 'skeptic', 'bro', 'fridge'], width: 6000, hearts: 14, bigHearts: 4 },
+    // Level 5: Everything + TWO Dads, the gauntlet
+    { enemies: ['bestie', 'skeptic', 'bro', 'fridge', 'dad', 'ex', 'bro', 'skeptic', 'dad', 'fridge'], width: 7600, hearts: 16, bigHearts: 5 },
+];
+
+function buildLevel(num) {
+    const def = LEVEL_DEFS[Math.min(num - 1, LEVEL_DEFS.length - 1)];
+    levelWidth = def.width;
+    const groundColors = ['#3a3a4a', '#2a3a4a', '#4a3a2a', '#2a2a3a', '#1a1a2a'];
+    const gc = groundColors[Math.min(num - 1, groundColors.length - 1)];
+    platforms = [{ x: 0, y: GROUND_Y, w: levelWidth + 500, h: 200, color: gc }];
+    enemies = [];
+    collectibles = [];
+
+    // Add platforms with hearts on them (effort = reward: big hearts on hard-to-reach platforms)
+    const platCount = 2 + num;
+    for (let i = 0; i < platCount; i++) {
+        const px = SAFE_ZONE + 80 + i * ((levelWidth - SAFE_ZONE) / (platCount + 1));
+        const py = GROUND_Y - 30 - Math.random() * 20;
+        const pw = 35 + Math.random() * 25;
+        platforms.push({ x: px, y: py, w: pw, h: 6, color: '#555566' });
+        // Big heart on platform — effort matches reward
+        collectibles.push({ x: px + pw / 2, y: py - 20, type: 'big', collected: false, value: 15, regenTimer: 0 });
+    }
+
+    // Space enemies evenly with SAFE_ZONE at start
+    const spacing = (levelWidth - SAFE_ZONE - 80) / (def.enemies.length + 1);
+    for (let i = 0; i < def.enemies.length; i++) {
+        const ex = SAFE_ZONE + spacing * (i + 1);
+        enemies.push(createEnemy(def.enemies[i], ex));
+    }
+
+    // Small hearts along the path (worth less, easy to grab)
+    // Double hearts + regen
+    const heartCount = Math.floor(def.hearts * (1.4 - (num - 1) * 0.1)); // fewer hearts on later levels
+    for (let i = 0; i < heartCount; i++) {
+        const hx = SAFE_ZONE + 40 + i * ((levelWidth - SAFE_ZONE - 80) / heartCount);
+        const heartValue = Math.max(2, 5 - (num - 1)); // L1=5, L2=4, L3=3, L4=2, L5=2
+        collectibles.push({ x: hx, y: GROUND_Y - 25, type: 'small', collected: false, value: heartValue, regenTimer: 0 });
+    }
+
+    // Girl at end
+    const girlColors = COLORS.girl[Math.min(num - 1, COLORS.girl.length - 1)];
+    girl = { x: levelWidth - 40, y: GROUND_Y - PLAYER_H, w: PLAYER_W, h: PLAYER_H, colors: girlColors, bobTime: 0, heartBob: 0 };
+
+    // Player
+    player = { x: 30, y: GROUND_Y - PLAYER_H, w: PLAYER_W, h: PLAYER_H, vx: 0, vy: 0,
+        grounded: false, facing: 1, invincible: 0, wasGrounded: false, squash: 0 };
+
+    // Wingman
+    wingman = { x: 10, y: GROUND_Y - PLAYER_H, w: PLAYER_W, h: PLAYER_H,
+        active: false, targetX: 0, targetType: '', taskTime: 0,
+        dialogue: '', dialogueTime: 0, catchupLine: '', catchupTime: 0, bobTime: 0 };
+
+    gs.cameraX = 0;
+    gs.tutorialShown = false;
+    gs.tutorialTimer = 300; // show tutorial for 5 seconds
+}
+
+// ==================== PARTICLES ====================
+function spawnParticles(x, y, color, count, spread) {
+    for (let i = 0; i < count; i++) {
+        gs.particles.push({ x, y, vx: (Math.random()-0.5)*spread, vy: -Math.random()*spread*0.8 - 1,
+            life: 25 + Math.random()*20, maxLife: 45, color, size: 1.5 + Math.random()*2 });
+    }
+}
+function spawnText(x, y, text, color, big) {
+    gs.floatingTexts.push({ x, y, text, color, life: 70, vy: -0.8, big: !!big });
+}
+
+// ==================== PHYSICS ====================
+function applyPhysics(e) {
+    e.vy += GRAVITY;
+    e.x += e.vx;
+    e.y += e.vy;
+    e.grounded = false;
+    for (const p of platforms) {
+        if (e.x + e.w > p.x && e.x < p.x + p.w && e.y + e.h > p.y && e.y + e.h < p.y + 10 && e.vy >= 0) {
+            e.y = p.y - e.h;
+            e.vy = 0;
+            e.grounded = true;
+        }
+    }
+    e.vx *= FRICTION;
+    // Keep in bounds
+    if (e.x < 0) { e.x = 0; e.vx = 0; }
+    if (e.x > levelWidth + 50) { e.x = levelWidth + 50; }
+}
+
+// ==================== UPDATE ====================
+function update() {
+    pollGP();
+    if (gs.state === 'playing' || gs.state === 'charm_pick') gs.time++;
+
+    // Hit freeze
+    if (gs.hitFreeze > 0) { gs.hitFreeze--; return; }
+
+    // Shake decay
+    if (gs.shakeDur > 0) { gs.shakeX = (Math.random()-0.5)*5; gs.shakeY = (Math.random()-0.5)*5; gs.shakeDur--; } else { gs.shakeX = 0; gs.shakeY = 0; }
+    if (gs.flash > 0) gs.flash--;
+
+    // ===== TITLE =====
+    if (gs.state === 'title') {
+        if (confirmBtn()) { gs.state = 'playing'; gs.level = 1; gs.charm = 70; gs.score = 0; gs.combo = 0; buildLevel(1); playSound('menu_select'); }
+        return;
+    }
+    // ===== GAME OVER =====
+    if (gs.state === 'gameover') { if (confirmBtn()) { gs.charm = 70; buildLevel(gs.level); gs.state = 'playing'; playSound('menu_select'); } return; }
+    // ===== WIN =====
+    if (gs.state === 'win') {
+        if (confirmBtn()) {
+            if (gs.level < gs.maxLevel) { gs.level++; musicPlaying = false; buildLevel(gs.level); gs.state = 'playing'; playSound('menu_select'); startMusic(); }
+            else { gs.state = 'credits'; }
+        }
+        return;
+    }
+    if (gs.state === 'credits') { if (confirmBtn()) gs.state = 'title'; return; }
+
+    // ===== CHARM PICK =====
+    if (gs.state === 'charm_pick') {
+        if (wasP('ArrowUp') || wasP('KeyW') || gpP(12)) { gs.selectedOption = (gs.selectedOption - 1 + 3) % 3; playSound('menu_select'); }
+        if (wasP('ArrowDown') || wasP('KeyS') || gpP(13)) { gs.selectedOption = (gs.selectedOption + 1) % 3; playSound('menu_select'); }
+        if (confirmBtn()) {
+            const opt = gs.charmOptions[gs.selectedOption];
+            const e = gs.charmTarget;
+            gs.charm = Math.max(0, Math.min(gs.maxCharm, gs.charm + opt.charm));
+            if (opt.q === 'great') {
+                spawnParticles(e.x + e.w/2, e.y, '#ff69b4', 15, 4);
+                spawnText(e.x + e.w/2, e.y - 8, 'SMOOTH!', '#ff69b4', true);
+                e.stunned = 240;
+                gs.combo++;
+                gs.score += 100 * gs.combo;
+                gs.hitFreeze = HIT_FREEZE_FRAMES;
+                playSound('charm_great');
+                playSound('combo');
+            } else if (opt.q === 'ok') {
+                spawnText(e.x + e.w/2, e.y - 8, 'Meh...', '#ffaa33');
+                e.stunned = 90;
+                gs.score += 30;
+                playSound('charm_ok');
+            } else {
+                spawnParticles(e.x + e.w/2, e.y, '#ff3333', 10, 3);
+                spawnText(e.x + e.w/2, e.y - 8, 'REJECTED!', '#ff3333', true);
+                gs.combo = 0;
+                gs.shakeDur = 12;
+                gs.flash = 6;
+                gs.hitFreeze = HIT_FREEZE_FRAMES;
+                playSound('charm_bad');
+            }
+            gs.state = 'playing';
+        }
+        // Clear
+        for (const k in justPressed) justPressed[k] = false;
+        gpState.jp.fill(false);
+        return;
+    }
+
+    // ===== PLAYING =====
+    if (gs.fightCooldown > 0) gs.fightCooldown--;
+    if (gs.charmCooldown > 0) gs.charmCooldown--;
+    if (gs.wingmanCooldown > 0) { gs.wingmanCooldown--; if (gs.wingmanCooldown <= 0) gs.wingmanReady = true; }
+    if (player.invincible > 0) player.invincible--;
+    if (gs.tutorialTimer > 0) gs.tutorialTimer--;
+
+    // Player movement
+    const mx = moveX();
+    player.vx += mx * 0.6;
+    if (mx !== 0) player.facing = mx > 0 ? 1 : -1;
+
+    // Jump
+    player.wasGrounded = player.grounded;
+    if (jumpBtn() && player.grounded) {
+        player.vy = JUMP_FORCE;
+        player.grounded = false;
+        player.squash = -3;
+        playSound('jump');
+    }
+
+    applyPhysics(player);
+
+    // Land squash
+    if (player.grounded && !player.wasGrounded && player.squash >= 0) {
+        player.squash = 3;
+        playSound('land');
+    }
+    if (player.squash > 0) player.squash -= 0.5;
+    if (player.squash < 0) player.squash += 0.5;
+
+    // Track nearest enemy for interaction hint
+    gs.nearestEnemy = null;
+    gs.nearestDist = 999;
+    for (const e of enemies) {
+        if (!e.active || e.stunned > 0 || e.distracted > 0) continue;
+        const d = Math.abs(e.x + e.w/2 - player.x - player.w/2);
+        if (d < gs.nearestDist) { gs.nearestDist = d; gs.nearestEnemy = e; }
+    }
+
+    // FIGHT — always hits nearest enemy, no whiffs. Cooldown prevents spam.
+    if (fightBtn() && gs.fightCooldown <= 0) {
+        gs.fightCooldown = 50; // ~0.8 sec cooldown
+        // Find nearest active enemy
+        let nearest = null, nd = Infinity;
+        for (const e of enemies) {
+            if (!e.active || e.stunned > 0 || e.distracted > 0) continue;
+            const d = Math.abs((e.x + e.w/2) - (player.x + player.w/2));
+            if (d < nd && d < 150) { nearest = e; nd = d; }
+        }
+        if (nearest) {
+            const e = nearest;
+            const dx = (e.x + e.w/2) - (player.x + player.w/2);
+            if (e.immune === 'fight') {
+                // Still connects but doesn't work well — brief knockback, costs charm
+                e.vx = Math.sign(dx) * 2;
+                e.flash = 4;
+                spawnText(e.x + e.w/2, e.y - 8, "Won't work!", '#ff6666', true);
+                gs.charm = Math.max(0, gs.charm - 5);
+                gs.flash = 4;
+                gs.hitFreeze = 2;
+                playSound('fight_immune');
+            } else {
+                // Full hit — knockback + stun
+                e.vx = Math.sign(dx) * 6;
+                e.vy = -3;
+                e.stunned = e.weakTo === 'fight' ? 240 : 90; // weak = long stun, neutral = brief stun
+                e.flash = 8;
+                const bonus = e.weakTo === 'fight' ? 80 : 25;
+                gs.score += bonus * Math.max(1, gs.combo);
+                gs.combo++;
+                gs.charm = Math.min(gs.maxCharm, gs.charm + (e.weakTo === 'fight' ? 8 : 2));
+                gs.hitFreeze = HIT_FREEZE_FRAMES;
+                gs.shakeDur = 8;
+                spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffaa00', 15, 6);
+                spawnText(e.x + e.w/2, e.y - 8, e.weakTo === 'fight' ? 'POW!' : 'Shove!', '#ffaa00', e.weakTo === 'fight');
+                playSound('fight_hit');
+                playSound('combo');
+            }
+        } else {
+            // No enemy nearby — just a punch animation, no penalty
+            spawnParticles(player.x + player.w/2 + player.facing * 30, player.y + player.h/2, '#ffaa00', 5, 3);
+            playSound('fight_hit', 0.7); // quieter swing sound
+        }
+    }
+
+    // CHARM — separate cooldown from fight
+    if (charmBtn() && gs.charmCooldown <= 0) {
+        gs.charmCooldown = 30; // brief cooldown to prevent spam
+        for (const e of enemies) {
+            if (!e.active || e.stunned > 0 || e.distracted > 0) continue;
+            const dx = Math.abs((e.x + e.w/2) - (player.x + player.w/2));
+            const dy = Math.abs(e.y - player.y);
+            if (dx < 80 && dy < 50) {
+                if (e.immune === 'charm') {
+                    spawnText(e.x + e.w/2, e.y - 8, "Not listening!", '#ff6666');
+                    gs.charm = Math.max(0, gs.charm - 5);
+                    playSound('charm_bad');
+                } else {
+                    gs.state = 'charm_pick';
+                    gs.charmOptions = getCharmOptions(e.type);
+                    gs.charmTarget = e;
+                    gs.selectedOption = 0;
+                }
+                break;
+            }
+        }
+    }
+
+    // WINGMAN
+    if (wingmanBtn() && gs.wingmanReady) {
+        let nearest = null, nd = Infinity;
+        for (const e of enemies) {
+            if (!e.active || e.stunned > 0 || e.distracted > 0) continue;
+            const d = Math.abs(e.x - player.x);
+            if (d < nd && d < 500) { nearest = e; nd = d; }
+        }
+        if (nearest) {
+            gs.wingmanReady = false;
+            gs.wingmanCooldown = gs.wingmanMaxCooldown;
+            wingman.active = true;
+            wingman.targetX = nearest.x;
+            wingman.targetType = nearest.type;
+            wingman.taskTime = 300;
+            const lines = WINGMAN_LINES[nearest.type] || WINGMAN_LINES.bestie;
+            wingman.dialogue = lines[Math.floor(Math.random() * lines.length)];
+            wingman.dialogueTime = 150;
+            wingman.catchupTime = 0;
+            wingman.catchupLine = '';
+
+            const isWeak = nearest.weakTo === 'wingman';
+            nearest.distracted = isWeak ? 360 : 150;
+            gs.score += (isWeak ? 100 : 30) * Math.max(1, gs.combo);
+            gs.combo++;
+            gs.charm = Math.min(gs.maxCharm, gs.charm + (isWeak ? 10 : 3));
+            spawnText(nearest.x + nearest.w/2, nearest.y - 8, isWeak ? 'DISTRACTED!' : 'Busy...', '#33cc55', isWeak);
+            spawnParticles(nearest.x + nearest.w/2, nearest.y, '#33cc55', 8, 3);
+            playSound('wingman');
+            if (isWeak) playSound('combo');
+        }
+    }
+
+    // RIZZ LEAP
+    if (gs.charm >= gs.maxCharm && jumpBtn() && player.grounded) {
+        gs.charm = 50; // costs half, not all
+        player.vy = JUMP_FORCE * 1.6;
+        player.vx = player.facing * 4;
+        for (const e of enemies) {
+            if (Math.abs(e.x - player.x) < 100 && e.active) e.stunned = 240;
+        }
+        gs.score += 250;
+        gs.hitFreeze = 6;
+        gs.shakeDur = 8;
+        spawnParticles(player.x + player.w/2, player.y + player.h, '#ff69b4', 25, 6);
+        spawnParticles(player.x + player.w/2, player.y + player.h, '#ffdd44', 15, 5);
+        spawnText(player.x + player.w/2, player.y - 12, 'RIZZ!', '#ff69b4', true);
+        playSound('rizz');
+    }
+
+    // Enemy AI — aggressive, blocking
+    for (const e of enemies) {
+        if (!e.active) continue;
+        e.bobTime += 0.06;
+        if (e.flash > 0) e.flash--;
+        if (e.stunned > 0) { e.stunned--; applyPhysics(e); continue; }
+        if (e.distracted > 0) { e.distracted--; applyPhysics(e); continue; }
+
+        const dx = player.x - e.x;
+        const absDx = Math.abs(dx);
+
+        // AGGRESSIVE pursuit — actively BLOCK the player's path
+        if (absDx < 500) {
+            e.facing = dx > 0 ? 1 : -1;
+            if (absDx > 40) {
+                // Sprint toward player
+                e.vx += Math.sign(dx) * e.speed * 0.3;
+            } else if (absDx > 15) {
+                // Close range: get IN FRONT of where player is heading
+                const blockX = player.x + player.facing * 30;
+                e.vx += Math.sign(blockX - e.x) * e.speed * 0.4;
+            }
+            // If player is jumping over, jump too (non-fridge)
+            if (player.y < e.y - 10 && e.grounded && e.type !== 'fridge' && absDx < 60) {
+                e.vy = -4;
+            }
+        } else {
+            // Patrol near spawn — but wider range
+            const patDx = e.patrolX + e.patrolDir * 40 - e.x;
+            e.vx += Math.sign(patDx) * 0.15;
+            if (Math.abs(patDx) < 5) e.patrolDir *= -1;
+        }
+
+        // Contact damage
+        if (player.invincible <= 0 &&
+            player.x + player.w > e.x && player.x < e.x + e.w &&
+            player.y + player.h > e.y && player.y < e.y + e.h) {
+            player.vx = Math.sign(player.x - e.x) * 3.5;
+            player.vy = -3;
+            player.invincible = 75;
+            const dmg = e.type === 'fridge' ? 8 : 5;
+            gs.charm = Math.max(0, gs.charm - dmg);
+            gs.combo = 0;
+            gs.shakeDur = 10;
+            gs.flash = 5;
+            gs.hitFreeze = 3;
+            player.squash = 2;
+            spawnText(player.x + player.w/2, player.y - 8, '-' + dmg, '#ff4444', true);
+            spawnParticles(player.x + player.w/2, player.y + player.h/2, '#ff4444', 8, 3);
+            playSound('damage');
+        }
+
+        applyPhysics(e);
+    }
+
+    // Wingman AI
+    if (wingman.active) {
+        wingman.bobTime += 0.1;
+        wingman.x += (wingman.targetX - wingman.x) * 0.08;
+        wingman.dialogueTime = Math.max(0, wingman.dialogueTime - 1);
+        wingman.taskTime--;
+        if (wingman.taskTime <= 0) {
+            wingman.active = false;
+            wingman.catchupLine = WINGMAN_CATCHUP[Math.floor(Math.random() * WINGMAN_CATCHUP.length)];
+            wingman.catchupTime = 120;
+        }
+    } else {
+        wingman.x += (player.x - 30 - wingman.x) * 0.04;
+        wingman.bobTime += 0.05;
+        if (wingman.catchupTime > 0) wingman.catchupTime--;
+    }
+    wingman.y = GROUND_Y - PLAYER_H;
+
+    // Collectibles — regen after 600 frames (10 sec)
+    for (const c of collectibles) {
+        if (c.collected) {
+            c.regenTimer = (c.regenTimer || 0) + 1;
+            if (c.regenTimer > 1080) { c.collected = false; c.regenTimer = 0; }
+            continue;
+        }
+        const cdx = Math.abs(player.x + player.w/2 - c.x);
+        const cdy = Math.abs(player.y + player.h/2 - c.y);
+        if (cdx < 30 && cdy < 30) {
+            c.collected = true;
+            gs.charm = Math.min(gs.maxCharm, gs.charm + c.value);
+            gs.score += c.value * 5;
+            spawnParticles(c.x, c.y, '#ff69b4', c.type === 'big' ? 12 : 5, c.type === 'big' ? 4 : 2);
+            playSound(c.type === 'big' ? 'big_heart' : 'heart');
+        }
+    }
+
+    // Girl
+    girl.bobTime += 0.04;
+    girl.heartBob += 0.06;
+
+    // Check if reached girl
+    if (Math.abs(player.x - girl.x) < 50 && Math.abs(player.y - girl.y) < 50) {
+        if (gs.charm >= CHARM_TO_WIN) {
+            gs.state = 'win';
+            gs.finalTime = gs.time; // freeze the clock
+            gs.hitFreeze = 10;
+            spawnParticles(girl.x + girl.w/2, girl.y, '#ff69b4', 30, 6);
+            spawnParticles(girl.x + girl.w/2, girl.y, '#ffdd44', 20, 5);
+            playSound('win');
+        } else {
+            spawnText(girl.x + girl.w/2, girl.y - 12, 'Need ' + CHARM_TO_WIN + '% charm!', '#ff6666');
+            player.vx = -4;
+            player.vy = -2;
+            player.invincible = 60;
+            gs.charm = Math.max(0, gs.charm - 8);
+            gs.flash = 4;
+            playSound('charm_bad');
+        }
+    }
+
+    // Charm passive decay (SLOW)
+    if (gs.time % CHARM_DECAY_INTERVAL === 0 && gs.charm > 20) gs.charm--;
+
+    // Game over
+    if (gs.charm <= 0) { gs.state = 'gameover'; playSound('gameover'); }
+
+    // Camera
+    gs.cameraX += (player.x - 400 - gs.cameraX) * 0.08;
+    if (gs.cameraX < 0) gs.cameraX = 0;
+    if (gs.cameraX > levelWidth - 1260) gs.cameraX = levelWidth - 1260;
+
+    // Particles
+    for (let i = gs.particles.length - 1; i >= 0; i--) {
+        const p = gs.particles[i];
+        p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life--;
+        if (p.life <= 0) gs.particles.splice(i, 1);
+    }
+    // Floating texts
+    for (let i = gs.floatingTexts.length - 1; i >= 0; i--) {
+        const t = gs.floatingTexts[i];
+        t.y += t.vy; t.life--;
+        if (t.life <= 0) gs.floatingTexts.splice(i, 1);
+    }
+
+    // Clear input
+    for (const k in justPressed) justPressed[k] = false;
+    gpState.jp.fill(false);
+}
+
+// ==================== RENDER ====================
+function render() {
+    ctx.save();
+    ctx.translate(Math.round(gs.shakeX), Math.round(gs.shakeY));
+
+    // ===== TITLE =====
+    if (gs.state === 'title') {
+        ctx.fillStyle = '#1a0a2e';
+        ctx.fillRect(0, 0, 1280, 720);
+        for (let i = 0; i < 30; i++) {
+            ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.sin(gs.time*0.02+i)*0.2})`;
+            ctx.fillRect((i*47)%1280, (i*23)%560, 2, 2);
+        }
+        ctx.fillStyle = '#ff69b4';
+        ctx.font = 'bold 64px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('WINGMAN', 640, 180);
+        ctx.fillStyle = '#ffcc44';
+        ctx.font = '22px monospace';
+        ctx.fillText('Get the girl. Dodge the blockers.', 640, 240);
+        ctx.fillText('Call your boy when it gets rough.', 640, 270);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '18px monospace';
+        ctx.fillText('FIGHT(X)  CHARM(B)  WINGMAN(Y)  JUMP(A)', 640, 380);
+        ctx.fillText('Each enemy has a weakness!', 640, 410);
+        ctx.fillStyle = Math.sin(gs.time*0.05) > 0 ? '#fff' : '#888';
+        ctx.font = '24px monospace';
+        ctx.fillText('Press A / SPACE to start', 640, 540);
+        ctx.fillStyle = '#555';
+        ctx.font = '16px monospace';
+        ctx.fillText('A Vibe Engine Game', 640, 660);
+        // Controller status
+        ctx.fillStyle = gpConnected ? '#33cc55' : '#666';
+        ctx.font = '12px monospace';
+        ctx.fillText(gpConnected ? '🎮 Controller Connected' : '🎮 Press a button on your controller to connect', 640, 690);
+        ctx.textAlign = 'left';
+        ctx.restore(); return;
+    }
+
+    // ===== GAME OVER =====
+    if (gs.state === 'gameover') {
+        ctx.fillStyle = '#1a0a0a';
+        ctx.fillRect(0, 0, 1280, 720);
+        ctx.fillStyle = '#ff3333';
+        ctx.font = 'bold 48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('FRIENDZONED', 640, 220);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '22px monospace';
+        ctx.fillText('She lost interest...', 640, 280);
+        ctx.fillStyle = '#ffcc44';
+        ctx.fillText('Score: ' + gs.score, 640, 360);
+        ctx.fillStyle = '#888';
+        ctx.fillText('Combo: x' + gs.combo, 640, 400);
+        ctx.fillStyle = Math.sin(gs.time*0.05) > 0 ? '#fff' : '#888';
+        ctx.font = '24px monospace';
+        ctx.fillText('Press A / SPACE', 640, 540);
+        ctx.textAlign = 'left';
+        ctx.restore(); return;
+    }
+
+    // ===== WIN =====
+    if (gs.state === 'win') {
+        ctx.fillStyle = '#0a0a2e';
+        ctx.fillRect(0, 0, 1280, 720);
+        for (let i = 0; i < 15; i++) {
+            ctx.fillStyle = '#ff69b4';
+            ctx.fillRect((i*37+gs.time*0.5)%640, (i*23+gs.time*0.3)%360, 2, 2);
+        }
+        ctx.fillStyle = '#ff69b4';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        if (gs.level >= gs.maxLevel) {
+            ctx.fillText("SHE'S INTO YOU!", 640, 160);
+            ctx.fillStyle = '#ffcc44';
+            ctx.font = '22px monospace';
+            ctx.fillText('You got ALL the girls!', 640, 220);
+            ctx.fillText('Final Score: ' + gs.score, 640, 260);
+        } else {
+            const girlName = GIRL_NAMES[Math.min(gs.level - 1, GIRL_NAMES.length - 1)];
+            const levelName = LEVEL_NAMES[Math.min(gs.level - 1, LEVEL_NAMES.length - 1)];
+            ctx.fillText(levelName + ' CLEARED!', 640, 160);
+            ctx.fillStyle = '#ffcc44';
+            ctx.font = '22px monospace';
+            ctx.fillText(girlName + ' is impressed! On to the next...', 640, 220);
+            const secs = Math.floor((gs.finalTime || gs.time) / 60);
+            ctx.fillText('Score: ' + gs.score + '  |  Time: ' + secs + 's', 640, 260);
+        }
+        ctx.fillStyle = Math.sin(gs.time*0.05) > 0 ? '#fff' : '#888';
+        ctx.font = '24px monospace';
+        ctx.fillText('Press A / SPACE', 640, 540);
+        ctx.textAlign = 'left';
+        ctx.restore(); return;
+    }
+
+    // ===== CREDITS — use real end credits image =====
+    if (gs.state === 'credits') {
+        ctx.fillStyle = '#0a0a2e';
+        ctx.fillRect(0, 0, 1280, 720);
+        if (endCreditsImg && endCreditsImg.complete) {
+            // Draw image centered, scaled to fit
+            const scale = Math.min(1280 / endCreditsImg.width, 520 / endCreditsImg.height);
+            const iw = endCreditsImg.width * scale, ih = endCreditsImg.height * scale;
+            ctx.drawImage(endCreditsImg, (1280 - iw) / 2, 60, iw, ih);
+        }
+        // Text with strong shadow for readability over image
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 48px monospace';
+        // Shadow
+        ctx.fillStyle = '#000';
+        ctx.fillText('WINGMAN', 643, 603);
+        ctx.fillText('WINGMAN', 637, 603);
+        ctx.fillText('WINGMAN', 640, 606);
+        ctx.fillText('WINGMAN', 640, 597);
+        // Main text
+        ctx.fillStyle = '#ff69b4';
+        ctx.fillText('WINGMAN', 640, 600);
+        ctx.font = '28px monospace';
+        const finalSecs = Math.floor((gs.finalTime || gs.time) / 60);
+        const scoreText = 'Score: ' + gs.score + '  |  Time: ' + finalSecs + 's';
+        ctx.fillStyle = '#000';
+        ctx.fillText(scoreText, 642, 642);
+        ctx.fillStyle = '#ffcc44';
+        ctx.fillText(scoreText, 640, 640);
+        ctx.font = '18px monospace';
+        ctx.fillStyle = '#000';
+        ctx.fillText('Built on Vibe Engine  |  Press A / SPACE', 642, 692);
+        ctx.fillStyle = '#aaa';
+        ctx.fillText('Built on Vibe Engine  |  Press A / SPACE', 640, 690);
+        ctx.textAlign = 'left';
+        ctx.restore(); return;
+    }
+
+    // ===== GAMEPLAY =====
+    ctx.save();
+    ctx.translate(-Math.round(gs.cameraX), 0);
+
+    // Sky
+    const skyG = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    // Different sky per level
+    const skies = [
+        ['#1a0a2e', '#2a1a4e'], // L1: Coffee Shop — deep night purple
+        ['#0a1a3e', '#1a2a5e'], // L2: Rooftop Bar — dark blue twilight
+        ['#1a1a0a', '#3a2a1a'], // L3: Beach Party — warm sunset dark
+        ['#1a0020', '#3a0040'], // L4: The Club — neon dark purple
+        ['#0a0a0a', '#1a0a2e'], // L5: After Party — almost black
+    ];
+    const sky = skies[Math.min(gs.level - 1, skies.length - 1)];
+    skyG.addColorStop(0, sky[0]);
+    skyG.addColorStop(1, sky[1]);
+    ctx.fillStyle = skyG;
+    ctx.fillRect(Math.round(gs.cameraX), 0, 1280, GROUND_Y);
+
+    // Stars
+    for (let i = 0; i < 15; i++) {
+        ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.sin(gs.time*0.02+i)*0.2})`;
+        ctx.fillRect(Math.round(gs.cameraX) + (i*47)%1280, (i*23)%400, 2, 2);
+    }
+
+    // City silhouette (parallax)
+    ctx.fillStyle = '#0f0820';
+    for (let i = 0; i < 12; i++) {
+        const bx = Math.round(gs.cameraX * 0.3) + i * 35;
+        const bh = 15 + (i * 17 % 25);
+        ctx.fillRect(bx, GROUND_Y - bh, 12 + (i*7%12), bh);
+        // Windows
+        ctx.fillStyle = '#221133';
+        for (let wy = 0; wy < bh - 5; wy += 6) {
+            ctx.fillRect(bx + 2, GROUND_Y - bh + wy + 2, 2, 3);
+            ctx.fillRect(bx + 6, GROUND_Y - bh + wy + 2, 2, 3);
+        }
+        ctx.fillStyle = '#0f0820';
+    }
+
+    // Platforms
+    for (const p of platforms) {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        // Top highlight
+        ctx.fillStyle = '#666677';
+        ctx.fillRect(p.x, p.y, p.w, 1);
+        // Ground texture dots
+        if (p.h > 20) {
+            ctx.fillStyle = '#333344';
+            for (let dx = 0; dx < p.w; dx += 8) {
+                ctx.fillRect(p.x + dx + (dx*7%5), p.y + 2, 2, 1);
+            }
+        }
+    }
+
+    // Collectibles
+    for (const c of collectibles) {
+        if (c.collected) continue;
+        const bob = Math.sin(gs.time * 0.06 + c.x * 0.1) * 2;
+        const isBig = c.type === 'big';
+        drawHeart(c.x, c.y + bob, isBig ? 12 : 7, isBig);
+    }
+
+    // Wingman (Tails-style follower)
+    {
+        const wb = Math.sin(wingman.bobTime) * 1.5;
+        drawChar(wingman.x, wingman.y + wb, PLAYER_W, PLAYER_H, COLORS.wingman, wingman.x > player.x);
+        if (wingman.active && wingman.dialogueTime > 0) {
+            const txt = wingman.dialogue;
+            const tw = txt.length * 9 + 20;
+            ctx.fillStyle = 'rgba(0,0,0,0.85)';
+            ctx.fillRect(wingman.x - tw/2 + PLAYER_W/2, wingman.y - 75, tw, 35);
+            ctx.strokeStyle = '#33cc55';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(wingman.x - tw/2 + PLAYER_W/2, wingman.y - 45, tw, 35);
+            ctx.fillStyle = '#33cc55';
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('"' + txt + '"', wingman.x + PLAYER_W/2, wingman.y - 52);
+            ctx.textAlign = 'left';
+        } else if (!wingman.active && wingman.catchupTime > 0) {
+            ctx.fillStyle = '#33cc55';
+            ctx.font = 'bold 18px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(wingman.catchupLine, wingman.x + PLAYER_W/2, wingman.y - 50);
+            ctx.textAlign = 'left';
+        }
+    }
+
+    // Enemies
+    for (const e of enemies) {
+        if (!e.active) continue;
+        const bob = Math.sin(e.bobTime) * 1.5;
+        const isStunned = e.stunned > 0;
+        const isDistracted = e.distracted > 0;
+        ctx.globalAlpha = isStunned ? 0.5 : (isDistracted ? 0.6 : 1);
+
+        if (e.type === 'fridge') {
+            drawFridge(e.x, e.y, e.colors, bob, e.flash > 0);
+        } else {
+            drawChar(e.x, e.y + bob, e.w, e.h, e.colors, e.facing < 0, 0, e.flash > 0);
+        }
+        ctx.globalAlpha = 1;
+
+        // Label
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'center';
+        const dadNames = ["JESSICA'S DAD", "BECCA'S DAD", "MIA'S DAD", "ZARA'S DAD", "SOFIA'S DAD"];
+        const fridgeNames = ["THE BESTIE WALL", "BIG SIS", "THE BODYGUARD", "QUEEN BEE", "THE ENFORCER"];
+        let label;
+        if (e.type === 'dad') label = dadNames[Math.min(gs.level - 1, dadNames.length - 1)];
+        else if (e.type === 'fridge') label = fridgeNames[Math.min(gs.level - 1, fridgeNames.length - 1)];
+        else label = e.type.toUpperCase();
+        ctx.fillStyle = '#000';
+        ctx.fillText(label, e.x + e.w/2 + 1, e.y - 10 + bob);
+        ctx.fillStyle = '#ddd';
+        ctx.fillText(label, e.x + e.w/2, e.y - 11 + bob);
+
+        // Status
+        if (isStunned) {
+            ctx.fillStyle = '#ffaa00';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('✦ STUNNED ✦', e.x + e.w/2, e.y - 30);
+        }
+        if (isDistracted) {
+            ctx.fillStyle = '#33cc55';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('💬 chatting...', e.x + e.w/2, e.y - 30);
+        }
+        ctx.textAlign = 'left';
+
+        // Interaction range indicator
+        if (e === gs.nearestEnemy && gs.nearestDist < 80 && !isStunned && !isDistracted) {
+            ctx.strokeStyle = 'rgba(255,105,180,0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(e.x - 2, e.y - 2, e.w + 4, e.h + 4);
+        }
+    }
+
+    // Girl
+    {
+        const gb = Math.sin(girl.bobTime) * 1.5;
+        drawChar(girl.x, girl.y + gb, girl.w, girl.h, girl.colors, false);
+        // Heart indicator
+        const heartColor = gs.charm >= CHARM_TO_WIN ? '#ff69b4' : (gs.charm > 50 ? '#ffaa44' : '#666');
+        const hb = Math.sin(girl.heartBob) * 2;
+        ctx.fillStyle = heartColor;
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(gs.charm >= CHARM_TO_WIN ? '\u2665' : (gs.charm > 50 ? '\u2661' : '...'), girl.x + girl.w/2, girl.y - 6 + hb);
+        ctx.textAlign = 'left';
+    }
+
+    // Player
+    if (!(player.invincible > 0 && Math.floor(player.invincible/3)%2)) {
+        const sq = player.squash || 0;
+        ctx.save();
+        if (sq !== 0) {
+            ctx.translate(player.x + player.w/2, player.y + player.h);
+            ctx.scale(1 + sq*0.03, 1 - sq*0.03);
+            ctx.translate(-(player.x + player.w/2), -(player.y + player.h));
+        }
+        drawChar(player.x, player.y, player.w, player.h, COLORS.mc, player.facing < 0);
+        ctx.restore();
+    }
+
+    // Particles
+    for (const p of gs.particles) {
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.round(p.x), Math.round(p.y), Math.ceil(p.size), Math.ceil(p.size));
+    }
+    ctx.globalAlpha = 1;
+
+    // Floating texts
+    for (const t of gs.floatingTexts) {
+        ctx.globalAlpha = Math.min(1, t.life / 30);
+        ctx.font = t.big ? 'bold 32px monospace' : '20px monospace';
+        ctx.textAlign = 'center';
+        // Shadow
+        ctx.fillStyle = '#000';
+        ctx.fillText(t.text, Math.round(t.x) + 1, Math.round(t.y) + 1);
+        ctx.fillStyle = t.color;
+        ctx.fillText(t.text, Math.round(t.x), Math.round(t.y));
+        ctx.textAlign = 'left';
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore(); // camera
+
+    // ===== HUD =====
+    // Charm bar — BIG and readable
+    ctx.fillStyle = '#111';
+    ctx.fillRect(20, 20, 510, 50);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(22, 22, 506, 46);
+    const cColor = gs.charm > 70 ? '#ff69b4' : (gs.charm > 30 ? '#ffaa44' : '#ff3333');
+    ctx.fillStyle = cColor;
+    ctx.fillRect(24, 24, gs.charm * 5, 42);
+    // Charm bar shine
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(24, 24, gs.charm * 5, 18);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px monospace';
+    ctx.fillText('CHARM ' + gs.charm + '%', 35, 56);
+
+    // Rizz indicator
+    if (gs.charm >= gs.maxCharm) {
+        ctx.fillStyle = Math.sin(gs.time*0.1) > 0 ? '#ff69b4' : '#ffdd44';
+        ctx.font = 'bold 32px monospace';
+        ctx.fillText('✦ RIZZ READY! ✦', 30, 105);
+    }
+
+    // Score + combo (right side)
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = 'bold 36px monospace';
+    ctx.fillText('SCORE ' + gs.score, 1255, 55);
+    if (gs.combo > 1) {
+        ctx.fillStyle = '#ff69b4';
+        ctx.font = 'bold 28px monospace';
+        ctx.fillText('COMBO x' + gs.combo, 1255, 90);
+    }
+    ctx.textAlign = 'left';
+
+    // Bottom HUD
+    ctx.fillStyle = gs.wingmanReady ? '#33cc55' : '#555';
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText(gs.wingmanReady ? '🤝 WINGMAN READY [Y]' : '🤝 WINGMAN ' + Math.floor((1-gs.wingmanCooldown/gs.wingmanMaxCooldown)*100) + '%', 20, 700);
+
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText('LEVEL ' + gs.level + ' / ' + gs.maxLevel, 640, 700);
+    ctx.textAlign = 'left';
+
+    // Tutorial (first 5 seconds)
+    if (gs.tutorialTimer > 0 && gs.state === 'playing') {
+        const ta = Math.min(1, gs.tutorialTimer / 30);
+        ctx.globalAlpha = ta;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(280, 240, 720, 200);
+        ctx.fillStyle = '#fff';
+        ctx.font = '22px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Get close to enemies then:', 640, 290);
+        ctx.fillStyle = '#ffaa00'; ctx.fillText('X = FIGHT', 460, 340);
+        ctx.fillStyle = '#ff69b4'; ctx.fillText('B = CHARM', 640, 340);
+        ctx.fillStyle = '#33cc55'; ctx.fillText('Y = WINGMAN', 840, 340);
+        ctx.fillStyle = '#aaa'; ctx.font = '18px monospace'; ctx.fillText('Need 100% charm to win the girl!', 640, 400);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+    }
+
+    // Interaction hint when near enemy
+    if (gs.nearestEnemy && gs.nearestDist < 80 && gs.state === 'playing' && gs.tutorialTimer <= 0) {
+        const e = gs.nearestEnemy;
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        const hintX = e.x - gs.cameraX + e.w/2;
+        ctx.fillRect(hintX - 150, GROUND_Y + 20, 300, 40);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('X:Fight  B:Charm  Y:Wingman', hintX, GROUND_Y + 46);
+        ctx.textAlign = 'left';
+    }
+
+    // Damage flash
+    if (gs.flash > 0) {
+        ctx.fillStyle = `rgba(255,50,50,${gs.flash * 0.06})`;
+        ctx.fillRect(0, 0, 1280, 720);
+    }
+
+    // ===== CHARM PICK OVERLAY =====
+    if (gs.state === 'charm_pick') {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, 1280, 720);
+        const eName = gs.charmTarget.type === 'fridge' ? 'THE FRIDGE' : 'the ' + gs.charmTarget.type;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('What do you say to ' + eName + '?', 640, 120);
+
+        for (let i = 0; i < 3; i++) {
+            const opt = gs.charmOptions[i];
+            const sel = i === gs.selectedOption;
+            const y = 180 + i * 130;
+            const hint = opt.q === 'great' ? 'rgba(255,200,100,0.12)' : (opt.q === 'bad' ? 'rgba(255,80,80,0.08)' : 'rgba(255,255,255,0.04)');
+            ctx.fillStyle = sel ? 'rgba(255,105,180,0.25)' : hint;
+            ctx.fillRect(160, y, 960, 90);
+            if (sel) { ctx.strokeStyle = '#ff69b4'; ctx.lineWidth = 3; ctx.strokeRect(160, y, 960, 90); }
+            ctx.fillStyle = sel ? '#fff' : '#aaa';
+            ctx.font = sel ? 'bold 22px monospace' : '22px monospace';
+            ctx.fillText('"' + opt.text + '"', 640, y + 52);
+        }
+        ctx.fillStyle = '#666';
+        ctx.font = '16px monospace';
+        ctx.fillText('Up/Down + A to pick', 640, 680);
+        ctx.textAlign = 'left';
+    }
+
+    ctx.restore(); // shake
+}
+
+// ==================== GAME LOOP ====================
+let lastTime = 0;
+const TARGET_DT = 1000 / 60;
+let accum = 0;
+
+function loop(now) {
+    requestAnimationFrame(loop);
+    if (!lastTime) { lastTime = now; return; }
+    const dt = Math.min(now - lastTime, 100);
+    lastTime = now;
+    accum += dt;
+    while (accum >= TARGET_DT) { update(); accum -= TARGET_DT; }
+    render();
+}
+
+requestAnimationFrame(loop);
+</script>
+</body></html>

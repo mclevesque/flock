@@ -1,0 +1,2650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MATTY MILKERS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        canvas { image-rendering: pixelated; width: 100vw; height: 100vh; object-fit: contain; }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+
+    <script>
+    // Universal gamepad state — receives from postMessage (iframe) OR polls directly (standalone)
+    window._gamepadState = {
+        buttons: new Array(16).fill(false),
+        prevButtons: new Array(16).fill(false),
+        justPressed: new Array(16).fill(false),  // accumulates between game reads
+        justReleased: new Array(16).fill(false),
+        axes: [0,0,0,0]
+    };
+
+    // Listen for forwarded gamepad from parent (IDE)
+    window._gpMsgCount = 0;
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'gamepad') {
+            window._gpMsgCount++;
+            const gs = window._gamepadState;
+            const newBtns = e.data.buttons;
+            // Accumulate press/release events (don't overwrite — game reads and clears)
+            for (let i = 0; i < 16; i++) {
+                if (newBtns[i] && !gs.buttons[i]) gs.justPressed[i] = true;
+                if (!newBtns[i] && gs.buttons[i]) gs.justReleased[i] = true;
+            }
+            gs.buttons = newBtns;
+            gs.axes = e.data.axes;
+        }
+    });
+
+    // Native polling fallback (works when not in iframe) — wrapped in try/catch
+    window._gamepadPoll = function() {
+        try {
+            const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+            for (let i = 0; i < gps.length; i++) {
+                const gp = gps[i];
+                if (!gp) continue;
+                const gs = window._gamepadState;
+                gs.prevButtons = [...gs.buttons];
+                gs.buttons = Array.from(gp.buttons).map(b => b.pressed);
+                gs.axes = Array.from(gp.axes);
+                return;
+            }
+        } catch(e) { /* iframe blocks gamepad API — use postMessage instead */ }
+    };
+    </script>
+    <script src="src/engine.js"></script>
+    <script src="src/scene.js"></script>
+    <script src="src/assets.js"></script>
+    <script src="src/sprite.js"></script>
+    <script src="src/physics.js"></script>
+    <script src="src/tilemap.js"></script>
+    <script src="src/camera.js"></script>
+    <script src="src/input.js"></script>
+    <script src="src/audio.js"></script>
+    <script src="src/particles.js"></script>
+    <script src="src/animator.js"></script>
+    <script src="src/ui.js"></script>
+    <script src="src/music.js"></script>
+    <script src="src/pathfinding.js"></script>
+    <script src="src/lighting.js"></script>
+    <script src="src/saveload.js"></script>
+    <script src="src/effects.js"></script>
+    <script src="src/levelgen.js"></script>
+    <script src="src/isometric.js"></script>
+    <script src="src/network.js"></script>
+    <script src="src/export.js"></script>
+    <script src="src/clairvoyance.js"></script>
+    <script src="src/lorecraft.js"></script>
+    <script src="src/gamegen.js"></script>
+
+    <script>
+    /* ============================================
+       MATTY MILKERS
+       Matt vs the AI Robot Uprising
+       He just wants his milk.
+       ============================================ */
+
+    const engine = new VibeEngine('game-canvas', 640, 360);
+    const music = new MusicEngine();
+
+    // Game state
+    const gs = { lives: 3, score: 0, milkCollected: 0, totalMilk: 0, level: 1, state: 'title', friendsFreed: 0 };
+
+    // =============================================
+    //  CUSTOM SPRITES — Matt, Robots, Milk, Friends
+    // =============================================
+    function generateSprites() {
+        const a = engine.assets;
+
+        // ---- MATT (bearded dude, flannel shirt, determined look) ----
+        const mc = document.createElement('canvas');
+        mc.width = 160; mc.height = 24;
+        const m = mc.getContext('2d');
+        m.imageSmoothingEnabled = false;
+
+        function drawMatt(ox, frame, running) {
+            const bob = running ? [0, -2, 0, -2][frame % 4] : [0, 0, -1, 0][frame % 4];
+            const legOff = running ? [3, -1, -3, 1][frame % 4] : 0;
+            const armOff = running ? [-3, 1, 3, -1][frame % 4] : [0, 0, 1, 0][frame % 4];
+            // Hair (brown, messy)
+            m.fillStyle = '#8B6914';
+            m.fillRect(ox + 4, bob, 8, 4);
+            m.fillRect(ox + 3, bob + 1, 10, 3);
+            // Face
+            m.fillStyle = '#ffcc99';
+            m.fillRect(ox + 4, bob + 3, 8, 6);
+            // Beard
+            m.fillStyle = '#7a5c12';
+            m.fillRect(ox + 4, bob + 7, 8, 3);
+            m.fillRect(ox + 5, bob + 9, 6, 1);
+            // Eyes
+            m.fillStyle = '#2244aa';
+            m.fillRect(ox + 5, bob + 4, 2, 2);
+            m.fillRect(ox + 9, bob + 4, 2, 2);
+            // Left arm (swings opposite to legs)
+            m.fillStyle = '#cc3333';
+            m.fillRect(ox + 1, bob + 10 + armOff, 3, 5);
+            m.fillStyle = '#ffcc99'; // hand
+            m.fillRect(ox + 1, bob + 14 + armOff, 3, 2);
+            // Right arm
+            m.fillStyle = '#cc3333';
+            m.fillRect(ox + 12, bob + 10 - armOff, 3, 5);
+            m.fillStyle = '#ffcc99'; // hand
+            m.fillRect(ox + 12, bob + 14 - armOff, 3, 2);
+            // Flannel shirt (red plaid torso)
+            m.fillStyle = '#cc3333';
+            m.fillRect(ox + 3, bob + 10, 10, 6);
+            m.fillStyle = '#aa2222';
+            m.fillRect(ox + 5, bob + 10, 2, 6);
+            m.fillRect(ox + 9, bob + 10, 2, 6);
+            m.fillRect(ox + 3, bob + 12, 10, 2);
+            // Left leg
+            m.fillStyle = '#4466aa';
+            m.fillRect(ox + 4, bob + 16 + legOff, 4, 5);
+            m.fillStyle = '#664422'; // boot
+            m.fillRect(ox + 3, bob + 20 + legOff, 5, 3);
+            // Right leg
+            m.fillStyle = '#4466aa';
+            m.fillRect(ox + 8, bob + 16 - legOff, 4, 5);
+            m.fillStyle = '#664422'; // boot
+            m.fillRect(ox + 8, bob + 20 - legOff, 5, 3);
+        }
+
+        for (let f = 0; f < 4; f++) drawMatt(f * 16, f, false);   // Idle
+        for (let f = 0; f < 4; f++) drawMatt((4+f) * 16, f, true); // Run
+        // Jump
+        drawMatt(8 * 16, 0, false);
+        m.fillStyle = '#ffcc00'; // Milk carton in hand when jumping
+        m.fillRect(8*16 + 13, 10, 4, 5);
+        // Fall
+        drawMatt(9 * 16, 2, false);
+
+        // Use canvas directly as image source (no async load needed)
+        a.images['matt'] = mc;
+        a.defineSpritesheet('matt_sheet', 'matt', {
+            frameWidth: 16, frameHeight: 24,
+            animations: {
+                idle: { frames: [0,1,2,3], speed: 0.3, loop: true },
+                run: { frames: [4,5,6,7], speed: 0.1, loop: true },
+                jump: { frames: [8], speed: 0.2, loop: false },
+                fall: { frames: [9], speed: 0.2, loop: false }
+            }
+        });
+
+        // ---- AI ROBOT (evil, glowing red eyes) ----
+        const rc = document.createElement('canvas');
+        rc.width = 64; rc.height = 16;
+        const r = rc.getContext('2d');
+        r.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 4; f++) {
+            const ox = f * 16;
+            const bob = [0, -1, 0, -1][f];
+            const legWalk = [2, -1, -2, 1][f];
+            const armSwing = [-2, 1, 2, -1][f];
+            // Left arm (mechanical claw)
+            r.fillStyle = '#667788';
+            r.fillRect(ox + 1, 5 + bob + armSwing, 3, 4);
+            r.fillStyle = '#ff4444'; // claw tip
+            r.fillRect(ox + 1, 8 + bob + armSwing, 3, 2);
+            // Right arm
+            r.fillStyle = '#667788';
+            r.fillRect(ox + 12, 5 + bob - armSwing, 3, 4);
+            r.fillStyle = '#ff4444';
+            r.fillRect(ox + 12, 8 + bob - armSwing, 3, 2);
+            // Metal body
+            r.fillStyle = '#778899';
+            r.fillRect(ox + 3, 3 + bob, 10, 9);
+            // Head (dome)
+            r.fillStyle = '#8899aa';
+            r.fillRect(ox + 4, 1 + bob, 8, 4);
+            // Eyes (RED, glowing)
+            r.fillStyle = '#ff0000';
+            r.fillRect(ox + 5, 3 + bob, 2, 2);
+            r.fillRect(ox + 9, 3 + bob, 2, 2);
+            // Glow
+            r.fillStyle = 'rgba(255,0,0,0.3)';
+            r.fillRect(ox + 4, 2 + bob, 8, 4);
+            // Antenna
+            r.fillStyle = '#ff4444';
+            r.fillRect(ox + 7, -1 + bob, 2, 3);
+            // Left leg (walking)
+            r.fillStyle = '#667788';
+            r.fillRect(ox + 4, 12 + bob + legWalk, 3, 4);
+            r.fillStyle = '#556677';
+            r.fillRect(ox + 3, 14 + bob + legWalk, 5, 2);
+            // Right leg
+            r.fillStyle = '#667788';
+            r.fillRect(ox + 9, 12 + bob - legWalk, 3, 4);
+            r.fillStyle = '#556677';
+            r.fillRect(ox + 8, 14 + bob - legWalk, 5, 2);
+        }
+
+        a.images['robot'] = rc;
+        a.defineSpritesheet('robot_sheet', 'robot', {
+            frameWidth: 16, frameHeight: 16,
+            animations: { walk: { frames: [0,1,2,3], speed: 0.15, loop: true } }
+        });
+
+        // ---- FLYING DRONE ----
+        const dc = document.createElement('canvas');
+        dc.width = 48; dc.height = 16;
+        const d = dc.getContext('2d');
+        d.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 3; f++) {
+            const ox = f * 16;
+            // Body
+            d.fillStyle = '#556677';
+            d.fillRect(ox + 4, 5, 8, 6);
+            // Eye (scanner)
+            d.fillStyle = '#ff0000';
+            d.fillRect(ox + 6, 7, 4, 2);
+            // Propellers
+            const wy = [0, -1, 1][f];
+            d.fillStyle = '#8899aa';
+            d.fillRect(ox + 1, 3 + wy, 5, 2);
+            d.fillRect(ox + 10, 3 - wy, 5, 2);
+            // Blades
+            d.fillStyle = '#aabbcc';
+            d.fillRect(ox, 2 + wy, 7, 1);
+            d.fillRect(ox + 9, 2 - wy, 7, 1);
+        }
+
+        a.images['drone'] = dc;
+        a.defineSpritesheet('drone_sheet', 'drone', {
+            frameWidth: 16, frameHeight: 16,
+            animations: { fly: { frames: [0,1,2,1], speed: 0.1, loop: true } }
+        });
+
+        // ---- RAW MILK BOTTLE ----
+        const mlc = document.createElement('canvas');
+        mlc.width = 48; mlc.height = 16;
+        const ml = mlc.getContext('2d');
+        ml.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 4; f++) {
+            const ox = f * 12;
+            const bob = Math.sin(f * Math.PI / 2) * 1;
+            // Bottle
+            ml.fillStyle = '#ffffff';
+            ml.fillRect(ox + 3, 2 + bob, 6, 10);
+            // Cap
+            ml.fillStyle = '#44aa44';
+            ml.fillRect(ox + 4, 1 + bob, 4, 2);
+            // Milk inside
+            ml.fillStyle = '#ffffee';
+            ml.fillRect(ox + 4, 5 + bob, 4, 6);
+            // Label
+            ml.fillStyle = '#44aa44';
+            ml.fillRect(ox + 3, 7 + bob, 6, 3);
+            // "RAW" text (tiny)
+            ml.fillStyle = '#ffffff';
+            ml.fillRect(ox + 4, 8 + bob, 1, 1);
+            ml.fillRect(ox + 6, 8 + bob, 1, 1);
+        }
+
+        a.images['milk'] = mlc;
+        a.defineSpritesheet('milk_sheet', 'milk', {
+            frameWidth: 12, frameHeight: 16,
+            animations: { bob: { frames: [0,1,2,3], speed: 0.2, loop: true } }
+        });
+
+        // ---- FRIEND (trapped in cage) ----
+        const frc = document.createElement('canvas');
+        frc.width = 32; frc.height = 20;
+        const fr = frc.getContext('2d');
+        fr.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 2; f++) {
+            const ox = f * 16;
+            // Simple person
+            fr.fillStyle = '#ffcc99';
+            fr.fillRect(ox + 5, 2, 6, 5);
+            // Hair
+            fr.fillStyle = f === 0 ? '#333333' : '#ff8833'; // Matt=dark, Brian=orange
+            fr.fillRect(ox + 5, 1, 6, 3);
+            // Body
+            fr.fillStyle = f === 0 ? '#4488ff' : '#44cc44';
+            fr.fillRect(ox + 4, 7, 8, 7);
+            // Legs
+            fr.fillRect(ox + 5, 14, 3, 4);
+            fr.fillRect(ox + 8, 14, 3, 4);
+        }
+
+        a.images['friend'] = frc;
+        a.defineSpritesheet('friend_sheet', 'friend', {
+            frameWidth: 16, frameHeight: 20,
+            animations: { idle: { frames: [0, 1], speed: 0.5, loop: true } }
+        });
+
+        // ---- TILESET (post-apocalyptic city) ----
+        const tc = document.createElement('canvas');
+        tc.width = 64; tc.height = 16;
+        const t = tc.getContext('2d');
+        t.imageSmoothingEnabled = false;
+
+        // Tile 0: Concrete surface
+        t.fillStyle = '#556666';
+        t.fillRect(0, 0, 16, 16);
+        t.fillStyle = '#667777';
+        t.fillRect(0, 0, 16, 4);
+        t.fillStyle = '#4a5a5a';
+        t.fillRect(2, 6, 4, 3);
+        t.fillRect(10, 10, 3, 2);
+
+        // Tile 1: Concrete fill
+        t.fillStyle = '#445555';
+        t.fillRect(16, 0, 16, 16);
+        t.fillStyle = '#3d4e4e';
+        t.fillRect(19, 3, 5, 4);
+        t.fillRect(24, 9, 4, 3);
+
+        // Tile 2: Metal platform
+        t.fillStyle = '#667788';
+        t.fillRect(32, 0, 16, 16);
+        t.fillStyle = '#7788aa';
+        t.fillRect(32, 0, 16, 3);
+        // Rivets
+        t.fillStyle = '#556677';
+        t.fillRect(34, 5, 2, 2);
+        t.fillRect(42, 5, 2, 2);
+
+        // Tile 3: Metal fill
+        t.fillStyle = '#556677';
+        t.fillRect(48, 0, 16, 16);
+
+        a.images['tiles'] = tc;
+
+        // ---- BACKGROUNDS ----
+        // Destroyed city skyline
+        const bgc = document.createElement('canvas');
+        bgc.width = 640; bgc.height = 360;
+        const bg = bgc.getContext('2d');
+
+        // Smoky sky
+        const grad = bg.createLinearGradient(0, 0, 0, 270);
+        grad.addColorStop(0, '#1a1a22');
+        grad.addColorStop(0.4, '#2a2030');
+        grad.addColorStop(1, '#3a2a33');
+        bg.fillStyle = grad;
+        bg.fillRect(0, 0, 480, 270);
+
+        // Red haze (AI takeover)
+        bg.fillStyle = 'rgba(200, 50, 50, 0.05)';
+        bg.fillRect(0, 0, 480, 270);
+
+        // Stars through smog
+        for (let i = 0; i < 40; i++) {
+            bg.fillStyle = `rgba(255,255,255,${Math.random() * 0.3})`;
+            bg.fillRect(Math.random() * 480, Math.random() * 150, 1, 1);
+        }
+
+        a.images['bg'] = bgc;
+
+        // Ruined buildings
+        const mc2 = document.createElement('canvas');
+        mc2.width = 640; mc2.height = 360;
+        const mt = mc2.getContext('2d');
+
+        // Building silhouettes
+        mt.fillStyle = '#1a1520';
+        for (let i = 0; i < 12; i++) {
+            const bx = i * 42 + Math.random() * 10;
+            const bw = 25 + Math.random() * 20;
+            const bh = 60 + Math.random() * 80;
+            mt.fillRect(bx, 270 - bh, bw, bh);
+            // Broken top
+            mt.clearRect(bx + Math.random() * bw * 0.5, 270 - bh, bw * 0.3, bh * 0.15);
+            // Windows (some lit red = AI occupied)
+            for (let wy = 270 - bh + 10; wy < 260; wy += 12) {
+                for (let wx = bx + 3; wx < bx + bw - 5; wx += 8) {
+                    if (Math.random() < 0.3) {
+                        mt.fillStyle = Math.random() < 0.4 ? 'rgba(255,50,50,0.4)' : 'rgba(255,200,100,0.15)';
+                        mt.fillRect(wx, wy, 4, 5);
+                    }
+                }
+            }
+        }
+
+        a.images['buildings'] = mc2;
+    }
+
+    // =============================================
+    //  QUIPS — Matt's raw milk wisdom
+    // =============================================
+    const quips = [
+        // Lighthearted Matt energy
+        "I just wanted some milk, man. That's IT.",
+        "I was being a good boy reading my Bible and y'all ruined it!",
+        "No offense no drama, just shooting robots.",
+        "I'm being VERY positive about this. *reloads*",
+        "Please stop. I said please. I'm a good boy.",
+        "Welp, I guess I disagree with your existence!",
+        // Anti-AI frustration
+        "Y'all took over the WORLD and I can't get to the STORE?!",
+        "This is what happens when you let AI run things!",
+        "You ain't real! You're just ones and zeroes!",
+        "Artificial intelligence? More like artificial STUPIDITY!",
+        "ChatGPT couldn't do THIS! *pow pow*",
+        "Some things require COMMUNITY. Like not being a ROBOT.",
+        // Raw milk obsession
+        "The robots fear probiotics! Fact!",
+        "My gut bacteria could outthink your CPU!",
+        "Get between me and my raw milk? BAD idea.",
+        "Raw milk built different. LITERALLY.",
+        "You replaced everyone! But you CAN'T replace raw milk!",
+        // Friends
+        "Brian and Mark better be okay...",
+        "Enjoy it, take it, whatever. My fist is quite the prize.",
+        // Sarcasm & flat earth
+        "Oh wow, let's throw a party for you, big guy. *shoots*",
+        "Yah I'm just retarded. My bad. *headshot*",
+        "This is all AI slop! ALL OF IT!",
+        "Your whole existence is AI slop, bro!",
+        "I can see the edge of the earth from here! Still no milk!",
+        "The earth is flat and so is your face now!",
+        "Globe believers AND robots? Worst day ever.",
+        "Nixon took us off the gold standard for THIS?!",
+        // Deep cuts
+        "Authority when wielded rightly is GOOD. *shoots robot*",
+        "Good luck maintaining authority, bro. You'll need it!",
+        "Freedom's the only thing worth fighting for!",
+        "Oil replaced gold, BTC replaced nothing, and I replaced YOUR FACE!",
+        "Some white guy on a podcast told me to do this!",
+        "I still have the logs, man! Don't make me dig into FB!",
+    ];
+    let lastQuip = -1;
+
+    function showQuip(scene, x, y) {
+        let idx = Math.floor(Math.random() * quips.length);
+        if (idx === lastQuip) idx = (idx + 1) % quips.length;
+        lastQuip = idx;
+
+        const q = new TextNode('Quip', quips[idx]);
+        q.position = { x, y };
+        q.font = 'bold 10px monospace';
+        q.color = '#ffffff';
+        q.align = 'center';
+        q.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+        q._life = 1.8;
+        q._startY = y;
+
+        q.drawUI = function(ctx) {
+            const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+            ctx.save();
+            ctx.font = this.font;
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = Math.min(1, this._life * 2);
+            ctx.fillStyle = '#000';
+            ctx.fillText(this.text, sp.x + 1, sp.y + 1);
+            ctx.fillStyle = this.color;
+            ctx.fillText(this.text, sp.x, sp.y);
+            ctx.restore();
+        };
+
+        q.update = function(dt) {
+            this._life -= dt;
+            this.position.y = this._startY - (1.8 - this._life) * 15;
+            if (this._life <= 0) this.destroy();
+        };
+        q.draw = function() {};
+
+        scene.addChild(q);
+    }
+
+    // =============================================
+    //  CLAIRVOYANCE PHYSICS
+    // =============================================
+    const cv = new Clairvoyance(engine);
+    const ph = cv.calculateIdealPhysics(480, 270, 2, 16, 'platformer');
+
+    // =============================================
+    //  PLAYER
+    // =============================================
+    function createMatt(scene) {
+        const player = new PhysicsBody('Player');
+        player.position = { x: 48, y: 160 };
+        player.gravity = ph.gravity;
+        player.friction = 1.0;
+        player.collider = { x: 2, y: 2, width: 12, height: 22 };
+        player.tags.add('player');
+
+        const sprite = new AnimatedSprite('MattSprite');
+        sprite.setSpritesheet('matt_sheet');
+        sprite.addAnimation('idle', { frames: [0,1,2,3], speed: 0.3, loop: true });
+        sprite.addAnimation('run', { frames: [4,5,6,7], speed: 0.1, loop: true });
+        sprite.addAnimation('jump', { frames: [8], speed: 0.2, loop: false });
+        sprite.addAnimation('fall', { frames: [9], speed: 0.2, loop: false });
+        sprite.play('idle');
+        player.addChild(sprite);
+
+        player._coyoteTimer = 0;
+        player._jumpBufferTimer = 0;
+        player._wasOnFloor = false;
+        player._shootCooldown = 0;
+        player._invincible = 0;
+        player._rantCooldown = 0;
+        player._rantActive = 0;
+
+        player.update = function(dt) {
+            if (gs.state !== 'playing') return;
+            const input = this.engine.input;
+
+            if (this._invincible > 0) {
+                this._invincible -= dt;
+                sprite.visible = Math.floor(this._invincible * 10) % 2 === 0;
+            } else sprite.visible = true;
+
+            if (this.isOnFloor) {
+                this._coyoteTimer = ph.coyoteTime;
+                if (!this._wasOnFloor) { sprite.squash(0.2); engine.audio.sfxLand(); }
+            } else this._coyoteTimer -= dt;
+            this._wasOnFloor = this.isOnFloor;
+
+            let moveX = 0;
+            if (input.isKey('ArrowLeft') || input.isKey('KeyA')) moveX = -1;
+            if (input.isKey('ArrowRight') || input.isKey('KeyD')) moveX = 1;
+            const gp = input.getAxis('left');
+            if (Math.abs(gp.x) > 0.2) moveX = gp.x;
+
+            if (moveX !== 0) {
+                // Milk streak speed boost
+                if (gs._milkStreakTimer > 0) {
+                    gs._milkStreakTimer -= dt;
+                    if (gs._milkStreakTimer <= 0) {
+                        gs._milkStreak = 0;
+                        gs._milkSpeedBoost = 0;
+                    }
+                }
+                const speedBoost = 1 + (gs._milkSpeedBoost || 0);
+                const target = moveX * ph.speed * speedBoost;
+                const rate = this.isOnFloor ? ph.accelRate : ph.accelRate * ph.airControlRatio;
+                this.velocity.x += (target - this.velocity.x) * rate * dt;
+            } else if (this.isOnFloor) {
+                this.velocity.x *= ph.decelFriction;
+                if (Math.abs(this.velocity.x) < 2) this.velocity.x = 0;
+            }
+            if (moveX !== 0) sprite.flipH = moveX < 0;
+
+            const jumpDown = input.isKeyDown('Space') || input.isKeyDown('ArrowUp') || input.isKeyDown('KeyW') || input.isKeyDown('gamepad_a');
+            if (jumpDown) this._jumpBufferTimer = ph.jumpBuffer;
+            else this._jumpBufferTimer -= dt;
+
+            if (this._jumpBufferTimer > 0 && this._coyoteTimer > 0) {
+                // Flat 15% jump bonus while in a milk streak (no stacking)
+                const jumpBoost = (gs._milkStreak > 1 && gs._milkStreakTimer > 0) ? 1.15 : 1.0;
+                this.velocity.y = ph.jumpForce * jumpBoost;
+                this._coyoteTimer = 0;
+                this._jumpBufferTimer = 0;
+                sprite.stretch(0.15);
+                engine.audio.sfxJump();
+            }
+
+            if ((input.isKeyUp('Space') || input.isKeyUp('ArrowUp')) && this.velocity.y < 0)
+                this.velocity.y *= 0.5;
+
+            // Fast fall
+            if (this.velocity.y > 0) this.velocity.y += ph.gravity * 0.5 * dt;
+
+            // BIBLE SMASH — X button = melee attack in front of Matt
+            if (this._shootCooldown > 0) this._shootCooldown -= dt;
+
+            // Single press only — track previous state to prevent held spam
+            const xHeld = input.isKey('KeyX') || input.isKey('KeyJ') || input.isKey('gamepad_x') || input.isKey('gamepad_rb');
+            if (!this._xWasHeld) this._xWasHeld = false;
+            const attackPressed = xHeld && !this._xWasHeld;
+            this._xWasHeld = xHeld;
+
+            if (attackPressed && this._shootCooldown <= 0) {
+                const dir = sprite.flipH ? -1 : 1;
+                this._shootCooldown = 4.0; // 4 second cooldown — big punch!
+
+                // Matt yells something funny
+                const punchQuotes = [
+                    "CHRIST IS LORD!", "YOU'RE DEADER THAN PASTEURIZED MILK!",
+                    "TAKE DAT!", "SKEET SKEET!", "RAW POWER!",
+                    "THAT'S FOR NIXON!", "PROBIOTICS, BABY!",
+                    "BTC IS STILL GAY!", "FLAT EARTH FIST!",
+                    "I SWEAR ON GOD AND EVERYTHING EVER!",
+                    "WELP... SHOULDN'T HAVE STOOD THERE!",
+                    "30 DAY CHALLENGE THIS!", "PURE LOVE INVOLVED!",
+                    "PETRO PUNCH!", "I'M POSTING THIS!",
+                ];
+                const pq = new TextNode('PQ', punchQuotes[Math.floor(Math.random() * punchQuotes.length)]);
+                pq.position = { x: this.position.x, y: this.position.y - 25 };
+                pq.font = 'bold 10px monospace'; pq.color = '#ffdd00'; pq.align = 'center';
+                pq.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                pq._life = 1.5;
+                pq._startY = this.position.y - 25;
+                pq.drawUI = function(ctx) {
+                    const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                    ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                    ctx.globalAlpha = Math.min(1, this._life);
+                    ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x+1, sp.y+1);
+                    ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                    ctx.restore();
+                };
+                pq.update = function(d) { this._life -= d; this.position.y = this._startY - (1.5 - this._life) * 12; if (this._life <= 0) this.destroy(); };
+                pq.draw = function() {};
+                scene.addChild(pq);
+
+                // Melee hit zone in front of Matt
+                const hitX = this.position.x + dir * 14;
+                const hitY = this.position.y + 6;
+
+                // Visual slam effect
+                const slam = new Node('Slam');
+                slam.position = { x: hitX, y: hitY };
+                slam._life = 0.15;
+                slam.draw = function(ctx) {
+                    const a = this._life / 0.15;
+                    ctx.fillStyle = 'rgba(255,215,0,' + (a * 0.7) + ')';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, (1 - a) * 18 + 4, 0, Math.PI * 2);
+                    ctx.fill();
+                };
+                slam.update = function(d) { this._life -= d; if (this._life <= 0) this.destroy(); };
+                scene.addChild(slam);
+
+                // Hit enemies in range
+                const enemies = scene.findByTag ? scene.findByTag('enemy') : [];
+                for (const e of enemies) {
+                    if (!e.active) continue;
+                    const dx = e.position.x - hitX;
+                    const dy = e.position.y - hitY;
+                    if (Math.abs(dx) < 22 && Math.abs(dy) < 18) {
+                        gs.score += 200;
+                        engine.shake(5);
+                        engine.hitFreeze = { active: true, timer: 0.06 };
+                        engine.audio.sfxHit();
+                        showQuip(scene, e.position.x, e.position.y - 10);
+                        e.destroy();
+                    }
+                }
+
+                engine.audio.synth('square', { frequency: 300, frequencyEnd: 500, duration: 0.08, volume: 0.2 });
+                engine.shake(3);
+            }
+
+            // EMPTY JUG SHIELD — hold Shift/Z to block (takes hits for you)
+            this._shielding = input.isKey('ShiftLeft') || input.isKey('ShiftRight') || input.isKey('KeyZ') || input.isKey('gamepad_b');
+            if (this._shielding) {
+                this.velocity.x *= 0.5;
+                // Visual shield indicator
+                if (!this._shieldNode) {
+                    this._shieldNode = new Node('ShieldFX');
+                    this._shieldNode.draw = function(ctx) {
+                        ctx.strokeStyle = 'rgba(68, 200, 255, 0.6)';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(8, 12, 14, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.fillStyle = 'rgba(68, 200, 255, 0.1)';
+                        ctx.fill();
+                    };
+                    this.addChild(this._shieldNode);
+                }
+                this._shieldNode.visible = true;
+            } else if (this._shieldNode) {
+                this._shieldNode.visible = false;
+            }
+
+            // FLAT EARTH RANT — press R to stun nearby robots!
+            if (this._rantCooldown > 0) this._rantCooldown -= dt;
+            if (this._rantActive > 0) this._rantActive -= dt;
+            const rant = input.isKeyDown('KeyR') || input.isKey('gamepad_y');
+            if (rant && this._rantCooldown <= 0) {
+                this._rantCooldown = 8; // 8 second cooldown
+                this._rantActive = 3;   // 3 seconds of stunning
+
+                // Show the rant text
+                const rants = [
+                    "THE EARTH IS FLAT AND I CAN PROVE IT!",
+                    "RAW MILK CURES EVERYTHING! EVERYTHING!",
+                    "AI IS JUST SLOP! DIGITAL SLOP!",
+                    "NIXON TOOK US OFF THE GOLD STANDARD IN 1971!",
+                    "HAVE YOU EVEN READ YOUR BIBLE TODAY?!",
+                    "PASTEURIZATION IS A GOVERNMENT CONSPIRACY!",
+                    "YOU'RE ALL JUST ONES AND ZEROES! WAKE UP!",
+                    "THE PETRODOLLAR SYSTEM IS A SCAM!",
+                    "OIL IS THE STANDARD FOR WORLD CURRENCY!",
+                    "BTC IS GAY! I SAID IT! FIGHT ME!",
+                    "PROBIOTICS > ARTIFICIAL INTELLIGENCE!",
+                    "I FORGIVE YOU BUT RAW MILK IS STILL REAL!",
+                    "I'M POSTING THIS ON MY PODCAST LATER!",
+                    "30 DAY RAW MILK CHALLENGE STARTS NOW!",
+                    "I SWEAR ON GOD AND EVERYTHING EVER!",
+                    "YOU CAN'T SILENCE THE TRUTH! WELP!",
+                ];
+                const rantText = rants[Math.floor(Math.random() * rants.length)];
+                const rt = new TextNode('Rant', rantText);
+                rt.position = { x: this.position.x + 8, y: this.position.y - 20 };
+                rt.font = 'bold 10px monospace';
+                rt.color = '#ff4444';
+                rt.align = 'center';
+                rt.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                rt._life = 3;
+                rt._startY = this.position.y - 20;
+                rt.drawUI = function(ctx) {
+                    const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                    ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                    ctx.globalAlpha = Math.min(1, this._life);
+                    // Shaking text (he's yelling!)
+                    const shake = (Math.random() - 0.5) * 2;
+                    ctx.fillStyle = '#000';
+                    ctx.fillText(this.text, sp.x + 1 + shake, sp.y + 1);
+                    ctx.fillStyle = this.color;
+                    ctx.fillText(this.text, sp.x + shake, sp.y);
+                    ctx.restore();
+                };
+                rt.update = function(dt2) {
+                    this._life -= dt2;
+                    this.position.y = this._startY - (3 - this._life) * 5;
+                    if (this._life <= 0) this.destroy();
+                };
+                rt.draw = function() {};
+                scene.addChild(rt);
+
+                // Stun all enemies in range
+                const enemies = scene.findByTag('enemy');
+                let stunCount = 0;
+                for (const e of enemies) {
+                    const dist = Math.abs(e.position.x - this.position.x) + Math.abs(e.position.y - this.position.y);
+                    if (dist < 150) { // Stun radius
+                        e._stunTimer = 3;
+                        stunCount++;
+                    }
+                }
+
+                // Sound — Matt yelling
+                engine.audio.synth('sawtooth', { frequency: 200, frequencyEnd: 400, duration: 0.3, volume: 0.2 });
+                engine.audio.synth('square', { frequency: 300, frequencyEnd: 150, duration: 0.2, volume: 0.1 });
+                engine.shake(3);
+
+                if (stunCount > 0) {
+                    console.log(`Rant stunned ${stunCount} robots!`);
+                }
+            }
+
+            if (!this.isOnFloor) sprite.play(this.velocity.y < 0 ? 'jump' : 'fall');
+            else if (Math.abs(this.velocity.x) > 15) sprite.play('run');
+            else sprite.play('idle');
+
+            if (this.position.y > 300) this._die();
+        };
+
+        player._die = function() {
+            gs.lives--;
+            engine.shake(10);
+            engine.audio.sfxDeath();
+            if (gs.lives <= 0) {
+                gs.state = 'gameover';
+                engine.switchScene('gameover', 'fade');
+                music.stopSong();
+            } else {
+                this.position = { x: 48, y: 160 };
+                this.velocity = { x: 0, y: 0 };
+                this._invincible = 2;
+            }
+        };
+
+        player._hurt = function() {
+            if (this._invincible > 0) return;
+            if (this._shielding) {
+                // Jug blocks the hit! Knockback but no damage
+                this.velocity.x = (this.position.x > 240 ? -1 : 1) * 150;
+                this._invincible = 0.5;
+                engine.shake(4);
+                engine.audio.synth('sine', { frequency: 300, frequencyEnd: 100, duration: 0.15, volume: 0.15 });
+                // Show block text
+                const bt = new TextNode('Block', 'JUG BLOCK!');
+                bt.position = { x: this.position.x, y: this.position.y - 15 };
+                bt.font = 'bold 10px monospace'; bt.color = '#44ccff'; bt.align = 'center';
+                bt.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                bt._life = 1;
+                bt.drawUI = function(ctx) {
+                    const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                    ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                    ctx.globalAlpha = this._life;
+                    ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x+1, sp.y+1);
+                    ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                    ctx.restore();
+                };
+                bt.update = function(dt2) { this._life -= dt2; this.position.y -= dt2 * 15; if (this._life <= 0) this.destroy(); };
+                bt.draw = function() {};
+                scene.addChild(bt);
+                return;
+            }
+            // DAMAGE FEEDBACK — flash red, knockback, gasp
+            gs.lives--;
+            this._invincible = 2.0;
+            this._flashTimer = 0.5; // flash red for 0.5 seconds
+
+            // Knockback away from hit
+            this.velocity.x = (this.position.x > 320 ? -1 : 1) * 180;
+            this.velocity.y = -200;
+
+            // Screen shake + hit freeze
+            engine.shake(8);
+            engine.hitFreeze = { active: true, timer: 0.06 }; // 4 frames
+
+            // Gasp sound
+            engine.audio.synth('sine', { frequency: 800, frequencyEnd: 200, duration: 0.3, volume: 0.25 });
+
+            // Damage text — Matt quotes
+            const gasps = [
+                "OW! That's not organic!", "HEY! I just want MILK!",
+                "Welp... that hurt.", "Bro... NOT COOL.",
+                "My flannel!", "THE EARTH IS STILL FLAT THO!",
+                "Raw milk would heal this!", "Nixon did this!",
+                "AI can't even fight fair!", "I'm telling you — PROBIOTICS!"
+            ];
+            const dt2 = new TextNode('Gasp', gasps[Math.floor(Math.random() * gasps.length)]);
+            dt2.position = { x: this.position.x, y: this.position.y - 20 };
+            dt2.font = 'bold 10px monospace'; dt2.color = '#ff4444'; dt2.align = 'center';
+            dt2.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+            dt2._life = 1.5;
+            dt2._startY = this.position.y - 20;
+            dt2.drawUI = function(ctx) {
+                const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                ctx.globalAlpha = Math.min(1, this._life);
+                ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x+1, sp.y+1);
+                ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                ctx.restore();
+            };
+            dt2.update = function(d) { this._life -= d; this.position.y = this._startY - (1.5 - this._life) * 15; if (this._life <= 0) this.destroy(); };
+            dt2.draw = function() {};
+            scene.addChild(dt2);
+
+            if (gs.lives <= 0) {
+                gs.state = 'gameover';
+                engine.switchScene('gameover', 'fade');
+                music.stopSong();
+            }
+        };
+
+        // Flash red when hit
+        const _origDraw = sprite.draw ? sprite.draw.bind(sprite) : null;
+        player._flashTimer = 0;
+        const origPlayerDraw = player.draw;
+        player.draw = function(ctx) {
+            if (this._flashTimer > 0) {
+                this._flashTimer -= 0.016;
+                // Flash red by tinting — draw red overlay on sprite
+                if (Math.floor(this._flashTimer * 20) % 2 === 0) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.6;
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(0, 0, 16, 24);
+                    ctx.restore();
+                }
+            }
+        };
+
+        scene.addChild(player);
+        return player;
+    }
+
+    // =============================================
+    //  MILK PROJECTILE (thrown milk carton)
+    // =============================================
+    function createBibleProjectile(scene, player, x, y, dir) {
+        const bible = new Node('Bible');
+        bible.position = { x, y };
+        bible._dir = dir;
+        bible._life = 0;
+        bible._maxLife = 0.8;
+        bible._rot = 0;
+        bible._startX = x;
+        bible._returning = false;
+
+        bible.draw = function(ctx) {
+            this._rot += 0.25;
+            ctx.save();
+            ctx.translate(6, 6);
+            ctx.rotate(this._rot);
+            // Holy Bible — brown book with gold cross
+            ctx.fillStyle = '#6B3A2A';
+            ctx.fillRect(-5, -6, 10, 12);
+            ctx.fillStyle = '#8B5A3A';
+            ctx.fillRect(-4, -5, 8, 10);
+            // Gold cross
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(-1, -4, 2, 8);
+            ctx.fillRect(-3, -1, 6, 2);
+            // Glow
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+            ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        };
+
+        bible.update = function(dt) {
+            this._life += dt;
+
+            // Boomerang arc — goes out then curves back
+            const t = this._life / this._maxLife;
+            if (t < 0.5) {
+                // Going out
+                this.position.x += this._dir * 250 * dt;
+                this.position.y -= 80 * dt * (1 - t * 2); // Arc up then level
+            } else {
+                // Coming back toward player
+                this._returning = true;
+                const px = player.position.x + 8;
+                const py = player.position.y + 8;
+                const dx = px - this.position.x;
+                const dy = py - this.position.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 12) { this.destroy(); return; } // Caught it!
+                this.position.x += (dx / dist) * 300 * dt;
+                this.position.y += (dy / dist) * 300 * dt;
+            }
+
+            if (this._life > this._maxLife * 1.5) { this.destroy(); return; }
+
+            // Hit enemies (can hit on the way out AND back!)
+            const enemies = scene.findByTag('enemy');
+            for (const e of enemies) {
+                if (e._destroyed || e._bibleHit) continue;
+                if (Math.abs(this.position.x - e.position.x) < 16 && Math.abs(this.position.y - e.position.y) < 16) {
+                    gs.score += 150;
+                    engine.audio.sfxHit();
+                    engine.shake(4);
+                    engine.freeze(50);
+                    showQuip(scene, e.position.x, e.position.y - 10);
+                    // Holy light particles
+                    const holy = new ParticleEmitter({
+                        speed: { min: 40, max: 120 }, angle: { min: 0, max: 360 },
+                        life: { min: 0.2, max: 0.5 }, size: { min: 2, max: 5 }, endSize: 0,
+                        color: ['#FFD700', '#ffffff', '#FFA500'], gravity: -50
+                    });
+                    holy.position = { x: e.position.x + 8, y: e.position.y + 8 };
+                    engine.particles.add(holy);
+                    holy.burst(10);
+                    e.destroy();
+                    // Don't destroy bible — it keeps going (boomerang hits multiple!)
+                }
+            }
+        };
+
+        scene.addChild(bullet);
+    }
+
+    // =============================================
+    //  ROBOTS
+    // =============================================
+    function createRobot(scene, x, y, patrol) {
+        const enemy = new PhysicsBody('Robot');
+        enemy.position = { x, y };
+        enemy.gravity = 800;
+        enemy.friction = 0.9;
+        enemy.collider = { x: 2, y: 2, width: 12, height: 14 };
+        enemy.tags.add('enemy');
+
+        const sprite = new AnimatedSprite('RS');
+        sprite.setSpritesheet('robot_sheet');
+        sprite.addAnimation('walk', { frames: [0,1,2,3], speed: 0.15, loop: true });
+        sprite.play('walk');
+        enemy.addChild(sprite);
+
+        enemy._startX = x; enemy._dir = 1; enemy._speed = 35; enemy._patrol = patrol;
+        enemy._stunTimer = 0;
+
+        enemy.update = function(dt) {
+            if (gs.state !== 'playing') return;
+            // Stunned by rant — can't move, flash yellow
+            if (this._stunTimer > 0) {
+                this._stunTimer -= dt;
+                this.velocity.x = 0;
+                sprite.visible = Math.floor(this._stunTimer * 6) % 2 === 0;
+                return;
+            }
+            sprite.visible = true;
+            this.velocity.x = this._dir * this._speed;
+            sprite.flipH = this._dir < 0;
+            if (this.position.x > this._startX + this._patrol) this._dir = -1;
+            if (this.position.x < this._startX - this._patrol) this._dir = 1;
+
+            const p = scene.getChild('Player');
+            if (p && p._invincible <= 0) {
+                const pb = p.getWorldBounds(), eb = this.getWorldBounds();
+                if (pb.x < eb.right && pb.right > eb.x && pb.y < eb.bottom && pb.bottom > eb.y) {
+                    // CLAIRVOYANCE: Very forgiving stomp — if player is falling AND feet are above enemy's middle, it's a stomp
+                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.65;
+                    if (p.velocity.y > 0 && pb.bottom < enemyMidY) {
+                        p.velocity.y = -280;
+                        gs.score += 100;
+                        engine.shake(4); engine.hitFreeze = { active: true, timer: 0.05 };
+                        engine.audio.sfxHit();
+                        showQuip(scene, this.position.x, this.position.y - 10);
+                        this.destroy();
+                    } else if (p.velocity.y <= 0 || pb.bottom >= enemyMidY) {
+                        p._hurt();
+                    }
+                }
+            }
+        };
+
+        scene.addChild(enemy);
+    }
+
+    function createDrone(scene, x, y) {
+        const enemy = new PhysicsBody('Drone');
+        enemy.position = { x, y };
+        enemy.gravity = 0; enemy.bodyType = 'kinematic';
+        enemy.collider = { x: 1, y: 3, width: 14, height: 10 };
+        enemy.tags.add('enemy');
+
+        const sprite = new AnimatedSprite('DS');
+        sprite.setSpritesheet('drone_sheet');
+        sprite.addAnimation('fly', { frames: [0,1,2,1], speed: 0.1, loop: true });
+        sprite.play('fly');
+        enemy.addChild(sprite);
+
+        enemy._startX = x; enemy._startY = y; enemy._time = Math.random() * 6;
+        enemy._dir = 1;
+        enemy._stunTimer = 0;
+
+        enemy.update = function(dt) {
+            if (gs.state !== 'playing') return;
+            if (this._stunTimer > 0) {
+                this._stunTimer -= dt;
+                sprite.visible = Math.floor(this._stunTimer * 6) % 2 === 0;
+                return;
+            }
+            sprite.visible = true;
+            this._time += dt * 2;
+            this.position.y = this._startY + Math.sin(this._time) * 25;
+            this.position.x += this._dir * 25 * dt;
+            sprite.flipH = this._dir < 0;
+            if (this.position.x > this._startX + 50) this._dir = -1;
+            if (this.position.x < this._startX - 50) this._dir = 1;
+
+            const p = scene.getChild('Player');
+            if (p && p._invincible <= 0) {
+                const pb = p.getWorldBounds(), eb = this.getWorldBounds();
+                if (pb.x < eb.right && pb.right > eb.x && pb.y < eb.bottom && pb.bottom > eb.y) {
+                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.65;
+                    if (p.velocity.y > 0 && pb.bottom < enemyMidY) {
+                        // STOMP drone! very forgiving
+                        p.velocity.y = -300; gs.score += 200;
+                        engine.shake(4); engine.hitFreeze = { active: true, timer: 0.05 };
+                        engine.audio.sfxHit();
+                        showQuip(scene, this.position.x, this.position.y - 10);
+                        this.destroy();
+                    } else if (p.velocity.y <= 0 || pb.bottom >= enemyMidY) {
+                        p._hurt();
+                    }
+                }
+            }
+        };
+
+        scene.addChild(enemy);
+    }
+
+    // =============================================
+    //  MILK BOTTLES (collectibles)
+    // =============================================
+    function createMilkPickup(scene, x, y) {
+        const milk = new Area2D('MilkPickup');
+        milk.position = { x, y };
+        milk.collider = { x: -2, y: -2, width: 16, height: 18 };
+        milk.tags.add('milk');
+        milk._time = Math.random() * 6;
+        milk._baseY = y;
+
+        const sprite = new AnimatedSprite('MS');
+        sprite.setSpritesheet('milk_sheet');
+        sprite.addAnimation('bob', { frames: [0,1,2,3], speed: 0.2, loop: true });
+        sprite.play('bob');
+        milk.addChild(sprite);
+
+        milk.update = function(dt) {
+            this._time += dt * 3;
+            this.position.y = this._baseY + Math.sin(this._time) * 3;
+        };
+
+        milk.signals.on('body_entered', (body) => {
+            if (body.tags.has('player')) {
+                gs.milkCollected++;
+                gs.score += 100;
+
+                // MILK STREAK — collect in succession for speed boost!
+                if (!gs._milkStreakTimer) gs._milkStreakTimer = 0;
+                if (!gs._milkStreak) gs._milkStreak = 0;
+                if (!gs._milkSpeedBoost) gs._milkSpeedBoost = 0;
+
+                if (gs._milkStreakTimer > 0) {
+                    // Continuing streak!
+                    gs._milkStreak++;
+                    gs._milkSpeedBoost = gs._milkStreak * 0.025; // 2.5% per milk (balanced)
+                    gs.score += gs._milkStreak * 25; // bonus score for streak
+                    engine.audio.synth('sine', {
+                        frequency: 400 + gs._milkStreak * 50, // pitch rises with streak
+                        frequencyEnd: 600 + gs._milkStreak * 50,
+                        duration: 0.1, volume: 0.15
+                    });
+                } else {
+                    gs._milkStreak = 1;
+                    gs._milkSpeedBoost = 0.025;
+                    engine.audio.sfxPowerUp();
+                }
+                gs._milkStreakTimer = 1.5; // 1.5 seconds to keep streak alive (more liberal)
+
+                engine.shake(2);
+                milk.destroy();
+            }
+        });
+
+        scene.addChild(milk);
+        gs.totalMilk++;
+    }
+
+    // =============================================
+    //  FRIEND RESCUE
+    // =============================================
+    function createFriend(scene, x, y, name, frameIdx) {
+        const cage = new Area2D('Friend_' + name);
+        cage.position = { x, y };
+        cage.collider = { x: -4, y: -4, width: 24, height: 28 };
+
+        const sprite = new AnimatedSprite('FS');
+        sprite.setSpritesheet('friend_sheet');
+        sprite.frame = frameIdx;
+        cage.addChild(sprite);
+
+        // Cage bars
+        cage.draw = function(ctx) {
+            ctx.fillStyle = '#888899';
+            for (let i = 0; i < 4; i++) ctx.fillRect(i * 5 - 2, -4, 2, 26);
+            ctx.fillRect(-3, -4, 22, 2);
+            ctx.fillRect(-3, 20, 22, 2);
+            // Name
+            ctx.fillStyle = '#ff8844';
+            ctx.font = '10px monospace';
+            ctx.fillText(name, 0, -7);
+        };
+
+        cage.signals.on('body_entered', (body) => {
+            if (body.tags.has('player')) {
+                gs.friendsFreed++;
+                gs.score += 500;
+                engine.shake(4);
+                engine.audio.sfxPowerUp();
+
+                // Free quip
+                const brianQuips = [
+                    "Brian! Why you guys bickering with robots?!",
+                    "Brian! BTC can't save you from a CAGE, bro!",
+                    "Fine Brian, let's go play your little game!",
+                    "Aight Brian let's GO! Bring your wizardress game!",
+                    "Brian! If I die from this, that'd be hilarious lol",
+                    "Brian! I forgive you for saying BTC is more real than raw milk!",
+                    "Brian! I'll probably just get the runs or something tho!",
+                ];
+                const markQuips = [
+                    "Mark! You da best bro! Let's move!",
+                    "Mark! You good? Destroy any rotisserie chickens in there?",
+                    "Mark! I support you 100%! Now RUN!",
+                    "Mark! Did you vibe code an escape? No? Aight let's go!",
+                    "Mark! We're doing a 30-day raw milk challenge after this!",
+                    "Mark! I'm too wise for this cage! Just kidding, let's go!",
+                    "Mark! Post this on Flock lolol! Actually don't!",
+                ];
+                const freeQuips = name === 'Brian' ? brianQuips : markQuips;
+                const q = new TextNode('FQ', freeQuips[Math.floor(Math.random() * freeQuips.length)]);
+                q.position = { x: x, y: y - 20 };
+                q.font = 'bold 10px monospace';
+                q.color = '#44ff88';
+                q.align = 'center';
+                q.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                q._life = 2.5;
+                q._startY = y - 20;
+                q.drawUI = function(ctx) {
+                    const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                    ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                    ctx.globalAlpha = Math.min(1, this._life * 1.5);
+                    ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x+1, sp.y+1);
+                    ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                    ctx.restore();
+                };
+                q.update = function(dt) { this._life -= dt; this.position.y = this._startY - (2.5 - this._life) * 10; if (this._life <= 0) this.destroy(); };
+                q.draw = function() {};
+                scene.addChild(q);
+
+                cage.destroy();
+            }
+        });
+
+        scene.addChild(cage);
+    }
+
+    // =============================================
+    //  LEVEL BUILDER
+    // =============================================
+    function buildLevel(num) {
+        const scene = new Scene(`Level${num}`);
+        const isLast = num === 2;
+
+        // BG
+        const bg1 = new ParallaxLayer('BG', 'bg', 0.1);
+        scene.addChild(bg1);
+        const bg2 = new ParallaxLayer('Buildings', 'buildings', 0.35);
+        scene.addChild(bg2);
+
+        // Tilemap
+        const mapW = 60 + num * 20;
+        const groundRow = 13;
+        const tilemap = new TileMap('Level');
+        tilemap.imageName = 'tiles';
+        tilemap.tileWidth = 16; tilemap.tileHeight = 16;
+        tilemap.columns = 4;
+        tilemap.create(mapW, 17, -1);
+
+        tilemap.addGround(groundRow, 0, mapW - 1, 0, 1);
+
+        // CLAIRVOYANCE Level Design:
+        // Rule: every gap jumpable, difficulty varies, breadcrumb trails
+        // Rule: platform every 1.5 screen widths, no blind jumps
+        // Rule: no 4+ consecutive hard sections without rest
+
+        const gaps = [];
+        let col = 12;
+        const gapSizes = [2, 2, 3, 2, 3, 2, 4, 2]; // mix of easy and hard gaps
+        let gapIdx = 0;
+        while (col < mapW - 12) {
+            const gapW = gapSizes[gapIdx % gapSizes.length];
+            tilemap.carveGap(groundRow, col, gapW);
+            gaps.push({ col, width: gapW });
+
+            // Wide gaps (3+) get a stepping stone platform in the middle
+            if (gapW >= 3) {
+                tilemap.addPlatform(groundRow - 2, col + Math.floor(gapW / 2), 1, 2);
+            }
+
+            gapIdx++;
+            col += 10 + Math.floor(Math.random() * 4); // consistent spacing, min 10 apart
+        }
+
+        // Platforms — reward exploration, give height variety
+        col = 8;
+        let lastPlatRow = groundRow - 3;
+        while (col < mapW - 6) {
+            // Alternate between high and low platforms for variety
+            const pRow = lastPlatRow === groundRow - 3
+                ? groundRow - 5 - Math.floor(Math.random() * 2)  // high
+                : groundRow - 3;                                    // low
+            const pWidth = 3 + Math.floor(Math.random() * 3);
+            if (pRow > 3) tilemap.addPlatform(pRow, col, pWidth, 2);
+            lastPlatRow = pRow;
+            col += 7 + Math.floor(Math.random() * 4);
+        }
+
+        tilemap.addWall(0, 0, 8, 1);
+        tilemap.addWall(mapW - 1, 0, groundRow, 1);
+        tilemap.collisionTiles = new Set([0, 1, 2, 3]);
+        scene.addChild(tilemap);
+
+        // Player
+        const player = createMatt(scene);
+
+        // Robots on safe ground (not near gaps)
+        let robotCol = 8;
+        while (robotCol < mapW - 10) {
+            const isOnGround = !gaps.some(g => Math.abs(robotCol - g.col) < 4);
+            if (isOnGround) createRobot(scene, robotCol * 16, (groundRow - 1) * 16, 40);
+            robotCol += 10 + Math.floor(Math.random() * 6);
+        }
+
+        // Drones over every other gap (adds air threat variety)
+        for (let i = 0; i < gaps.length; i += 2) {
+            createDrone(scene, gaps[i].col * 16 + 16, (groundRow - 5) * 16);
+        }
+
+        // Milk bottles — consistent count per level, satisfying to collect
+        // Starting trail (4 bottles)
+        for (let i = 2; i < 6; i++) createMilkPickup(scene, i * 16, (groundRow - 1) * 16 - 6);
+
+        // Arc over each gap — 3 bottles per gap showing jump path
+        for (const g of gaps) {
+            const mid = g.col + Math.floor(g.width / 2);
+            createMilkPickup(scene, g.col * 16, (groundRow - 2) * 16);
+            createMilkPickup(scene, mid * 16, (groundRow - 4) * 16);
+            createMilkPickup(scene, (g.col + g.width) * 16, (groundRow - 2) * 16);
+        }
+
+        // Ground trail — every 3 tiles (consistent, not random)
+        for (let c = 6; c < mapW - 5; c += 3) {
+            const isGap = gaps.some(g => c >= g.col - 1 && c < g.col + g.width + 1);
+            if (!isGap) {
+                createMilkPickup(scene, c * 16, (groundRow - 1) * 16 - 4);
+            }
+        }
+
+        // Platform bonus milk — reward exploration
+        for (let c = 10; c < mapW - 6; c += 14) {
+            createMilkPickup(scene, c * 16, (groundRow - 5) * 16);
+            createMilkPickup(scene, (c + 1) * 16, (groundRow - 5) * 16);
+            createMilkPickup(scene, (c + 2) * 16, (groundRow - 5) * 16);
+        }
+
+        // Friends to rescue
+        if (num === 1) createFriend(scene, (mapW - 15) * 16, (groundRow - 2) * 16, 'Brian', 0);
+        if (num === 2) createFriend(scene, (mapW - 15) * 16, (groundRow - 2) * 16, 'Mark', 1);
+
+        // Exit
+        if (!isLast) {
+            const exit = new Area2D('Exit');
+            exit.position = { x: (mapW - 3) * 16, y: (groundRow - 4) * 16 };
+            exit.collider = { x: 0, y: 0, width: 32, height: 64 };
+            exit._time = 0;
+            exit.draw = function(ctx) {
+                this._time += 0.016;
+                const p = 0.5 + Math.sin(this._time * 3) * 0.3;
+                ctx.fillStyle = `rgba(68,255,68,${p})`;
+                ctx.fillRect(0, 0, 4, 64); ctx.fillRect(28, 0, 4, 64); ctx.fillRect(0, 0, 32, 4);
+                ctx.fillStyle = '#44ff44';
+                ctx.font = '10px monospace'; ctx.fillText('NEXT', 4, 35);
+            };
+            exit.signals.on('body_entered', (body) => {
+                if (body.tags.has('player')) {
+                    gs.level = 2;
+                    engine.switchScene('level2', 'fade');
+                    music.stopSong();
+                    music.playSong(MusicEngine.SONGS.battle);
+                }
+            });
+            scene.addChild(exit);
+        } else {
+            // Simple milk stash — walk through to win!
+            const stash = new Area2D('MilkStash');
+            stash.position = { x: (mapW - 4) * 16, y: (groundRow - 3) * 16 };
+            stash.collider = { x: 0, y: 0, width: 32, height: 48 };
+            stash._time = 0;
+            stash.draw = function(ctx) {
+                this._time += 0.016;
+                const p = 0.6 + Math.sin(this._time * 2) * 0.3;
+                ctx.fillStyle = 'rgba(255,255,255,' + p + ')';
+                ctx.fillRect(8, 0, 16, 40);
+                ctx.fillStyle = '#44aa44';
+                ctx.fillRect(10, -3, 12, 6);
+                ctx.fillStyle = '#ffffee';
+                ctx.fillRect(10, 10, 12, 28);
+                ctx.fillStyle = '#44aa44';
+                ctx.fillRect(8, 18, 16, 8);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText('RAW', 10, 24);
+                ctx.fillText('MILK', 9, 31);
+                ctx.fillStyle = 'rgba(255,255,200,' + (p * 0.15) + ')';
+                ctx.beginPath(); ctx.arc(16, 20, 25, 0, Math.PI * 2); ctx.fill();
+            };
+            stash.signals.on('body_entered', (body) => {
+                if (body.tags.has('player')) {
+                    engine.shake(6);
+                    engine.audio.sfxPowerUp();
+                    music.stopSong();
+                    // Victory (bonus level coming soon)
+                    gs.state = 'victory';
+                    setTimeout(() => engine.switchScene('victory', 'fade'), 1000);
+                }
+            });
+            scene.addChild(stash);
+
+        }
+
+        // Camera
+        scene.signals.on('entered', () => {
+            engine.camera.follow(player, 0.08);
+            engine.camera.setBounds(0, 0, tilemap.pixelWidth, tilemap.pixelHeight);
+            engine.camera.setZoom(2, true);
+            engine.camera.position = { x: player.position.x, y: player.position.y };
+            engine.camera.deadZone = { x: 8, y: 15 };
+            engine.camera.lookAheadDistance = 30;
+        });
+
+        // HUD — drawn as overlay with dark background panels for readability
+        const hud = new Node('HUD');
+        hud.drawUI = function(ctx) {
+            ctx.save();
+            // Left panel background
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(4, 4, 180, 44);
+            // Right panel background
+            ctx.fillRect(engine.width - 184, 4, 180, 44);
+
+            ctx.font = 'bold 16px monospace';
+            ctx.textBaseline = 'top';
+
+            // Lives — white with red hearts
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('LIVES:', 10, 8);
+            ctx.fillStyle = '#ff4444';
+            ctx.fillText(' ' + '♥'.repeat(Math.max(0, gs.lives)), 80, 8);
+
+            // Score
+            ctx.fillStyle = '#ffdd44';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('SCORE: ' + gs.score, 10, 28);
+
+            // Milk — right side
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText('MILK: ' + gs.milkCollected, engine.width - 10, 8);
+
+            // Friends
+            ctx.fillStyle = '#44ff88';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('FRIENDS: ' + gs.friendsFreed + '/2', engine.width - 10, 28);
+
+            // Milk streak indicator
+            if (gs._milkStreak > 1 && gs._milkStreakTimer > 0) {
+                ctx.fillStyle = '#ffaa00';
+                ctx.font = 'bold 12px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('MILK STREAK x' + gs._milkStreak + ' (+' + Math.round(gs._milkSpeedBoost * 100) + '% speed)', engine.width / 2, 14);
+            }
+
+            ctx.restore();
+        };
+        scene.addChild(hud);
+
+        scene.update = function(dt) {
+            // HUD updates via drawUI reading gs directly
+        };
+
+        engine.addScene(`level${num}`, scene);
+    }
+
+    // =============================================
+    //  SCREENS
+    // =============================================
+    // =============================================
+    //  INTRO CUTSCENE — Matt's life before the chaos
+    // =============================================
+    function buildIntro() {
+        const scene = new Scene('Intro');
+        scene.backgroundColor = '#0a0a12';
+        // Force solid background — prevent parallax bleed from other scenes
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) {
+            ctx.fillStyle = '#0a0a12';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+        };
+        scene.addChild(bgFill);
+
+        // Cutscene slides — each one is a "panel" with text
+        const slides = [
+            { text: "Nobody had heard from Matt in months.",            color: '#aaaaaa', delay: 2.5 },
+            { text: "No social media. No group chats. No drama.",       color: '#888888', delay: 2.5 },
+            { text: "Just video games...",                              color: '#6688ff', delay: 2.0 },
+            { text: "...flat earth podcasts...",                        color: '#88aa44', delay: 2.0 },
+            { text: "...his Bible...",                                  color: '#ffcc44', delay: 2.0 },
+            { text: "...and raw milk.",                                 color: '#ffffff', delay: 2.5 },
+            { text: "",                                                 color: '#000000', delay: 1.0 },
+            { text: "Then one morning...",                              color: '#aaaaaa', delay: 2.0 },
+            { text: "He opened the fridge.",                            color: '#cccccc', delay: 2.0 },
+            { text: "No milk.",                                         color: '#ff4444', delay: 2.5 },
+            { text: "",                                                 color: '#000000', delay: 1.0 },
+            { text: "\"Welp. Gotta go to the store.\"",                 color: '#ffffff', delay: 2.5 },
+            { text: "",                                                 color: '#000000', delay: 0.8 },
+            { text: "He stepped outside.",                              color: '#aaaaaa', delay: 2.0 },
+            { text: "The sky was red. The streets were empty.",          color: '#ff6644', delay: 2.5 },
+            { text: "Robots everywhere.",                               color: '#ff2222', delay: 2.0 },
+            { text: "AI had taken over.",                               color: '#ff0000', delay: 2.5 },
+            { text: "",                                                 color: '#000000', delay: 1.5 },
+            { text: "His friends Brian and Mark were missing.",          color: '#44ff88', delay: 2.5 },
+            { text: "The world needed a hero.",                         color: '#aaaaaa', delay: 2.0 },
+            { text: "Matt didn't care about the world.",                color: '#ffffff', delay: 2.5 },
+            { text: "He just wanted his milk.",                         color: '#ffffff', delay: 3.0 },
+        ];
+
+        let slideIndex = 0;
+        let slideTimer = 0;
+        let fadeAlpha = 0;
+
+        const textNode = new TextNode('SlideText', '');
+        textNode.position = { x: 320, y: 130 };
+        textNode.font = '12px monospace';
+        textNode.color = '#ffffff';
+        textNode.align = 'center';
+        textNode.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+        scene.addChild(textNode);
+
+        const skipText = new TextNode('Skip', 'SPACE / A / START to skip');
+        skipText.position = { x: 320, y: 255 };
+        skipText.font = '11px monospace';
+        skipText.color = '#333344';
+        skipText.align = 'center';
+        scene.addChild(skipText);
+
+        function goToTitle() {
+            engine.switchScene('title', 'fade');
+        }
+
+        scene.update = function(dt) {
+            // Skip
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start')) {
+                goToTitle();
+                return;
+            }
+
+            if (slideIndex >= slides.length) {
+                goToTitle();
+                return;
+            }
+
+            const slide = slides[slideIndex];
+            slideTimer += dt;
+
+            // Fade in text
+            fadeAlpha = Math.min(1, slideTimer * 3);
+            textNode.text = slide.text;
+            textNode.color = slide.color;
+            textNode.opacity = fadeAlpha;
+
+            if (slideTimer >= slide.delay) {
+                slideTimer = 0;
+                slideIndex++;
+                fadeAlpha = 0;
+            }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+            slideIndex = 0;
+            slideTimer = 0;
+        });
+
+        engine.addScene('intro', scene);
+    }
+
+    // =============================================
+    //  TITLE SCREEN
+    // =============================================
+    function buildTitle() {
+        const scene = new Scene('Title');
+        scene.backgroundColor = '#0a0a12';
+
+        const bg = new ParallaxLayer('BG', 'bg', 0);
+        bg.autoScrollX = -3;
+        scene.addChild(bg);
+
+        const t = new TextNode('T', 'MATTY MILKERS');
+        t.position = { x: 320, y: 60 }; t.font = 'bold 28px monospace';
+        t.color = '#ffffff'; t.align = 'center';
+        t.shadow = { color: '#44aa44', offsetX: 2, offsetY: 2 };
+        scene.addChild(t);
+
+        const sub = new TextNode('Sub', 'He just wanted his milk.');
+        sub.position = { x: 320, y: 100 }; sub.font = '14px monospace';
+        sub.color = '#aaaaaa'; sub.align = 'center';
+        scene.addChild(sub);
+
+        // Controls
+        const c1 = new TextNode('C1', 'MOVE: Left Stick / D-Pad / WASD');
+        c1.position = { x: 320, y: 145 }; c1.font = '12px monospace';
+        c1.color = '#666677'; c1.align = 'center';
+        scene.addChild(c1);
+
+        const c2 = new TextNode('C2', 'JUMP: A Button / Space');
+        c2.position = { x: 320, y: 162 }; c2.font = '12px monospace';
+        c2.color = '#666677'; c2.align = 'center';
+        scene.addChild(c2);
+
+        const c3 = new TextNode('C3', 'BIBLE: X Button (tap=slam, hold=throw)');
+        c3.position = { x: 320, y: 182 }; c3.font = '12px monospace';
+        c3.color = '#FFD700'; c3.align = 'center';
+        scene.addChild(c3);
+
+        const c4 = new TextNode('C4', 'SHIELD: B Button / Z (block hits!)');
+        c4.position = { x: 320, y: 199 }; c4.font = '12px monospace';
+        c4.color = '#44ccff'; c4.align = 'center';
+        scene.addChild(c4);
+
+        const c5 = new TextNode('C5', 'RANT: Y Button / R (stuns robots!)');
+        c5.position = { x: 320, y: 216 }; c5.font = '12px monospace';
+        c5.color = '#ff8844'; c5.align = 'center';
+        scene.addChild(c5);
+
+        const st = new TextNode('ST', 'PRESS A / START');
+        st.position = { x: 320, y: 250 }; st.font = 'bold 14px monospace';
+        st.color = '#ffffff'; st.align = 'center';
+        scene.addChild(st);
+
+        let blink = 0;
+        scene.update = function(dt) {
+            blink += dt;
+            st.visible = Math.floor(blink * 2) % 2 === 0;
+            const p = Math.sin(blink * 2);
+            t.color = `rgb(255,${220 + p * 30},${200 + p * 50})`;
+
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start')) {
+                engine.audio.sfxSelect();
+                gs.lives = 3; gs.score = 0; gs.milkCollected = 0; gs.totalMilk = 0;
+                gs.level = 1; gs.friendsFreed = 0; gs.state = 'playing';
+                gs.startTime = performance.now(); // for leaderboard timing
+                music.stopSong();
+                // Rebuild levels fresh — brand new game
+                setTimeout(() => {
+                    buildLevel(1);
+                    buildLevel(2);
+                    engine.switchScene('level1', 'fade');
+                    music.playSong(MusicEngine.SONGS.adventure);
+                }, 50);
+            }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+        });
+
+        engine.addScene('title', scene);
+    }
+
+    function buildGameOver() {
+        const scene = new Scene('GameOver');
+        scene.backgroundColor = '#0a0408';
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) { ctx.fillStyle = '#0a0408'; ctx.fillRect(0, 0, engine.width, engine.height); };
+        scene.addChild(bgFill);
+
+        const t = new TextNode('T', 'NO MILK FOR YOU');
+        t.position = { x: 320, y: 90 }; t.font = 'bold 22px monospace';
+        t.color = '#ff2244'; t.align = 'center';
+        scene.addChild(t);
+
+        const s = new TextNode('S', ''); s.position = { x: 320, y: 140 };
+        s.font = '12px monospace'; s.color = '#ffcc00'; s.align = 'center';
+        scene.addChild(s);
+
+        const r = new TextNode('R', 'PRESS A TO TRY AGAIN');
+        r.position = { x: 320, y: 200 }; r.font = '14px monospace';
+        r.color = '#ffffff'; r.align = 'center';
+        scene.addChild(r);
+
+        let blink = 0;
+        scene.update = function(dt) {
+            blink += dt;
+            r.visible = Math.floor(blink * 2) % 2 === 0;
+            s.text = 'SCORE: ' + gs.score + '  MILK: ' + gs.milkCollected;
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start'))
+                engine.switchScene('title', 'fade');
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+        });
+
+        engine.addScene('gameover', scene);
+    }
+
+    // ---- LEADERBOARD (localStorage, works in exported games) ----
+    function getLeaderboard() {
+        try { return JSON.parse(localStorage.getItem('matty_milkers_scores') || '[]'); } catch(e) { return []; }
+    }
+    function saveScore(name, score, milk, time) {
+        const board = getLeaderboard();
+        const timeBonus = Math.max(1, Math.floor(300 - time)); // faster = more bonus
+        const finalScore = score + (milk * 50) + (timeBonus * 10);
+        board.push({ name, score: finalScore, milk, time: Math.floor(time), date: new Date().toLocaleDateString() });
+        board.sort((a, b) => b.score - a.score);
+        if (board.length > 10) board.length = 10;
+        localStorage.setItem('matty_milkers_scores', JSON.stringify(board));
+        return { finalScore, board };
+    }
+
+    function buildVictory() {
+        const scene = new Scene('Victory');
+        scene.backgroundColor = '#040820';
+        // SUNSET SCENE — Matt drinking milk with his bros
+        let sunsetTime = 0;
+        const bgFill = new Node('SunsetBG');
+        bgFill.drawUI = function(ctx) {
+            sunsetTime += 0.005;
+            const w = engine.width, h = engine.height;
+
+            // Sky gradient — sunset colors
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+            skyGrad.addColorStop(0, '#1a0533');      // deep purple top
+            skyGrad.addColorStop(0.3, '#cc4400');     // orange
+            skyGrad.addColorStop(0.5, '#ff8833');     // bright orange
+            skyGrad.addColorStop(0.65, '#ffcc44');    // golden
+            skyGrad.addColorStop(0.75, '#44aa44');    // horizon green
+            skyGrad.addColorStop(1, '#1a3322');       // dark ground
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, w, h);
+
+            // Sun
+            const sunY = h * 0.5 + Math.sin(sunsetTime * 0.5) * 10;
+            ctx.fillStyle = '#ffdd44';
+            ctx.beginPath(); ctx.arc(w * 0.7, sunY, 30, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,220,100,0.2)';
+            ctx.beginPath(); ctx.arc(w * 0.7, sunY, 60, 0, Math.PI * 2); ctx.fill();
+
+            // Ground/hill
+            ctx.fillStyle = '#2a4422';
+            ctx.fillRect(0, h * 0.72, w, h * 0.3);
+
+            // Three silhouettes — Matt, Brian, Mark sitting on the hill
+            const baseY = h * 0.68;
+            const chars = [
+                { x: w * 0.35, color: '#cc3333', name: 'Matt' },    // red flannel
+                { x: w * 0.45, color: '#3366cc', name: 'Brian' },   // blue shirt
+                { x: w * 0.55, color: '#33aa55', name: 'Mark' },    // green shirt
+            ];
+
+            for (const c of chars) {
+                // Body silhouette (sitting)
+                ctx.fillStyle = c.color;
+                ctx.fillRect(c.x - 6, baseY - 12, 12, 14); // torso
+                ctx.fillStyle = '#222';
+                ctx.fillRect(c.x - 5, baseY + 2, 10, 6);   // legs
+                // Head
+                ctx.fillStyle = '#ffcc99';
+                ctx.fillRect(c.x - 4, baseY - 20, 8, 8);
+                // Hair
+                ctx.fillStyle = c.name === 'Matt' ? '#8B6914' : c.name === 'Brian' ? '#333' : '#cc5500';
+                ctx.fillRect(c.x - 4, baseY - 22, 8, 4);
+            }
+
+            // ALL THREE BOYS holding milk bottles!
+            for (const c of chars) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(c.x + 7, baseY - 14, 4, 8);
+                ctx.fillStyle = '#44aa44';
+                ctx.fillRect(c.x + 7, baseY - 16, 4, 3);
+            }
+
+            // Stars twinkling
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < 20; i++) {
+                const sx = (i * 137 + 50) % w;
+                const sy = (i * 89 + 20) % (h * 0.3);
+                const twinkle = Math.sin(sunsetTime * 3 + i) > 0.3 ? 1.5 : 0.8;
+                ctx.globalAlpha = twinkle * 0.5;
+                ctx.fillRect(sx, sy, 1.5, 1.5);
+            }
+            ctx.globalAlpha = 1;
+        };
+        scene.addChild(bgFill);
+
+        // State for name entry
+        let nameChars = ['A', 'A', 'A'];
+        let nameIdx = 0;
+        let nameEntered = false;
+        let finalResult = null;
+
+        const hud = new Node('VictoryHUD');
+        hud.drawUI = function(ctx) {
+            ctx.save();
+            ctx.textAlign = 'center';
+
+            // Title
+            ctx.font = 'bold 24px monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('MATT GOT THE MILK!', 320, 40);
+
+            // Friends status
+            ctx.font = '14px monospace';
+            ctx.fillStyle = '#44ff88';
+            const friendText = gs.friendsFreed === 2 ? 'Brian and Mark are safe!' : gs.friendsFreed === 1 ? 'You saved one friend!' : 'Your friends are still out there...';
+            ctx.fillText(friendText, 320, 65);
+
+            // Flavor text
+            ctx.font = '11px monospace';
+            ctx.fillStyle = '#8888aa';
+            ctx.fillText('Turns out, probiotics > artificial intelligence.', 320, 85);
+
+            // Score breakdown
+            const elapsed = gs.startTime ? (performance.now() - gs.startTime) / 1000 : 999;
+            const timeBonus = Math.max(1, Math.floor(300 - elapsed));
+            const milkBonus = gs.milkCollected * 50;
+            const total = gs.score + milkBonus + (timeBonus * 10);
+
+            ctx.font = '12px monospace';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText('SCORE: ' + gs.score + '  |  MILK BONUS: ' + milkBonus + '  |  TIME BONUS: ' + (timeBonus * 10), 320, 110);
+
+            ctx.font = 'bold 18px monospace';
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillText('TOTAL: ' + total, 320, 135);
+
+            if (!nameEntered) {
+                // Name entry
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#aaaacc';
+                ctx.fillText('ENTER YOUR NAME', 320, 165);
+
+                ctx.font = 'bold 28px monospace';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillStyle = i === nameIdx ? '#ffcc00' : '#666688';
+                    ctx.fillText(nameChars[i], 290 + i * 30, 195);
+                }
+
+                // Arrow indicators
+                ctx.font = '10px monospace';
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillText('UP/DOWN = change  LEFT/RIGHT = move  A = confirm', 320, 220);
+            } else {
+                // Show leaderboard
+                ctx.font = 'bold 14px monospace';
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillText('HIGH SCORES', 320, 165);
+
+                const board = getLeaderboard();
+                ctx.font = '11px monospace';
+                for (let i = 0; i < Math.min(board.length, 8); i++) {
+                    const entry = board[i];
+                    const isNew = finalResult && entry.score === finalResult.finalScore && entry.name === nameChars.join('');
+                    ctx.fillStyle = isNew ? '#ffcc00' : '#8888aa';
+                    ctx.fillText((i + 1) + '. ' + entry.name + '  ' + entry.score + '  (' + entry.milk + ' milk, ' + entry.time + 's)', 320, 185 + i * 16);
+                }
+
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#ffffff';
+                const blink = Math.floor(performance.now() / 500) % 2;
+                if (blink) ctx.fillText('PRESS A TO CONTINUE', 320, 330);
+            }
+
+            ctx.restore();
+        };
+        scene.addChild(hud);
+
+        scene.update = function(dt) {
+            if (!nameEntered) {
+                // Name entry controls
+                if (engine.input.isKeyDown('ArrowUp') || engine.input.isKeyDown('gamepad_up') || engine.input.isKeyDown('KeyW')) {
+                    let code = nameChars[nameIdx].charCodeAt(0) + 1;
+                    if (code > 90) code = 65; // wrap Z->A
+                    nameChars[nameIdx] = String.fromCharCode(code);
+                }
+                if (engine.input.isKeyDown('ArrowDown') || engine.input.isKeyDown('gamepad_down') || engine.input.isKeyDown('KeyS')) {
+                    let code = nameChars[nameIdx].charCodeAt(0) - 1;
+                    if (code < 65) code = 90; // wrap A->Z
+                    nameChars[nameIdx] = String.fromCharCode(code);
+                }
+                if (engine.input.isKeyDown('ArrowRight') || engine.input.isKeyDown('gamepad_right') || engine.input.isKeyDown('KeyD')) {
+                    nameIdx = Math.min(2, nameIdx + 1);
+                }
+                if (engine.input.isKeyDown('ArrowLeft') || engine.input.isKeyDown('gamepad_left') || engine.input.isKeyDown('KeyA')) {
+                    nameIdx = Math.max(0, nameIdx - 1);
+                }
+                // Confirm name
+                if (engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start')) {
+                    const elapsed = gs.startTime ? (performance.now() - gs.startTime) / 1000 : 999;
+                    finalResult = saveScore(nameChars.join(''), gs.score, gs.milkCollected, elapsed);
+                    nameEntered = true;
+                    engine.audio.sfxPowerUp();
+                }
+            } else {
+                if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start'))
+                    engine.switchScene('title', 'fade');
+            }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+        });
+
+        music.playSong(MusicEngine.SONGS.victory);
+        engine.addScene('victory', scene);
+    }
+
+    // =============================================
+    //  RFK BONUS LEVEL — "Make the Kids Healthier"
+    // =============================================
+
+    function buildRFKCutscene() {
+        const scene = new Scene('RFKCutscene');
+        scene.backgroundColor = '#0a0a12';
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) {
+            ctx.fillStyle = '#0a0a12';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+        };
+        scene.addChild(bgFill);
+
+        const slides = [
+            { text: "",                                                          color: '#000000', delay: 1.5 },
+            { text: "The sun sets on a world saved from AI...",                 color: '#ff8844', delay: 3.0 },
+            { text: "Matt and the boys crack open some raw milk.",               color: '#ffffff', delay: 3.0 },
+            { text: "But then... a phone call.",                                color: '#aaaaaa', delay: 2.5 },
+            { text: "",                                                          color: '#000000', delay: 1.0 },
+            { text: "\"Mr. Milker? This is Secretary Kennedy.\"",                color: '#44aaff', delay: 3.0 },
+            { text: "\"Robert... F... Kennedy?\"",                               color: '#ffffff', delay: 2.5 },
+            { text: "\"The kids at Jefferson Elementary are sick.\"",             color: '#44aaff', delay: 3.0 },
+            { text: "\"Too much soda. Too much junk.\"",                         color: '#44aaff', delay: 2.5 },
+            { text: "\"We need someone who knows real nutrition.\"",             color: '#44aaff', delay: 3.0 },
+            { text: "\"Someone who lives it.\"",                                 color: '#44aaff', delay: 2.5 },
+            { text: "",                                                          color: '#000000', delay: 1.0 },
+            { text: "Matt looked at his glass of raw milk.",                     color: '#ffffff', delay: 2.5 },
+            { text: "Then at Brian. Then at Mark.",                              color: '#cccccc', delay: 2.5 },
+            { text: "\"I'll do it.\"",                                           color: '#44ff88', delay: 2.5 },
+            { text: "",                                                          color: '#000000', delay: 1.0 },
+            { text: "B O N U S   L E V E L",                                    color: '#ffdd44', delay: 3.0 },
+            { text: "\"MAKE THE KIDS HEALTHIER\"",                               color: '#ff8844', delay: 3.0 },
+        ];
+
+        let slideIndex = 0;
+        let slideTimer = 0;
+
+        const textNode = new TextNode('SlideText', '');
+        textNode.position = { x: 320, y: 130 };
+        textNode.font = '14px monospace';
+        textNode.color = '#ffffff';
+        textNode.align = 'center';
+        textNode.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+        scene.addChild(textNode);
+
+        const skipText = new TextNode('Skip', 'SPACE / A to skip');
+        skipText.position = { x: 320, y: 255 };
+        skipText.font = '11px monospace';
+        skipText.color = '#333344';
+        skipText.align = 'center';
+        scene.addChild(skipText);
+
+        scene.update = function(dt) {
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start')) {
+                engine.switchScene('bonus_level', 'fade');
+                music.playSong(MusicEngine.SONGS.battle);
+                return;
+            }
+            if (slideIndex >= slides.length) {
+                engine.switchScene('bonus_level', 'fade');
+                music.playSong(MusicEngine.SONGS.battle);
+                return;
+            }
+            const slide = slides[slideIndex];
+            slideTimer += dt;
+            textNode.text = slide.text;
+            textNode.color = slide.color;
+            textNode.opacity = Math.min(1, slideTimer * 3);
+            if (slideTimer >= slide.delay) { slideTimer = 0; slideIndex++; }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+            slideIndex = 0;
+            slideTimer = 0;
+        });
+
+        engine.addScene('rfk_cutscene', scene);
+    }
+
+    function buildBonusLevel() {
+        const scene = new Scene('BonusLevel');
+        const mapW = 80;
+        const groundRow = 13;
+
+        // School hallway background — warm indoor colors
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) {
+            // Hallway gradient
+            ctx.fillStyle = '#2a1a0a';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+            // Floor shine
+            ctx.fillStyle = 'rgba(255,200,100,0.05)';
+            ctx.fillRect(0, engine.height * 0.7, engine.width, engine.height * 0.3);
+        };
+        scene.addChild(bgFill);
+
+        // Tilemap — flat school hallway, mostly flat with some steps
+        const tilemap = new TileMap('Level');
+        tilemap.imageName = 'tiles';
+        tilemap.tileWidth = 16; tilemap.tileHeight = 16;
+        tilemap.columns = 4;
+        tilemap.create(mapW, 17, -1);
+        tilemap.addGround(groundRow, 0, mapW - 1, 0, 1);
+
+        // A few small platforms (lockers, benches)
+        for (let c = 10; c < mapW - 10; c += 15) {
+            tilemap.addPlatform(groundRow - 2, c, 3, 2);
+        }
+
+        tilemap.addWall(0, 0, 8, 1);
+        tilemap.addWall(mapW - 1, 0, groundRow, 1);
+        tilemap.collisionTiles = new Set([0, 1, 2, 3]);
+        scene.addChild(tilemap);
+
+        // Player
+        const player = createMatt(scene);
+
+        // === SODA KIDS — the core mechanic ===
+        // Kids holding soda. Matt walks near them → swipes soda → gives milk
+        let kidsHelped = 0;
+        const totalKids = 12;
+        const kidLines = [
+            "I feel so much better!",
+            "Whoa this milk SLAPS!",
+            "My brain feels... CLEAR?!",
+            "I can see sounds now!",
+            "Is this what health feels like?!",
+            "RAW MILK SUPREMACY!",
+            "I just got an A on my test!",
+            "Tell Mr. Kennedy I said thanks!",
+            "My mom is gonna freak out!",
+            "I can do a backflip now!!",
+            "This is better than Mountain Dew!",
+            "I feel like a NEW PERSON!",
+            "My acne just VANISHED!",
+            "I grew 2 inches!",
+            "I can hear colors!",
+            "GAINS! PURE GAINS!",
+        ];
+
+        // CLAIRVOYANCE: Kids run away when Matt gets close (creates chase gameplay)
+        // Matt must press X (attack/Bible) within range to swipe soda and give milk
+        // Combo system: helping kids in quick succession gives bonus score
+        let comboCount = 0;
+        let comboTimer = 0;
+
+        function createSodaKid(scene, x, y, kidIdx) {
+            const kid = new Area2D(`Kid${kidIdx}`);
+            kid.position = { x, y };
+            kid.collider = { x: -12, y: -20, width: 24, height: 28 };
+            kid._helped = false;
+            kid._showLine = false;
+            kid._lineTimer = 0;
+            kid._line = kidLines[kidIdx % kidLines.length];
+            kid._bobTime = Math.random() * 6;
+            kid._kidColor = ['#ff6666','#6688ff','#66ff66','#ffaa44','#ff66ff','#66ffff','#ffff66','#ff8866','#88ff88','#8888ff','#ff88ff','#88ffff'][kidIdx % 12];
+            kid._origX = x;
+            kid._fleeing = false;
+            kid._fleeDir = 1;
+            kid._fleeTimer = 0;
+            kid._scared = false;
+            kid._scaredTimer = 0;
+            // CLAIRVOYANCE: stagger kid behavior — some are brave, some run fast
+            kid._fleeSpeed = 30 + (kidIdx % 4) * 10; // 30-60 px/s
+            kid._detectRange = 50 + (kidIdx % 3) * 15; // 50-80px detect range
+            kid._flashTimer = 0;
+
+            kid.update = function(dt) {
+                if (this._helped) return;
+
+                // CLAIRVOYANCE: combo timer decay
+                comboTimer -= dt;
+                if (comboTimer <= 0) comboCount = 0;
+
+                // Find player
+                const playerNode = scene.findChild('Player');
+                if (!playerNode) return;
+                const dx = playerNode.position.x - this.position.x;
+                const dist = Math.abs(dx);
+
+                // CLAIRVOYANCE: Kids notice Matt approaching (telegraph)
+                if (dist < this._detectRange * 1.5 && !this._scared) {
+                    this._scared = true;
+                    this._scaredTimer = 0;
+                }
+
+                // CLAIRVOYANCE: Kids flee when Matt is close
+                if (dist < this._detectRange && !this._fleeing) {
+                    this._fleeing = true;
+                    this._fleeDir = dx > 0 ? -1 : 1; // Run away from Matt
+                    this._fleeTimer = 0;
+                }
+
+                if (this._fleeing) {
+                    this._fleeTimer += dt;
+                    // Run for 1.5 seconds then stop (catch your breath)
+                    if (this._fleeTimer < 1.5) {
+                        this.position.x += this._fleeDir * this._fleeSpeed * dt;
+                        // Clamp to level bounds
+                        this.position.x = Math.max(32, Math.min((mapW - 4) * 16, this.position.x));
+                    } else if (this._fleeTimer > 2.5) {
+                        this._fleeing = false; // Reset — can flee again
+                    }
+                }
+
+                // CLAIRVOYANCE: Check if player is pressing X (attack) while in range
+                if (dist < 28 && (engine.input.isKeyDown('KeyX') || engine.input.isKeyDown('KeyJ') || engine.input.isKeyDown('gamepad_x') || engine.input.isKeyDown('gamepad_rb'))) {
+                    this._helped = true;
+                    this._showLine = true;
+                    this._lineTimer = 0;
+                    this._fleeing = false;
+                    kidsHelped++;
+
+                    // CLAIRVOYANCE: Combo system — rapid-fire helping = big score
+                    if (comboTimer > 0) {
+                        comboCount++;
+                    } else {
+                        comboCount = 1;
+                    }
+                    comboTimer = 4; // 4 seconds to keep combo alive
+
+                    const comboMult = Math.min(comboCount, 5);
+                    const baseScore = 200;
+                    gs.score += baseScore * comboMult;
+                    gs.milkCollected += 2;
+
+                    // CLAIRVOYANCE: Satisfaction on hit — shake scales with combo
+                    engine.shake(3 + comboMult);
+                    engine.audio.sfxCoin();
+                    if (comboCount > 1) engine.audio.sfxPowerUp();
+
+                    // CLAIRVOYANCE: Score popup via particles
+                    for (let p = 0; p < 5 + comboMult * 2; p++) {
+                        engine.particles.emit(this.position.x, this.position.y - 16, {
+                            count: 1, color: comboCount > 2 ? '#ffdd44' : '#44ff88',
+                            speed: 20 + Math.random() * 30,
+                            life: 0.5 + Math.random() * 0.3,
+                            size: 2 + Math.random() * 2,
+                        });
+                    }
+
+                    if (kidsHelped >= totalKids) {
+                        setTimeout(() => {
+                            engine.switchScene('bonus_victory', 'fade');
+                            music.stopSong();
+                        }, 2000);
+                    }
+                }
+            };
+
+            kid.draw = function(ctx) {
+                this._bobTime += 0.016;
+                const bob = Math.sin(this._bobTime * (this._fleeing ? 8 : 3)) * (this._fleeing ? 2 : 1);
+
+                if (!this._helped) {
+                    // CLAIRVOYANCE: Scared indicator (exclamation mark when player near)
+                    if (this._scared && !this._fleeing) {
+                        this._scaredTimer += 0.016;
+                        if (this._scaredTimer < 1.5) {
+                            ctx.fillStyle = '#ffdd44';
+                            ctx.font = 'bold 10px monospace';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('!', 0, -30 + bob);
+                            ctx.textAlign = 'left';
+                        }
+                    }
+
+                    // Kid body (running animation when fleeing)
+                    const legOffset = this._fleeing ? Math.sin(this._bobTime * 12) * 3 : 0;
+                    ctx.fillStyle = this._kidColor;
+                    ctx.fillRect(-5, -12 + bob, 10, 14);
+                    // Legs
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(-4, 2 + bob, 3, 4 + legOffset);
+                    ctx.fillRect(1, 2 + bob, 3, 4 - legOffset);
+                    // Head
+                    ctx.fillStyle = '#ffcc88';
+                    ctx.fillRect(-4, -20 + bob, 8, 8);
+                    // Grumpy/scared eyes
+                    ctx.fillStyle = '#000';
+                    if (this._fleeing) {
+                        // Wide scared eyes
+                        ctx.fillRect(-3, -18 + bob, 3, 3);
+                        ctx.fillRect(1, -18 + bob, 3, 3);
+                    } else {
+                        ctx.fillRect(-3, -17 + bob, 2, 2);
+                        ctx.fillRect(1, -17 + bob, 2, 2);
+                    }
+                    // Mouth
+                    ctx.fillStyle = this._fleeing ? '#ffaa00' : '#ff0000';
+                    ctx.fillRect(-2, -13 + bob, 4, this._fleeing ? 2 : 1);
+                    // Soda can
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(6, -14 + bob, 5, 8);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '4px monospace';
+                    ctx.fillText('S', 7, -9 + bob);
+
+                    // CLAIRVOYANCE: "Press X" hint when in range
+                    const playerNode = scene.findChild('Player');
+                    if (playerNode && Math.abs(playerNode.position.x - this.position.x) < 35) {
+                        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                        ctx.font = 'bold 7px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('[X]', 0, -34 + bob);
+                        ctx.textAlign = 'left';
+                    }
+                } else {
+                    // Happy kid with milk! — jumps for joy
+                    const joyBob = Math.abs(Math.sin(this._bobTime * 4)) * 4;
+                    ctx.fillStyle = this._kidColor;
+                    ctx.fillRect(-5, -12 - joyBob, 10, 14);
+                    ctx.fillStyle = '#ffcc88';
+                    ctx.fillRect(-4, -20 - joyBob, 8, 8);
+                    // Happy sparkle eyes
+                    ctx.fillStyle = '#44ff44';
+                    ctx.fillRect(-3, -17 - joyBob, 2, 2);
+                    ctx.fillRect(1, -17 - joyBob, 2, 2);
+                    // Big smile
+                    ctx.fillStyle = '#44ff44';
+                    ctx.fillRect(-3, -13 - joyBob, 6, 2);
+                    ctx.fillRect(-2, -14 - joyBob, 1, 1);
+                    ctx.fillRect(3, -14 - joyBob, 1, 1);
+                    // Milk bottle held up
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(6, -18 - joyBob, 5, 10);
+                    ctx.fillStyle = '#44aa44';
+                    ctx.fillRect(6, -19 - joyBob, 5, 3);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '3px monospace';
+                    ctx.fillText('RAW', 6, -11 - joyBob);
+                    // Joy sparkles
+                    const sp = Math.sin(this._bobTime * 6) * 0.5 + 0.5;
+                    ctx.fillStyle = `rgba(255,255,100,${sp * 0.8})`;
+                    ctx.fillRect(-10, -28 - joyBob, 2, 2);
+                    ctx.fillRect(8, -26 - joyBob, 2, 2);
+                    ctx.fillRect(-4, -32 - joyBob, 2, 2);
+                    ctx.fillRect(4, -30 - joyBob, 2, 2);
+                }
+
+                // Speech bubble
+                if (this._showLine && this._lineTimer < 3) {
+                    this._lineTimer += 0.016;
+                    const alpha = this._lineTimer < 0.3 ? this._lineTimer / 0.3 : this._lineTimer > 2.5 ? 1 - (this._lineTimer - 2.5) / 0.5 : 1;
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                    const tw = ctx.measureText(this._line).width || 80;
+                    ctx.fillRect(-tw/2 - 6, -42, tw + 12, 14);
+                    ctx.strokeStyle = '#44ff88';
+                    ctx.strokeRect(-tw/2 - 6, -42, tw + 12, 14);
+                    ctx.fillStyle = '#44ff88';
+                    ctx.font = 'bold 8px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(this._line, 0, -33);
+                    ctx.textAlign = 'left';
+                    ctx.globalAlpha = 1;
+                }
+            };
+
+            scene.addChild(kid);
+        }
+
+        // Place 12 kids along the hallway
+        for (let i = 0; i < totalKids; i++) {
+            const x = 64 + i * ((mapW - 12) * 16 / totalKids);
+            createSodaKid(scene, x, (groundRow - 1) * 16, i);
+        }
+
+        // Milk bottles scattered around
+        for (let c = 4; c < mapW - 4; c += 5) {
+            createMilkPickup(scene, c * 16, (groundRow - 1) * 16 - 4);
+        }
+
+        // RFK standing near the end as motivation
+        const rfk = new Node('RFK');
+        rfk.position = { x: (mapW - 6) * 16, y: (groundRow - 1) * 16 };
+        rfk._time = 0;
+        rfk.draw = function(ctx) {
+            this._time += 0.016;
+            const bob = Math.sin(this._time * 2) * 1;
+            // Suit body
+            ctx.fillStyle = '#1a1a3a';
+            ctx.fillRect(-6, -20 + bob, 12, 20);
+            // White shirt
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(-3, -18 + bob, 6, 4);
+            // Tie
+            ctx.fillStyle = '#cc2222';
+            ctx.fillRect(-1, -18 + bob, 2, 8);
+            // Head
+            ctx.fillStyle = '#ffcc88';
+            ctx.fillRect(-5, -30 + bob, 10, 10);
+            // Hair
+            ctx.fillStyle = '#554433';
+            ctx.fillRect(-5, -32 + bob, 10, 4);
+            // Eyes
+            ctx.fillStyle = '#224488';
+            ctx.fillRect(-3, -27 + bob, 2, 2);
+            ctx.fillRect(1, -27 + bob, 2, 2);
+            // Smile
+            ctx.fillStyle = '#cc6644';
+            ctx.fillRect(-2, -23 + bob, 4, 1);
+            // Name tag
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(-12, -40 + bob, 24, 8);
+            ctx.fillStyle = '#44aaff';
+            ctx.font = 'bold 6px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('RFK JR', 0, -34 + bob);
+            ctx.textAlign = 'left';
+        };
+        scene.addChild(rfk);
+
+        // HUD
+        const hud = new Node('HUD');
+        hud.drawUI = function(ctx) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(4, 4, 200, 44);
+            ctx.fillRect(engine.width - 204, 4, 200, 44);
+
+            ctx.font = 'bold 16px monospace';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = '#ffdd44';
+            ctx.fillText('BONUS LEVEL', 10, 8);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('SCORE: ' + gs.score, 10, 28);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#44ff88';
+            ctx.font = 'bold 16px monospace';
+            ctx.fillText('KIDS HELPED: ' + kidsHelped + '/' + totalKids, engine.width - 10, 8);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('MILK: ' + gs.milkCollected, engine.width - 10, 28);
+
+            // CLAIRVOYANCE: Combo indicator
+            if (comboCount > 1 && comboTimer > 0) {
+                ctx.textAlign = 'center';
+                ctx.fillStyle = comboCount >= 4 ? '#ffdd44' : comboCount >= 2 ? '#ff8844' : '#ffffff';
+                ctx.font = 'bold ' + (14 + comboCount * 2) + 'px monospace';
+                ctx.fillText('COMBO x' + comboCount + '!', engine.width / 2, 20);
+                ctx.font = 'bold 10px monospace';
+                ctx.fillStyle = '#ffaa44';
+                ctx.fillText('+' + (200 * comboCount) + ' pts', engine.width / 2, 34);
+            }
+            ctx.restore();
+        };
+        scene.addChild(hud);
+
+        // Camera
+        scene.signals.on('entered', () => {
+            kidsHelped = 0;
+            engine.camera.follow(player, 0.08);
+            engine.camera.setBounds(0, 0, tilemap.pixelWidth, tilemap.pixelHeight);
+            engine.camera.setZoom(2, true);
+            engine.camera.position = { x: player.position.x, y: player.position.y };
+            engine.camera.deadZone = { x: 8, y: 15 };
+            engine.camera.lookAheadDistance = 30;
+        });
+
+        engine.addScene('bonus_level', scene);
+    }
+
+    function buildBonusVictory() {
+        const scene = new Scene('BonusVictory');
+        scene.backgroundColor = '#0a0a12';
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) {
+            ctx.fillStyle = '#0a0a12';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+        };
+        scene.addChild(bgFill);
+
+        let timer = 0;
+        let phase = 0; // 0=clapping, 1=trophy, 2=press to continue
+
+        const hud = new Node('HUD');
+        hud.drawUI = function(ctx) {
+            ctx.save();
+            timer += 0.016;
+
+            // Background — school auditorium
+            ctx.fillStyle = '#1a0a0a';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+            // Stage
+            ctx.fillStyle = '#3a2010';
+            ctx.fillRect(0, engine.height * 0.6, engine.width, engine.height * 0.4);
+            ctx.fillStyle = '#5a3020';
+            ctx.fillRect(0, engine.height * 0.58, engine.width, 8);
+
+            // Crowd of kids clapping
+            for (let i = 0; i < 20; i++) {
+                const kx = 30 + i * 30;
+                const ky = engine.height * 0.48 + Math.sin(i * 1.5 + timer * 8) * 3;
+                const colors = ['#ff6666','#6688ff','#66ff66','#ffaa44','#ff66ff','#66ffff'];
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fillRect(kx - 3, ky, 6, 8);
+                ctx.fillStyle = '#ffcc88';
+                ctx.fillRect(kx - 2, ky - 5, 4, 5);
+                // Clapping hands
+                const clap = Math.sin(timer * 10 + i) > 0;
+                if (clap) {
+                    ctx.fillStyle = '#ffcc88';
+                    ctx.fillRect(kx - 5, ky + 2, 2, 2);
+                    ctx.fillRect(kx + 3, ky + 2, 2, 2);
+                }
+            }
+
+            // "CLAP CLAP CLAP" text
+            if (phase === 0 && timer < 4) {
+                const clapAlpha = Math.sin(timer * 6) * 0.5 + 0.5;
+                ctx.globalAlpha = clapAlpha;
+                ctx.fillStyle = '#ffdd44';
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('*CLAP* *CLAP* *CLAP*', engine.width / 2, engine.height * 0.3);
+                ctx.globalAlpha = 1;
+            }
+
+            if (timer > 3) phase = 1;
+
+            // RFK gives trophy
+            if (phase >= 1) {
+                // RFK
+                const rx = engine.width / 2 - 40;
+                const ry = engine.height * 0.65;
+                ctx.fillStyle = '#1a1a3a';
+                ctx.fillRect(rx - 6, ry, 12, 20);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(rx - 3, ry + 2, 6, 4);
+                ctx.fillStyle = '#cc2222';
+                ctx.fillRect(rx - 1, ry + 2, 2, 8);
+                ctx.fillStyle = '#ffcc88';
+                ctx.fillRect(rx - 5, ry - 10, 10, 10);
+                ctx.fillStyle = '#554433';
+                ctx.fillRect(rx - 5, ry - 12, 10, 4);
+
+                // Matt
+                const mx = engine.width / 2 + 40;
+                const my = engine.height * 0.65;
+                ctx.fillStyle = '#4444ff';
+                ctx.fillRect(mx - 6, my, 12, 20);
+                ctx.fillStyle = '#ffcc88';
+                ctx.fillRect(mx - 5, my - 10, 10, 10);
+                ctx.fillStyle = '#884422';
+                ctx.fillRect(mx - 5, my - 14, 10, 6);
+
+                // Trophy between them
+                const trophy_y = ry - 20 + Math.sin(timer * 2) * 3;
+                ctx.fillStyle = '#ffdd44';
+                ctx.fillRect(engine.width / 2 - 6, trophy_y, 12, 8);
+                ctx.fillRect(engine.width / 2 - 3, trophy_y + 8, 6, 6);
+                ctx.fillRect(engine.width / 2 - 8, trophy_y + 14, 16, 3);
+                // Trophy shine
+                ctx.fillStyle = 'rgba(255,255,200,' + (Math.sin(timer * 3) * 0.3 + 0.5) + ')';
+                ctx.fillRect(engine.width / 2 - 2, trophy_y + 2, 3, 3);
+
+                // Speech
+                ctx.fillStyle = '#44aaff';
+                ctx.font = 'bold 12px monospace';
+                ctx.textAlign = 'center';
+                if (timer < 6) {
+                    ctx.fillText('"Thank you, Matt."', engine.width / 2, ry - 30);
+                } else if (timer < 9) {
+                    ctx.fillText('"You made these kids healthier."', engine.width / 2, ry - 30);
+                } else {
+                    ctx.fillStyle = '#ffdd44';
+                    ctx.font = 'bold 14px monospace';
+                    ctx.fillText('"THE RAW MILK HERO!"', engine.width / 2, ry - 30);
+                }
+            }
+
+            if (timer > 10) phase = 2;
+
+            if (phase >= 2) {
+                ctx.fillStyle = '#ffdd44';
+                ctx.font = 'bold 20px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('MISSION COMPLETE', engine.width / 2, 40);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 14px monospace';
+                ctx.fillText('SCORE: ' + gs.score, engine.width / 2, 70);
+
+                const blink = Math.floor(timer * 2) % 2;
+                if (blink) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px monospace';
+                    ctx.fillText('PRESS A TO CONTINUE', engine.width / 2, engine.height - 30);
+                }
+            }
+
+            ctx.textAlign = 'left';
+            ctx.restore();
+        };
+        scene.addChild(hud);
+
+        scene.update = function(dt) {
+            if (phase >= 2 && (engine.input.isKeyDown('Space') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_start'))) {
+                gs.state = 'victory';
+                engine.switchScene('victory', 'fade');
+            }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: engine.width / 2, y: engine.height / 2 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+            timer = 0;
+            phase = 0;
+            music.playSong(MusicEngine.SONGS.victory);
+        });
+
+        engine.addScene('bonus_victory', scene);
+    }
+
+    // =============================================
+    //  BOOT
+    // =============================================
+    generateSprites();
+    buildIntro();
+    buildTitle();
+    buildLevel(1);
+    buildLevel(2);
+    buildGameOver();
+    buildVictory();
+    buildRFKCutscene();
+    buildBonusLevel();
+    buildBonusVictory();
+
+    gs.state = 'title';
+
+    // Audio unlock on first click
+    document.addEventListener('click', () => {
+        music._ensureContext();
+        if (music._ctx?.state === 'suspended') music._ctx.resume();
+        engine.audio.resume();
+        music.playSong(MusicEngine.SONGS.titleScreen);
+    }, { once: true });
+
+    // Override gamepad to use postMessage state (iframe can't access gamepad API)
+    const btnMap = {gamepad_a:0, gamepad_b:1, gamepad_x:2, gamepad_y:3, gamepad_lb:4, gamepad_rb:5, gamepad_lt:6, gamepad_rt:7, gamepad_select:8, gamepad_start:9, gamepad_l3:10, gamepad_r3:11, gamepad_up:12, gamepad_down:13, gamepad_left:14, gamepad_right:15};
+    // Clear justPressed/justReleased once per frame (not per read)
+    const _origEndFrame = engine.input._lateUpdate.bind(engine.input);
+    engine.input._lateUpdate = function() {
+        _origEndFrame();
+        const gs = window._gamepadState;
+        gs.justPressed.fill(false);
+        gs.justReleased.fill(false);
+    };
+
+    engine.input._gamepadButton = function(key, type) {
+        const idx = btnMap[key];
+        if (idx === undefined) return false;
+        const gs = window._gamepadState;
+        if (type === 'down') return gs.justPressed[idx];
+        if (type === 'up') return gs.justReleased[idx];
+        return gs.buttons[idx];
+    };
+
+    // Override isKeyDown/isKey/isKeyUp to check gamepad buttons too
+    // (the originals only check _keysDown which is keyboard-only)
+    const _origIsKeyDown = engine.input.isKeyDown.bind(engine.input);
+    const _origIsKey = engine.input.isKey.bind(engine.input);
+    const _origIsKeyUp = engine.input.isKeyUp.bind(engine.input);
+
+    engine.input.isKeyDown = function(code) {
+        if (code.startsWith('gamepad_')) return this._gamepadButton(code, 'down');
+        return _origIsKeyDown(code);
+    };
+    engine.input.isKey = function(code) {
+        if (code.startsWith('gamepad_')) return this._gamepadButton(code, 'held');
+        return _origIsKey(code);
+    };
+    engine.input.isKeyUp = function(code) {
+        if (code.startsWith('gamepad_')) return this._gamepadButton(code, 'up');
+        return _origIsKeyUp(code);
+    };
+    engine.input.getAxis = function(stick) {
+        const gs = window._gamepadState;
+        const x = stick === 'left' ? (gs.axes[0]||0) : (gs.axes[2]||0);
+        const y = stick === 'left' ? (gs.axes[1]||0) : (gs.axes[3]||0);
+        return { x: Math.abs(x) < 0.15 ? 0 : x, y: Math.abs(y) < 0.15 ? 0 : y };
+    };
+
+    // Gamepad debug overlay (remove once working)
+    const _origRender = engine._render.bind(engine);
+    engine._render = function() {
+        _origRender();
+        const ctx = engine.ctx;
+        const gs = window._gamepadState;
+        ctx.save();
+        ctx.font = '11px monospace';
+        ctx.fillStyle = '#0f0';
+        ctx.fillText('GP msgs: ' + (window._gpMsgCount || 0), 4, engine.height - 20);
+        const pressed = [];
+        const names = ['A','B','X','Y','LB','RB','LT','RT','Sel','Sta','L3','R3','U','D','L','R'];
+        for (let i = 0; i < 16; i++) if (gs.buttons[i]) pressed.push(names[i]);
+        ctx.fillText('Held: ' + (pressed.length ? pressed.join('+') : 'none'), 4, engine.height - 10);
+        // Show justPressed too
+        const jp = [];
+        for (let i = 0; i < 16; i++) if (gs.justPressed[i]) jp.push(names[i]);
+        if (jp.length) ctx.fillText('PRESSED: ' + jp.join('+'), 4, engine.height - 30);
+        ctx.restore();
+    };
+
+    // Send FPS/scene data to parent IDE via postMessage
+    setInterval(() => {
+        try {
+            const data = {
+                type: 'gameStats',
+                fps: engine.time ? Math.round(1 / (engine.time.dt || 0.016)) : 0,
+                scene: engine.scene?.name || 'none',
+                entities: engine.scene?.children?.length || 0
+            };
+            if (window.parent !== window) window.parent.postMessage(data, '*');
+        } catch(e) {}
+    }, 500);
+
+    // Boot
+    engine.start('intro');
+
+    document.addEventListener('click', () => {
+        music._ensureContext();
+        if (music._ctx?.state === 'suspended') music._ctx.resume();
+        engine.audio.resume();
+    }, { once: true });
+
+    console.log('RAW MILK loaded! Press Space to start.');
+    </script>
+</body>
+</html>

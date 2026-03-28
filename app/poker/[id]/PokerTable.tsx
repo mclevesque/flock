@@ -504,7 +504,7 @@ export default function PokerTable({ roomId, sessionUserId, sessionUsername, ses
   const fetchState = useCallback(async () => {
     try {
       const res = await fetch(`/api/poker/${roomId}`, { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) { setLoading(false); return; }
       const d: TableState = await res.json();
       setData(d);
       setLoading(false);

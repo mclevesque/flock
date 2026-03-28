@@ -103,14 +103,20 @@ export default function GlobalPartyWidget() {
   // Poll party state every 12 seconds
   useEffect(() => {
     if (!session?.user) return;
-    const poll = () =>
-      fetch("/api/party?action=my-party")
+    let cancelled = false;
+    const poll = () => {
+      if (document.hidden || cancelled) return;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      fetch("/api/party?action=my-party", { signal: ctrl.signal })
         .then(r => r.json())
-        .then(d => setParty(d.party ?? null))
-        .catch(() => {});
+        .then(d => { if (!cancelled) setParty(d.party ?? null); })
+        .catch(() => {})
+        .finally(() => clearTimeout(t));
+    };
     poll();
     const iv = setInterval(poll, 12000);
-    return () => clearInterval(iv);
+    return () => { cancelled = true; clearInterval(iv); };
   }, [session]);
 
   const disbandOrLeave = async () => {

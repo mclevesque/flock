@@ -553,6 +553,28 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (showStash || showCharacter) fetchStashData();
   }, [showStash, showCharacter, fetchStashData]);
 
+  // ── Window-level touch safety net — clears joystick if finger lifts outside mount div ──
+  useEffect(() => {
+    const clear = (e: TouchEvent) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joystickId.current) {
+          joystickId.current = null;
+          joystickRef.current = { active: false, dx: 0, dy: 0 };
+          setJoystickVis(v => ({ ...v, visible: false }));
+        }
+        if (e.changedTouches[i].identifier === camTouchId.current) {
+          camTouchId.current = null;
+        }
+      }
+    };
+    window.addEventListener("touchend", clear, { passive: true });
+    window.addEventListener("touchcancel", clear, { passive: true });
+    return () => {
+      window.removeEventListener("touchend", clear);
+      window.removeEventListener("touchcancel", clear);
+    };
+  }, []);
+
   // ── Chase music (Web Audio) ───────────────────────────────────────────────
   function startChaseMusic() {
     if (chaseMusicActiveRef.current) return;

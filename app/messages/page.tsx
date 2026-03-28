@@ -4,6 +4,7 @@ import { useSession, signIn } from "@/lib/use-session";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useVoice } from "@/app/components/VoiceWidget";
+import { usePresence } from "@/lib/usePresence";
 
 interface User { id: string; username: string; display_name: string; avatar_url: string; }
 interface Message { id: number; sender_id: string; content: string; created_at: string; username: string; avatar_url: string; }
@@ -885,6 +886,7 @@ function MessagesInner() {
   const searchParams = useSearchParams();
   const withId = searchParams.get("with");
   const { openRooms, joinRoom: joinVoiceRoom, currentRoomId: voiceRoomId, openMaxi, startDmCall, leaveRoom: leaveVoiceRoom, isInVoice, participantCount } = useVoice();
+  const { isOnline } = usePresence();
 
   // Track visual viewport height for Android keyboard support
   const [vpHeight, setVpHeight] = useState<number | null>(null);
@@ -1111,7 +1113,7 @@ function MessagesInner() {
                 <button onClick={() => { setActiveUser(u); prevMsgIds.current = new Set(); if (isMobile) setShowChat(true); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: activeUser?.id === u.id ? "rgba(124,92,191,0.15)" : "transparent", border: "none", borderLeft: activeUser?.id === u.id ? "2px solid var(--accent-purple)" : "2px solid transparent", cursor: "pointer", textAlign: "left" }}>
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <img src={u.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${u.username}`} style={{ width: 34, height: 34, borderRadius: 8 }} alt={u.username} />
-                    <span style={{ position: "absolute", bottom: 0, right: 0, width: 9, height: 9, borderRadius: "50%", background: "var(--online)", border: "2px solid var(--bg-surface)" }} />
+                    <span style={{ position: "absolute", bottom: 0, right: 0, width: 9, height: 9, borderRadius: "50%", background: isOnline(u.id) ? "var(--online)" : "var(--offline)", border: "2px solid var(--bg-surface)" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{u.display_name || u.username}</div>

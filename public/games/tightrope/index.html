@@ -82,13 +82,13 @@
 
         .touch-btn {
             position: fixed;
-            width: 68px;
-            height: 68px;
+            width: 86px;
+            height: 86px;
             border-radius: 50%;
-            border: 2px solid rgba(255,200,150,0.3);
-            background: rgba(20,15,25,0.5);
-            color: rgba(255,200,150,0.65);
-            font-size: 26px;
+            border: 3px solid rgba(255,200,150,0.9);
+            background: rgba(10,8,18,0.88);
+            color: rgba(255,220,160,1);
+            font-size: 32px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -98,21 +98,23 @@
             touch-action: none;
             transition: background 0.08s, border-color 0.08s, transform 0.08s;
             z-index: 101;
+            box-shadow: 0 0 18px rgba(255,180,80,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
         }
         .touch-btn.active {
-            background: rgba(255,100,68,0.45);
-            border-color: rgba(255,100,68,0.85);
-            transform: scale(0.93);
+            background: rgba(255,100,68,0.55);
+            border-color: rgba(255,120,80,1);
+            transform: scale(0.91);
+            box-shadow: 0 0 24px rgba(255,100,50,0.5);
         }
         .touch-btn-step {
             position: fixed;
-            width: 74px;
-            height: 74px;
+            width: 86px;
+            height: 86px;
             border-radius: 50%;
-            border: 2px solid rgba(100,200,150,0.35);
-            background: rgba(20,25,15,0.5);
-            color: rgba(150,255,150,0.65);
-            font-size: 13px;
+            border: 3px solid rgba(100,255,160,0.9);
+            background: rgba(8,18,12,0.88);
+            color: rgba(140,255,170,1);
+            font-size: 14px;
             font-family: 'Courier New', monospace;
             font-weight: bold;
             letter-spacing: 1px;
@@ -125,11 +127,13 @@
             touch-action: none;
             transition: background 0.08s, border-color 0.08s, transform 0.08s;
             z-index: 101;
+            box-shadow: 0 0 18px rgba(80,255,130,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
         }
         .touch-btn-step.active {
-            background: rgba(100,200,100,0.45);
-            border-color: rgba(100,255,100,0.85);
-            transform: scale(0.93);
+            background: rgba(100,200,100,0.55);
+            border-color: rgba(120,255,140,1);
+            transform: scale(0.91);
+            box-shadow: 0 0 24px rgba(80,220,100,0.5);
         }
 
         /* Button positioning — safe area aware */

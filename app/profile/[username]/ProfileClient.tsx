@@ -8,6 +8,7 @@ import { VIBE_TAGS } from "@/app/vibe/vibeData";
 import { useVibe } from "@/app/components/VibePlayer";
 import { friendAdded, drop as dropSound, pop, swoosh, click as clickSound } from "@/app/components/sounds";
 import StoryViewer from "@/app/components/StoryViewer";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 interface User {
   id: string; username: string; display_name: string; bio: string;
@@ -152,7 +153,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   const [storyViewerOpen, setStoryViewerOpen] = useState(false);
   useEffect(() => {
     if (!sessionUserId || !user?.id) return;
-    fetch("/api/stories")
+    fetchWithTimeout("/api/stories", {}, 5000)
       .then(r => r.ok ? r.json() : { stories: [] })
       .then(d => {
         const match = (d.stories as Story[]).find(s => s.user_id === user.id);
@@ -180,7 +181,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
   useEffect(() => {
     if (!wallPosts.length) return;
     const ids = wallPosts.map(p => p.id).join(",");
-    fetch(`/api/wall-reply?postIds=${ids}`)
+    fetchWithTimeout(`/api/wall-reply?postIds=${ids}`, {}, 5000)
       .then(r => r.ok ? r.json() : null)
       .then((grouped: Record<string, WallReply[]> | null) => {
         if (!grouped || Object.keys(grouped).length === 0) return;
@@ -196,7 +197,7 @@ export default function ProfileClient({ user, videos, wallPosts: initialWallPost
 
   // Load vibe interests for this profile
   useEffect(() => {
-    fetch(`/api/vibe?username=${encodeURIComponent(username)}`)
+    fetchWithTimeout(`/api/vibe?username=${encodeURIComponent(username)}`, {}, 5000)
       .then(r => r.json())
       .then(d => { if (Array.isArray(d.interests)) setVibeInterests(d.interests); })
       .catch(() => {});
