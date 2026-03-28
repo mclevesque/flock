@@ -1,30 +1,7 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&display=swap');
 
 :root {
-  --bg-base: #0d0d14;
-  --bg-surface: #13131e;
-  --bg-elevated: #1a1a2a;
-  --bg-hover: #20203a;
-  --border: #252540;
-  --border-bright: #363660;
-  --accent-purple: #8b3cf7;
-  --accent-purple-bright: #a855f7;
-  --accent-cyan: #00e5ff;
-  --accent-cyan-dim: #00b8cc;
-  --accent-magenta: #d946ef;
-  --accent-blue: #4a90d9;
-  --accent-orange: #e8764a;
-  --accent-green: #4caf7d;
-  --text-primary: #eaeaf8;
-  --text-secondary: #8888b8;
-  --text-muted: #52527a;
-  --online: #4caf7d;
-  --away: #f0b429;
-  --offline: #52527a;
-}
-
-/* ── Great Souls portal theme ─────────────────────────────────────────────── */
-body.gs-theme {
   --bg-base: #0d0d0d;
   --bg-surface: #1a1a1a;
   --bg-elevated: #222222;
@@ -45,6 +22,11 @@ body.gs-theme {
   --online: #4caf7d;
   --away: #d4a942;
   --offline: #6a5a4a;
+  --soul-gold: #d4a942;
+  --soul-gold-dim: #8a6d2b;
+  --soul-ember: #c4531a;
+  --soul-bone: #e8dcc8;
+  --soul-ash: #888;
 }
 
 @theme inline {
@@ -453,6 +435,75 @@ a, button, [role="button"] {
   .video-grid-3 {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Great Souls design system ───────────────────────────────────────────── */
+.font-cinzel { font-family: 'Cinzel', serif; }
+
+.game-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.game-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--soul-gold);
+  box-shadow: 0 8px 32px rgba(212,169,66,0.2), 0 0 0 1px rgba(212,169,66,0.3);
+}
+.game-card:active { transform: translateY(-2px) scale(0.98); }
+.game-card .card-image {
+  width: 100%; aspect-ratio: 16/10;
+  background: linear-gradient(135deg, #1a1a1a, #222);
+  display: flex; align-items: center; justify-content: center; font-size: 3rem;
+}
+.game-card .card-body { padding: 12px 16px 16px; }
+.game-card .card-title {
+  font-family: 'Cinzel', serif; font-weight: 700; font-size: 1rem;
+  color: var(--soul-gold); margin-bottom: 4px;
+}
+.game-card .card-desc { font-size: 0.8rem; color: #666; line-height: 1.3; }
+.game-card .card-badge {
+  position: absolute; top: 10px; right: 10px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #44cc44; box-shadow: 0 0 6px #44cc44;
+}
+.game-card.coming-soon { opacity: 0.5; cursor: not-allowed; }
+
+.section-header {
+  font-family: 'Cinzel', serif; font-weight: 600; font-size: 0.8rem;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--soul-gold-dim); padding: 24px 0 12px;
+  display: flex; align-items: center; gap: 12px;
+}
+.section-header::before, .section-header::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+
+.btn-gold {
+  background: linear-gradient(135deg, #8a6d2b, #d4a942);
+  color: #0d0d0d; border: none; border-radius: 8px;
+  padding: 10px 24px; font-family: 'Cinzel', serif;
+  font-weight: 900; font-size: 13px; letter-spacing: 0.1em;
+  cursor: pointer; transition: all 0.15s;
+}
+.btn-gold:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-gold:active { transform: translateY(0); }
+
+@keyframes ember-rise {
+  0%   { transform: translateY(0) scale(1); opacity: 0.8; }
+  50%  { transform: translateY(-40px) scale(1.2) translateX(8px); opacity: 0.5; }
+  100% { transform: translateY(-90px) scale(0.4) translateX(-4px); opacity: 0; }
+}
+.ember {
+  position: absolute; width: 3px; height: 3px; border-radius: 50%;
+  background: var(--soul-ember); box-shadow: 0 0 6px var(--soul-ember);
+  animation: ember-rise var(--dur, 3.5s) ease-in infinite;
+  pointer-events: none;
 }
 
 @media (min-width: 641px) {

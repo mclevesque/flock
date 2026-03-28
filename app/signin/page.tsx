@@ -3,26 +3,27 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
+const BYPASS_USERS = ["peanut", "babachoo"];
+
 export default function SignInPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"signin" | "register" | "forgot">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState("")
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+
+  const isBypass = BYPASS_USERS.includes(username.trim().toLowerCase());
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setError(""); setLoading(true);
     const result = await signIn("credentials", { username, password, redirect: false });
     setLoading(false);
-    if (result?.error) {
-      setError("Wrong username or password.");
-    } else {
-      router.push("/profile");
-    }
+    if (result?.error) setError("Wrong username or password.");
+    else router.push("/");
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -34,135 +35,152 @@ export default function SignInPage() {
       body: JSON.stringify({ username, password, email: email || undefined }),
     });
     const data = await res.json();
-    if (!res.ok) {
-      setLoading(false);
-      setError(data.error ?? "Registration failed.");
-      return;
-    }
+    if (!res.ok) { setLoading(false); setError(data.error ?? "Registration failed."); return; }
     const result = await signIn("credentials", { username, password, redirect: false });
     setLoading(false);
-    if (result?.error) {
-      setError("Account created! Now sign in below.");
-      setTab("signin");
-    } else {
-      router.push("/profile");
-    }
+    if (result?.error) { setError("Account created! Sign in below."); setTab("signin"); }
+    else router.push("/");
   }
 
-  const tabStyle = (active: boolean) => ({
-    flex: 1, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-    background: active ? "var(--bg-elevated)" : "transparent",
-    border: "none", color: active ? "var(--accent-purple-bright)" : "var(--text-muted)",
-    borderBottom: active ? "2px solid var(--accent-purple)" : "2px solid transparent",
-    transition: "all 0.15s",
-  } as React.CSSProperties);
+  const input: React.CSSProperties = {
+    width: "100%", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8,
+    padding: "11px 14px", color: "#e8dcc8", fontSize: 15, outline: "none",
+    fontFamily: "inherit", boxSizing: "border-box",
+  };
+  const label: React.CSSProperties = {
+    display: "block", fontSize: 11, fontWeight: 700, color: "#8a6d2b",
+    marginBottom: 6, letterSpacing: "0.12em",
+  };
 
   return (
-    <div style={{ minHeight: "calc(100vh - 52px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          {/* RYFT wordmark with slash */}
-          <div style={{ position: "relative", display: "inline-block", padding: "8px 16px" }}>
-            {/* Glow orb — inline so it doesn't escape the flow */}
-            <div style={{
-              position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 16,
-              background: "radial-gradient(ellipse 120% 140% at 50% 50%, rgba(0,229,255,0.1) 0%, rgba(139,60,247,0.07) 55%, transparent 100%)",
-            }} />
-            <div style={{
-              fontSize: 72, fontWeight: 900, fontStyle: "italic",
-              letterSpacing: "1px", lineHeight: 1,
-              background: "linear-gradient(120deg, #00e5ff 0%, #a855f7 55%, #d946ef 100%)",
-              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-              filter: "drop-shadow(0 2px 20px rgba(0,229,255,0.45))",
-              position: "relative",
+    <div style={{
+      minHeight: "100dvh", background: "#0d0d0d", display: "flex",
+      flexDirection: "column", alignItems: "center", justifyContent: "center",
+      padding: 24, position: "relative", overflow: "hidden",
+    }}>
+      {/* Ember particles */}
+      {[18, 35, 52, 68, 24, 41, 59, 75].map((left, i) => (
+        <div key={i} style={{
+          position: "absolute", left: `${left}%`, bottom: `${10 + i * 3}%`,
+          width: 3, height: 3, borderRadius: "50%", background: "#c4531a",
+          boxShadow: "0 0 6px #c4531a",
+          animation: `ember ${3 + (i % 3) * 0.7}s ease-in infinite`,
+          animationDelay: `${i * 0.4}s`, pointerEvents: "none",
+        }} />
+      ))}
+
+      {/* Logo */}
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>🔥</div>
+        <h1 style={{
+          fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: "clamp(28px, 8vw, 42px)",
+          color: "#d4a942", margin: 0, letterSpacing: "0.12em", textTransform: "uppercase",
+        }}>
+          GREAT SOULS
+        </h1>
+        <p style={{ margin: "6px 0 0", color: "#555", fontSize: 11, letterSpacing: "0.28em", textTransform: "uppercase" }}>
+          A GATHERING OF LEGENDS
+        </p>
+      </div>
+
+      {/* Card */}
+      <div style={{ width: "100%", maxWidth: 380 }}>
+        {/* Tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #2a2a2a", marginBottom: 24 }}>
+          {(["signin", "register"] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); setError(""); }} style={{
+              flex: 1, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              background: "transparent", border: "none",
+              color: tab === t ? "#d4a942" : "#444",
+              borderBottom: tab === t ? "2px solid #d4a942" : "2px solid transparent",
+              fontFamily: "'Cinzel', serif", letterSpacing: "0.08em", transition: "all 0.15s",
             }}>
-              RYFT
-            </div>
-            {/* Flash — through the center of the text */}
-            <div style={{
-              position: "absolute",
-              top: "50%", left: "-14%",
-              width: "128%", height: 2,
-              background: "linear-gradient(90deg, transparent 0%, rgba(0,229,255,0.4) 10%, #00e5ff 30%, #ffffff 48%, #ffffff 52%, #d946ef 70%, rgba(217,70,239,0.4) 90%, transparent 100%)",
-              transform: "translateY(-50%) rotate(-4deg)",
-              boxShadow: "0 0 6px rgba(0,229,255,0.7), 0 0 16px rgba(217,70,239,0.4)",
-              pointerEvents: "none",
-            }} />
-          </div>
-          <p style={{ margin: "6px 0 0", color: "var(--text-muted)", fontSize: 12, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700 }}>
-            Hop in
-          </p>
+              {t === "signin" ? "ENTER THE HALL" : "JOIN THE RANKS"}
+            </button>
+          ))}
         </div>
 
-        {/* Tab selector */}
-        <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 24 }}>
-          <button style={tabStyle(tab === "signin")} onClick={() => { setTab("signin"); setError(""); }}>Sign In</button>
-          <button style={tabStyle(tab === "register")} onClick={() => { setTab("register"); setError(""); }}>Create Account</button>
-        </div>
-
-        <div className="panel" style={{ padding: 28 }}>
+        <div style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, padding: 28 }}>
           {tab === "signin" ? (
-            <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>USERNAME</label>
-                <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="yourname" required autoFocus
-                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
+                <label style={label}>YOUR NAME</label>
+                <input type="text" value={username}
+                  onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  placeholder="warrior" required autoFocus style={input} maxLength={20} />
               </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>PASSWORD</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
-              </div>
-              {error && <div style={{ background: "rgba(191,92,92,0.15)", border: "1px solid rgba(191,92,92,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#f08080" }}>{error}</div>}
-              <button type="submit" disabled={loading}
-                style={{ width: "100%", background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 15, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, marginTop: 4 }}>
-                {loading ? "Signing in..." : "Sign In"}
+              {!isBypass && (
+                <div>
+                  <label style={label}>PASSWORD</label>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••" required={!isBypass} style={input} />
+                </div>
+              )}
+              {isBypass && (
+                <div style={{ fontSize: 12, color: "#8a6d2b", textAlign: "center", padding: "4px 0" }}>
+                  ⚔️ Welcome back, legend. No password needed.
+                </div>
+              )}
+              {error && <div style={{ background: "rgba(196,83,26,0.15)", border: "1px solid rgba(196,83,26,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e07050" }}>{error}</div>}
+              <button type="submit" disabled={loading} style={{
+                width: "100%", background: loading ? "#2a2a2a" : "linear-gradient(135deg, #8a6d2b, #d4a942)",
+                color: loading ? "#555" : "#0d0d0d", border: "none", borderRadius: 8,
+                padding: 13, fontSize: 13, fontWeight: 900, cursor: loading ? "default" : "pointer",
+                fontFamily: "'Cinzel', serif", letterSpacing: "0.1em", marginTop: 4,
+              }}>
+                {loading ? "ENTERING..." : "ENTER THE HALL"}
               </button>
-              <p style={{ margin: 0, textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
-                <button type="button" onClick={() => { setTab("forgot"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Forgot password?</button>
-              </p>
-              <p style={{ margin: "4px 0 0", textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
-                No account? <button type="button" onClick={() => { setTab("register"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Create one →</button>
+              <p style={{ margin: "4px 0 0", textAlign: "center", fontSize: 12, color: "#444" }}>
+                <button type="button" onClick={() => { setTab("forgot"); setError(""); }}
+                  style={{ background: "none", border: "none", color: "#8a6d2b", cursor: "pointer", fontSize: 12 }}>
+                  Forgot password?
+                </button>
               </p>
             </form>
           ) : tab === "register" ? (
-            <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                Pick a username and password. Your profile goes live instantly.
+            <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "#666", lineHeight: 1.5 }}>
+                Choose your name, warrior. Your legend begins now.
               </p>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>USERNAME</label>
-                <input type="text" value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} placeholder="yourname" required autoFocus
-                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Letters, numbers, underscores only. This becomes your URL.</div>
+                <label style={label}>YOUR NAME</label>
+                <input type="text" value={username}
+                  onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  placeholder="warrior" required autoFocus style={input} maxLength={20} />
+                <div style={{ fontSize: 11, color: "#444", marginTop: 4 }}>Letters, numbers, underscores only.</div>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>EMAIL</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" required
-                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>For password resets only. Never shared.</div>
+                <label style={label}>EMAIL <span style={{ color: "#444", fontWeight: 400 }}>(optional)</span></label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="you@email.com" style={input} />
+                <div style={{ fontSize: 11, color: "#444", marginTop: 4 }}>For password resets only.</div>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>PASSWORD</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
+                <label style={label}>PASSWORD</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••" required style={input} />
               </div>
-              {error && <div style={{ background: "rgba(191,92,92,0.15)", border: "1px solid rgba(191,92,92,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#f08080" }}>{error}</div>}
-              <button type="submit" disabled={loading}
-                style={{ width: "100%", background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 15, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, marginTop: 4 }}>
-                {loading ? "Creating account..." : "Create Account"}
+              {error && <div style={{ background: "rgba(196,83,26,0.15)", border: "1px solid rgba(196,83,26,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e07050" }}>{error}</div>}
+              <button type="submit" disabled={loading} style={{
+                width: "100%", background: loading ? "#2a2a2a" : "linear-gradient(135deg, #8a6d2b, #d4a942)",
+                color: loading ? "#555" : "#0d0d0d", border: "none", borderRadius: 8,
+                padding: 13, fontSize: 13, fontWeight: 900, cursor: loading ? "default" : "pointer",
+                fontFamily: "'Cinzel', serif", letterSpacing: "0.1em", marginTop: 4,
+              }}>
+                {loading ? "FORGING LEGEND..." : "JOIN THE RANKS"}
               </button>
             </form>
           ) : (
-            /* Forgot password */
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {forgotSent ? (
                 <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
-                  <p style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>Check your email</p>
-                  <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.5 }}>If an account exists with that username or email, we sent a reset link. Check spam too.</p>
-                  <button onClick={() => { setTab("signin"); setForgotSent(false); setError(""); }} style={{ marginTop: 16, background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>← Back to sign in</button>
+                  <p style={{ color: "#e8dcc8", fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>Check your email</p>
+                  <p style={{ color: "#666", fontSize: 13, margin: 0, lineHeight: 1.5 }}>If an account exists, we sent a reset link.</p>
+                  <button onClick={() => { setTab("signin"); setForgotSent(false); setError(""); }}
+                    style={{ marginTop: 16, background: "none", border: "none", color: "#8a6d2b", cursor: "pointer", fontSize: 13 }}>
+                    ← Back to sign in
+                  </button>
                 </div>
               ) : (
                 <form onSubmit={async (e) => {
@@ -171,27 +189,44 @@ export default function SignInPage() {
                   setLoading(false);
                   if (res.ok) setForgotSent(true);
                   else { const d = await res.json(); setError(d.error ?? "Something went wrong."); }
-                }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>Enter your username or email and we&apos;ll send a reset link.</p>
+                }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#666", lineHeight: 1.5 }}>Enter your username or email for a reset link.</p>
                   <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.5px" }}>USERNAME OR EMAIL</label>
-                    <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="yourname or you@email.com" required autoFocus
-                      style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 15, outline: "none", fontFamily: "inherit" }} />
+                    <label style={label}>USERNAME OR EMAIL</label>
+                    <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+                      placeholder="warrior or you@email.com" required autoFocus style={input} />
                   </div>
-                  {error && <div style={{ background: "rgba(191,92,92,0.15)", border: "1px solid rgba(191,92,92,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#f08080" }}>{error}</div>}
-                  <button type="submit" disabled={loading}
-                    style={{ width: "100%", background: "linear-gradient(135deg, var(--accent-purple), var(--accent-blue))", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 15, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                    {loading ? "Sending..." : "Send Reset Link"}
+                  {error && <div style={{ background: "rgba(196,83,26,0.15)", border: "1px solid rgba(196,83,26,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#e07050" }}>{error}</div>}
+                  <button type="submit" disabled={loading} style={{
+                    width: "100%", background: loading ? "#2a2a2a" : "linear-gradient(135deg, #8a6d2b, #d4a942)",
+                    color: loading ? "#555" : "#0d0d0d", border: "none", borderRadius: 8,
+                    padding: 13, fontSize: 13, fontWeight: 900, cursor: loading ? "default" : "pointer",
+                    fontFamily: "'Cinzel', serif", letterSpacing: "0.1em",
+                  }}>
+                    {loading ? "SENDING..." : "SEND RESET LINK"}
                   </button>
-                  <button type="button" onClick={() => { setTab("signin"); setError(""); }} style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>← Back to sign in</button>
+                  <button type="button" onClick={() => { setTab("signin"); setError(""); }}
+                    style={{ background: "none", border: "none", color: "#8a6d2b", cursor: "pointer", fontSize: 12 }}>
+                    ← Back to sign in
+                  </button>
                 </form>
               )}
             </div>
           )}
         </div>
 
-        <p style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: "var(--text-muted)" }}>No ads. No tracking. No BS.</p>
+        <p style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#333" }}>
+          🔥 No ads. No tracking. Just legends.
+        </p>
       </div>
+
+      <style>{`
+        @keyframes ember {
+          0% { transform: translateY(0) scale(1); opacity: 0.8; }
+          50% { transform: translateY(-40px) scale(1.2) translateX(8px); opacity: 0.5; }
+          100% { transform: translateY(-90px) scale(0.4) translateX(-4px); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -28,6 +28,17 @@ const nextAuthConfig = NextAuth({
           return { id: WARRIOR_ID, name: "warrior", email: null, image: null };
         }
 
+        // ── Password-free bypass for named users ────────────────────────────
+        const BYPASS_USERS = ["peanut", "babachoo"];
+        const bypassCheck = (credentials?.username as string ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+        if (BYPASS_USERS.includes(bypassCheck)) {
+          try {
+            const existing = await getUserByUsername(bypassCheck);
+            if (!existing) return null;
+            return { id: existing.id as string, name: existing.username as string, email: null, image: null };
+          } catch { return null; }
+        }
+
         // ── Great Souls portal login (username only, no password) ────────────
         if (credentials?.gsPortal === "true") {
           const username = (credentials?.username as string ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");

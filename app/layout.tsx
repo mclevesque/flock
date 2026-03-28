@@ -13,18 +13,16 @@ import { PortalProvider } from "./components/PortalContext";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
 export const metadata: Metadata = {
-  title: "RYFT — Your space. No ads. Ever.",
-  description: "A platform for creators. Messenger + video hosting + profiles. Powered by members, not ads.",
+  title: "GREAT SOULS — A gathering of legends",
+  description: "Friends-only gaming hub. No ads. No tracking. Just legends.",
   manifest: "/manifest.json",
   icons: {
-    icon: "/RYFTLOGO.png",
-    apple: "/RYFTLOGO.png",
-    shortcut: "/RYFTLOGO.png",
+    icon: "/favicon.ico",
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "RYFT",
+    title: "Great Souls",
   },
 };
 
@@ -39,7 +37,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${geist.variable} antialiased`}>
+      <body className={`${geist.variable} antialiased gs-theme`}>
         <SessionWrapper>
           <PortalProvider>
           <VoiceProvider>
