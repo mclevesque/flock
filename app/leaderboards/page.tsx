@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 
-type Tab = "overview" | "chess" | "outbreak" | "poker" | "quiz";
+type Tab = "overview" | "chess" | "outbreak" | "quiz";
 
 const DIFFICULTIES = [
   { id: 1, label: "CASUAL" },
@@ -150,7 +150,6 @@ export default function LeaderboardsPage() {
     { id: "overview", label: "OVERVIEW", emoji: "🏆" },
     { id: "chess",    label: "CHESS",    emoji: "♟️" },
     { id: "outbreak", label: "OUTBREAK", emoji: "🧟" },
-    { id: "poker",    label: "POKER",    emoji: "🃏" },
     { id: "quiz",     label: "QUIZ",     emoji: "🧠" },
   ];
 
@@ -166,7 +165,7 @@ export default function LeaderboardsPage() {
         <h1 style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em", color: "var(--text-primary)", margin: "0 0 4px", textTransform: "uppercase" }}>
           🏆 Leaderboards
         </h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>The eternal rankings of RYFT</p>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>The eternal rankings of Great Souls</p>
       </div>
 
       {/* Tab bar */}
@@ -220,11 +219,6 @@ export default function LeaderboardsPage() {
             <ViewAll onClick={() => setTab("quiz")} />
           </Card>
 
-          <Card>
-            <CardTitle>🃏 POKER CHIPS</CardTitle>
-            <p style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: "12px 0" }}>No games yet</p>
-            <ViewAll onClick={() => setTab("poker")} />
-          </Card>
         </div>
       )}
 
@@ -272,14 +266,6 @@ export default function LeaderboardsPage() {
             )}
           </Card>
         </>
-      )}
-
-      {/* ── POKER ── */}
-      {tab === "poker" && (
-        <Card>
-          <CardTitle>🃏 POKER — LIFETIME CHIPS</CardTitle>
-          <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No games yet.</p>
-        </Card>
       )}
 
       {/* ── QUIZ ── */}

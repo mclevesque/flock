@@ -12,9 +12,7 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const sName = (session.user as { name?: string | null }).name ?? "";
-  if (!ADMIN_USERS.includes(sName.toLowerCase())) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const isAdmin = ADMIN_USERS.includes(sName.toLowerCase());
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -22,6 +20,12 @@ export async function POST(req: Request) {
 
   if (!file || !targetUserId) {
     return NextResponse.json({ error: "file and targetUserId required" }, { status: 400 });
+  }
+
+  // Allow if admin OR uploading to own account
+  const sessionUserId = (session.user as { id?: string }).id ?? "";
+  if (!isAdmin && sessionUserId !== targetUserId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const buffer = await file.arrayBuffer();

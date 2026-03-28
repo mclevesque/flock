@@ -1,11 +1,9 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { actionSendFriendRequest, actionAcceptFriendRequest } from "@/lib/actions";
+import { actionSendFriendRequest, actionAcceptFriendRequest, actionPostWallComment } from "@/lib/actions";
 import ProfileMusicPlayer from "@/app/components/ProfileMusicPlayer";
 import { useVoice } from "@/app/components/VoiceWidget";
-import { VIBE_TAGS } from "@/app/vibe/vibeData";
-import { useVibe } from "@/app/components/VibePlayer";
 import { friendAdded, drop as dropSound, pop } from "@/app/components/sounds";
 import StoryViewer from "@/app/components/StoryViewer";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
@@ -35,7 +33,8 @@ interface ChessGame {
   updated_at: string; moves: string[];
 }
 
-interface Video { id: number; title: string; url: string; views: number; created_at: string; }
+interface WallPost { id: number; author_id: string; content: string; created_at: string; username: string; avatar_url: string; }
+interface WallReply { id: number; post_id: number; author_id: string; content: string; created_at: string; username: string; avatar_url: string | null; parent_id?: number | null; edited_at?: string | null; }
 interface Friendship { status: string; requester_id: string; }
 interface Friend { id: string; username: string; display_name: string; avatar_url: string; }
 
@@ -50,28 +49,18 @@ interface Privileges {
 
 interface Props {
   user: User | null;
-  videos: Video[];
+  wallPosts: WallPost[];
+  initialReplies?: Record<number, WallReply[]>;
   friendship: Friendship | null;
   friends: Friend[];
   sessionUserId: string | null;
   sessionUsername: string | null;
   username: string;
-  storageBytes: number;
   lastChessGame: ChessGame | null;
   lastSnesGame: SnesGame | null;
   privileges: Privileges | null;
   adventureStats: { level: number; xp: number; class: string | null; wins: number; quests_completed: number } | null;
 }
-
-
-
-const VIDEO_GRADIENTS = [
-  "linear-gradient(135deg, #1a0a2e, #3d1b6e)",
-  "linear-gradient(135deg, #0a1a2e, #1b3d6e)",
-  "linear-gradient(135deg, #0a2e1a, #1b6e3d)",
-];
-
-const STORAGE_LIMIT = 1 * 1024 * 1024 * 1024; // 1 GB
 
 function extractYouTubeId(text: string): string | null {
   const patterns = [
@@ -89,23 +78,31 @@ function stripYouTubeUrl(text: string): string {
   return text.replace(/https?:\/\/(www\.)?(youtube\.com\/(watch\?[^\s]*|shorts\/[^\s]*|embed\/[^\s]*)|youtu\.be\/[^\s]*)/g, "").trim();
 }
 
-function fmtBytes(b: number) {
-  if (b >= 1024 * 1024 * 1024) return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
-  if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
-  return `${b} B`;
-}
-
 const MODERATORS = ["mclevesque"];
 
-export default function ProfileClient({ user, videos, friendship, friends, sessionUserId, sessionUsername, username, storageBytes, lastChessGame, lastSnesGame, privileges: initialPrivileges, adventureStats }: Props) {
+export default function ProfileClient({ user, wallPosts: initialWallPosts, initialReplies, friendship, friends, sessionUserId, sessionUsername, username, lastChessGame, lastSnesGame, privileges: initialPrivileges, adventureStats }: Props) {
   const isMod = MODERATORS.includes((sessionUsername ?? "").toLowerCase());
   const [privileges, setPrivileges] = useState<Privileges>(initialPrivileges ?? { snes_access: true, can_post: true, can_comment: true, can_voice: true, site_ban_until: null });
   const [privSaving, setPrivSaving] = useState(false);
   const [privSaved, setPrivSaved] = useState(false);
-  const [vibeInterests, setVibeInterests] = useState<string[]>([]);
-  const { setInterests: setMyVibe, play: playVibe, playlist: vibePlaylist, playing: vibePlaying, pause: vibePause, stop: vibeStop } = useVibe();
-  const [profileTab, setProfileTab] = useState<"videos" | "vibe">("videos");
+  const [wallPosts, setWallPosts] = useState(initialWallPosts);
+  const [wallInput, setWallInput] = useState("");
+  const [wallError, setWallError] = useState("");
+  const [replies, setReplies] = useState<Record<number, WallReply[]>>(initialReplies ?? {});
+  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(() => {
+    return new Set(Object.keys(initialReplies ?? {}).map(Number).filter(id => (initialReplies?.[id]?.length ?? 0) > 0));
+  });
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyInput, setReplyInput] = useState("");
+  const [replyLoading, setReplyLoading] = useState<number | null>(null);
+  const [editingReply, setEditingReply] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [replyingToReply, setReplyingToReply] = useState<{ replyId: number; username: string; postId: number } | null>(null);
+  const [nestedReplyInput, setNestedReplyInput] = useState("");
+  const [nestedReplyLoading, setNestedReplyLoading] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [deletingPost, setDeletingPost] = useState<number | null>(null);
+  const [deletingReply, setDeletingReply] = useState<number | null>(null);
   const [friendStatus, setFriendStatus] = useState(friendship?.status ?? null);
   const [showGames, setShowGames] = useState(false);
   const [launchingGame, setLaunchingGame] = useState(false);
@@ -146,14 +143,6 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
   const touchDragOver = useRef<number | null>(null);
   const friendsGridRef = useRef<HTMLDivElement>(null);
 
-  // Load vibe interests for this profile
-  useEffect(() => {
-    fetchWithTimeout(`/api/vibe?username=${encodeURIComponent(username)}`, {}, 5000)
-      .then(r => r.json())
-      .then(d => { if (Array.isArray(d.interests)) setVibeInterests(d.interests); })
-      .catch(() => {});
-  }, [username]);
-
   // Native (non-passive) touchmove so preventDefault() actually works and stops page scroll
   useEffect(() => {
     const grid = friendsGridRef.current;
@@ -179,7 +168,7 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
   const avatar = user?.id ? `/api/avatar/${user.id}?v=2` : `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`;
   const displayName = user?.display_name || username;
 
-  const displayVideos = videos;
+  const displayWallPosts = wallPosts;
 
   const profileTrack = user?.profile_song_url ? {
     title: user.profile_song_title || "Ginseng Strip 2002",
@@ -222,6 +211,125 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
       return next;
     });
     dropSound();
+  }
+
+  async function handleWallPost() {
+    if (!wallInput.trim() || !user || !sessionUserId) return;
+    setWallError("");
+    try {
+      await actionPostWallComment(user.id, wallInput.trim());
+      setWallPosts(prev => [{
+        id: Date.now(), author_id: sessionUserId, content: wallInput.trim(),
+        created_at: new Date().toISOString(), username: "you", avatar_url: avatar,
+      }, ...prev]);
+      setWallInput("");
+    } catch (e: unknown) {
+      setWallError(e instanceof Error ? e.message : "Failed to post");
+    }
+  }
+
+  async function submitReply(postId: number) {
+    const content = replyInput.trim();
+    if (!content || !sessionUserId) return;
+    setReplyLoading(postId);
+    setReplyError(null);
+    setReplyInput("");
+    try {
+      const res = await fetch("/api/wall-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId, content }),
+      });
+      if (res.ok) {
+        const updated = await res.json() as WallReply[];
+        setReplies(prev => ({ ...prev, [postId]: Array.isArray(updated) ? updated : prev[postId] ?? [] }));
+        setExpandedReplies(prev => { const n = new Set(prev); n.add(postId); return n; });
+        setReplyingTo(null);
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        setReplyInput(content);
+        setReplyError(body.error ?? "Couldn't send reply — try again");
+      }
+    } catch {
+      setReplyInput(content);
+      setReplyError("Network error — check connection and try again");
+    } finally {
+      setReplyLoading(null);
+    }
+  }
+
+  async function handleDeletePost(postId: number) {
+    if (!confirm("Delete this wall post?")) return;
+    setDeletingPost(postId);
+    try {
+      const res = await fetch(`/api/wall-post?id=${postId}`, { method: "DELETE" });
+      if (res.ok) {
+        setWallPosts(prev => prev.filter(p => p.id !== postId));
+        setReplies(prev => { const n = { ...prev }; delete n[postId]; return n; });
+      }
+    } catch { /* ignore */ } finally {
+      setDeletingPost(null);
+    }
+  }
+
+  async function handleDeleteReply(replyId: number, postId: number) {
+    if (!confirm("Delete this reply?")) return;
+    setDeletingReply(replyId);
+    try {
+      const res = await fetch(`/api/wall-reply?id=${replyId}`, { method: "DELETE" });
+      if (res.ok) {
+        setReplies(prev => ({
+          ...prev,
+          [postId]: (prev[postId] ?? []).filter(r => r.id !== replyId),
+        }));
+      }
+    } catch { /* ignore */ } finally {
+      setDeletingReply(null);
+    }
+  }
+
+  async function handleEditReply(replyId: number, postId: number) {
+    if (!editContent.trim()) return;
+    try {
+      const res = await fetch("/api/wall-reply", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: replyId, content: editContent.trim() }),
+      });
+      if (res.ok) {
+        setReplies(prev => ({
+          ...prev,
+          [postId]: (prev[postId] ?? []).map(r =>
+            r.id === replyId ? { ...r, content: editContent.trim(), edited_at: new Date().toISOString() } : r
+          ),
+        }));
+        setEditingReply(null);
+        setEditContent("");
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function submitNestedReply() {
+    if (!nestedReplyInput.trim() || !replyingToReply || !sessionUserId) return;
+    setNestedReplyLoading(true);
+    const { replyId, postId } = replyingToReply;
+    const content = nestedReplyInput.trim();
+    setNestedReplyInput("");
+    try {
+      const res = await fetch("/api/wall-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId, content, parentId: replyId }),
+      });
+      if (res.ok) {
+        const updated = await res.json() as WallReply[];
+        setReplies(prev => ({ ...prev, [postId]: updated }));
+        setExpandedReplies(prev => { const n = new Set(prev); n.add(postId); return n; });
+        setReplyingToReply(null);
+      }
+    } catch { /* ignore */ } finally {
+      setNestedReplyLoading(false);
+    }
   }
 
   // Touch drag handlers for mobile friend reorder
@@ -278,11 +386,11 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
                 alt={displayName}
                 onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`; (e.currentTarget as HTMLImageElement).onerror = null; }}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}
-                onClick={e => { if (!profileStory && isMod) { e.stopPropagation(); avatarInputRef.current?.click(); } }}
+                onClick={e => { if (!profileStory && (isMod || isOwn)) { e.stopPropagation(); avatarInputRef.current?.click(); } }}
               />
             </div>
           </div>
-          {isMod && (
+          {(isMod || isOwn) && (
             <div
               onClick={() => avatarInputRef.current?.click()}
               style={{ position: "absolute", inset: 0, borderRadius: 20, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity 0.2s", cursor: "pointer", fontSize: 28 }}
@@ -414,48 +522,6 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
             </div>
           </div>
 
-          {/* ── Vibe Mix ─────────────────────────────────────────────────── */}
-          {vibeInterests.length > 0 && (
-            <div className="panel">
-              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>⚡ Vibe Mix</span>
-                {isOwn && (
-                  <Link href="/vibe" style={{ fontSize: 11, color: "var(--accent-purple-bright)", textDecoration: "none", fontWeight: 600 }}>Edit →</Link>
-                )}
-              </div>
-              <div style={{ padding: "10px 14px" }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                  {vibeInterests.map(id => {
-                    const tag = VIBE_TAGS.find(t => t.id === id);
-                    return tag ? (
-                      <span key={id} style={{
-                        background: `${tag.color}18`, border: `1px solid ${tag.color}44`,
-                        borderRadius: 20, padding: "3px 10px", fontSize: 12, color: tag.color, fontWeight: 700,
-                      }}>{tag.emoji} {tag.label}</span>
-                    ) : null;
-                  })}
-                </div>
-                {isOwn ? (
-                  <Link href="/vibe" style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    background: "linear-gradient(135deg,#7c3aed,#a855f7)", border: "none",
-                    borderRadius: 8, padding: "7px 16px", color: "#fff", fontSize: 13,
-                    fontWeight: 700, textDecoration: "none",
-                  }}>▶ Open My Vibe</Link>
-                ) : (
-                  <button
-                    onClick={() => { setMyVibe(vibeInterests); playVibe(); }}
-                    style={{
-                      background: "linear-gradient(135deg,#7c3aed,#a855f7)", border: "none",
-                      borderRadius: 8, padding: "7px 16px", color: "#fff", fontSize: 13,
-                      fontWeight: 700, cursor: "pointer",
-                    }}
-                  >▶ Play {user?.display_name || username}&apos;s Vibe</button>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Friends */}
           <div className="panel">
             <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -539,36 +605,6 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
             </div>
           </div>
 
-          {/* Storage usage — visible to all visitors */}
-          <div className="panel">
-            <div className="panel-header" style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Storage</span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>{fmtBytes(storageBytes)} / 1 GB</span>
-            </div>
-            <div style={{ padding: "10px 14px" }}>
-              <div style={{ background: "var(--bg-elevated)", borderRadius: 6, height: 8, overflow: "hidden", marginBottom: 6 }}>
-                <div style={{
-                  height: "100%",
-                  width: `${Math.min(100, (storageBytes / STORAGE_LIMIT) * 100).toFixed(1)}%`,
-                  background: storageBytes / STORAGE_LIMIT > 0.9
-                    ? "linear-gradient(90deg, #e05555, #f08080)"
-                    : storageBytes / STORAGE_LIMIT > 0.7
-                    ? "linear-gradient(90deg, #d4a017, #f0c040)"
-                    : "linear-gradient(90deg, var(--accent-purple), var(--accent-blue))",
-                  borderRadius: 6,
-                  transition: "width 0.4s ease",
-                }} />
-              </div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                {isOwn ? `${fmtBytes(STORAGE_LIMIT - storageBytes)} remaining · ` : ""}{videos.length} video{videos.length !== 1 ? "s" : ""} uploaded
-              </div>
-              {isOwn && (
-                <div style={{ marginTop: 8 }}>
-                  <a href="/profile/edit" style={{ fontSize: 11, color: "var(--accent-purple-bright)", textDecoration: "none" }}>Manage in Edit Profile →</a>
-                </div>
-              )}
-            </div>
-          </div>
 
           {/* Town Adventure Stats */}
           {adventureStats && (adventureStats.level > 1 || adventureStats.quests_completed > 0) && (() => {
@@ -747,118 +783,208 @@ export default function ProfileClient({ user, videos, friendship, friends, sessi
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Tab bar */}
-          <div style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--border)", paddingBottom: 0 }}>
-            {[
-              { key: "videos", label: `🎬 Videos (${videos.length})` },
-              { key: "vibe", label: "⚡ Vibe" },
-            ].map(t => (
-              <button key={t.key} onClick={() => setProfileTab(t.key as "videos" | "vibe")}
-                style={{
-                  background: "none", border: "none", borderBottom: profileTab === t.key ? "2px solid var(--accent-purple-bright)" : "2px solid transparent",
-                  marginBottom: -1, padding: "8px 16px", fontSize: 13, fontWeight: profileTab === t.key ? 800 : 500,
-                  color: profileTab === t.key ? "var(--accent-purple-bright)" : "var(--text-muted)", cursor: "pointer",
-                }}
-              >{t.label}</button>
-            ))}
-          </div>
-
-          {/* Videos tab */}
-          {profileTab === "videos" && displayVideos.length > 0 && (
-            <div className="panel">
-              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Videos <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>({videos.length})</span></span>
-              </div>
-              <div style={{ padding: 14 }}>
-                <div className="video-grid-3">
-                  {displayVideos.map((vid, i) => (
-                    <div key={vid.id} className="video-card" style={{ textDecoration: "none" }}>
-                      <div style={{ aspectRatio: "16/9", borderRadius: 8, marginBottom: 7, border: "1px solid var(--border)", overflow: "hidden", position: "relative", background: VIDEO_GRADIENTS[i % VIDEO_GRADIENTS.length] }}>
-                        {vid.url ? (
-                          <video
-                            src={vid.url}
-                            muted
-                            preload="metadata"
-                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                            onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = 1; }}
-                          />
-                        ) : (
-                          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, color: "rgba(255,255,255,0.3)" }}>▶</div>
-                        )}
-                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity 0.15s", background: "rgba(0,0,0,0.3)" }} className="video-thumb-overlay">
-                          <span style={{ fontSize: 28, color: "#fff" }}>▶</span>
+          <div className="panel">
+            <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Wall</span>
+              {isOwn && (
+                <Link href="/profile/edit" style={{ fontSize: 11, color: "var(--text-muted)", textDecoration: "none", opacity: 0.7 }}>⚙ Privacy settings</Link>
+              )}
+            </div>
+            <div style={{ padding: 14 }}>
+              {sessionUserId && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <img src={avatar} onError={e => { (e.currentTarget as HTMLImageElement).src = `/api/avatar/${user?.id ?? "placeholder"}`; (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0 }} alt="you" />
+                    <div style={{ flex: 1, display: "flex", gap: 8 }}>
+                      <textarea
+                        value={wallInput}
+                        onChange={e => setWallInput(e.target.value)}
+                        placeholder="Leave a comment..."
+                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text-primary)", fontSize: 13, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 60 }}
+                      />
+                      <button onClick={() => { handleWallPost(); }} style={{ alignSelf: "flex-end", background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Post</button>
+                    </div>
+                  </div>
+                  {wallError && <div style={{ fontSize: 12, color: "#f08080", marginTop: 6, paddingLeft: 42 }}>{wallError}</div>}
+                </div>
+              )}
+              {displayWallPosts.length === 0 && (
+                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-muted)", fontSize: 13 }}>
+                  No posts yet — be the first to leave a message!
+                </div>
+              )}
+              {displayWallPosts.map(post => {
+                const postReplies = replies[post.id] ?? [];
+                const replyCount = postReplies.length;
+                const showingInput = replyingTo === post.id;
+                return (
+                  <div key={post.id} style={{ marginBottom: 4 }}>
+                    <div style={{ display: "flex", gap: 10, padding: "12px 0" }}>
+                      <img src={`/api/avatar/${post.author_id}?v=2`} onError={e => { (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0, marginTop: 1 }} alt={post.username} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4, flexWrap: "wrap" }}>
+                          <Link href={`/profile/${post.username}`} style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{post.username}</Link>
+                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{new Date(post.created_at).toLocaleDateString()}</span>
+                        </div>
+                        {(() => {
+                          const ytId = extractYouTubeId(post.content);
+                          const textOnly = ytId ? stripYouTubeUrl(post.content) : post.content;
+                          return (
+                            <>
+                              {textOnly && <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>{textOnly}</p>}
+                              {ytId && (
+                                <div style={{ position: "relative", width: "100%", paddingBottom: "56.25%", borderRadius: 10, overflow: "hidden", background: "#000", marginBottom: 8 }}>
+                                  <iframe
+                                    src={`https://www.youtube-nocookie.com/embed/${ytId}?controls=1&rel=0&modestbranding=1`}
+                                    style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                                    allow="encrypted-media; picture-in-picture"
+                                    allowFullScreen
+                                    loading="lazy"
+                                    title="YouTube video"
+                                  />
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          {sessionUserId && (
+                            <button
+                              onClick={() => {
+                                if (showingInput) { setReplyingTo(null); setReplyInput(""); }
+                                else {
+                                  setReplyingTo(post.id); setReplyInput("");
+                                  setExpandedReplies(prev => { const n = new Set(prev); n.add(post.id); return n; });
+                                }
+                              }}
+                              style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}
+                            >
+                              {showingInput ? "✕ Cancel" : "💬 Reply"}
+                            </button>
+                          )}
+                          {replyCount > 0 && (
+                            <button
+                              onClick={() => setExpandedReplies(prev => {
+                                const n = new Set(prev);
+                                if (n.has(post.id)) n.delete(post.id); else n.add(post.id);
+                                return n;
+                              })}
+                              style={{ background: "none", border: "none", color: "var(--accent-purple-bright)", fontSize: 11, cursor: "pointer", padding: 0, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}
+                            >
+                              {expandedReplies.has(post.id) ? "▲" : "▼"} {replyCount} repl{replyCount === 1 ? "y" : "ies"}
+                            </button>
+                          )}
+                          {sessionUserId && (sessionUserId === post.author_id || sessionUserId === user?.id) && (
+                            <button
+                              onClick={() => handleDeletePost(post.id)}
+                              disabled={deletingPost === post.id}
+                              title="Delete post"
+                              style={{ background: "none", border: "none", color: "#ef4444", fontSize: 11, cursor: "pointer", padding: 0, opacity: 0.7, marginLeft: "auto" }}
+                            >{deletingPost === post.id ? "…" : "🗑"}</button>
+                          )}
                         </div>
                       </div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3 }}>{vid.title}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{vid.views >= 1000 ? `${(vid.views / 1000).toFixed(1)}k` : vid.views} views</div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Vibe tab */}
-          {profileTab === "vibe" && (() => {
-            const customInterests = vibeInterests.filter(id => id.startsWith("custom:"));
-            const curatedInterests = vibeInterests.filter(id => !id.startsWith("custom:"));
-            return (
-              <div className="panel">
-                <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>⚡ {isOwn ? "My" : `${user?.display_name ?? username}'s`} Vibe Mix</span>
-                  {isOwn && (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {vibePlaying && (
-                        <button onClick={() => vibePause()} style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "#c084fc", cursor: "pointer", fontWeight: 700 }}>⏸ Pause</button>
-                      )}
-                      <button onClick={() => vibeStop()} style={{ background: "rgba(255,100,100,0.1)", border: "1px solid rgba(255,100,100,0.3)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "#f87171", cursor: "pointer", fontWeight: 700 }}>✕ Stop</button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding: 14 }}>
-                  {vibeInterests.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "24px 0" }}>
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>⚡</div>
-                      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-                        {isOwn ? "You haven't set up your Vibe mix yet." : `${user?.display_name ?? username} hasn't set up their Vibe mix yet.`}
-                      </div>
-                      {isOwn && (
-                        <Link href="/vibe" style={{ display: "inline-block", background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "#fff", textDecoration: "none", borderRadius: 10, padding: "8px 20px", fontSize: 13, fontWeight: 800 }}>⚡ Set Up My Vibe</Link>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                        {curatedInterests.map(id => {
-                          const tag = VIBE_TAGS.find(t => t.id === id);
-                          return tag ? (
-                            <span key={id} style={{ background: `${tag.color}22`, border: `1px solid ${tag.color}55`, borderRadius: 20, padding: "3px 10px", fontSize: 12, color: tag.color, fontWeight: 700 }}>{tag.emoji} {tag.label}</span>
-                          ) : null;
+                    {(expandedReplies.has(post.id) && postReplies.length > 0 || showingInput) && (
+                      <div style={{ marginLeft: 36, borderLeft: "2px solid rgba(124,58,237,0.18)", paddingLeft: 12, marginBottom: 8 }}>
+                        {postReplies.map(r => {
+                          const isMyReply = sessionUserId === r.author_id;
+                          const canDelete = sessionUserId && (isMyReply || sessionUserId === user?.id);
+                          const parentReply = r.parent_id ? postReplies.find(p => p.id === r.parent_id) : null;
+                          const isEditing = editingReply === r.id;
+                          return (
+                            <div key={r.id} style={{ marginBottom: 10, marginLeft: r.parent_id ? 20 : 0 }}>
+                              <div style={{ display: "flex", gap: 7 }}>
+                                <img src={`/api/avatar/${r.author_id}?v=2`} onError={e => { (e.currentTarget as HTMLImageElement).onerror = null; }} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid var(--border)", flexShrink: 0, marginTop: 1 }} alt={r.username} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2, flexWrap: "wrap" }}>
+                                    <Link href={`/profile/${r.username}`} style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{r.username}</Link>
+                                    {parentReply && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>→ @{parentReply.username}</span>}
+                                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
+                                    {r.edited_at && <span style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>(edited)</span>}
+                                  </div>
+                                  {isEditing ? (
+                                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                                      <textarea
+                                        value={editContent}
+                                        onChange={e => setEditContent(e.target.value)}
+                                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", color: "var(--text-primary)", fontSize: 12, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 50 }}
+                                      />
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <button onClick={() => handleEditReply(r.id, post.id)} style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>Save</button>
+                                        <button onClick={() => { setEditingReply(null); setEditContent(""); }} style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p style={{ margin: "0 0 4px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>{r.content}</p>
+                                  )}
+                                  {!isEditing && (
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      {sessionUserId && (
+                                        <button
+                                          onClick={() => {
+                                            setReplyingToReply({ replyId: r.id, username: r.username, postId: post.id });
+                                            setExpandedReplies(prev => { const n = new Set(prev); n.add(post.id); return n; });
+                                          }}
+                                          style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: 0 }}
+                                        >↩ Reply</button>
+                                      )}
+                                      {isMyReply && (
+                                        <button onClick={() => { setEditingReply(r.id); setEditContent(r.content); }} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: 0 }}>✏ Edit</button>
+                                      )}
+                                      {canDelete && (
+                                        <button onClick={() => handleDeleteReply(r.id, post.id)} disabled={deletingReply === r.id} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 10, cursor: "pointer", padding: 0, opacity: 0.7 }}>
+                                          {deletingReply === r.id ? "…" : "🗑"}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                  {replyingToReply?.replyId === r.id && (
+                                    <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+                                      <textarea
+                                        value={nestedReplyInput}
+                                        onChange={e => setNestedReplyInput(e.target.value)}
+                                        placeholder={`Reply to @${r.username}...`}
+                                        style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", color: "var(--text-primary)", fontSize: 12, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 46 }}
+                                      />
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <button onClick={submitNestedReply} disabled={nestedReplyLoading} style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>Send</button>
+                                        <button onClick={() => setReplyingToReply(null)} style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>✕</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
                         })}
-                        {customInterests.map(id => (
-                          <span key={id} style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 20, padding: "3px 10px", fontSize: 12, color: "#c084fc", fontWeight: 700 }}>✨ {id.slice("custom:".length)}</span>
-                        ))}
+                        {showingInput && (
+                          <div style={{ display: "flex", gap: 7, marginTop: 6 }}>
+                            <img src={avatar} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid var(--border)", flexShrink: 0 }} alt="you" />
+                            <div style={{ flex: 1, display: "flex", gap: 6 }}>
+                              <textarea
+                                value={replyInput}
+                                onChange={e => setReplyInput(e.target.value)}
+                                placeholder="Write a reply..."
+                                style={{ flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", color: "var(--text-primary)", fontSize: 12, resize: "none", outline: "none", fontFamily: "inherit", minHeight: 46 }}
+                              />
+                              <button onClick={() => submitReply(post.id)} disabled={replyLoading === post.id} style={{ alignSelf: "flex-end", background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                {replyLoading === post.id ? "…" : "Send"}
+                              </button>
+                            </div>
+                            {replyError && (
+                              <div style={{ fontSize: 11, color: "#f87171", paddingLeft: 2 }}>{replyError}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        {!vibePlaying && (
-                          <button
-                            onClick={() => { setMyVibe(vibeInterests); playVibe(); }}
-                            style={{ flex: 1, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 10, padding: "10px", fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer" }}
-                          >▶ {isOwn ? "Play My Mix" : `Play ${user?.display_name ?? username}'s Mix`}</button>
-                        )}
-                        {vibePlaying && vibePlaylist.length > 0 && (
-                          <div style={{ flex: 1, background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 10, padding: "10px", textAlign: "center", fontSize: 13, color: "#c084fc", fontWeight: 700 }}>⚡ Playing in mini player</div>
-                        )}
-                        {isOwn && (
-                          <Link href="/vibe" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "var(--text-muted)", textDecoration: "none", fontWeight: 600, display: "flex", alignItems: "center" }}>Edit</Link>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
+                    )}
+                    <div style={{ borderBottom: "1px solid var(--border)" }} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
         </div>
       </div>

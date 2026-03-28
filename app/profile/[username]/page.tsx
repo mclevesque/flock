@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { getUserByUsername, getVideosByUser, getFriendshipStatus, getFriends, getUserStorageBytes, getLastChessGame, getLastSnesGame, getPrivileges, getOrCreateAdventureStats } from "@/lib/db";
+import { getUserByUsername, getWallPosts, getWallRepliesBatch, getFriendshipStatus, getFriends, getLastChessGame, getLastSnesGame, getPrivileges, getOrCreateAdventureStats } from "@/lib/db";
 import { auth } from "@/auth";
 import { notFound } from "next/navigation";
 import ProfileClient from "./ProfileClient";
@@ -8,7 +8,7 @@ import ProfileClient from "./ProfileClient";
 export default async function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
 
-  let user, videos, friendship, friends, session, storageBytes, lastChessGame, lastSnesGame, privileges, adventureStats;
+  let user, wallPosts, friendship, friends, session, lastChessGame, lastSnesGame, privileges, adventureStats;
   try {
     [user, session] = await Promise.all([
       getUserByUsername(username),
@@ -16,18 +16,26 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
     ]);
     if (!user) notFound();
     const uid = user.id as string;
-    [videos, friendship, friends, storageBytes, lastChessGame, lastSnesGame, privileges, adventureStats] = await Promise.all([
-      getVideosByUser(uid).catch(() => []),
+    [wallPosts, friendship, friends, lastChessGame, lastSnesGame, privileges, adventureStats] = await Promise.all([
+      getWallPosts(uid).catch(() => []),
       session?.user?.id ? getFriendshipStatus(session.user.id, uid).catch(() => null) : Promise.resolve(null),
       getFriends(uid).catch(() => []),
-      getUserStorageBytes(uid).catch(() => 0),
       getLastChessGame(uid).catch(() => null),
       getLastSnesGame(uid).catch(() => null),
       getPrivileges(uid).catch(() => null),
       getOrCreateAdventureStats(uid).catch(() => null),
     ]);
   } catch {
-    return <ProfileClient user={null} videos={[]} friendship={null} friends={[]} sessionUserId={null} sessionUsername={null} username={username} storageBytes={0} lastChessGame={null} lastSnesGame={null} privileges={null} adventureStats={null} />;
+    return <ProfileClient user={null} wallPosts={[]} initialReplies={{}} friendship={null} friends={[]} sessionUserId={null} sessionUsername={null} username={username} lastChessGame={null} lastSnesGame={null} privileges={null} adventureStats={null} />;
+  }
+
+  // Batch-load all replies SSR
+  const postIds = (wallPosts as { id: number }[]).map(p => p.id);
+  const allReplies = postIds.length > 0 ? await getWallRepliesBatch(postIds).catch(() => []) : [];
+  const initialReplies: Record<number, unknown[]> = {};
+  for (const r of allReplies as { post_id: number }[]) {
+    if (!initialReplies[r.post_id]) initialReplies[r.post_id] = [];
+    initialReplies[r.post_id].push(r);
   }
 
   return (
@@ -35,7 +43,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       user={user as any}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      videos={videos as any}
+      wallPosts={wallPosts as any}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      initialReplies={initialReplies as any}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       friendship={friendship as any}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,7 +53,6 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
       sessionUserId={session?.user?.id ?? null}
       sessionUsername={session?.user?.name ?? null}
       username={username}
-      storageBytes={storageBytes as number ?? 0}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       lastChessGame={lastChessGame as any ?? null}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

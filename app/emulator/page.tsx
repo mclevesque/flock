@@ -21,9 +21,7 @@ export default async function EmulatorPage() {
       getActiveEmulatorRooms(),
     ]);
     if (session?.user?.id) {
-      const priv = await getPrivileges(session.user.id).catch(() => null);
-      // Default to TRUE — all users have SNES access unless explicitly revoked
-      hasSnesAccess = priv?.snes_access ?? true;
+      hasSnesAccess = true; // all logged-in users have SNES access
     } else {
       hasSnesAccess = false; // not logged in
     }

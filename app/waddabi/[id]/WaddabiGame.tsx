@@ -754,8 +754,8 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
               onTouchMove={onTouchMove}
               onTouchEnd={e => { e.preventDefault(); endStroke(); }}
             />
-            {phase === "lobby" && <LobbyOverlay />}
-            {phase === "choosing" && <ChoosingOverlay />}
+            {phase === "lobby" && LobbyOverlay()}
+            {phase === "choosing" && ChoosingOverlay()}
             {phase === "roundEnd" && <RoundEndOverlay />}
             {phase === "gameOver" && <GameOverOverlay />}
           </div>
