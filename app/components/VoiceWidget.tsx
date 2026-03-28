@@ -1976,7 +1976,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                           const timeStr = msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
                           return (
                             <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", gap: 2 }}>
-                              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, flexDirection: isMine ? "row-reverse" : "row" }}>
+                              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, flexDirection: isMine ? "row-reverse" : "row", width: "100%" }}>
                                 {!isMine && (
                                   <img
                                     src={msg.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${dmActiveUser!.username}`}

@@ -31,10 +31,12 @@ export default function PokerLobby({ lobbies, sessionUserId }: Props) {
   const [joining, setJoining] = useState<string | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
   const [localLobbies, setLocalLobbies] = useState<LobbyRoom[]>(lobbies);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   async function createRoom() {
-    if (!sessionUserId) { alert("Not signed in — sessionUserId is null"); return; }
+    if (!sessionUserId) { setCreateError("Not signed in"); return; }
     setCreating(true);
+    setCreateError(null);
     try {
       const res = await fetch("/api/poker", {
         method: "POST",
@@ -45,10 +47,10 @@ export default function PokerLobby({ lobbies, sessionUserId }: Props) {
       if (data.id) {
         router.push(`/poker/${data.id}`);
       } else {
-        alert("Create failed: " + JSON.stringify(data));
+        setCreateError(data.error ?? "Create failed — try again");
       }
     } catch (err) {
-      alert("Create error: " + String(err));
+      setCreateError("Network error: " + String(err));
     }
     setCreating(false);
   }
@@ -186,6 +188,11 @@ export default function PokerLobby({ lobbies, sessionUserId }: Props) {
                 Cancel
               </button>
             </div>
+            {createError && (
+              <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#f87171", fontSize: 13 }}>
+                ⚠️ {createError}
+              </div>
+            )}
           </div>
         )}
 

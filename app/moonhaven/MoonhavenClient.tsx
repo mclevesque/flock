@@ -29,6 +29,7 @@ import StashPanel from "@/app/components/StashPanel";
 import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
 import CharacterPanel from "@/app/components/CharacterPanel";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import {
   MOONHAVEN_NPCS, MOONHAVEN_BUILDINGS, MOONHAVEN_SPAWN,
   MOONHAVEN_ZONES, MOONHAVEN_DIALOGUE, type MoonhavenNPC,
@@ -206,6 +207,32 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const [showCharacter, setShowCharacter] = useState(false);
   const [showAdventure, setShowAdventure] = useState(false);
   const [activeMission, setActiveMission] = useState<unknown>(null);
+  const [showCaptainDialog, setShowCaptainDialog] = useState(false);
+  const [captainDialogTab, setCaptainDialogTab] = useState<"class" | "mission">("class");
+  const [customMissionInput, setCustomMissionInput] = useState("");
+
+  const CLASS_OPTIONS = [
+    { key: "warrior", emoji: "⚔️", name: "Warrior", hp: 120, atk: "12–18", special: "Cleave: hit all enemies ×1.5" },
+    { key: "mage",    emoji: "🪄", name: "Mage",    hp: 70,  atk: "22–30", special: "Fireball: AoE all enemies ×2" },
+    { key: "archer",  emoji: "🏹", name: "Archer",  hp: 90,  atk: "16–24", special: "Piercing: hit 2 enemies ×1.8" },
+    { key: "rogue",   emoji: "🗡️", name: "Rogue",   hp: 80,  atk: "20–28", special: "Backstab: single target ×2.5" },
+  ];
+
+  async function pickClass(cls: string) {
+    const updated = { ...(myAdventureStats ?? { level: 1, xp: 0, hp: 100, max_hp: 100, base_attack: 10, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 }), class: cls };
+    setMyAdventureStats(updated as typeof myAdventureStats);
+    setCaptainDialogTab("mission");
+    try {
+      await fetchWithTimeout("/api/adventure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-stats", patch: { class: cls } }) }, 5000);
+    } catch { /* optimistic already applied */ }
+  }
+
+  async function startMission(missionKey: string, customText?: string) {
+    const mission = generateMission(customText ?? missionKey, Date.now(), missionKey);
+    setActiveMission(mission);
+    setShowCaptainDialog(false);
+    setTimeout(() => setShowAdventure(true), 200);
+  }
 
   // ── Drive-In Theater ──────────────────────────────────────────────────────
   type TheaterState = { videoUrl: string | null; startedAt: number | null; hostId: string | null; seats: Record<string, { userId: string; username: string }>; isPaused?: boolean; pausedAt?: number | null; jukeboxUrl?: string | null; jukeboxStartedAt?: number | null; jukeboxBy?: string | null; screenshareOffer?: { active: boolean; hostId: string } | null };
@@ -522,16 +549,16 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   // ── Fetch stash + inventory + vendor data ────────────────────────────────
   const fetchStashData = useCallback(async () => {
     try {
-      const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get-stash" }) });
+      const r = await fetchWithTimeout("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get-stash" }) }, 5000);
       const d = await r.json();
       if (d.stash_items) {
         setStashData(d);
-        setMyInventory(d.inventory ?? []);
+        setMyInventory(Array.isArray(d.inventory) ? d.inventory : []);
         setMyEquippedSlots(d.equipped_slots ?? {});
       }
     } catch {}
     try {
-      const r2 = await fetch("/api/town", { method: "GET" });
+      const r2 = await fetchWithTimeout("/api/town", { method: "GET" }, 5000);
       const d2 = await r2.json();
       if (d2.adventure_stats) setMyAdventureStats(d2.adventure_stats);
       if (d2.vendor_stock) setVendorStock(d2.vendor_stock);
@@ -541,7 +568,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
   // ── Load economy on mount ─────────────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/town-economy?action=get")
+    fetchWithTimeout("/api/town-economy?action=get", {}, 5000)
       .then(r => r.json())
       .then(d => { if (d.coins !== undefined) setMyCoins(d.coins); })
       .catch(() => {});
@@ -663,20 +690,30 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   }
 
   // ── Theater + tag state polling ───────────────────────────────────────────
+  const lastTheaterJson = useRef<string>("");
+  const lastCoins = useRef<number | null>(null);
   useEffect(() => {
     const pollTheater = async () => {
       if (document.hidden) return;
       try {
-        const r = await fetch("/api/town", { method: "GET" });
+        const r = await fetchWithTimeout("/api/town", { method: "GET" }, 5000);
         const d = await r.json() as Record<string, unknown>;
         const ts = d.theater_state as TheaterState | null;
-        if (ts) { setTheaterState(ts); theaterStateRef.current = ts; }
-        if (d.coins !== undefined) setMyCoins(d.coins as number);
-        // Tag sync via PartyKit WebSocket handles state; polling only used for theater/coins
+        if (ts) {
+          const j = JSON.stringify(ts);
+          if (j !== lastTheaterJson.current) {
+            lastTheaterJson.current = j;
+            setTheaterState(ts); theaterStateRef.current = ts;
+          }
+        }
+        if (d.coins !== undefined && d.coins !== lastCoins.current) {
+          lastCoins.current = d.coins as number;
+          setMyCoins(d.coins as number);
+        }
       } catch { /* silent */ }
     };
     pollTheater();
-    const iv = setInterval(pollTheater, 10000);
+    const iv = setInterval(pollTheater, 30000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -729,6 +766,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       const mission = generateMission(npc.id, Date.now(), "moonhaven");
       setActiveMission(mission);
       setTimeout(() => setShowAdventure(true), 1000);
+    } else if (npc.interaction === "quest") {
+      setCaptainDialogTab(myAdventureStats?.class ? "mission" : "class");
+      setShowCaptainDialog(true);
     }
 
     setTimeout(() => setActiveNPC(null), 4000);
@@ -1861,17 +1901,105 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           onEquipSlot={() => {}}
         />
       )}
+      {showCaptainDialog && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 350, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowCaptainDialog(false)}>
+          <div style={{ background: "linear-gradient(145deg, #1a1208, #0d0d00)", border: "2px solid rgba(255,200,50,0.4)", borderRadius: 22, padding: 28, width: "min(480px, 94vw)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 0 60px rgba(255,200,50,0.15)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+              <span style={{ fontSize: 28 }}>🗡️</span>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#ffd700" }}>Captain Aldric</div>
+                <div style={{ fontSize: 11, color: "rgba(255,200,80,0.5)", fontFamily: "monospace" }}>Knight Commander · Castle Gate</div>
+              </div>
+              <button onClick={() => setShowCaptainDialog(false)} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {(["class", "mission"] as const).map(t => (
+                <button key={t} onClick={() => setCaptainDialogTab(t)} style={{ flex: 1, background: captainDialogTab === t ? "rgba(255,200,50,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${captainDialogTab === t ? "rgba(255,200,50,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 10, padding: "7px 0", fontSize: 12, color: captainDialogTab === t ? "#ffd700" : "rgba(255,255,255,0.4)", cursor: "pointer", fontWeight: 700, textTransform: "capitalize" }}>
+                  {t === "class" ? "⚔️ Class" : "🗺️ Mission"}
+                </button>
+              ))}
+            </div>
+            {captainDialogTab === "class" && (
+              <div>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14 }}>
+                  {myAdventureStats?.class ? `Current class: ${myAdventureStats.class[0].toUpperCase() + myAdventureStats.class.slice(1)}. Switch anytime.` : "Choose your class to begin your adventure."}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {CLASS_OPTIONS.map(cls => (
+                    <button key={cls.key} onClick={() => pickClass(cls.key)} style={{ background: myAdventureStats?.class === cls.key ? "rgba(255,200,50,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${myAdventureStats?.class === cls.key ? "rgba(255,200,50,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", display: "flex", gap: 12, alignItems: "center" }}>
+                      <span style={{ fontSize: 26 }}>{cls.emoji}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: myAdventureStats?.class === cls.key ? "#ffd700" : "#fff" }}>{cls.name}</div>
+                        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>HP: {cls.hp} · ATK: {cls.atk}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,200,50,0.6)", marginTop: 2 }}>✨ {cls.special}</div>
+                      </div>
+                      {myAdventureStats?.class === cls.key && <span style={{ fontSize: 14, color: "#ffd700" }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {captainDialogTab === "mission" && (
+              <div>
+                {!myAdventureStats?.class && (
+                  <div style={{ fontSize: 13, color: "#ff8888", marginBottom: 12, padding: "8px 12px", background: "rgba(255,80,80,0.1)", borderRadius: 8 }}>
+                    Pick a class first! <button onClick={() => setCaptainDialogTab("class")} style={{ marginLeft: 8, fontSize: 12, color: "#ffd700", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>Choose now →</button>
+                  </div>
+                )}
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14 }}>Choose your mission:</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    { key: "forest",        emoji: "🌲", name: "Forest Bandits",             desc: "Clear bandits from the forest road",                        diff: "⭐⭐" },
+                    { key: "princess",      emoji: "👸", name: "Rescue Princess Pip!",        desc: "Save the kidnapped princess from bandit poets",             diff: "⭐⭐" },
+                    { key: "cave",          emoji: "💎", name: "Crystal Cave",                desc: "Explore the haunted crystal caverns",                       diff: "⭐⭐⭐" },
+                    { key: "pirates",       emoji: "🏴‍☠️", name: "Plunder of the Deep Caves",  desc: "Stop the pirates running the underground shanty concert",   diff: "⭐⭐⭐" },
+                    { key: "ruins",         emoji: "💀", name: "Haunted Ruins",               desc: "Face the undead in ancient ruins",                          diff: "⭐⭐⭐" },
+                    { key: "haunted_manor", emoji: "👻", name: "Haunted Manor of Dreadmoor",  desc: "Stop the ghost's dramatic third act monologue",             diff: "⭐⭐⭐" },
+                    { key: "pizza",         emoji: "🐉", name: "The Dragon Stole My Pizza 🍕", desc: "Get your supreme pizza back from an emotionally complex dragon", diff: "⭐⭐⭐⭐" },
+                    { key: "dragon",        emoji: "🐉", name: "Dragon's Peak",               desc: "Slay the dragon at the mountain's peak",                   diff: "⭐⭐⭐⭐⭐" },
+                  ].map(m => {
+                    const hasClass = !!myAdventureStats?.class;
+                    return (
+                      <button key={m.key} onClick={() => hasClass && startMission(m.key)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: hasClass ? "pointer" : "not-allowed", display: "flex", gap: 10, alignItems: "center", opacity: hasClass ? 1 : 0.5 }}>
+                        <span style={{ fontSize: 26 }}>{m.emoji}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.name}</div>
+                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{m.desc}</div>
+                        </div>
+                        <span style={{ fontSize: 10, color: "rgba(255,200,50,0.7)" }}>{m.diff}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>✍️ Write your own adventure:</div>
+                  <textarea value={customMissionInput} onChange={e => setCustomMissionInput(e.target.value)} onKeyDown={e => e.stopPropagation()} placeholder="Describe your mission... e.g. 'A dungeon full of fire giants under a volcano'" maxLength={120} rows={2} style={{ width: "100%", background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "8px 12px", fontSize: 12, color: "#fff", resize: "none", outline: "none", boxSizing: "border-box", fontFamily: "monospace" }} />
+                  <button onClick={() => myAdventureStats?.class && customMissionInput.trim() && startMission("custom", customMissionInput.trim())} disabled={!myAdventureStats?.class || !customMissionInput.trim()} style={{ marginTop: 8, width: "100%", background: (myAdventureStats?.class && customMissionInput.trim()) ? "rgba(255,200,50,0.18)" : "rgba(255,255,255,0.04)", border: `1px solid ${(myAdventureStats?.class && customMissionInput.trim()) ? "rgba(255,200,50,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 10, padding: "9px 0", fontSize: 13, color: (myAdventureStats?.class && customMissionInput.trim()) ? "#ffd700" : "rgba(255,255,255,0.3)", cursor: (myAdventureStats?.class && customMissionInput.trim()) ? "pointer" : "not-allowed", fontWeight: 700 }}>
+                    🚀 Begin Adventure!
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {showAdventure && activeMission != null && (
         <AdventureOverlay
           userId={userId}
           username={username}
           avatarUrl={avatarUrl}
-          myStats={{ class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 }}
+          myStats={myAdventureStats ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 }}
           sessionId={null}
           missionData={activeMission as Parameters<typeof AdventureOverlay>[0]["missionData"]}
           teamMembers={nearbyPlayers.map(p => ({ userId: p.user_id, username: p.username, avatarUrl: p.avatar_url, hp: 100, maxHp: 100, playerClass: null, isDowned: false }))}
           onClose={() => { setShowAdventure(false); setActiveMission(null); }}
-          onStatsUpdate={() => {}}
+          onStatsUpdate={(patch) => setMyAdventureStats(prev => {
+            const base = prev ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 };
+            return { ...base, ...(patch as object) };
+          })}
           onMinimize={() => {}}
           onCoinsEarned={(amount) => setMyCoins(c => c + amount)}
         />
