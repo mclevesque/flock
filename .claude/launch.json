@@ -1,1 +1,11 @@
-{"version":"0.0.1","configurations":[{"name":"flock","runtimeExecutable":"npm","runtimeArgs":["run","dev","--","--port","3002"],"port":3002}]}
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flock",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "port": 3001
+    }
+  ]
+}

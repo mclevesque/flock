@@ -504,7 +504,7 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
           {players.map(p => (
             <div key={p.user_id} style={{ textAlign: "center" }}>
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2a1a4e", border: "2px solid #4a2a7e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", overflow: "hidden" }}>
-                {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (p.is_bot ? "🤖" : "🎮")}
+                {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🎮"}
               </div>
               <div style={{ fontSize: "0.65rem", color: "#7a6a9e", marginTop: 2, maxWidth: 40, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.username}</div>
             </div>
@@ -518,39 +518,15 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
         </div>
 
         {isHost && (
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "center" }}>
-            <button
-              onClick={() => doAction("add-bot")}
-              disabled={players.length >= room.max_players}
-              style={{ background: "#2a1a4e", color: "#a855f7", border: "1px solid #4a2a7e", borderRadius: "10px", padding: "10px 20px", cursor: "pointer", fontWeight: 600, fontSize: "0.9rem", opacity: players.length >= room.max_players ? 0.5 : 1 }}
-            >
-              🤖 Add Bot
-            </button>
-            <button
-              onClick={() => doAction("start")}
-              disabled={players.length < 2}
-              style={{ background: players.length >= 2 ? "linear-gradient(135deg, #7c3aed, #a855f7)" : "#2a1a4e", color: "#fff", border: "none", borderRadius: "10px", padding: "10px 24px", cursor: players.length >= 2 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: "1rem", opacity: players.length < 2 ? 0.5 : 1 }}
-            >
-              🚀 Start Game
-            </button>
-          </div>
+          <button
+            onClick={() => doAction("start")}
+            disabled={players.length < 2}
+            style={{ background: players.length >= 2 ? "linear-gradient(135deg, #7c3aed, #a855f7)" : "#2a1a4e", color: "#fff", border: "none", borderRadius: "10px", padding: "10px 24px", cursor: players.length >= 2 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: "1rem", opacity: players.length < 2 ? 0.5 : 1 }}
+          >
+            🚀 Start Game
+          </button>
         )}
         {!isHost && <div style={{ color: "#5a4a7e", fontSize: "0.85rem" }}>Waiting for host to start...</div>}
-
-        {/* Remove bots */}
-        {isHost && players.some(p => p.is_bot) && (
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", maxWidth: "300px" }}>
-            {players.filter(p => p.is_bot).map(bot => (
-              <button
-                key={bot.user_id}
-                onClick={() => doAction("remove-bot", { botId: bot.user_id })}
-                style={{ background: "#1e1640", border: "1px solid #3d2a6e", borderRadius: "20px", color: "#9b8bc4", padding: "4px 12px", fontSize: "0.78rem", cursor: "pointer" }}
-              >
-                {bot.username} ✕
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     );
   }
@@ -820,7 +796,7 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
                 return (
                   <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: "6px", background: isCurrentDrawer ? "#1e1640" : "transparent", borderRadius: "7px", padding: "5px 7px", border: isCurrentDrawer ? "1px solid #3d2a6e" : "1px solid transparent" }}>
                     <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#2a1a4e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0, overflow: "hidden" }}>
-                      {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (p.is_bot ? "🤖" : "🎮")}
+                      {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🎮"}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>

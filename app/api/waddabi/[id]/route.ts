@@ -3,11 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
   getWaddabiRoom, getWaddabiPlayers, addWaddabiPlayer, removeWaddabiPlayer,
-  addWaddabiBot, updateWaddabiState, setWaddabiRoomStatus
+  updateWaddabiState, setWaddabiRoomStatus
 } from "@/lib/db";
 import {
-  WaddabiState, emptyState, advancePhaseIfNeeded, processBotGuesses,
-  pickThreeWords, checkGuess, generateBotStrokes, BOT_DRAWERS, Stroke, ChatMsg
+  WaddabiState, emptyState, advancePhaseIfNeeded,
+  pickThreeWords, checkGuess, Stroke, ChatMsg
 } from "@/lib/waddabi-engine";
 
 type DbPlayer = {
@@ -29,12 +29,8 @@ type DbRoom = {
 
 function buildMaps(players: DbPlayer[]) {
   const playerNames: Record<string, string> = {};
-  const botTypes: Record<string, "good" | "medium" | "bad"> = {};
-  players.forEach(p => {
-    playerNames[p.user_id] = p.username;
-    if (p.is_bot && p.bot_type) botTypes[p.user_id] = p.bot_type as "good" | "medium" | "bad";
-  });
-  return { playerNames, botTypes };
+  players.forEach(p => { playerNames[p.user_id] = p.username; });
+  return { playerNames };
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -54,19 +50,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const players = rawPlayers as unknown as DbPlayer[];
   const state: WaddabiState = { ...emptyState(), ...(room.game_state as Partial<WaddabiState>) };
   const playerIds = players.map(p => p.user_id);
-  const { playerNames, botTypes } = buildMaps(players);
+  const { playerNames } = buildMaps(players);
 
   const now = Date.now();
 
   // 1. Advance phase timers
-  let advanced = advancePhaseIfNeeded(state, playerIds, playerNames, botTypes, now);
+  let advanced = advancePhaseIfNeeded(state, playerIds, playerNames, {}, now);
 
-  // 2. Process bot guesses (only during drawing)
-  if (advanced.phase === "drawing") {
-    advanced = processBotGuesses(advanced, playerIds, playerNames, botTypes, now);
-  }
-
-  // 3. If state changed, persist
+  // 2. If state changed, persist
   const changed = advanced.phase !== state.phase
     || advanced.currentTurnIdx !== state.currentTurnIdx
     || advanced.guessedThisRound.length !== state.guessedThisRound.length
@@ -120,7 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const players = rawPlayers as unknown as DbPlayer[];
 
   const state: WaddabiState = { ...emptyState(), ...(room.game_state as Partial<WaddabiState>) };
-  const playerIds = players.map(p => p.user_id);
+  const playerIds = players.filter(p => !p.is_bot).map(p => p.user_id);
   const isHost = String(room.host_id) === String(u.id);
   const uid = u.id!;
 
@@ -141,88 +132,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: true });
   }
 
-  // ── Add bot ──
-  if (action === "add-bot") {
-    if (!isHost) return NextResponse.json({ error: "Host only" }, { status: 403 });
-    if (players.length >= room.max_players) return NextResponse.json({ error: "Room full" }, { status: 400 });
-    const usedBotIds = playerIds.filter(pid => pid.startsWith("bot-"));
-    const available = BOT_DRAWERS.filter(b => !usedBotIds.includes(b.id));
-    if (!available.length) return NextResponse.json({ error: "All bots added" }, { status: 400 });
-    const bot = available[Math.floor(Math.random() * available.length)];
-    await addWaddabiBot(id, bot.id, bot.name, bot.avatar, bot.type);
-    const newState = { ...state, scores: { ...state.scores, [bot.id]: state.scores[bot.id] ?? 0 } };
-    await updateWaddabiState(id, newState as unknown as Record<string, unknown>);
-    return NextResponse.json({ ok: true });
-  }
-
-  // ── Remove bot ──
-  if (action === "remove-bot") {
-    if (!isHost) return NextResponse.json({ error: "Host only" }, { status: 403 });
-    const botId = body.botId as string;
-    if (!botId || !botId.startsWith("bot-")) return NextResponse.json({ error: "Invalid bot" }, { status: 400 });
-    await removeWaddabiPlayer(id, botId);
-    return NextResponse.json({ ok: true });
-  }
-
   // ── Start ──
   if (action === "start") {
     if (!isHost) return NextResponse.json({ error: "Host only" }, { status: 403 });
-    if (players.length < 2) return NextResponse.json({ error: "Need at least 2 players" }, { status: 400 });
+    if (playerIds.length < 2) return NextResponse.json({ error: "Need at least 2 players" }, { status: 400 });
 
     const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
     const firstDrawer = shuffled[0];
-    const isBot = firstDrawer.startsWith("bot-");
-    const choices = isBot ? [pickThreeWords()[0]] : pickThreeWords();
-
-    const { playerNames, botTypes } = buildMaps(players);
+    const { playerNames } = buildMaps(players);
     const scores: Record<string, number> = {};
     playerIds.forEach(pid => { scores[pid] = 0; });
 
     const sysMsg: ChatMsg = {
       id: Math.random().toString(36).slice(2),
       userId: "system", username: "Wadabbi?!",
-      text: isBot ? `🤖 ${playerNames[firstDrawer] ?? "Bot"} goes first!` : `🎨 ${playerNames[firstDrawer] ?? "Player"}'s turn to draw!`,
+      text: `🎨 ${playerNames[firstDrawer] ?? "Player"}'s turn to draw!`,
       isSystem: true, t: Date.now(),
     };
 
     const now = Date.now();
-    let newState: WaddabiState;
-    if (isBot) {
-      const word = choices[0];
-      const botStrokes = generateBotStrokes(word, botTypes[firstDrawer] ?? "medium");
-      newState = {
-        ...state,
-        phase: "drawing",
-        turnOrder: shuffled,
-        currentTurnIdx: 0,
-        currentWord: word,
-        wordChoices: null,
-        strokes: botStrokes,
-        scores,
-        guessedThisRound: [],
-        roundStartTime: now,
-        phaseStartTime: now,
-        chatHistory: [sysMsg],
-        roundCount: 1,
-        winner: null, winnerName: null,
-      };
-    } else {
-      newState = {
-        ...state,
-        phase: "choosing",
-        turnOrder: shuffled,
-        currentTurnIdx: 0,
-        currentWord: null,
-        wordChoices: choices,
-        strokes: [],
-        scores,
-        guessedThisRound: [],
-        phaseStartTime: now,
-        chatHistory: [sysMsg],
-        roundCount: 1,
-        winner: null, winnerName: null,
-      };
-    }
+    const newState: WaddabiState = {
+      ...state,
+      phase: "choosing",
+      turnOrder: shuffled,
+      currentTurnIdx: 0,
+      currentWord: null,
+      wordChoices: pickThreeWords(),
+      strokes: [],
+      scores,
+      guessedThisRound: [],
+      phaseStartTime: now,
+      chatHistory: [sysMsg],
+      roundCount: 1,
+      winner: null, winnerName: null,
+    };
 
     await updateWaddabiState(id, newState as unknown as Record<string, unknown>);
     await setWaddabiRoomStatus(id, "playing");
