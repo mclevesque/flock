@@ -68,7 +68,7 @@ interface Props {
   partyId?: string | null;
 }
 
-const TAG_GAME_DURATION = 120;
+const TAG_GAME_DURATION = 30;
 const TAG_DIST_3D = 6; // Three.js world units (~2–3 character widths)
 const CHASE_NOTES = [220, 233, 261, 246, 220, 196, 207, 233];
 const NPC_VOICE_PATH = "/audio/npc";
@@ -157,8 +157,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const partyIdRef = useRef<string | null>(partyId ?? null);
 
   // ── Quality ───────────────────────────────────────────────────────────────
-  const [quality] = useState<QualityLevel>(detectQuality);
+  const [quality, setQuality] = useState<QualityLevel>(detectQuality);
   const [showQualityPanel, setShowQualityPanel] = useState(false);
+  const [showQualityPicker, setShowQualityPicker] = useState(true);
 
   // ── Mobile joystick (floating — spawns wherever you touch) ───────────────
   const joystickRef    = useRef<{ active: boolean; dx: number; dy: number }>({ active: false, dx: 0, dy: 0 });
@@ -632,6 +633,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (chaseMusicTimeoutRef.current) { clearTimeout(chaseMusicTimeoutRef.current); chaseMusicTimeoutRef.current = null; }
   }
 
+  // ── Quality picker ────────────────────────────────────────────────────────
+  function selectQuality(q: QualityLevel) {
+    localStorage.setItem("mh_quality", q);
+    setQuality(q);
+    setShowQualityPicker(false);
+  }
+
   // ── Tag game functions ────────────────────────────────────────────────────
   function beginTagGame(itId: string, itUname: string, startingTime = TAG_GAME_DURATION) {
     if (tagGameActiveRef.current) return;
@@ -855,7 +863,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
   // ── Three.js scene setup ───────────────────────────────────────────────────
   useEffect(() => {
-    if (!mountRef.current) return;
+    if (showQualityPicker || !mountRef.current) return;
     let destroyed = false;
     let THREE: ThreeModule;
     let GLTFLoader: unknown;
@@ -1422,7 +1430,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     });
     return () => { destroyed = true; cleanup.then(fn => fn?.()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showQualityPicker]);
 
   // ── Camera orbit updater ──────────────────────────────────────────────────
   function updateCameraOrbit(camera: import("three").PerspectiveCamera) {
@@ -1581,6 +1589,47 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────
+  if (showQualityPicker) {
+    const auto = detectQuality();
+    const labels: Record<QualityLevel, { title: string; desc: string; icon: string }> = {
+      low:  { title: "Low",    icon: "🌑", desc: "Best performance. Mobile / older hardware." },
+      med:  { title: "Medium", icon: "🌓", desc: "Balanced. Shadows + smooth lighting." },
+      high: { title: "High",   icon: "🌕", desc: "Full quality. Antialiasing + HDR." },
+    };
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#070514", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "monospace", zIndex: 9999 }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>🌙</div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: "#e0d8ff", marginBottom: 4 }}>Moonhaven</div>
+        <div style={{ fontSize: 13, color: "#6655aa", marginBottom: 32 }}>Choose graphics quality before entering</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340, padding: "0 20px", boxSizing: "border-box" }}>
+          {(["low", "med", "high"] as QualityLevel[]).map(q => {
+            const { title, icon, desc } = labels[q];
+            const isAuto = q === auto;
+            return (
+              <button key={q} onClick={() => selectQuality(q)} style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(100,80,220,0.35)",
+                borderRadius: 12, padding: "14px 18px", cursor: "pointer", textAlign: "left",
+                display: "flex", alignItems: "center", gap: 14, transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(100,80,220,0.18)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+              >
+                <span style={{ fontSize: 28 }}>{icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#ccbbff", fontWeight: 800, fontSize: 15, marginBottom: 3 }}>
+                    {title}
+                    {isAuto && <span style={{ marginLeft: 8, fontSize: 10, color: "#7766aa", fontWeight: 600, background: "rgba(100,80,220,0.2)", borderRadius: 4, padding: "1px 6px" }}>RECOMMENDED</span>}
+                  </div>
+                  <div style={{ color: "#554477", fontSize: 12 }}>{desc}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh", background: "#0a0820", overflow: "hidden", fontFamily: "monospace" }}>
       {/* ── Customize avatar banner (first-time prompt) ───────────────────── */}
