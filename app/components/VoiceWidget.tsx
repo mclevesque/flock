@@ -820,14 +820,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // ── Heartbeat (presence / online status) ──────────────────────────────────────
-  useEffect(() => {
-    if (!userId) return;
-    const send = () => fetch("/api/heartbeat", { method: "POST" }).catch(() => {});
-    send(); // immediate on load
-    const iv = setInterval(send, 60_000);
-    return () => clearInterval(iv);
-  }, [userId]);
+  // Online presence handled by usePresence (PartyKit) — no heartbeat needed
 
   // ── Pop-out window management ─────────────────────────────────────────────────
   function openPopup() {
@@ -974,6 +967,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   // ── Polling ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     pollRef.current = setInterval(async () => {
+      if (document.hidden) return;
       const roomId = currentRoomRef.current;
       if (!roomId) {
         // Reduced polling — only check voice rooms, skip invites to save DB connections
@@ -986,9 +980,9 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         if (Array.isArray(pp)) setParticipants(pp);
       }).catch(() => {});
       fetchRoomMessages(roomId);
-    }, 15000);
+    }, 25000); // 25s — room list doesn't need to be real-time
 
-    signalPollRef.current = setInterval(processSignals, 10000);
+    signalPollRef.current = setInterval(() => { if (!document.hidden) processSignals(); }, 15000); // 15s — WebRTC signals
 
     fetch("/api/voice").then(r => r.json()).then(d => {
       if (Array.isArray(d)) setOpenRooms(d);
@@ -1138,7 +1132,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
     };
     load();
-    dmPollRef.current = setInterval(load, 15000);
+    dmPollRef.current = setInterval(load, 30000); // 30s fallback — BroadcastChannel handles instant sync
     return () => clearInterval(dmPollRef.current);
   }, [dmActiveUser]); // eslint-disable-line
 
@@ -1159,6 +1153,8 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       });
       const msgs = await fetch(`/api/messages?with=${dmActiveUser.id}`).then(r => r.json()).catch(() => []);
       if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
+      // Notify messages page to reload this conversation
+      try { new BroadcastChannel("ryft_dm").postMessage({ type: "new_dm", with: dmActiveUser.id }); } catch { /* ignore */ }
     } catch { /* ignore */ } finally {
       setDmSending(false);
     }

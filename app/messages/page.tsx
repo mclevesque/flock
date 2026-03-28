@@ -971,9 +971,20 @@ function MessagesInner() {
   useEffect(() => {
     prevMsgIds.current = new Set();
     loadMessages();
-    const t = setInterval(loadMessages, 30000);
+    const t = setInterval(loadMessages, 60000); // 60s fallback — BroadcastChannel handles own sends instantly
     return () => clearInterval(t);
   }, [loadMessages]);
+
+  // Sync with popup DM — reload when the popup sends a message to the active conversation
+  useEffect(() => {
+    const bc = new BroadcastChannel("ryft_dm");
+    bc.onmessage = (e) => {
+      if (e.data?.type === "new_dm" && e.data?.with === activeUser?.id) {
+        loadMessages();
+      }
+    };
+    return () => bc.close();
+  }, [activeUser, loadMessages]);
 
   const loadGroupMessages = useCallback(() => {
     if (!activeGroup) return;
@@ -990,7 +1001,7 @@ function MessagesInner() {
   useEffect(() => {
     prevGroupMsgIds.current = new Set();
     loadGroupMessages();
-    const t = setInterval(loadGroupMessages, 30000);
+    const t = setInterval(loadGroupMessages, 60000);
     return () => clearInterval(t);
   }, [loadGroupMessages]);
 
@@ -1288,26 +1299,34 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Poll for incoming DM call from this specific user
+  // Incoming call delivered instantly via PartyKit notifications — no polling needed
   useEffect(() => {
-    if (isInVoice) { setIncomingCall(null); return; }
-    const dmPair = [sessionUserId, activeUser.id].sort().join(":");
+    if (isInVoice || !sessionUserId) { setIncomingCall(null); return; }
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "DISABLED") return;
     let cancelled = false;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/voice?incoming=1");
-        if (!res.ok || cancelled) return;
-        const calls: Array<{ id: string; dm_pair: string; caller_id: string; caller_username: string; caller_avatar: string | null }> = await res.json();
-        const match = calls.find(c => c.dm_pair === dmPair && c.caller_id === activeUser.id);
-        if (match && match.id !== dismissedCallId) {
-          setIncomingCall({ roomId: match.id, callerUsername: match.caller_username, callerAvatar: match.caller_avatar });
-        } else if (!match) {
-          setIncomingCall(null);
-        }
-      } catch { /* ignore */ }
-    }, 2000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [isInVoice, sessionUserId, activeUser.id, dismissedCallId]);
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      const ws = new PartySocket({ host, party: "notifications", room: sessionUserId });
+      const handleMsg = (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          const handle = (m: Record<string, unknown>) => {
+            if (m.type === "incoming_call" && m.callerUsername) {
+              if ((m.roomId as string) !== dismissedCallId) {
+                setIncomingCall({ roomId: m.roomId as string, callerUsername: m.callerUsername as string, callerAvatar: m.callerAvatar as string | null });
+              }
+            }
+          };
+          if (msg.type === "snapshot" && Array.isArray(msg.pending)) msg.pending.forEach(handle);
+          else handle(msg);
+        } catch { /* ignore */ }
+      };
+      (ws as unknown as EventTarget).addEventListener("message", handleMsg);
+      return () => ws.close();
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isInVoice, sessionUserId, dismissedCallId]);
 
   // Ringing = we're in voice but the callee hasn't joined yet
   const ringing = isInVoice && participantCount < 2;

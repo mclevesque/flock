@@ -24,7 +24,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdventureOverlay, { generateMission } from "@/app/town/AdventureOverlay";
-import TheaterRoom from "@/app/town/TheaterRoom";
+// TheaterRoom overlay removed — screen share plays directly on 3D drive-in screen via VideoTexture
 import StashPanel from "@/app/components/StashPanel";
 import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
@@ -39,6 +39,7 @@ interface TownPlayer {
   user_id: string;
   username: string;
   avatar_url: string;
+  avatar_config?: AvatarConfig | null;
   x: number;
   y: number;   // maps to z in 3D
   direction: string;
@@ -50,16 +51,46 @@ interface TownPlayer {
   equipped_slots?: Record<string, { emoji: string; name: string; rarity: string } | null>;
 }
 
+export interface AvatarConfig {
+  class: string;
+  emoji: string;
+  bodyColor: string;
+  hairColor: string;
+  accentColor: string;
+}
+
 interface Props {
   userId: string;
   username: string;
   avatarUrl: string;
+  avatarConfig?: AvatarConfig | null;
   partyId?: string | null;
 }
 
 const TAG_GAME_DURATION = 120;
+const TAG_DIST_3D = 6; // Three.js world units (~2–3 character widths)
+const CHASE_NOTES = [220, 233, 261, 246, 220, 196, 207, 233];
 const NPC_VOICE_PATH = "/audio/npc";
 const MOONHAVEN_WS_ROOM = "moonhaven-town";
+
+// ── Quality system ─────────────────────────────────────────────────────────────
+type QualityLevel = "low" | "med" | "high";
+
+function detectQuality(): QualityLevel {
+  if (typeof window === "undefined") return "low";
+  const saved = localStorage.getItem("mh_quality") as QualityLevel | null;
+  if (saved === "low" || saved === "med" || saved === "high") return saved;
+  // Mobile / tablet → always low first visit
+  const mobile = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
+    || window.innerWidth < 768 || ("ontouchstart" in window);
+  if (mobile) return "low";
+  // CPU cores heuristic (navigator.hardwareConcurrency is available in all modern browsers)
+  const cores = navigator.hardwareConcurrency || 2;
+  const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+  if (cores <= 2 || (mem !== undefined && mem <= 2)) return "low";
+  if (cores <= 6 || (mem !== undefined && mem <= 4)) return "med";
+  return "high";
+}
 
 // ── Three.js lazy import helper ───────────────────────────────────────────────
 type ThreeModule = typeof import("three");
@@ -119,10 +150,24 @@ function makeChatCanvas(text: string): HTMLCanvasElement {
   return canvas;
 }
 
-export default function MoonhavenClient({ userId, username, avatarUrl, partyId }: Props) {
+export default function MoonhavenClient({ userId, username, avatarUrl, avatarConfig, partyId }: Props) {
   const router = useRouter();
   const mountRef = useRef<HTMLDivElement>(null);
   const partyIdRef = useRef<string | null>(partyId ?? null);
+
+  // ── Quality ───────────────────────────────────────────────────────────────
+  const [quality] = useState<QualityLevel>(detectQuality);
+  const [showQualityPanel, setShowQualityPanel] = useState(false);
+
+  // ── Mobile joystick (floating — spawns wherever you touch) ───────────────
+  const joystickRef    = useRef<{ active: boolean; dx: number; dy: number }>({ active: false, dx: 0, dy: 0 });
+  const joystickId     = useRef<number | null>(null);
+  const joystickCenter = useRef({ x: 0, y: 0 });
+  const VJOY_R = 62, VJOY_DEAD = 12;
+  const [joystickVis, setJoystickVis] = useState({ cx: 0, cy: 0, kx: 0, ky: 0, visible: false });
+  // Second touch = camera orbit (look up/down/left/right)
+  const camTouchId   = useRef<number | null>(null);
+  const camTouchLast = useRef({ x: 0, y: 0 });
 
   // ── Loading ───────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -163,13 +208,269 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
   const [activeMission, setActiveMission] = useState<unknown>(null);
 
   // ── Drive-In Theater ──────────────────────────────────────────────────────
-  type TheaterState = { videoUrl: string | null; startedAt: number | null; hostId: string | null; seats: Record<string, { userId: string; username: string }>; isPaused?: boolean; pausedAt?: number | null; jukeboxUrl?: string | null; jukeboxStartedAt?: number | null; jukeboxBy?: string | null };
-  const [theaterOpen, setTheaterOpen] = useState(false);
+  type TheaterState = { videoUrl: string | null; startedAt: number | null; hostId: string | null; seats: Record<string, { userId: string; username: string }>; isPaused?: boolean; pausedAt?: number | null; jukeboxUrl?: string | null; jukeboxStartedAt?: number | null; jukeboxBy?: string | null; screenshareOffer?: { active: boolean; hostId: string } | null };
   const [theaterState, setTheaterState] = useState<TheaterState | null>(null);
   const theaterStateRef = useRef<TheaterState | null>(null);
   const [driveInNear, setDriveInNear] = useState(false);
   const driveInNearRef = useRef(false);
   const screenMeshRef = useRef<import("three").Mesh | null>(null);
+
+  // ── LIVE Screen Share → VideoTexture on 3D screen ──────────────────────
+  const [ssStatus, _setSsStatus] = useState<"idle" | "hosting" | "viewing">("idle");
+  const ssStatusRef = useRef<"idle" | "hosting" | "viewing">("idle");
+  const setSsStatus = useCallback((v: "idle" | "hosting" | "viewing") => { ssStatusRef.current = v; _setSsStatus(v); }, []);
+  const [ssError, setSsError] = useState<string | null>(null);
+  const [showGameCast, setShowGameCast] = useState(false);
+  const isSharingRef = useRef(false);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoTextureRef = useRef<import("three").VideoTexture | null>(null);
+  const origScreenMatRef = useRef<import("three").Material | null>(null);
+  const screenPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const screenSignalIdRef = useRef(0);
+  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const screenPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasRequestedRef = useRef(false);
+  const colorSampleCanvas = useRef<HTMLCanvasElement | null>(null);
+  const colorSampleCtx = useRef<CanvasRenderingContext2D | null>(null);
+
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+      { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+      { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+    ],
+  };
+  const signalRoomId = `theater-${partyId || "main"}`;
+
+  const postSsSignal = useCallback((toUser: string, type: string, payload: unknown) =>
+    fetch(`/api/watch-room/${signalRoomId}/signals`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toUser, type, payload }),
+    }).catch(() => {}), [signalRoomId]);
+
+  // Apply a MediaStream as VideoTexture onto the 3D screen mesh
+  const applyVideoToScreen = useCallback(async (stream: MediaStream) => {
+    const vid = screenVideoRef.current;
+    const mesh = screenMeshRef.current;
+    if (!vid) { console.warn("[Theater] No video element ref"); return; }
+    if (!mesh) { console.warn("[Theater] No screen mesh ref"); return; }
+    vid.srcObject = stream;
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.style.background = "#000000";
+    try { await vid.play(); } catch (e) { console.warn("[Theater] Video play failed:", e); }
+    // Wait for first frame to be ready before creating texture
+    await new Promise<void>(resolve => {
+      if (vid.readyState >= 2) { resolve(); return; }
+      vid.addEventListener("loadeddata", () => resolve(), { once: true });
+      // Timeout fallback
+      setTimeout(resolve, 2000);
+    });
+    const THREE = await getThree();
+    // Save original material and position for restoration
+    if (!origScreenMatRef.current) origScreenMatRef.current = mesh.material as import("three").Material;
+    const tex = new THREE.VideoTexture(vid);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    videoTextureRef.current = tex;
+    mesh.material = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    // Nudge screen forward so it renders in front of the border/frame mesh
+    mesh.position.x -= 0.3;
+    mesh.renderOrder = 1;
+    console.log("[Theater] VideoTexture applied to screen mesh", { readyState: vid.readyState, videoWidth: vid.videoWidth, videoHeight: vid.videoHeight });
+  }, []);
+
+  // Restore original canvas texture when share stops
+  const clearVideoFromScreen = useCallback(() => {
+    const mesh = screenMeshRef.current;
+    if (mesh && origScreenMatRef.current) {
+      mesh.material = origScreenMatRef.current;
+      origScreenMatRef.current = null;
+      // Restore screen position (was nudged forward for video)
+      mesh.position.x += 0.3;
+      mesh.renderOrder = 0;
+    }
+    if (videoTextureRef.current) { videoTextureRef.current.dispose(); videoTextureRef.current = null; }
+    const vid = screenVideoRef.current;
+    if (vid) vid.srcObject = null;
+  }, []);
+
+  // Create WebRTC peer for screen share
+  const createSsPeer = useCallback((peerId: string): RTCPeerConnection => {
+    screenPeersRef.current.get(peerId)?.close();
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    screenPeersRef.current.set(peerId, pc);
+    pc.onicecandidate = ({ candidate }) => { if (candidate) postSsSignal(peerId, "screen-ice", candidate.toJSON()); };
+    pc.ontrack = (e) => {
+      if (!e.streams[0]) return;
+      setSsStatus("viewing");
+      applyVideoToScreen(e.streams[0]);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed" && !isSharingRef.current && hasRequestedRef.current) {
+        screenPeersRef.current.delete(peerId);
+        setTimeout(() => { if (!isSharingRef.current) postSsSignal(peerId, "screen-want", {}); }, 2000);
+      }
+    };
+    return pc;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postSsSignal, applyVideoToScreen]);
+
+  // Send WebRTC offer to a viewer
+  const sendSsOfferTo = useCallback(async (viewerId: string) => {
+    const stream = screenStreamRef.current;
+    if (!stream) return;
+    const pc = createSsPeer(viewerId);
+    for (const track of stream.getTracks()) pc.addTrack(track, stream);
+    // Force H.264 for iOS Safari compatibility
+    try {
+      const caps = RTCRtpSender.getCapabilities?.("video");
+      if (caps) {
+        const h264 = caps.codecs.filter(c => c.mimeType.toLowerCase() === "video/h264");
+        const rest = caps.codecs.filter(c => c.mimeType.toLowerCase() !== "video/h264");
+        for (const tc of pc.getTransceivers()) {
+          if (tc.sender.track?.kind === "video") tc.setCodecPreferences([...h264, ...rest]);
+        }
+      }
+    } catch { /* unsupported browser */ }
+    // Bitrate cap
+    for (const sender of pc.getSenders()) {
+      if (sender.track?.kind === "video") {
+        const params = sender.getParameters();
+        if (!params.encodings?.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = 10_000_000; // 10Mbps — needed for smooth video content
+        // No maxFramerate cap — let WebRTC send every captured frame
+        await sender.setParameters(params).catch(() => {});
+      }
+    }
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await postSsSignal(viewerId, "screen-offer", offer);
+  }, [createSsPeer, postSsSignal]);
+
+  // Process incoming WebRTC signals
+  const processSsSignals = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/watch-room/${signalRoomId}/signals?after=${screenSignalIdRef.current}`);
+      if (!res.ok) return;
+      const { signals } = await res.json();
+      for (const sig of signals as { id: number; from_user: string; type: string; payload: Record<string, unknown> }[]) {
+        if (sig.id > screenSignalIdRef.current) screenSignalIdRef.current = sig.id;
+        if (sig.type === "screen-want" && isSharingRef.current && screenStreamRef.current) {
+          await sendSsOfferTo(sig.from_user);
+        } else if (sig.type === "screen-offer") {
+          const pc = createSsPeer(sig.from_user);
+          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
+          const buffered = pendingIceRef.current.get(sig.from_user) ?? [];
+          for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
+          pendingIceRef.current.delete(sig.from_user);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await postSsSignal(sig.from_user, "screen-answer", answer);
+        } else if (sig.type === "screen-answer") {
+          const pc = screenPeersRef.current.get(sig.from_user);
+          if (pc && pc.signalingState === "have-local-offer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
+            const buffered = pendingIceRef.current.get(sig.from_user) ?? [];
+            for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
+            pendingIceRef.current.delete(sig.from_user);
+          }
+        } else if (sig.type === "screen-ice") {
+          const pc = screenPeersRef.current.get(sig.from_user);
+          if (pc) {
+            if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(sig.payload as RTCIceCandidateInit)).catch(() => {});
+            else { const buf = pendingIceRef.current.get(sig.from_user) ?? []; buf.push(sig.payload as RTCIceCandidateInit); pendingIceRef.current.set(sig.from_user, buf); }
+          }
+        } else if (sig.type === "screen-stop") {
+          setSsStatus("idle");
+          hasRequestedRef.current = false;
+          clearVideoFromScreen();
+          screenPeersRef.current.forEach(pc => pc.close());
+          screenPeersRef.current.clear();
+          if (screenPollRef.current) { clearInterval(screenPollRef.current); screenPollRef.current = null; }
+        }
+      }
+    } catch { /* retry next tick */ }
+  }, [signalRoomId, sendSsOfferTo, createSsPeer, postSsSignal, clearVideoFromScreen]);
+
+  // Start screen share (host)
+  const startScreenShare = useCallback(async () => {
+    setSsError(null);
+    if (!navigator.mediaDevices?.getDisplayMedia) { setSsError("Screen sharing isn't supported on this device"); return; }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { ideal: 60, max: 60 } },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      // Hint to the encoder that this is motion content (prioritize frame rate over sharpness)
+      const vt = stream.getVideoTracks()[0];
+      if (vt && "contentHint" in vt) (vt as MediaStreamTrack & { contentHint: string }).contentHint = "motion";
+      screenStreamRef.current = stream;
+      isSharingRef.current = true;
+      setSsStatus("hosting");
+      // Apply to 3D screen immediately (local preview)
+      await applyVideoToScreen(stream);
+      // Notify others
+      await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: true, hostId: userId }, partyId: partyId || undefined }) });
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => stopScreenShare());
+      // Start polling for viewer signals
+      if (!screenPollRef.current) screenPollRef.current = setInterval(processSsSignals, 3000);
+    } catch (e) {
+      const err = e as Error;
+      if (err.name !== "NotAllowedError") setSsError("Screen share failed: " + err.message);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, partyId, applyVideoToScreen, processSsSignals]);
+
+  // Stop screen share
+  const stopScreenShare = useCallback(async () => {
+    if (!isSharingRef.current) return;
+    isSharingRef.current = false;
+    setSsStatus("idle");
+    screenPeersRef.current.forEach((_, peerId) => postSsSignal(peerId, "screen-stop", {}));
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+    clearVideoFromScreen();
+    screenPeersRef.current.forEach(pc => pc.close());
+    screenPeersRef.current.clear();
+    if (screenPollRef.current) { clearInterval(screenPollRef.current); screenPollRef.current = null; }
+    await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: false, hostId: userId } }) }).catch(() => {});
+  }, [userId, postSsSignal, clearVideoFromScreen]);
+
+  // Auto-request stream when a screenshare is active and we're near the screen
+  useEffect(() => {
+    const offer = theaterState?.screenshareOffer;
+    if (offer?.active && offer.hostId !== userId && driveInNear && ssStatus === "idle" && !hasRequestedRef.current) {
+      hasRequestedRef.current = true;
+      setSsStatus("viewing");
+      postSsSignal(offer.hostId, "screen-want", {});
+      if (!screenPollRef.current) screenPollRef.current = setInterval(processSsSignals, 3000);
+    }
+  }, [theaterState?.screenshareOffer, userId, driveInNear, ssStatus, postSsSignal, processSsSignals]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (isSharingRef.current) { screenStreamRef.current?.getTracks().forEach(t => t.stop()); }
+      screenPeersRef.current.forEach(pc => pc.close());
+      if (screenPollRef.current) clearInterval(screenPollRef.current);
+    };
+  }, []);
+
+  // Dynamic screen glow — sample video colors and apply to 3D light
+  useEffect(() => {
+    if (!colorSampleCanvas.current) {
+      colorSampleCanvas.current = document.createElement("canvas");
+      colorSampleCanvas.current.width = 8; colorSampleCanvas.current.height = 8;
+      colorSampleCtx.current = colorSampleCanvas.current.getContext("2d", { willReadFrequently: true });
+    }
+  }, []);
 
   // ── Town battle (hostile NPC inline combat) ───────────────────────────────
   const [townBattle, setTownBattle] = useState<{ npc: MoonhavenNPC; enemyHp: number; maxHp: number; playerHp: number; maxPlayerHp: number; log: string[] } | null>(null);
@@ -179,12 +480,20 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
   // ── Tag game ──────────────────────────────────────────────────────────────
   const [tagItId, setTagItId] = useState<string | null>(null);
+  const [tagItUsername, setTagItUsername] = useState<string>("");
   const [tagMsg, setTagMsg] = useState<string | null>(null);
   const [tagGameActive, setTagGameActive] = useState(false);
   const [tagTimeLeft, setTagTimeLeft] = useState(TAG_GAME_DURATION);
   const tagTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tagItIdRef = useRef<string | null>(null);
+  const tagItUsernameRef = useRef<string>("");
   const tagGameActiveRef = useRef(false);
+  const tagGameEndedAtRef = useRef<number>(0);
+  // ── Chase music (Web Audio API) ──────────────────────────────────────────
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const chaseMusicActiveRef = useRef(false);
+  const chaseNoteIdxRef = useRef(0);
+  const chaseMusicTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Zone ─────────────────────────────────────────────────────────────────
   const [currentZone, setCurrentZone] = useState("plaza");
@@ -244,19 +553,108 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
     if (showStash || showCharacter) fetchStashData();
   }, [showStash, showCharacter, fetchStashData]);
 
-  // ── Theater state polling (shared with classic town) ──────────────────────
+  // ── Chase music (Web Audio) ───────────────────────────────────────────────
+  function startChaseMusic() {
+    if (chaseMusicActiveRef.current) return;
+    chaseMusicActiveRef.current = true;
+    chaseNoteIdxRef.current = 0;
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+    } catch { return; }
+    playChaseNote();
+  }
+  function playChaseNote() {
+    if (!chaseMusicActiveRef.current) return;
+    const ctx = audioCtxRef.current; if (!ctx) return;
+    const freq = CHASE_NOTES[chaseNoteIdxRef.current % CHASE_NOTES.length];
+    chaseNoteIdxRef.current++;
+    try {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.type = "square"; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.055, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.11);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.13);
+    } catch { /* ignore */ }
+    chaseMusicTimeoutRef.current = setTimeout(playChaseNote, 145);
+  }
+  function stopChaseMusic() {
+    chaseMusicActiveRef.current = false;
+    if (chaseMusicTimeoutRef.current) { clearTimeout(chaseMusicTimeoutRef.current); chaseMusicTimeoutRef.current = null; }
+  }
+
+  // ── Tag game functions ────────────────────────────────────────────────────
+  function beginTagGame(itId: string, itUname: string, startingTime = TAG_GAME_DURATION) {
+    if (tagGameActiveRef.current) return;
+    tagGameActiveRef.current = true;
+    tagItIdRef.current = itId; tagItUsernameRef.current = itUname;
+    setTagItId(itId); setTagItUsername(itUname);
+    setTagGameActive(true); setTagTimeLeft(Math.round(startingTime));
+    if (itId === userId) startChaseMusic();
+    let timeLeft = Math.round(startingTime);
+    tagTimerRef.current = setInterval(() => {
+      timeLeft--; setTagTimeLeft(timeLeft);
+      if (timeLeft <= 0) {
+        endTagGame();
+        wsSend({ type: "tag_end" });
+      }
+    }, 1000);
+  }
+  function endTagGame() {
+    if (!tagGameActiveRef.current) return;
+    tagGameActiveRef.current = false;
+    tagGameEndedAtRef.current = Date.now();
+    if (tagTimerRef.current) { clearInterval(tagTimerRef.current); tagTimerRef.current = null; }
+    stopChaseMusic();
+    const isLoser = tagItIdRef.current === userId;
+    const loserUsername = tagItUsernameRef.current || "someone";
+    setTagMsg(isLoser ? "😬 You were IT!" : `🏃 @${loserUsername} was IT — you survived!`);
+    setTimeout(() => setTagMsg(null), 3000);
+    setTagGameActive(false); setTagItId(null); setTagItUsername("");
+    setTagTimeLeft(TAG_GAME_DURATION);
+    tagItIdRef.current = null; tagItUsernameRef.current = "";
+  }
+  function wsSend(obj: Record<string, unknown>) {
+    if (townSocketRef.current?.readyState === 1) townSocketRef.current.send(JSON.stringify(obj));
+  }
+  function startTag() {
+    setTagItId(userId); setTagItUsername(username);
+    tagItIdRef.current = userId; tagItUsernameRef.current = username;
+    setTagMsg("🏃 You're IT! Chase someone!");
+    setTimeout(() => setTagMsg(null), 3000);
+    beginTagGame(userId, username);
+    wsSend({ type: "tag_start", itId: userId, itUsername: username, timeLeft: TAG_GAME_DURATION });
+  }
+  function tryTag(targetId: string, targetUsername: string) {
+    if (tagItIdRef.current !== userId) return;
+    const [px, , pz] = playerPosRef.current;
+    const targetMesh = otherMeshesRef.current.get(targetId);
+    if (!targetMesh) { setTagMsg("Can't find that player!"); setTimeout(() => setTagMsg(null), 2000); return; }
+    const dist = Math.hypot(targetMesh.position.x - px, targetMesh.position.z - pz);
+    if (dist > TAG_DIST_3D) { setTagMsg("Too far away! Get closer! 🏃"); setTimeout(() => setTagMsg(null), 2000); return; }
+    setTagItId(targetId); setTagItUsername(targetUsername);
+    tagItIdRef.current = targetId; tagItUsernameRef.current = targetUsername;
+    stopChaseMusic();
+    setTagMsg(`🎯 You tagged @${targetUsername}! They're IT!`);
+    setTimeout(() => setTagMsg(null), 3000);
+    wsSend({ type: "tag_transfer", itId: targetId, itUsername: targetUsername });
+  }
+
+  // ── Theater + tag state polling ───────────────────────────────────────────
   useEffect(() => {
     const pollTheater = async () => {
+      if (document.hidden) return;
       try {
         const r = await fetch("/api/town", { method: "GET" });
         const d = await r.json() as Record<string, unknown>;
         const ts = d.theater_state as TheaterState | null;
         if (ts) { setTheaterState(ts); theaterStateRef.current = ts; }
         if (d.coins !== undefined) setMyCoins(d.coins as number);
+        // Tag sync via PartyKit WebSocket handles state; polling only used for theater/coins
       } catch { /* silent */ }
     };
     pollTheater();
-    const iv = setInterval(pollTheater, 4000);
+    const iv = setInterval(pollTheater, 10000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -315,14 +713,14 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
   }, [playNPCVoice]);
 
   // ── Drive-in open/close ───────────────────────────────────────────────────
+  // Drive-in no longer opens a separate room — screen share plays directly on the 3D screen
   const openDriveIn = useCallback(() => {
-    fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-sit" }) }).catch(() => {});
-    setTheaterOpen(true);
-  }, []);
-  const closeDriveIn = useCallback(() => {
-    fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-stand" }) }).catch(() => {});
-    setTheaterOpen(false);
-  }, []);
+    // If no share active and we're the one pressing E, prompt to share
+    if (ssStatus === "idle" && !theaterState?.screenshareOffer?.active) {
+      startScreenShare();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ssStatus, theaterState?.screenshareOffer, startScreenShare]);
 
   // ── WebSocket (PartyKit) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -346,6 +744,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
             removeOtherPlayer(msg.userId);
           } else if (msg.type === "chat" && msg.userId !== userId) {
             showRemoteChat(msg.userId, msg.text);
+          } else if (msg.type === "tag_start" && msg.itId && !tagGameActiveRef.current && Date.now() - tagGameEndedAtRef.current > 3000) {
+            beginTagGame(msg.itId, msg.itUsername ?? "someone", msg.timeLeft ?? TAG_GAME_DURATION);
+          } else if (msg.type === "tag_transfer" && msg.itId) {
+            tagItIdRef.current = msg.itId; tagItUsernameRef.current = msg.itUsername ?? "";
+            setTagItId(msg.itId); setTagItUsername(msg.itUsername ?? "");
+            if (msg.itId === userId) { startChaseMusic(); setTagMsg("🏃 You're IT now! Run!"); setTimeout(() => setTagMsg(null), 3000); }
+            else { stopChaseMusic(); }
+          } else if (msg.type === "tag_end" && tagGameActiveRef.current) {
+            endTagGame();
           }
         } catch { /* ignore */ }
       };
@@ -359,6 +766,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
           user_id: userId,
           username,
           avatar_url: avatarUrl,
+          avatar_config: avatarConfig ?? null,
           x: Math.round(px),
           y: Math.round(pz), // town protocol uses y for the horizontal plane
           direction: "right",
@@ -400,12 +808,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
       // ── Renderer ──────────────────────────────────────────────────────────
       setLoadMsg("Creating renderer…");
-      const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      const QL = detectQuality(); // read fresh from localStorage for this init
+      const renderer = new THREE.WebGLRenderer({
+        antialias: QL === "high",
+        alpha: false,
+        powerPreference: QL === "low" ? "low-power" : "high-performance",
+      });
+      renderer.setPixelRatio(QL === "low" ? 1 : Math.min(window.devicePixelRatio, QL === "med" ? 1.5 : 2));
       renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.shadowMap.enabled = QL !== "low";
+      if (QL !== "low") renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = QL === "low" ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 2.2;
       mountRef.current.appendChild(renderer.domElement);
       rendererRef.current = renderer;
@@ -413,94 +826,86 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       // ── Scene ─────────────────────────────────────────────────────────────
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0a0820);
-      scene.fog = new THREE.Fog(0x0a0820, 45, 90);
+      if (QL !== "low") scene.fog = new THREE.Fog(0x0a0820, QL === "med" ? 55 : 45, QL === "med" ? 105 : 90);
       sceneRef.current = scene;
 
       // ── Camera ────────────────────────────────────────────────────────────
       const camera = new THREE.PerspectiveCamera(
-        60, mountRef.current.clientWidth / mountRef.current.clientHeight, 0.1, 200
+        60, mountRef.current.clientWidth / mountRef.current.clientHeight, 0.1, QL === "low" ? 80 : 200
       );
       cameraRef.current = camera;
       updateCameraOrbit(camera);
 
       // ── Lights — moonlit night ────────────────────────────────────────────
-      const ambient = new THREE.AmbientLight(0x7788bb, 4.5);
+      // Low quality: bright ambient + 1 directional only (no PointLights = huge perf win)
+      const ambient = new THREE.AmbientLight(0x7788bb, QL === "low" ? 7.0 : 4.5);
       scene.add(ambient);
 
-      // Moon — cool blue-white directional
-      const moon = new THREE.DirectionalLight(0xddeeff, 5.5);
+      const moon = new THREE.DirectionalLight(0xddeeff, QL === "low" ? 3.5 : 5.5);
       moon.position.set(20, 40, -10);
-      moon.castShadow = true;
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || ('ontouchstart' in window);
-      moon.shadow.mapSize.setScalar(isMobile ? 512 : 1024);
-      moon.shadow.camera.near = 1;
-      moon.shadow.camera.far = 120;
-      moon.shadow.camera.left = -60;
-      moon.shadow.camera.right = 60;
-      moon.shadow.camera.top = 60;
-      moon.shadow.camera.bottom = -60;
+      moon.castShadow = QL !== "low";
+      if (QL !== "low") {
+        moon.shadow.mapSize.setScalar(QL === "high" ? 1024 : 512);
+        moon.shadow.camera.near = 1; moon.shadow.camera.far = 120;
+        moon.shadow.camera.left = -60; moon.shadow.camera.right = 60;
+        moon.shadow.camera.top = 60; moon.shadow.camera.bottom = -60;
+      }
       scene.add(moon);
 
-      // Fountain glow — bright blue point
-      const fountainGlow = new THREE.PointLight(0x2244ff, 6.0, 40);
-      fountainGlow.position.set(0, 2, 0);
-      scene.add(fountainGlow);
+      // Fountain glow + plaza lanterns — skip on low (each PointLight = expensive shader cost)
+      const fountainGlow = QL !== "low" ? new THREE.PointLight(0x2244ff, 6.0, 40) : null;
+      if (fountainGlow) { fountainGlow.position.set(0, 2, 0); scene.add(fountainGlow); }
 
-      // Lantern lights (warm orange) — reduce on mobile for perf
       const lanternPositions: [number, number, number][] = [
         [8, 2.5, 0], [-8, 2.5, 0], [0, 2.5, 8], [0, 2.5, -8],
         [12, 2.5, 12], [-12, 2.5, 12], [12, 2.5, -12], [-12, 2.5, -12],
       ];
-      const activeLanterns = isMobile ? lanternPositions.slice(0, 3) : lanternPositions;
+      const activeLanterns = QL === "low" ? [] : QL === "med" ? lanternPositions.slice(0, 4) : lanternPositions;
       for (const pos of activeLanterns) {
-        const lantern = new THREE.PointLight(0xffcc66, isMobile ? 4.5 : 3.0, isMobile ? 35 : 22);
+        const lantern = new THREE.PointLight(0xffcc66, 3.0, 22);
         lantern.position.set(...pos);
         scene.add(lantern);
       }
 
-      // ── Ground — cobblestone plaza ────────────────────────────────────────
-      const groundGeo = new THREE.PlaneGeometry(120, 120, 24, 24);
-      // Procedural cobblestone canvas texture
-      const cobbleCanvas = document.createElement("canvas");
-      cobbleCanvas.width = 512; cobbleCanvas.height = 512;
-      const cctx = cobbleCanvas.getContext("2d")!;
-      cctx.fillStyle = "#3a3852";
-      cctx.fillRect(0, 0, 512, 512);
-      const rng = (min: number, max: number) => min + Math.random() * (max - min);
-      for (let ci = 0; ci < 200; ci++) {
-        const cx2 = rng(0, 512), cy2 = rng(0, 512);
-        const cw = rng(18, 38), ch = rng(14, 26);
-        const gray = Math.floor(rng(62, 88));
-        cctx.fillStyle = `rgb(${gray-8},${gray-5},${gray+4})`;
-        cctx.beginPath();
-        cctx.roundRect(cx2, cy2, cw, ch, 3);
-        cctx.fill();
-        cctx.strokeStyle = `rgba(15,14,25,0.6)`;
-        cctx.lineWidth = 1.5;
-        cctx.stroke();
+      // ── Ground ────────────────────────────────────────────────────────────
+      const groundGeo = new THREE.PlaneGeometry(120, 120, QL === "low" ? 1 : 24, QL === "low" ? 1 : 24);
+      let groundMat: import("three").Material;
+      if (QL === "low") {
+        // Low: flat solid color — zero texture uploads, zero canvas computation
+        groundMat = new THREE.MeshBasicMaterial({ color: 0x3a3852 });
+      } else {
+        // Med/High: procedural cobblestone canvas texture
+        const cobbleCanvas = document.createElement("canvas");
+        cobbleCanvas.width = 512; cobbleCanvas.height = 512;
+        const cctx2 = cobbleCanvas.getContext("2d")!;
+        cctx2.fillStyle = "#3a3852"; cctx2.fillRect(0, 0, 512, 512);
+        const rng = (min: number, max: number) => min + Math.random() * (max - min);
+        for (let ci = 0; ci < 200; ci++) {
+          const cx2 = rng(0, 512), cy2 = rng(0, 512);
+          const cw = rng(18, 38), ch = rng(14, 26);
+          const gray = Math.floor(rng(62, 88));
+          cctx2.fillStyle = `rgb(${gray-8},${gray-5},${gray+4})`;
+          cctx2.beginPath(); cctx2.roundRect(cx2, cy2, cw, ch, 3); cctx2.fill();
+          cctx2.strokeStyle = `rgba(15,14,25,0.6)`; cctx2.lineWidth = 1.5; cctx2.stroke();
+        }
+        const cobbleTex = new THREE.CanvasTexture(cobbleCanvas);
+        cobbleTex.wrapS = THREE.RepeatWrapping; cobbleTex.wrapT = THREE.RepeatWrapping;
+        cobbleTex.repeat.set(8, 8);
+        groundMat = new THREE.MeshStandardMaterial({ map: cobbleTex, color: 0x7a7898, roughness: 0.92, metalness: 0.03 });
       }
-      const cobbleTex = new THREE.CanvasTexture(cobbleCanvas);
-      cobbleTex.wrapS = THREE.RepeatWrapping;
-      cobbleTex.wrapT = THREE.RepeatWrapping;
-      cobbleTex.repeat.set(8, 8);
-      const groundMat = new THREE.MeshStandardMaterial({
-        map: cobbleTex,
-        color: 0x7a7898,
-        roughness: 0.92,
-        metalness: 0.03,
-      });
       const ground = new THREE.Mesh(groundGeo, groundMat);
       ground.rotation.x = -Math.PI / 2;
-      ground.receiveShadow = true;
+      ground.receiveShadow = QL !== "low";
       scene.add(ground);
 
-      // Grass ring beyond plaza
-      const grassGeo = new THREE.RingGeometry(56, 90, 48);
-      const grassMat = new THREE.MeshStandardMaterial({ color: 0x1a3a18, roughness: 1 });
-      const grass = new THREE.Mesh(grassGeo, grassMat);
-      grass.rotation.x = -Math.PI / 2;
-      grass.position.y = 0.02;
-      scene.add(grass);
+      // Grass ring — skip on low (off-screen anyway due to reduced draw distance)
+      if (QL !== "low") {
+        const grassGeo = new THREE.RingGeometry(56, 90, QL === "med" ? 24 : 48);
+        const grassMat = new THREE.MeshStandardMaterial({ color: 0x1a3a18, roughness: 1 });
+        const grass = new THREE.Mesh(grassGeo, grassMat);
+        grass.rotation.x = -Math.PI / 2; grass.position.y = 0.02;
+        scene.add(grass);
+      }
 
       // ── Moon Fountain (central) ───────────────────────────────────────────
       setLoadMsg("Building fountain…");
@@ -520,19 +925,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
       // ── Drive-In Theater ──────────────────────────────────────────────────
       setLoadMsg("Setting up Drive-In…");
-      screenMeshRef.current = buildDriveIn(THREE, scene);
+      screenMeshRef.current = buildDriveIn(THREE, scene, QL);
 
-      // ── Stars backdrop ────────────────────────────────────────────────────
-      setLoadMsg("Painting stars…");
-      buildStars(THREE, scene);
+      // ── Stars backdrop — skip on low (pure cosmetic, many points) ───────────
+      if (QL !== "low") { setLoadMsg("Painting stars…"); buildStars(THREE, scene); }
 
       // ── Forest trees ──────────────────────────────────────────────────────
       setLoadMsg("Growing forest…");
       buildForestTrees(THREE, scene);
 
-      // ── Horse & Cart ──────────────────────────────────────────────────────
-      setLoadMsg("Summoning horse…");
-      buildHorseAndCart(THREE, scene);
+      // ── Horse & Cart — skip on low ────────────────────────────────────────
+      if (QL !== "low") { setLoadMsg("Summoning horse…"); buildHorseAndCart(THREE, scene); }
 
       // ── Market awnings ────────────────────────────────────────────────────
       setLoadMsg("Building market…");
@@ -546,7 +949,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       buildCastleWalls(THREE, scene);
 
       // ── Player mesh ───────────────────────────────────────────────────────
-      const playerGroup = await buildBillboard(THREE, avatarUrl, username, 0xffffff);
+      const playerGroup = await buildBillboard(THREE, avatarUrl, username, 0xffffff, avatarConfig ?? undefined);
       playerGroup.position.set(...MOONHAVEN_SPAWN);
       scene.add(playerGroup);
       playerMeshRef.current = playerGroup;
@@ -675,6 +1078,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
       // ── Animation loop ────────────────────────────────────────────────────
       let npcPatrolIndex: Record<string, number> = {};
       let npcPatrolT: Record<string, number> = {};
+      let colorSampleFrame = 0;
 
       const animate = () => {
         frameIdRef.current = requestAnimationFrame(animate);
@@ -707,6 +1111,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         if (keysRef.current.has("KeyD") || keysRef.current.has("ArrowRight")) {
           mx += camRight.x; mz += camRight.z;
         }
+        // Mobile joystick input
+        if (joystickRef.current.active) {
+          mx += camRight.x * joystickRef.current.dx - camFwd.x * joystickRef.current.dy;
+          mz += camRight.z * joystickRef.current.dx - camFwd.z * joystickRef.current.dy;
+        }
 
         // Click-to-move (clears on WASD)
         if ((mx !== 0 || mz !== 0)) {
@@ -738,8 +1147,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
         const len = Math.sqrt(mx * mx + mz * mz);
         if (len > 0) {
-          const newX = Math.max(-55, Math.min(55, px + (mx / len) * speed * dt));
-          const newZ = Math.max(-55, Math.min(55, pz + (mz / len) * speed * dt));
+          const newX = Math.max(-55, Math.min(78, px + (mx / len) * speed * dt));
+          const newZ = Math.max(-55, Math.min(86, pz + (mz / len) * speed * dt));
           // Building collision — prevent player from walking through buildings
           let colX = newX, colZ = newZ;
           for (const bld of MOONHAVEN_BUILDINGS) {
@@ -847,28 +1256,68 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
           }
         }
 
-        // Drive-in proximity — screen at [38, 0, 30], interact within 10 units
-        const distToScreen = Math.hypot(cpx - 38, cpz - 30);
-        const nearScreen = distToScreen < 10;
+        // Drive-in proximity — screen at [62, 0, 52], interact within 18 units (bigger theater)
+        const distToScreen = Math.hypot(cpx - 62, cpz - 52);
+        const nearScreen = distToScreen < 18;
         if (nearScreen !== driveInNearRef.current) {
           driveInNearRef.current = nearScreen;
           setDriveInNear(nearScreen);
         }
 
-        // Screen glow pulse when theater is active
+        // Proximity audio — volume scales with distance to screen (like a real drive-in)
+        const vid = screenVideoRef.current;
+        if (vid && vid.srcObject) {
+          const isHost = isSharingRef.current;
+          if (isHost) {
+            // Host stays muted (avoids echo — they hear their own audio from the source)
+            vid.muted = true; vid.volume = 0;
+          } else {
+            // Viewers: unmute, volume based on distance
+            // Full volume at 8 units, fades to 0 at 55 units
+            const maxDist = 55, fullDist = 8;
+            const vol = Math.max(0, Math.min(1, 1 - (distToScreen - fullDist) / (maxDist - fullDist)));
+            vid.muted = false;
+            vid.volume = vol * vol; // quadratic falloff for natural feel
+          }
+        }
+
+        // Force VideoTexture to upload new frame every tick (Three.js doesn't auto-call update())
+        if (videoTextureRef.current) videoTextureRef.current.needsUpdate = true;
+
+        // Screen glow — dynamic color sampling when video is playing
         if (screenMeshRef.current) {
           const sLight = screenMeshRef.current.userData.screenLight as import("three").PointLight | undefined;
           if (sLight) {
-            const isActive = !!theaterStateRef.current?.videoUrl;
-            sLight.intensity = isActive
-              ? 2.5 + Math.sin(clock.elapsedTime * 2) * 0.5
-              : 0.8 + Math.sin(clock.elapsedTime * 0.8) * 0.2;
-            sLight.color.set(isActive ? 0x8899ff : 0x4455cc);
+            const isLive = ssStatusRef.current === "hosting" || ssStatusRef.current === "viewing";
+            colorSampleFrame++;
+            if (isLive && colorSampleFrame % 6 === 0 && screenVideoRef.current && colorSampleCtx.current && colorSampleCanvas.current) {
+              // Sample average color from video for reactive ambient glow (throttled to every 6th frame)
+              try {
+                const vid = screenVideoRef.current;
+                if (vid.readyState >= 2) {
+                  colorSampleCtx.current.drawImage(vid, 0, 0, 8, 8);
+                  const d = colorSampleCtx.current.getImageData(0, 0, 8, 8).data;
+                  let r = 0, g = 0, b = 0, n = 0;
+                  for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i+1]; b += d[i+2]; n++; }
+                  if (n > 0) {
+                    r = r/n/255; g = g/n/255; b = b/n/255;
+                    sLight.color.setRGB(0.3 + r * 0.7, 0.3 + g * 0.7, 0.3 + b * 0.7);
+                    sLight.intensity = 2.0 + ((r + g + b) / 3) * 1.5;
+                  }
+                }
+              } catch { /* cross-origin — fallback to static glow */ }
+            } else {
+              const isYT = !!theaterStateRef.current?.videoUrl;
+              sLight.intensity = isYT
+                ? 2.5 + Math.sin(clock.elapsedTime * 2) * 0.5
+                : 0.8 + Math.sin(clock.elapsedTime * 0.8) * 0.2;
+              sLight.color.set(isYT ? 0x8899ff : 0x4455cc);
+            }
           }
         }
 
         // Fountain glow pulse
-        fountainGlow.intensity = 2 + Math.sin(clock.elapsedTime * 1.5) * 0.5;
+        if (fountainGlow) fountainGlow.intensity = 2 + Math.sin(clock.elapsedTime * 1.5) * 0.5;
 
         renderer.render(scene, camera);
       };
@@ -933,7 +1382,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
     let group = otherMeshesRef.current.get(player.user_id);
     if (!group) {
-      group = await buildBillboard(THREE, player.avatar_url, player.username, 0x88ffaa);
+      group = await buildBillboard(THREE, player.avatar_url, player.username, 0x88ffaa, player.avatar_config ?? undefined);
       scene.add(group);
       otherMeshesRef.current.set(player.user_id, group);
     }
@@ -1009,11 +1458,176 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
     });
   }, [chatInput, userId]);
 
+  // ── Mobile touch handlers (floating joystick + two-finger camera) ────────
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (joystickId.current === null) {
+        joystickId.current = t.identifier;
+        joystickCenter.current = { x: t.clientX, y: t.clientY };
+        joystickRef.current = { active: true, dx: 0, dy: 0 };
+        setJoystickVis({ cx: t.clientX, cy: t.clientY, kx: t.clientX, ky: t.clientY, visible: true });
+      } else if (camTouchId.current === null) {
+        camTouchId.current = t.identifier;
+        camTouchLast.current = { x: t.clientX, y: t.clientY };
+      }
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === joystickId.current) {
+        const cx = joystickCenter.current.x;
+        const cy = joystickCenter.current.y;
+        const rawDx = t.clientX - cx;
+        const rawDy = t.clientY - cy;
+        const dist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+        if (dist < VJOY_DEAD) {
+          joystickRef.current = { active: true, dx: 0, dy: 0 };
+          setJoystickVis(v => ({ ...v, kx: cx, ky: cy }));
+        } else {
+          const clamped = Math.min(dist, VJOY_R);
+          const angle = Math.atan2(rawDy, rawDx);
+          const kx = cx + Math.cos(angle) * clamped;
+          const ky = cy + Math.sin(angle) * clamped;
+          joystickRef.current = { active: true, dx: Math.cos(angle) * (clamped / VJOY_R), dy: Math.sin(angle) * (clamped / VJOY_R) };
+          setJoystickVis(v => ({ ...v, kx, ky }));
+        }
+      } else if (t.identifier === camTouchId.current) {
+        const dx = t.clientX - camTouchLast.current.x;
+        const dy = t.clientY - camTouchLast.current.y;
+        camOrbitRef.current.theta -= dx * 0.007;
+        camOrbitRef.current.phi = Math.max(0.15, Math.min(1.2, camOrbitRef.current.phi + dy * 0.007));
+        camTouchLast.current = { x: t.clientX, y: t.clientY };
+      }
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === joystickId.current) {
+        joystickId.current = null;
+        joystickRef.current = { active: false, dx: 0, dy: 0 };
+        setJoystickVis(v => ({ ...v, visible: false }));
+      } else if (t.identifier === camTouchId.current) {
+        camTouchId.current = null;
+      }
+    }
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh", background: "#0a0820", overflow: "hidden", fontFamily: "monospace" }}>
-      {/* Three.js canvas mount */}
-      <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
+      {/* ── Customize avatar banner (first-time prompt) ───────────────────── */}
+      {!avatarConfig && !loading && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 700,
+          background: "linear-gradient(90deg, rgba(124,58,237,0.9), rgba(0,229,255,0.7))",
+          backdropFilter: "blur(6px)",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+          padding: "8px 16px",
+        }}>
+          <span style={{ color: "#fff", fontSize: 13 }}>🎭 You haven&apos;t customized your avatar yet!</span>
+          <a href="/customize" style={{
+            background: "rgba(255,255,255,0.2)", color: "#fff",
+            border: "1px solid rgba(255,255,255,0.4)", borderRadius: 6,
+            padding: "4px 12px", fontSize: 12, fontWeight: 700,
+            textDecoration: "none", letterSpacing: "0.05em",
+          }}>
+            Customize →
+          </a>
+        </div>
+      )}
+
+      {/* Three.js canvas mount — touch handlers for floating joystick + camera */}
+      <div ref={mountRef} style={{ position: "absolute", inset: avatarConfig || loading ? 0 : "36px 0 0 0", touchAction: "none" }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      />
+
+      {/* ── Quality toggle ─────────────────────────────────────────────────── */}
+      <div style={{ position: "fixed", bottom: 8, right: 8, zIndex: 600, userSelect: "none" }}>
+        <button
+          onClick={() => setShowQualityPanel(p => !p)}
+          onPointerDown={e => e.stopPropagation()}
+          style={{ background: "rgba(10,6,28,0.85)", border: "1px solid rgba(100,80,220,0.5)",
+            borderRadius: 8, color: "#aabbff", padding: "5px 10px", cursor: "pointer",
+            fontSize: 11, fontWeight: 700, letterSpacing: 1 }}
+        >
+          ⚙️ {quality === "low" ? "LOW" : quality === "med" ? "MED" : "HIGH"}
+        </button>
+        {showQualityPanel && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ position: "absolute", bottom: 34, right: 0, background: "rgba(8,5,22,0.97)",
+              border: "1px solid rgba(100,80,220,0.4)", borderRadius: 12, padding: "12px 14px",
+              display: "flex", flexDirection: "column", gap: 6, minWidth: 170,
+              boxShadow: "0 4px 24px rgba(0,0,0,0.6)" }}
+          >
+            <div style={{ color: "#9988cc", fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
+              Graphics Quality
+            </div>
+            {(["low", "med", "high"] as QualityLevel[]).map(q => (
+              <button key={q}
+                onClick={() => { localStorage.setItem("mh_quality", q); window.location.reload(); }}
+                style={{ background: q === quality ? "rgba(100,80,220,0.35)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${q === quality ? "rgba(150,120,255,0.6)" : "rgba(255,255,255,0.08)"}`,
+                  borderRadius: 7, color: q === quality ? "#ccbbff" : "#666",
+                  padding: "7px 12px", cursor: "pointer", fontSize: 12,
+                  fontWeight: q === quality ? 700 : 400, textAlign: "left", display: "flex", justifyContent: "space-between" }}
+              >
+                <span>{q === "low" ? "🟢 Low  (Fast)" : q === "med" ? "🟡 Medium" : "🔴 High  (Best)"}</span>
+                {q === quality && <span style={{ opacity: 0.7 }}>✓</span>}
+              </button>
+            ))}
+            <div style={{ fontSize: 10, color: "rgba(120,110,180,0.45)", marginTop: 4, lineHeight: 1.4 }}>
+              Low = smooth on phones &amp; older PCs<br/>Reload applies the change
+            </div>
+            <hr style={{ border: "none", borderTop: "1px solid rgba(100,80,220,0.2)", margin: "4px 0" }} />
+            <a href="/customize"
+              onPointerDown={e => e.stopPropagation()}
+              style={{ background: "rgba(100,80,220,0.18)", border: "1px solid rgba(150,120,255,0.3)",
+                borderRadius: 7, color: "#ccbbff", padding: "7px 12px", fontSize: 12,
+                textDecoration: "none", display: "block", textAlign: "left" }}
+            >
+              🎭 Customize Avatar
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* ── Floating joystick visual (spawns at touch point) ──────────────── */}
+      {joystickVis.visible && (
+        <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 600 }}>
+          {/* Base ring */}
+          <div style={{
+            position: "absolute",
+            left: joystickVis.cx - VJOY_R,
+            top: joystickVis.cy - VJOY_R,
+            width: VJOY_R * 2,
+            height: VJOY_R * 2,
+            borderRadius: "50%",
+            border: "2px solid rgba(120,100,255,0.5)",
+            background: "rgba(10,6,28,0.45)",
+          }} />
+          {/* Knob */}
+          <div style={{
+            position: "absolute",
+            left: joystickVis.kx - 22,
+            top: joystickVis.ky - 22,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            background: "rgba(130,100,255,0.65)",
+            border: "2px solid rgba(180,160,255,0.85)",
+          }} />
+        </div>
+      )}
 
       {/* Loading screen */}
       {loading && (
@@ -1059,9 +1673,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         pointerEvents: "none",
       }}>
         <div style={{ pointerEvents: "all", display: "flex", alignItems: "center", gap: 10 }}>
-          <Link href="/town" style={{ background: "rgba(30,20,60,0.95)", border: "2px solid rgba(130,100,255,0.8)", borderRadius: 10, padding: "8px 16px", color: "#e8d8ff", fontWeight: 700, fontSize: 13, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
-            🏘️ Classic Town
-          </Link>
+          <div style={{ fontSize: 10, color: "rgba(150,170,255,0.35)", fontWeight: 700, letterSpacing: "0.08em" }}>🌙 MOONHAVEN</div>
           <div style={{ fontSize: 10, color: "rgba(150,170,255,0.4)" }}>
             {currentZone === "plaza" ? "🌙 Moon Plaza" :
              currentZone === "market" ? "🏪 Market Row" :
@@ -1129,9 +1741,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
 
       {/* Bottom toolbar */}
       {((): React.ReactNode => {
-        const toolbarBtns: Array<{ icon: string; label: string; onClick: () => void }> = [
+        const toolbarBtns: Array<{ icon: string; label: string; onClick: () => void; highlight?: boolean }> = [
           { icon: "💬", label: "Chat [Enter]", onClick: () => setChatOpen(o => !o) },
           { icon: "🦘", label: "Jump [Space]", onClick: () => { if (jumpRef.current.grounded) { jumpRef.current.vy = 9; jumpRef.current.grounded = false; try { const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain(); osc.connect(g); g.connect(ac.destination); osc.type = "sine"; osc.frequency.setValueAtTime(320, ac.currentTime); osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.18); g.gain.setValueAtTime(0.22, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22); osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.22); osc.onended = () => ac.close(); } catch { /**/ } } } },
+          { icon: tagGameActive && tagItId === userId ? "🏷️ IT!" : "🏷️", label: tagGameActive ? (tagItId === userId ? "You're IT — tag someone!" : `Tag game — ${tagItUsername} is IT`) : "Play Tag", onClick: () => { if (!tagGameActive) startTag(); }, highlight: tagGameActive && tagItId === userId },
           { icon: "🎒", label: "Stash", onClick: () => { setShowStash(true); fetchStashData(); } },
           { icon: "⚔️", label: "Adventure", onClick: () => setShowAdventure(true) },
           { icon: "🧙", label: "Character", onClick: () => setShowCharacter(true) },
@@ -1146,14 +1759,25 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
             borderRadius: 14, padding: "8px 14px",
           }}>
             {toolbarBtns.map(btn => (
-              <button key={btn.icon} onClick={btn.onClick} title={btn.label} style={{
-                padding: "7px 10px", fontSize: 18, background: "rgba(80,60,180,0.25)",
-                border: "1px solid rgba(100,80,200,0.25)", borderRadius: 9, cursor: "pointer",
-                color: "#ccbbff", transition: "background 0.15s",
+              <button key={btn.label} onClick={btn.onClick} title={btn.label} style={{
+                padding: "7px 10px", fontSize: btn.highlight ? 14 : 18,
+                background: btn.highlight ? "rgba(220,50,50,0.4)" : "rgba(80,60,180,0.25)",
+                border: `1px solid ${btn.highlight ? "rgba(255,80,80,0.6)" : "rgba(100,80,200,0.25)"}`,
+                borderRadius: 9, cursor: "pointer",
+                color: btn.highlight ? "#ffcccc" : "#ccbbff", transition: "background 0.15s",
+                animation: btn.highlight ? "pulse 0.8s ease-in-out infinite alternate" : "none",
               }}
-                onMouseEnter={e => (e.currentTarget.style.background = "rgba(100,80,220,0.45)")}
-                onMouseLeave={e => (e.currentTarget.style.background = "rgba(80,60,180,0.25)")}
+                onMouseEnter={e => (e.currentTarget.style.background = btn.highlight ? "rgba(255,60,60,0.55)" : "rgba(100,80,220,0.45)")}
+                onMouseLeave={e => (e.currentTarget.style.background = btn.highlight ? "rgba(220,50,50,0.4)" : "rgba(80,60,180,0.25)")}
               >{btn.icon}</button>
+            ))}
+            {/* Tag buttons for nearby players when you're IT */}
+            {tagGameActive && tagItId === userId && nearbyPlayers.filter(p => p.user_id !== userId).map(p => (
+              <button key={`tag-${p.user_id}`} onClick={() => tryTag(p.user_id, p.username)} style={{
+                padding: "5px 10px", fontSize: 12, fontWeight: 700,
+                background: "rgba(220,50,50,0.3)", border: "1px solid rgba(255,80,80,0.5)",
+                borderRadius: 9, cursor: "pointer", color: "#ffaaaa",
+              }}>🏷️ @{p.username}</button>
             ))}
             <div style={{ width: 1, height: 28, background: "rgba(100,80,200,0.2)" }} />
             <Link href="/feed" style={{ padding: "7px 10px", fontSize: 12, color: "rgba(150,130,220,0.5)", textDecoration: "none" }}>Feed</Link>
@@ -1243,15 +1867,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         </div>
       )}
       {tagMsg && (
-        <div style={{
-          position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-          zIndex: 80, background: "rgba(0,0,0,0.85)", borderRadius: 12,
-          padding: "16px 28px", fontSize: 16, color: "#fff", textAlign: "center",
-          border: "1px solid rgba(255,80,80,0.4)",
+        <div onClick={() => setTagMsg(null)} style={{
+          position: "absolute", top: 90, left: "50%", transform: "translateX(-50%)",
+          zIndex: 80, background: "rgba(0,0,0,0.8)", borderRadius: 10,
+          padding: "10px 20px", fontSize: 14, color: "#fff", textAlign: "center",
+          border: "1px solid rgba(255,80,80,0.3)", cursor: "pointer", whiteSpace: "nowrap",
         }}>
           {tagMsg}
-          <br />
-          <button onClick={() => setTagMsg(null)} style={{ marginTop: 10, padding: "4px 14px", borderRadius: 7, border: "none", background: "rgba(255,100,100,0.3)", color: "#fff", cursor: "pointer", fontSize: 12 }}>OK</button>
         </div>
       )}
 
@@ -1351,59 +1973,148 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         </div>
       )}
 
-      {/* Drive-In proximity prompt */}
-      {driveInNear && !theaterOpen && (
-        <div style={{
+      {/* Drive-In LIVE Screen — inline controls, no overlay room */}
+      {driveInNear && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          style={{
           position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)",
-          zIndex: 500, background: "rgba(10,6,28,0.95)", border: "2px solid rgba(100,80,220,0.7)",
-          borderRadius: 14, padding: "12px 20px", display: "flex", alignItems: "center",
-          gap: 14, backdropFilter: "blur(8px)", minWidth: 280,
+          zIndex: 500, background: "rgba(10,6,28,0.95)", border: `2px solid ${ssStatus !== "idle" ? "rgba(68,255,136,0.7)" : "rgba(100,80,220,0.7)"}`,
+          borderRadius: 14, padding: "14px 20px", display: "flex", alignItems: "center",
+          gap: 14, backdropFilter: "blur(8px)", minWidth: 320,
           animation: "npc-pop 0.2s ease-out",
         }}>
-          <div style={{ fontSize: 32 }}>🎬</div>
+          <div style={{ fontSize: 32 }}>{ssStatus !== "idle" ? "📺" : "🎬"}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, color: "#ccbbff", fontSize: 13, marginBottom: 3 }}>
+            <div style={{ fontWeight: 800, color: ssStatus !== "idle" ? "#44ff88" : "#ccbbff", fontSize: 13, marginBottom: 3 }}>
               🌙 Moonhaven Drive-In
             </div>
             <div style={{ fontSize: 11, color: "rgba(180,160,255,0.6)" }}>
-              {theaterState?.videoUrl ? "🔴 Now Showing" : "🎥 Screen is ready"}
+              {ssStatus === "hosting" ? "📺 You're sharing LIVE" :
+               ssStatus === "viewing" ? "📺 Watching LIVE stream" :
+               theaterState?.screenshareOffer?.active ? "🔴 Someone is sharing" :
+               "🎥 Share your screen for everyone"}
             </div>
+            {ssError && <div style={{ fontSize: 10, color: "#ff6666", marginTop: 3 }}>{ssError}</div>}
           </div>
-          <button
-            style={{ background: "rgba(80,60,200,0.8)", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#eeddff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
-            onClick={openDriveIn}
-          >🎬 Watch [E]</button>
+          <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
+            {ssStatus === "idle" && !theaterState?.screenshareOffer?.active && (<>
+              <button
+                style={{ background: "linear-gradient(135deg,rgba(80,60,200,0.9),rgba(120,80,255,0.8))", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+                onClick={startScreenShare}
+              >📺 Share Screen</button>
+              <button
+                style={{ background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: 8, color: "#ffaa00", padding: "6px 12px", fontWeight: 600, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+                onClick={() => setShowGameCast(prev => !prev)}
+              >🎮 Cast a Game</button>
+            </>)}
+            {ssStatus === "hosting" && (
+              <button
+                style={{ background: "rgba(255,60,60,0.8)", border: "1px solid rgba(255,100,100,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+                onClick={stopScreenShare}
+              >⏹ End Share</button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Drive-In TheaterRoom */}
-      {theaterOpen && (
-        <TheaterRoom
-          theaterState={theaterState}
-          userId={userId}
-          username={username}
-          avatarUrl={avatarUrl}
-          myCoins={myCoins}
-          hostId={theaterState?.hostId ?? null}
-          partyId={partyIdRef.current}
-          onClose={closeDriveIn}
-          onSetVideo={async (videoUrl: string) => {
-            const r = await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-set-video", videoUrl }) });
-            const d = await r.json() as Record<string, unknown>;
-            if (d.theater_state) { setTheaterState(d.theater_state as TheaterState); theaterStateRef.current = d.theater_state as TheaterState; }
-          }}
-          onClearVideo={async () => {
-            await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-clear-video" }) });
-            setTheaterState(ts => ts ? { ...ts, videoUrl: null, startedAt: null } : ts);
-          }}
-          onPause={async () => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-pause" }) }); }}
-          onUnpause={async () => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-unpause" }) }); }}
-          onSeek={async (t: number) => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-seek", seekTo: t }) }); }}
-          onChat={async (msg: string) => { await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-chat", message: msg }) }); }}
-          onSit={() => {}}
-          onStand={closeDriveIn}
-        />
+      {/* Emoji reactions bar — visible when near the drive-in and something is playing */}
+      {driveInNear && ssStatus !== "idle" && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          style={{
+          position: "fixed", bottom: 36, left: "50%", transform: "translateX(-50%)",
+          zIndex: 500, display: "flex", gap: 6, background: "rgba(10,6,28,0.8)",
+          borderRadius: 30, padding: "6px 10px", backdropFilter: "blur(6px)",
+          border: "1px solid rgba(100,80,220,0.3)",
+        }}>
+          {[
+            { emoji: "🍿", label: "Popcorn" },
+            { emoji: "😂", label: "Laugh" },
+            { emoji: "😢", label: "Cry" },
+            { emoji: "🍅", label: "Tomato!" },
+            { emoji: "🤫", label: "Shush" },
+            { emoji: "🥤", label: "Sip" },
+            { emoji: "👏", label: "Clap" },
+            { emoji: "🔥", label: "Fire" },
+          ].map(r => (
+            <button key={r.emoji} title={r.label} onClick={() => {
+              // Send reaction via PartyKit chat (visible to all)
+              const ws = townSocketRef.current;
+              if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: "chat", userId, text: r.emoji }));
+              }
+            }} style={{
+              background: "none", border: "none", fontSize: 22, cursor: "pointer",
+              padding: "4px 6px", borderRadius: 8, transition: "transform 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.35)")}
+            onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
+            >{r.emoji}</button>
+          ))}
+        </div>
       )}
+
+      {/* Game Cast picker — opens game in new tab, then triggers screen share */}
+      {showGameCast && ssStatus === "idle" && (
+        <div style={{
+          position: "fixed", bottom: 200, left: "50%", transform: "translateX(-50%)",
+          zIndex: 510, background: "rgba(10,6,28,0.97)", border: "2px solid rgba(255,170,0,0.5)",
+          borderRadius: 14, padding: "14px 18px", backdropFilter: "blur(10px)",
+          minWidth: 300, maxWidth: 380, animation: "npc-pop 0.15s ease-out",
+        }}>
+          <div style={{ fontWeight: 800, color: "#ffaa00", fontSize: 14, marginBottom: 10, textAlign: "center" }}>
+            🎮 Cast a Game to the Big Screen
+          </div>
+          <div style={{ fontSize: 10, color: "rgba(255,200,100,0.5)", textAlign: "center", marginBottom: 10 }}>
+            Opens the game, then share that tab to the drive-in
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[
+              { name: "Outbreak", path: "/outbreak", emoji: "☠️", desc: "VS Roguelike" },
+              { name: "WHO DONE IT", path: "/whodoneit", emoji: "🔍", desc: "Mystery game" },
+              { name: "Chess", path: "/chess", emoji: "♟️", desc: "Classic chess" },
+              { name: "Poker", path: "/poker", emoji: "🃏", desc: "Texas Hold'em" },
+              { name: "Pong", path: "/pong", emoji: "🏓", desc: "1v1 Pong" },
+              { name: "Tightrope", path: "/tightrope", emoji: "🎪", desc: "Balance game" },
+              { name: "Survivors", path: "/survivors", emoji: "🧟", desc: "Survival mode" },
+              { name: "Draw", path: "/draw", emoji: "🎨", desc: "Drawing game" },
+              { name: "Quiz", path: "/quiz", emoji: "🧠", desc: "Trivia" },
+            ].map(game => (
+              <button key={game.path} onClick={() => {
+                window.open(game.path, "_blank");
+                setShowGameCast(false);
+                // Brief delay then prompt screen share so user can pick the game tab
+                setTimeout(() => startScreenShare(), 1500);
+              }} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 8, cursor: "pointer", textAlign: "left", color: "#ddd", fontSize: 13,
+              }}>
+                <span style={{ fontSize: 20 }}>{game.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, color: "#eeddff" }}>{game.name}</div>
+                  <div style={{ fontSize: 10, color: "rgba(180,160,255,0.5)" }}>{game.desc}</div>
+                </div>
+                <span style={{ fontSize: 10, color: "#888" }}>→</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setShowGameCast(false)} style={{
+            marginTop: 10, width: "100%", padding: "6px", background: "none",
+            border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
+            color: "#888", cursor: "pointer", fontSize: 11,
+          }}>Close</button>
+        </div>
+      )}
+
+      {/* Hidden video element for screen share stream → VideoTexture */}
+      {/* NOTE: cannot use display:none — browsers skip frame decode. Off-screen instead. */}
+      <video ref={screenVideoRef} style={{ position: "fixed", top: -9999, left: -9999, width: 1, height: 1, opacity: 0 }} autoPlay playsInline muted />
 
       {/* Portrait mode warning (mobile only) */}
       <div id="mh-portrait-warn" style={{
@@ -1417,11 +2128,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, partyId }
         <div style={{ fontSize: 12, color: "rgba(150,170,255,0.5)" }}>Moonhaven works best in landscape mode</div>
       </div>
 
-      {/* Mobile virtual joystick */}
-      <MobileJoystick keysRef={keysRef} />
+      {/* Mobile joystick: floating version rendered above via joystickVis state */}
 
       <style>{`
         @keyframes npc-pop { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+        @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(255,80,80,0.4); } to { box-shadow: 0 0 0 6px rgba(255,80,80,0); } }
         @media (max-width: 768px) and (orientation: portrait) {
           #mh-portrait-warn { display: flex !important; }
         }
@@ -1555,17 +2266,32 @@ async function buildBillboard(
   imageUrl: string,
   name: string,
   glowColor: number,
+  avatarConfig?: AvatarConfig,
 ): Promise<import("three").Group> {
   const group = new THREE.Group();
+
+  // Determine ring colors from avatarConfig or fallback to glowColor hex
+  const ringColor = avatarConfig?.accentColor ?? `#${glowColor.toString(16).padStart(6, "0")}`;
+  const innerColor = avatarConfig?.bodyColor ?? "#ffffff";
 
   // Body sprite (avatar image on a plane)
   const canvas = document.createElement("canvas");
   canvas.width = 256; canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = `#${glowColor.toString(16).padStart(6, "0")}22`;
+  ctx.fillStyle = `${ringColor}44`;
   ctx.beginPath(); ctx.arc(128, 128, 122, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#ffffff44";
+  ctx.fillStyle = `${innerColor}33`;
   ctx.beginPath(); ctx.arc(128, 128, 116, 0, Math.PI * 2); ctx.fill();
+
+  // If avatarConfig, draw class emoji as background
+  if (avatarConfig?.emoji) {
+    ctx.font = "72px serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.globalAlpha = 0.18;
+    ctx.fillText(avatarConfig.emoji, 128, 128);
+    ctx.globalAlpha = 1;
+  }
 
   // Try to load avatar image
   const bodyTex = new THREE.CanvasTexture(canvas);
@@ -1590,6 +2316,29 @@ async function buildBillboard(
     bodyTex.needsUpdate = true;
   };
   img.src = imageUrl;
+
+  // Class emoji badge (bottom-right of avatar circle, visible for configured players)
+  if (avatarConfig?.emoji) {
+    const badgeCanvas = document.createElement("canvas");
+    badgeCanvas.width = 64; badgeCanvas.height = 64;
+    const bctx = badgeCanvas.getContext("2d")!;
+    bctx.fillStyle = "rgba(10,6,28,0.75)";
+    bctx.beginPath(); bctx.arc(32, 32, 30, 0, Math.PI * 2); bctx.fill();
+    bctx.strokeStyle = ringColor;
+    bctx.lineWidth = 2.5;
+    bctx.beginPath(); bctx.arc(32, 32, 29, 0, Math.PI * 2); bctx.stroke();
+    bctx.font = "30px serif";
+    bctx.textAlign = "center"; bctx.textBaseline = "middle";
+    bctx.fillText(avatarConfig.emoji, 32, 32);
+    const badgeTex = new THREE.CanvasTexture(badgeCanvas);
+    const badgeGeo = new THREE.PlaneGeometry(0.55, 0.55);
+    const badgeMat = new THREE.MeshBasicMaterial({ map: badgeTex, transparent: true, depthWrite: false, depthTest: false });
+    const badgeMesh = new THREE.Mesh(badgeGeo, badgeMat);
+    badgeMesh.position.set(0.65, 0.75, 0.01);
+    badgeMesh.renderOrder = 11;
+    badgeMesh.userData.billboard = true;
+    group.add(badgeMesh);
+  }
 
   group.add(bodyMesh);
 
@@ -2203,163 +2952,166 @@ function buildCastleWalls(THREE: ThreeModule, scene: import("three").Scene) {
 }
 
 // ── Drive-In Theater ──────────────────────────────────────────────────────────
-function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import("three").Mesh {
-  const SX = 38, SZ = 30, SW = 14, SH = 9; // screen position & size
+function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene, QL: QualityLevel = "med"): import("three").Mesh {
+  const SX = 62, SZ = 52, SW = 54, SH = 20; // Widescreen cinema — 2.7:1 ratio, ~3x bigger
 
-  // ── Dark asphalt lot ───────────────────────────────────────────────────────
-  const padMat = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.96 });
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(34, 28), padMat);
-  pad.rotation.x = -Math.PI / 2; pad.position.set(26, 0.01, 31); pad.receiveShadow = true;
-  scene.add(pad);
-  // Lane stripe lines
-  const stripeMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.9 });
-  for (let row = 0; row < 4; row++) {
-    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(22, 0.12), stripeMat);
-    stripe.rotation.x = -Math.PI / 2; stripe.position.set(27, 0.02, 23 + row * 5);
-    scene.add(stripe);
+  // ── Dark concrete cinema floor ─────────────────────────────────────────────
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x0e0e16, roughness: 0.97 });
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(70, 64), floorMat);
+  pad.rotation.x = -Math.PI / 2; pad.position.set(SX - 23, 0.012, SZ);
+  pad.receiveShadow = true; scene.add(pad);
+  // Purple glow border strips along floor edge
+  const trimMat = new THREE.MeshBasicMaterial({ color: 0x1a0840 });
+  for (const [bx, bz, bw, bd] of [
+    [SX - 23, SZ - 32, 70, 0.6], [SX - 23, SZ + 32, 70, 0.6],
+    [SX + 12,  SZ, 0.6, 64],    [SX - 58,  SZ, 0.6, 64],
+  ] as [number, number, number, number][]) {
+    const trim = new THREE.Mesh(new THREE.PlaneGeometry(bw, bd), trimMat);
+    trim.rotation.x = -Math.PI / 2; trim.position.set(bx, 0.014, bz); scene.add(trim);
   }
 
-  // ── Screen scaffold frame ──────────────────────────────────────────────────
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.8, metalness: 0.35 });
-  // Two support poles
-  for (const sz of [SZ - SW * 0.52, SZ + SW * 0.52]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, SH + 2.5, 8), frameMat);
-    pole.position.set(SX, (SH + 2.5) / 2, sz); pole.castShadow = true; scene.add(pole);
-    // Diagonal brace
-    const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 4.5, 6), frameMat);
-    brace.position.set(SX - 1.4, 2.4, sz); brace.rotation.z = Math.PI / 5; scene.add(brace);
+  // ── Screen scaffold ───────────────────────────────────────────────────────
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2c, roughness: 0.78, metalness: 0.55 });
+  for (const pz of [SZ - SW * 0.53, SZ + SW * 0.53]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.30, SH + 3.5, 8), frameMat);
+    pole.position.set(SX, (SH + 3.5) / 2, pz); pole.castShadow = true; scene.add(pole);
+    const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 6, 6), frameMat);
+    brace.position.set(SX - 1.8, 2.8, pz); brace.rotation.z = 0.65; scene.add(brace);
   }
-  // Top bar
-  const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, SW + 2.5), frameMat);
-  topBar.position.set(SX, SH + 1.5, SZ); scene.add(topBar);
-  // Bottom sill
-  const botBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, SW + 2), frameMat);
-  botBar.position.set(SX, 0.35, SZ); scene.add(botBar);
-  // Frame border strip (vertical left+right edges of screen)
-  const borderMat = new THREE.MeshStandardMaterial({ color: 0x44445a, roughness: 0.6, metalness: 0.5 });
-  const border = new THREE.Mesh(new THREE.BoxGeometry(0.18, SH + 0.5, SW + 0.5), borderMat);
+  const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, SW + 4), frameMat);
+  topBar.position.set(SX, SH + 2.0, SZ); scene.add(topBar);
+  const botBar = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, SW + 3.5), frameMat);
+  botBar.position.set(SX, 0.42, SZ); scene.add(botBar);
+  const borderMat = new THREE.MeshStandardMaterial({ color: 0x0c0c18, roughness: 0.7, metalness: 0.5 });
+  const border = new THREE.Mesh(new THREE.BoxGeometry(0.18, SH + 0.8, SW + 0.8), borderMat);
   border.position.set(SX - 0.08, SH / 2 + 0.4, SZ); scene.add(border);
 
-  // ── Screen surface ─────────────────────────────────────────────────────────
+  // ── Screen surface (widescreen canvas) ───────────────────────────────────
   const sc = document.createElement("canvas");
-  sc.width = 512; sc.height = 288;
+  sc.width = 1080; sc.height = 400; // 2.7:1 ratio
   const ctx = sc.getContext("2d")!;
-  // Dark night-sky gradient
-  const bg = ctx.createLinearGradient(0, 0, 0, 288);
-  bg.addColorStop(0, "#06061a"); bg.addColorStop(1, "#030310");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, 512, 288);
-  // Scan-line texture
-  for (let y = 0; y < 288; y += 4) { ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.fillRect(0, y, 512, 1); }
-  // Outer glow border
-  ctx.strokeStyle = "rgba(100,120,255,0.35)"; ctx.lineWidth = 5;
-  ctx.strokeRect(4, 4, 504, 280);
-  // Big moon
-  ctx.font = "88px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("🌙", 256, 108);
-  // Title
-  ctx.font = "bold 30px monospace"; ctx.fillStyle = "#aabbff";
-  ctx.fillText("MOONHAVEN DRIVE-IN", 256, 192);
-  // Sub text
-  ctx.font = "16px monospace"; ctx.fillStyle = "rgba(140,160,255,0.55)";
-  ctx.fillText("🎬  Walk up & press E to watch  🎬", 256, 234);
-  // Star sprinkles
-  ctx.fillStyle = "#ffffff"; ctx.font = "10px serif";
-  const stars = ["✨","⭐","🌟","✨","⭐","🌟"];
-  for (let i = 0; i < 6; i++) ctx.fillText(stars[i], 44 + i * 74, 60);
+  const bg = ctx.createLinearGradient(0, 0, 0, 400);
+  bg.addColorStop(0, "#05051a"); bg.addColorStop(1, "#020210");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, 1080, 400);
+  for (let y = 0; y < 400; y += 4) { ctx.fillStyle = "rgba(0,0,0,0.14)"; ctx.fillRect(0, y, 1080, 1); }
+  ctx.strokeStyle = "rgba(100,120,255,0.32)"; ctx.lineWidth = 7; ctx.strokeRect(5, 5, 1070, 390);
+  ctx.font = "110px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("🌙", 540, 155);
+  ctx.font = "bold 44px monospace"; ctx.fillStyle = "#aabbff";
+  ctx.fillText("MOONHAVEN CINEMA", 540, 280);
+  ctx.font = "21px monospace"; ctx.fillStyle = "rgba(140,160,255,0.5)";
+  ctx.fillText("🎬  Walk up & press E  🎬", 540, 338);
+  ctx.fillStyle = "#aaccff"; ctx.font = "14px serif";
+  for (let i = 0; i < 8; i++) ctx.fillText(["✨","⭐","🌟","✨","⭐","🌟","✨","⭐"][i], 80 + i * 115, 78);
 
   const screenTex = new THREE.CanvasTexture(sc);
   const screenMat = new THREE.MeshBasicMaterial({ map: screenTex, side: THREE.DoubleSide });
   const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), screenMat);
-  screenMesh.rotation.y = -Math.PI / 2; // face west toward plaza
+  screenMesh.rotation.y = -Math.PI / 2;
   screenMesh.position.set(SX, SH / 2 + 0.4, SZ);
   scene.add(screenMesh);
-  // Screen glow light (stored in userData for animation)
-  const screenLight = new THREE.PointLight(0x4455cc, 1.0, 22);
-  screenLight.position.set(SX - 5, SH / 2, SZ);
+  const screenLight = new THREE.PointLight(0x4455cc, 2.2, 60);
+  screenLight.position.set(SX - 10, SH / 2, SZ);
   scene.add(screenLight);
   screenMesh.userData.screenLight = screenLight;
 
-  // ── Cars — 3 rows × 4 spots ────────────────────────────────────────────────
-  const carColors = [0x1e3a8a, 0x991b1b, 0x14532d, 0x78350f, 0x581c87, 0x164e63];
-  let ci = 0;
-  for (let row = 0; row < 3; row++) {
-    const carX = 22 + row * 4.8;
-    for (let col = 0; col < 4; col++) {
-      const carZ = 23 + col * 4.5;
-      const col6 = carColors[ci++ % 6];
-      const carMat = new THREE.MeshStandardMaterial({ color: col6, roughness: 0.28, metalness: 0.72 });
-      // Car body
-      const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.75, 3.6), carMat);
-      body.position.set(carX, 0.48, carZ); body.castShadow = true; scene.add(body);
-      // Roof
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 2.0), carMat);
-      roof.position.set(carX, 1.0, carZ - 0.25); scene.add(roof);
-      // Front windscreen (dark)
-      const winMat = new THREE.MeshStandardMaterial({ color: 0x0a1a2a, roughness: 0.05, metalness: 0.95, transparent: true, opacity: 0.82 });
-      const win = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.38, 0.06), winMat);
-      win.position.set(carX, 1.0, carZ - 1.28); scene.add(win);
-      // Headlights (pointing west toward screen)
-      const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
-      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.08), hlMat);
-      hl.position.set(carX - 1.02, 0.56, carZ); scene.add(hl);
-      // Taillights
-      const tlMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
-      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.06), tlMat);
-      tl.position.set(carX + 1.02, 0.56, carZ); scene.add(tl);
-      // Wheels (4 simple dark cylinders)
-      const wMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
-      for (const [wx2, wz2] of [[-0.9, -1.3],[-0.9, 1.3],[0.9, -1.3],[0.9, 1.3]] as [number,number][]) {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 10), wMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(carX + wx2, 0.28, carZ + wz2); scene.add(wheel);
-      }
-      // Speaker pole on driver side
-      const spkMat = new THREE.MeshStandardMaterial({ color: 0x444455, roughness: 0.9 });
-      const spkPole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6), spkMat);
-      spkPole.position.set(carX + 1.15, 0.55, carZ - 1.5); scene.add(spkPole);
-      const spkBox = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.1), spkMat);
-      spkBox.position.set(carX + 1.15, 1.05, carZ - 1.5); scene.add(spkBox);
+  // ── Cinema seating — InstancedMesh (3 draw calls for all seats) ──────────
+  const ROWS = 7, COLS = 16, ROW_DEPTH = 2.35, SEAT_PITCH = 2.05, RAKE = 0.40;
+  const seatMat = new THREE.MeshStandardMaterial({ color: 0x6b0f1a, roughness: 0.78 });
+  const metalMat2 = new THREE.MeshStandardMaterial({ color: 0x1c1c2e, roughness: 0.55, metalness: 0.70 });
+  const firstRowX = SX - 13;
+  const seatCount = ROWS * (COLS - 2); // minus 2 for center aisle
+
+  // Three instanced meshes: frame, cushion, backrest
+  const frameInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.78, 0.46, 0.90), metalMat2, seatCount);
+  const cushInst  = new THREE.InstancedMesh(new THREE.BoxGeometry(0.68, 0.14, 0.82), seatMat,   seatCount);
+  const backInst  = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.88, 0.80), seatMat,   seatCount);
+  frameInst.castShadow = true;
+  const dummy = new THREE.Object3D();
+  let si = 0;
+
+  for (let row = 0; row < ROWS; row++) {
+    const rx = firstRowX - row * ROW_DEPTH;
+    const ry = row * RAKE;
+
+    // Stepped riser (raised platform for each row after first)
+    if (row > 0) {
+      const riser = new THREE.Mesh(
+        new THREE.BoxGeometry(ROW_DEPTH + 0.1, RAKE + 0.02, COLS * SEAT_PITCH + 3),
+        new THREE.MeshStandardMaterial({ color: 0x121220, roughness: 0.96 })
+      );
+      riser.position.set(rx + ROW_DEPTH / 2, ry - RAKE / 2, SZ);
+      scene.add(riser);
+    }
+    // Aisle step lights
+    for (const slz of [SZ - COLS * SEAT_PITCH / 2 - 1.8, SZ + COLS * SEAT_PITCH / 2 + 1.8]) {
+      const sl = new THREE.PointLight(0x3322aa, 0.22, 5);
+      sl.position.set(rx, ry + 0.2, slz); scene.add(sl);
+    }
+
+    for (let col = 0; col < COLS; col++) {
+      if (col === 7 || col === 8) continue; // center aisle gap
+      const rz = SZ - (COLS - 1) * SEAT_PITCH / 2 + col * SEAT_PITCH;
+
+      dummy.position.set(rx,        ry + 0.23, rz); dummy.updateMatrix(); frameInst.setMatrixAt(si, dummy.matrix);
+      dummy.position.set(rx,        ry + 0.49, rz); dummy.updateMatrix(); cushInst.setMatrixAt(si, dummy.matrix);
+      dummy.position.set(rx - 0.32, ry + 0.93, rz); dummy.updateMatrix(); backInst.setMatrixAt(si, dummy.matrix);
+      si++;
     }
   }
+  frameInst.instanceMatrix.needsUpdate = true;
+  cushInst.instanceMatrix.needsUpdate  = true;
+  backInst.instanceMatrix.needsUpdate  = true;
+  scene.add(frameInst, cushInst, backInst);
 
-  // ── Projector booth ────────────────────────────────────────────────────────
-  const boothMat = new THREE.MeshStandardMaterial({ color: 0x22223a, roughness: 0.85 });
-  const booth = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.0, 3.2), boothMat);
-  booth.position.set(16, 1.5, SZ); booth.castShadow = true; scene.add(booth);
-  const boothRoof = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.18, 3.8), new THREE.MeshStandardMaterial({ color: 0x181828 }));
-  boothRoof.position.set(16, 3.1, SZ); scene.add(boothRoof);
-  // Projector window glow
-  const projWin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.38, 0.06), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
-  projWin.position.set(16 + 1.64, 1.7, SZ); scene.add(projWin);
-  // Projector beam (subtle)
-  const beamLen = SX - 18;
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.22, 0.6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.03 }));
-  beam.position.set(16 + 1.8 + beamLen / 2, 1.7, SZ); scene.add(beam);
-  // Booth point light
-  { const l = new THREE.PointLight(0xffcc44, 1.0, 9); l.position.set(17.8, 1.8, SZ); scene.add(l); }
-  // Booth sign canvas
+  // Center aisle carpet strip
+  const aisleMat = new THREE.MeshStandardMaterial({ color: 0x1a0828, roughness: 0.98 });
+  const aisleStrip = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROWS * ROW_DEPTH + 2, SEAT_PITCH * 1.6),
+    aisleMat
+  );
+  aisleStrip.rotation.x = -Math.PI / 2;
+  aisleStrip.position.set(firstRowX - (ROWS - 1) * ROW_DEPTH / 2, 0.016, SZ);
+  scene.add(aisleStrip);
+
+  // ── Projector booth ───────────────────────────────────────────────────────
+  const boothX = SX - 32;
+  const boothMat = new THREE.MeshStandardMaterial({ color: 0x14142a, roughness: 0.88 });
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(5.0, 4.5, 5.0), boothMat);
+  booth.position.set(boothX, 2.25, SZ); booth.castShadow = true; scene.add(booth);
+  const boothRoof = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.28, 5.8), new THREE.MeshStandardMaterial({ color: 0x0e0e1c }));
+  boothRoof.position.set(boothX, 4.64, SZ); scene.add(boothRoof);
+  const projWin = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.52, 0.06), new THREE.MeshBasicMaterial({ color: 0xffcc44 }));
+  projWin.position.set(boothX + 2.6, 2.3, SZ); scene.add(projWin);
+  const beamLen = SX - boothX - 5.5;
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xeeeeff, transparent: true, opacity: 0.05 });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.4, 1.2), beamMat);
+  beam.position.set(boothX + 3 + beamLen / 2, 2.3, SZ); scene.add(beam);
+  const beam2 = new THREE.Mesh(new THREE.BoxGeometry(beamLen * 0.5, 0.9, 4.5), beamMat);
+  beam2.position.set(SX - beamLen * 0.25, 2.3, SZ); scene.add(beam2);
+  { const l = new THREE.PointLight(0xffcc44, 2.0, 18); l.position.set(boothX + 3, 2.6, SZ); scene.add(l); }
+  // Booth sign
   const bsc = document.createElement("canvas"); bsc.width = 200; bsc.height = 52;
   const bctx = bsc.getContext("2d")!;
-  bctx.fillStyle = "#12122a"; bctx.fillRect(0,0,200,52);
-  bctx.font = "bold 18px monospace"; bctx.fillStyle = "#aabbff"; bctx.textAlign = "center"; bctx.textBaseline = "middle";
-  bctx.fillText("🎬 BOOTH", 100, 26);
-  const boothSign = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.52), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bsc), side: THREE.DoubleSide }));
-  boothSign.position.set(16 + 1.63, 2.5, SZ); scene.add(boothSign);
+  bctx.fillStyle = "#10102a"; bctx.fillRect(0,0,200,52);
+  bctx.font = "bold 18px monospace"; bctx.fillStyle = "#aabbff";
+  bctx.textAlign = "center"; bctx.textBaseline = "middle"; bctx.fillText("🎬 BOOTH", 100, 26);
+  const boothSign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bsc), side: THREE.DoubleSide }));
+  boothSign.position.set(boothX + 2.6, 3.2, SZ); scene.add(boothSign);
 
-  // ── Entrance arch and marquee sign ────────────────────────────────────────
-  const archMat = new THREE.MeshStandardMaterial({ color: 0x2e1a5e, roughness: 0.65, metalness: 0.35, emissive: new THREE.Color(0x180830), emissiveIntensity: 0.5 });
-  // Left + right pillars
-  for (const px of [13, 39]) {
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.46, 6.5, 8), archMat);
-    pillar.position.set(px, 3.25, 41); pillar.castShadow = true; scene.add(pillar);
-    // Top sphere finial
-    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), new THREE.MeshStandardMaterial({ color: 0x9966ff, emissive: new THREE.Color(0x6633cc), emissiveIntensity: 0.8 }));
-    finial.position.set(px, 6.8, 41); scene.add(finial);
-    { const l = new THREE.PointLight(0x9966ff, 0.8, 6); l.position.set(px, 7.2, 41); scene.add(l); }
+  // ── Entrance arch and marquee ─────────────────────────────────────────────
+  const archZ = SZ + 32;
+  const archCX = SX - 23;
+  const archMat = new THREE.MeshStandardMaterial({ color: 0x2e1a5e, roughness: 0.65, metalness: 0.40, emissive: new THREE.Color(0x180830), emissiveIntensity: 0.45 });
+  for (const px of [archCX - 26, archCX + 26]) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.68, 11, 8), archMat);
+    pillar.position.set(px, 5.5, archZ); pillar.castShadow = true; scene.add(pillar);
+    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.72, 8, 8), new THREE.MeshStandardMaterial({ color: 0x9966ff, emissive: new THREE.Color(0x6633cc), emissiveIntensity: 0.9 }));
+    finial.position.set(px, 11.3, archZ); scene.add(finial);
+    { const l = new THREE.PointLight(0x9966ff, 1.3, 12); l.position.set(px, 12, archZ); scene.add(l); }
   }
-  // Cross beam
-  const archBar = new THREE.Mesh(new THREE.BoxGeometry(27.2, 0.55, 0.38), archMat);
-  archBar.position.set(26, 6.65, 41); scene.add(archBar);
+  const archBar = new THREE.Mesh(new THREE.BoxGeometry(53, 0.7, 0.5), archMat);
+  archBar.position.set(archCX, 11, archZ); scene.add(archBar);
   // Marquee sign
   const msc = document.createElement("canvas"); msc.width = 512; msc.height = 96;
   const mctx = msc.getContext("2d")!;
@@ -2368,47 +3120,71 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene): import(
   mctx.fillStyle = mg; mctx.fillRect(0,0,512,96);
   mctx.strokeStyle = "rgba(150,110,255,0.65)"; mctx.lineWidth = 3; mctx.strokeRect(3,3,506,90);
   mctx.font = "bold 30px serif"; mctx.fillStyle = "#e0d0ff"; mctx.textAlign = "center"; mctx.textBaseline = "middle";
-  mctx.fillText("🌙 MOONHAVEN DRIVE-IN 🎬", 256, 42);
+  mctx.fillText("🌙 MOONHAVEN CINEMA 🎬", 256, 42);
   mctx.font = "17px monospace"; mctx.fillStyle = "rgba(180,155,255,0.65)";
-  mctx.fillText("🚗 ✨ 🍿 🌟 🎥 🌟 🍿 ✨ 🚗", 256, 74);
-  const marquee = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 1.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(msc), side: THREE.DoubleSide }));
-  marquee.position.set(26, 6.7, 41); scene.add(marquee);
-  { const l = new THREE.PointLight(0x9966ff, 2.0, 18); l.position.set(26, 7, 41); scene.add(l); }
+  mctx.fillText("✨ 🍿 🌟 NOW SHOWING 🌟 🍿 ✨", 256, 74);
+  const marquee = new THREE.Mesh(new THREE.PlaneGeometry(16, 2.2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(msc), side: THREE.DoubleSide }));
+  marquee.position.set(archCX, 11.2, archZ); scene.add(marquee);
+  { const l = new THREE.PointLight(0x9966ff, 3.5, 32); l.position.set(archCX, 12, archZ); scene.add(l); }
 
-  // ── Fairy lights along arch top ────────────────────────────────────────────
+  // Fairy lights along arch
   const fLightMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
-  for (let li = 0; li < 14; li++) {
-    const lx = 13 + li * 2;
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 4, 4), fLightMat);
-    dot.position.set(lx, 6.55 + Math.sin(li * 0.65) * 0.22, 41); scene.add(dot);
-    if (li % 4 === 0) {
-      const dl = new THREE.PointLight(0xffee88, 0.35, 2.5);
-      dl.position.set(lx, 6.55, 41); scene.add(dl);
-    }
+  for (let li = 0; li < 26; li++) {
+    const lpx = archCX - 26 + li * 2.0;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.09, 4, 4), fLightMat);
+    dot.position.set(lpx, 10.7 + Math.sin(li * 0.58) * 0.3, archZ); scene.add(dot);
+    if (li % 4 === 0) { const dl = new THREE.PointLight(0xffee88, 0.5, 5); dl.position.set(lpx, 10.7, archZ); scene.add(dl); }
   }
 
-  // ── Snack cart ─────────────────────────────────────────────────────────────
-  const cartMat = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.55 });
-  const cart = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 1.4), cartMat);
-  cart.position.set(13.5, 0.55, 36.5); scene.add(cart);
-  const umbrella = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.55, 8), new THREE.MeshStandardMaterial({ color: 0xeecc22, roughness: 0.65 }));
-  umbrella.position.set(13.5, 1.7, 36.5); scene.add(umbrella);
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.7, 6), new THREE.MeshStandardMaterial({ color: 0x888888 }));
-  pole.position.set(13.5, 0.85, 36.5); scene.add(pole);
-  // Snack sign
-  const csc = document.createElement("canvas"); csc.width = 128; csc.height = 64;
+  // ── Snack stand (bigger, brighter, unmissable) ────────────────────────────
+  const cartX = archCX - 10, cartZ2 = archZ - 4;
+  const cartBody = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.5, 2.4), new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.5 }));
+  cartBody.position.set(cartX, 0.75, cartZ2); scene.add(cartBody);
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 2.6), new THREE.MeshStandardMaterial({ color: 0xeeeecc, roughness: 0.55 }));
+  counter.position.set(cartX, 1.56, cartZ2); scene.add(counter);
+  const cartUmb = new THREE.Mesh(new THREE.ConeGeometry(2.1, 0.85, 8), new THREE.MeshStandardMaterial({ color: 0xeecc22, roughness: 0.6 }));
+  cartUmb.position.set(cartX, 2.65, cartZ2); scene.add(cartUmb);
+  const cartPole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.65, 6), new THREE.MeshStandardMaterial({ color: 0x999999 }));
+  cartPole.position.set(cartX, 1.3, cartZ2); scene.add(cartPole);
+  const csc = document.createElement("canvas"); csc.width = 192; csc.height = 80;
   const cctx = csc.getContext("2d")!;
-  cctx.fillStyle = "#1a0808"; cctx.fillRect(0,0,128,64);
-  cctx.font = "28px serif"; cctx.textAlign = "center"; cctx.textBaseline = "middle";
-  cctx.fillText("🍿🥤", 64, 32);
-  const cartSign = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.42), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(csc), side: THREE.DoubleSide }));
-  cartSign.position.set(14.22, 1.05, 36.5); scene.add(cartSign);
-  { const l = new THREE.PointLight(0xff8833, 0.6, 5); l.position.set(13.5, 2, 36.5); scene.add(l); }
+  cctx.fillStyle = "#1a0808"; cctx.fillRect(0,0,192,80);
+  cctx.font = "bold 20px monospace"; cctx.fillStyle = "#ffddaa";
+  cctx.textAlign = "center"; cctx.textBaseline = "top"; cctx.fillText("SNACKS", 96, 6);
+  cctx.font = "34px serif"; cctx.fillText("🍿 🥤 🍭", 96, 34);
+  const cartSign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.72), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(csc), side: THREE.DoubleSide }));
+  cartSign.position.set(cartX + 1.3, 1.1, cartZ2); scene.add(cartSign);
+  if (QL !== "low") {
+    const l = new THREE.PointLight(0xff9933, 1.8, 12); l.position.set(cartX, 3.5, cartZ2); scene.add(l);
+    const l2 = new THREE.PointLight(0xffcc44, 0.8, 8); l2.position.set(cartX, 1.8, cartZ2 + 1.5); scene.add(l2);
+  }
 
-  // ── Big moon above the screen ──────────────────────────────────────────────
-  const moon = new THREE.Mesh(new THREE.SphereGeometry(2.8, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfff5dd }));
-  moon.position.set(SX + 2, 24, SZ - 4); scene.add(moon);
-  { const l = new THREE.PointLight(0xffeebb, 1.5, 42); l.position.set(SX + 2, 24, SZ - 4); scene.add(l); }
+  // ── Big moon above theater ────────────────────────────────────────────────
+  const moon3 = new THREE.Mesh(new THREE.SphereGeometry(4.5, QL === "low" ? 8 : 16, QL === "low" ? 8 : 16), new THREE.MeshBasicMaterial({ color: 0xfff5dd }));
+  moon3.position.set(SX + 5, 36, SZ - 10); scene.add(moon3);
+  if (QL !== "low") { const l = new THREE.PointLight(0xffeebb, 2.8, 70); l.position.set(SX + 5, 36, SZ - 10); scene.add(l); }
+
+  // ── Lit path from town to theater ────────────────────────────────────────
+  const pathMat2 = new THREE.MeshStandardMaterial({ color: 0x1a1a26, roughness: 0.97 });
+  const walkway = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 56), pathMat2);
+  walkway.rotation.x = -Math.PI / 2;
+  walkway.position.set(archCX, 0.015, archZ / 2 + 4);
+  scene.add(walkway);
+  // Path lanterns = 16 PointLights — only on med/high
+  if (QL !== "low") {
+    for (let pli = 0; pli < 8; pli++) {
+      const plz = 12 + pli * 7;
+      for (const side of [-1, 1]) {
+        const plx = archCX + side * 3.2;
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.9, 6), new THREE.MeshStandardMaterial({ color: 0x333344 }));
+        post.position.set(plx, 0.95, plz); scene.add(post);
+        const globe = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffdd88 }));
+        globe.position.set(plx, 2.0, plz); scene.add(globe);
+        const pll = new THREE.PointLight(0xffaa44, 0.65, 7);
+        pll.position.set(plx, 2.1, plz); scene.add(pll);
+      }
+    }
+  }
 
   return screenMesh;
 }

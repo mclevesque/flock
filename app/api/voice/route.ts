@@ -52,6 +52,17 @@ export async function POST(req: NextRequest) {
 
   try {
     await createVoiceRoom(id, session.user.id, roomName, type ?? "open", dmPair);
+    // Push instant call notification to callee via PartyKit — eliminates 6s poll
+    if (type === "dm" && dmPair) {
+      const calleeId = dmPair.split(":").find((uid: string) => uid !== session.user!.id);
+      const pkHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+      if (calleeId && pkHost && pkHost !== "DISABLED") {
+        fetch(`https://${pkHost}/parties/notifications/${calleeId}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "incoming_call", roomId: id, callerUsername: session.user.name ?? "Someone", callerAvatar: (session.user as Record<string, unknown>).image ?? null }),
+        }).catch(() => {});
+      }
+    }
     return NextResponse.json({ id });
   } catch (e) {
     console.error(e);

@@ -45,7 +45,15 @@ export async function POST(req: NextRequest) {
     const sessionId = nanoid(12);
     const mission = missionData ?? { name: "Party Quest", description: "Adventure awaits!", theme: "dungeon", emoji: "⚔️", palette: { bg: "#1a0d2e", accent: "#cc44ff", floor: "#2a1a40" }, rooms: [] };
     await createAdventureSession(u.id, sessionId, missionKey ?? "party", mission);
-    await createPartyInvite(u.id, u.name ?? "someone", toUserId, sessionId, missionKey ?? "party", mission);
+    const inviteId = await createPartyInvite(u.id, u.name ?? "someone", toUserId, sessionId, missionKey ?? "party", mission);
+    // Push instant notification via PartyKit — eliminates 10s poll on recipient
+    const pkHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (pkHost && pkHost !== "DISABLED") {
+      fetch(`https://${pkHost}/parties/notifications/${toUserId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "party_invite", inviteId, sessionId, inviterName: u.name ?? "Someone", missionData: mission }),
+      }).catch(() => {});
+    }
     return NextResponse.json({ ok: true, sessionId });
   }
 

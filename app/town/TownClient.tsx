@@ -572,6 +572,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const townSocketRef = useRef<{ send: (data: string) => void; close: () => void; readyState: number } | null>(null);
   const wsUpdateOtherRef = useRef<((p: TownPlayer) => void) | null>(null);
   const wsRemoveOtherRef = useRef<((id: string) => void) | null>(null);
+  // Stable ref so the WebSocket closure always calls the latest applyRpsUpdate
+  const applyRpsUpdateRef = useRef<((game: RpsGame | null) => void) | null>(null);
 
 
   const [theaterOpen, setTheaterOpen] = useState(false);
@@ -717,6 +719,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // ── Passive HP regen: +1 HP every 3 seconds anywhere in town ─────────────
   useEffect(() => {
     const iv = setInterval(() => {
+      if (document.hidden) return;
       const stats = adventureStatsRef.current;
       if (!stats || stats.hp >= stats.max_hp) return;
       const newHp = Math.min(stats.max_hp, stats.hp + 1);
@@ -1057,17 +1060,11 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theaterState?.jukeboxUrl, theaterOpen]);
 
-  // ── Party polling ─────────────────────────────────────────────────────────
+  // ── Party: initial load only (party updates delivered via PartyKit notifications) ──
   useEffect(() => {
-    const pollParty = async () => {
-      try {
-        const myRes = await fetch("/api/party?action=my-party");
-        if (myRes.ok) { const d = await myRes.json(); setMyParty(d.party ?? null); }
-      } catch {}
-    };
-    pollParty();
-    partyPollRef.current = setInterval(pollParty, 8000);
-    return () => { if (partyPollRef.current) clearInterval(partyPollRef.current); };
+    fetch("/api/party?action=my-party").then(r => r.json()).then(d => {
+      if (d.party !== undefined) setMyParty(d.party ?? null);
+    }).catch(() => {});
   }, []);
 
   // Auto-join party from URL param
@@ -1419,44 +1416,55 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { openCaveRef.current = openCave; });
 
-  /** Poll for pending party invites — auto-accepts immediately (party join is mandatory) */
-  useEffect(() => {
-    const iv = setInterval(async () => {
-      if (adventureOverlayOpen || caveOpen) return;
-      try {
-        const r = await fetch("/api/town/party?action=pending-invite");
-        const invite = await r.json();
-        if (invite?.id && invite.id !== partyInvite?.id) {
-          // Party joins are mandatory — auto-accept without showing a dialog
-          setPartyInvite(null);
-          acceptPartyInvite(invite as PartyInvite);
-        } else if (!invite) {
-          setPartyInvite(null);
-        }
-      } catch { /* ignore */ }
-    }, 2500);
-    return () => clearInterval(iv);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adventureOverlayOpen, caveOpen, partyInvite?.id]);
+  // Party invites delivered instantly via PartyKit notifications — store acceptPartyInvite in ref for WS closure
+  const acceptPartyInviteRef = useRef<((invite: PartyInvite) => void) | null>(null);
+  useEffect(() => { acceptPartyInviteRef.current = acceptPartyInvite; });
 
-  /**
-   * Synchronized adventure exit — poll session status every 3s while in a
-   * party adventure. When the host marks the session "completed" or "abandoned",
-   * guests are also returned to town at their saved position.
-   */
+  // Connect to per-user notifications room for instant party invites
+  useEffect(() => {
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "FILL_IN_IF_USING_PARTYKIT" || host === "DISABLED" || !userId) return;
+    let cancelled = false;
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      const ws = new PartySocket({ host, party: "notifications", room: userId });
+      const handleMsg = (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          const handle = (m: Record<string, unknown>) => {
+            if (m.type === "party_invite" && !adventureOverlayOpen && !caveOpen) {
+              acceptPartyInviteRef.current?.({
+                id: m.inviteId as string,
+                from_user_id: "",
+                from_username: m.inviterName as string,
+                session_id: m.sessionId as string,
+                mission_key: "party",
+                mission_data: m.missionData,
+              });
+            }
+          };
+          if (msg.type === "snapshot" && Array.isArray(msg.pending)) msg.pending.forEach(handle);
+          else handle(msg);
+        } catch { /* ignore */ }
+      };
+      (ws as unknown as EventTarget).addEventListener("message", handleMsg);
+      return () => ws.close();
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // Adventure exit is now handled by the town WebSocket "adventure_end" message broadcast from the host.
+  // Fallback: poll once after 30s in case WebSocket message was missed (e.g. reconnecting)
   useEffect(() => {
     if (!adventureOverlayOpen || !adventureSessionId) return;
-    const iv = setInterval(async () => {
+    const t = setTimeout(async () => {
       try {
         const r = await fetch(`/api/adventure?sessionId=${adventureSessionId}`);
         const sess = await r.json();
         if (sess?.status === "completed" || sess?.status === "abandoned") {
-          // Host ended the quest — return all players to town
-          clearInterval(iv);
-          setAdventureOverlayOpen(false);
-          setAdventureMission(null);
-          setAdventureSessionId(null);
-          setAdventureMinimized(null);
+          setAdventureOverlayOpen(false); setAdventureMission(null);
+          setAdventureSessionId(null); setAdventureMinimized(null);
           if (savedPlayerPosRef.current) {
             const pos = savedPlayerPosRef.current;
             setTimeout(() => { teleportPlayerRef.current?.(pos.x, pos.y); }, 100);
@@ -1465,8 +1473,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           setTimeout(() => setTagMsg(null), 4000);
         }
       } catch { /* ignore */ }
-    }, 3000);
-    return () => clearInterval(iv);
+    }, 30000);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adventureOverlayOpen, adventureSessionId]);
 
@@ -1489,58 +1497,58 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const RPS_EMOJI: Record<string, string> = { rock: "🪨", paper: "📄", scissors: "✂️" };
   const RPS_BEATS: Record<string, string> = { rock: "scissors", scissors: "paper", paper: "rock" };
 
-  // Poll for RPS game state every 1.2s
-  useEffect(() => {
-    const iv = setInterval(async () => {
-      try {
-        const r = await fetch("/api/town/rps");
-        const game: RpsGame | null = await r.json();
-        setRpsGame(prev => {
-          // When a done game arrives that we haven't announced yet, post chat msg
-          if (game?.status === "done" && game.id !== rpsSeenDoneId.current) {
-            rpsSeenDoneId.current = game.id;
-            const myId = userId;
-            const iWon = game.winner_id === myId;
-            const isTie = !game.winner_id;
-            const myChoice = game.challenger_id === myId ? game.challenger_choice : game.opponent_choice;
-            const theirChoice = game.challenger_id === myId ? game.opponent_choice : game.challenger_choice;
-            const resultText = isTie
-              ? `🤝 RPS Tie! We both threw ${RPS_EMOJI[myChoice ?? ""]}!`
-              : iWon
-              ? `🏆 I won RPS! ${RPS_EMOJI[myChoice ?? ""]} beats ${RPS_EMOJI[theirChoice ?? ""]}!`
-              : `😅 Lost RPS! ${RPS_EMOJI[theirChoice ?? ""]} beats ${RPS_EMOJI[myChoice ?? ""]}…`;
-            pendingChatRef.current = resultText;
-            // Post share result
-            const oppName = game.challenger_id === myId ? game.opponent_name : game.challenger_name;
-            // No auto-dismiss — player can manually close or optionally share via the result overlay buttons
-          }
-          // If this done game was already seen and the user dismissed it (prev=null), keep it gone
-          if (game?.status === "done" && game.id === rpsSeenDoneId.current && prev === null) {
-            return null;
-          }
-
-          // When we transition to choosing phase, start countdown
-          if (game?.status === "choosing" && prev?.status !== "choosing") {
-            let t = 3; setRpsCountdown(t);
-            if (rpsCountdownRef.current) clearInterval(rpsCountdownRef.current);
-            rpsCountdownRef.current = setInterval(() => {
-              t--; setRpsCountdown(t);
-              if (t <= 0) { clearInterval(rpsCountdownRef.current!); rpsCountdownRef.current = null; }
-            }, 1000);
-          }
-          return game;
-        });
-      } catch { /* ignore */ }
-    }, 1200);
-    return () => { clearInterval(iv); if (rpsCountdownRef.current) clearInterval(rpsCountdownRef.current); };
+  // RPS state is pushed via PartyKit town WebSocket (rps_update) — no polling needed
+  // applyRpsUpdate: shared logic for handling incoming game state from WebSocket or local action
+  const applyRpsUpdate = useCallback((game: RpsGame | null) => {
+    setRpsGame(prev => {
+      if (game?.status === "done" && game.id !== rpsSeenDoneId.current) {
+        rpsSeenDoneId.current = game.id;
+        const iWon = game.winner_id === userId;
+        const isTie = !game.winner_id;
+        const myChoice = game.challenger_id === userId ? game.challenger_choice : game.opponent_choice;
+        const theirChoice = game.challenger_id === userId ? game.opponent_choice : game.challenger_choice;
+        const resultText = isTie
+          ? `🤝 RPS Tie! We both threw ${RPS_EMOJI[myChoice ?? ""]}!`
+          : iWon
+          ? `🏆 I won RPS! ${RPS_EMOJI[myChoice ?? ""]} beats ${RPS_EMOJI[theirChoice ?? ""]}!`
+          : `😅 Lost RPS! ${RPS_EMOJI[theirChoice ?? ""]} beats ${RPS_EMOJI[myChoice ?? ""]}…`;
+        pendingChatRef.current = resultText;
+      }
+      if (game?.status === "done" && game.id === rpsSeenDoneId.current && prev === null) return null;
+      if (game?.status === "choosing" && prev?.status !== "choosing") {
+        let t = 3; setRpsCountdown(t);
+        if (rpsCountdownRef.current) clearInterval(rpsCountdownRef.current);
+        rpsCountdownRef.current = setInterval(() => {
+          t--; setRpsCountdown(t);
+          if (t <= 0) { clearInterval(rpsCountdownRef.current!); rpsCountdownRef.current = null; }
+        }, 1000);
+      }
+      return game;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, username]);
+  }, [userId]);
+  // Keep ref in sync so the WebSocket closure always calls the latest version
+  useEffect(() => { applyRpsUpdateRef.current = applyRpsUpdate; }, [applyRpsUpdate]);
+
+  // Fetch latest RPS state and broadcast to other player via town WebSocket
+  const fetchAndBroadcastRps = useCallback(async () => {
+    try {
+      const r = await fetch("/api/town/rps");
+      const game: RpsGame | null = await r.json();
+      applyRpsUpdate(game);
+      if (game) townSocketRef.current?.send(JSON.stringify({ type: "rps_update", game }));
+    } catch { /* ignore */ }
+  }, [applyRpsUpdate]);
 
   async function sendRpsChallenge(targetId: string, targetName: string) {
     const r = await fetch("/api/town/rps", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "challenge", targetId, targetName }) });
     const d = await r.json();
-    if (d.gameId) setRpsGame({ id: d.gameId, challenger_id: userId, challenger_name: username, opponent_id: targetId, opponent_name: targetName, challenger_choice: null, opponent_choice: null, status: "pending", winner_id: null });
+    if (d.gameId) {
+      const game: RpsGame = { id: d.gameId, challenger_id: userId, challenger_name: username, opponent_id: targetId, opponent_name: targetName, challenger_choice: null, opponent_choice: null, status: "pending", winner_id: null };
+      setRpsGame(game);
+      townSocketRef.current?.send(JSON.stringify({ type: "rps_update", game }));
+    }
   }
 
   async function acceptRpsChallenge() {
@@ -1548,6 +1556,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     await fetch("/api/town/rps", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "accept", gameId: rpsGame.id }) });
     setRpsCountdown(3);
+    fetchAndBroadcastRps();
   }
 
   async function declineRpsChallenge() {
@@ -1555,6 +1564,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     await fetch("/api/town/rps", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "decline", gameId: rpsGame.id }) });
     setRpsGame(null); setRpsMyChoice(null);
+    townSocketRef.current?.send(JSON.stringify({ type: "rps_update", game: null }));
   }
 
   async function makeRpsChoice(choice: string) {
@@ -1562,6 +1572,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     setRpsMyChoice(choice);
     await fetch("/api/town/rps", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "choose", gameId: rpsGame.id, choice }) });
+    fetchAndBroadcastRps();
   }
 
   // Chase music (Web Audio)
@@ -4400,6 +4411,19 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             otherPositionsRef.current.set(p.user_id, { x: p.x, y: p.y });
           } else if (msg.type === "player-leave") {
             wsRemoveOtherRef.current?.(msg.id);
+          } else if (msg.type === "rps_update") {
+            applyRpsUpdateRef.current?.(msg.game ?? null);
+          } else if (msg.type === "adventure_end") {
+            setAdventureOverlayOpen(false);
+            setAdventureMission(null);
+            setAdventureSessionId(null);
+            setAdventureMinimized(null);
+            if (savedPlayerPosRef.current) {
+              const pos = savedPlayerPosRef.current;
+              setTimeout(() => { teleportPlayerRef.current?.(pos.x, pos.y); }, 100);
+            }
+            setTagMsg("⚔️ Quest complete! Returned to town.");
+            setTimeout(() => setTagMsg(null), 4000);
           }
         } catch { /* ignore parse errors */ }
       });
@@ -5915,6 +5939,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             setAdventureMission(null);
             setAdventureSessionId(null);
             setAdventureMinimized(null);
+            // Broadcast adventure end to party members via PartyKit — eliminates their 8s poll
+            townSocketRef.current?.send(JSON.stringify({ type: "adventure_end" }));
             // Return to saved position
             if (savedPlayerPosRef.current) {
               const pos = savedPlayerPosRef.current;

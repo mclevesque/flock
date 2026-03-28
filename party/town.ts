@@ -53,6 +53,13 @@ export default class TownParty implements Party.Server {
           JSON.stringify({ type: "chat", ...data }),
           []
         );
+      } else if (
+        data.type === "rps_update" ||
+        data.type === "adventure_end" ||
+        data.type === "party_update"
+      ) {
+        // Pass-through: broadcast ephemeral game/party state to all other players
+        this.room.broadcast(JSON.stringify(data), [sender.id]);
       }
     } catch {
       // ignore malformed messages
