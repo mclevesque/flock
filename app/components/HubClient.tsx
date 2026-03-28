@@ -118,7 +118,7 @@ export default function HubClient({ username, userId }: { username: string; user
     if (game.id === "outbreak") {
       const avatar = encodeURIComponent(`/api/avatar/${userId}?v=2`);
       const party = encodeURIComponent(process.env.NEXT_PUBLIC_PARTYKIT_HOST || "localhost:1999");
-      return `${base}?userId=${userId}&username=${username}&avatar=${avatar}&partyHost=${party}`;
+      return `${base}?userId=${userId}&username=${username}&avatar=${avatar}&partyHost=${party}&supermusic=1`;
     }
     return `${base}?userId=${userId}&username=${username}`;
   }
