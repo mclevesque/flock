@@ -337,5 +337,5 @@ export const MOONHAVEN_ZONES = [
   { id: "forest",   bounds: { minX: -40, maxX: -14, minZ: 8, maxZ: 36 }, ambient: "forest" },
   { id: "tavern",   bounds: { minX: 10, maxX: 26, minZ: -10, maxZ: 2 },   ambient: "tavern" },
   { id: "workshop", bounds: { minX: -26, maxX: -10, minZ: -6, maxZ: 8 },  ambient: "forge" },
-  { id: "drive_in", bounds: { minX: 12, maxX: 44, minZ: 22, maxZ: 44 },   ambient: "outdoor" },
+  { id: "drive_in", bounds: { minX: 4,  maxX: 76, minZ: 20, maxZ: 86 },   ambient: "outdoor" },
 ];

@@ -23,6 +23,30 @@
   --offline: #52527a;
 }
 
+/* ── Great Souls portal theme ─────────────────────────────────────────────── */
+body.gs-theme {
+  --bg-base: #0d0d0d;
+  --bg-surface: #1a1a1a;
+  --bg-elevated: #222222;
+  --bg-hover: #2a2a2a;
+  --border: #2a2a2a;
+  --border-bright: #3a3a3a;
+  --accent-purple: #d4a942;
+  --accent-purple-bright: #e8c05a;
+  --accent-cyan: #d4a942;
+  --accent-cyan-dim: #8a6d2b;
+  --accent-magenta: #c4531a;
+  --accent-blue: #d4a942;
+  --accent-orange: #c4531a;
+  --accent-green: #4caf7d;
+  --text-primary: #e8dcc8;
+  --text-secondary: #a89878;
+  --text-muted: #6a5a4a;
+  --online: #4caf7d;
+  --away: #d4a942;
+  --offline: #6a5a4a;
+}
+
 @theme inline {
   --color-background: var(--bg-base);
   --color-foreground: var(--text-primary);

@@ -63,9 +63,10 @@ export default function GlobalNotifications() {
         e.stopPropagation();
       }
     };
-    // capture: true — runs before Phaser's bubble-phase window listener
-    document.addEventListener("keydown", blockForInputs, { capture: true });
-    return () => document.removeEventListener("keydown", blockForInputs, { capture: true });
+    // Bubble phase — fires after the target's onKeyDown (so React handlers work),
+    // but before Phaser's window bubble listener (document bubbles before window).
+    document.addEventListener("keydown", blockForInputs);
+    return () => document.removeEventListener("keydown", blockForInputs);
   }, []);
 
   // Don't show on messages pages

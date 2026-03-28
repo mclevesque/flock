@@ -59,6 +59,7 @@ export async function actionUpdateProfile(fields: {
   profile_song_url?: string;
   discord_handle?: string;
   steam_handle?: string;
+  email?: string;
 }) {
   const user = await requireAuth();
   if (fields.username) {

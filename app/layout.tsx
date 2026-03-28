@@ -8,7 +8,7 @@ import { VoiceProvider } from "./components/VoiceWidget";
 import { VibeProvider } from "./components/VibePlayer";
 import GlobalNotifications from "./components/GlobalNotifications";
 import GlobalPartyWidget from "./components/GlobalPartyWidget";
-import { ClerkProvider } from "@clerk/nextjs";
+import { PortalProvider } from "./components/PortalContext";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
@@ -38,10 +38,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!}>
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
         <SessionWrapper>
+          <PortalProvider>
           <VoiceProvider>
             <VibeProvider>
               <Navbar />
@@ -51,9 +51,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <GlobalPartyWidget />
             </VibeProvider>
           </VoiceProvider>
+          </PortalProvider>
         </SessionWrapper>
       </body>
     </html>
-    </ClerkProvider>
   );
 }

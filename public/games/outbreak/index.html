@@ -27,12 +27,20 @@ X.imageSmoothingEnabled=true;
 
 // ========== URL PARAMS ==========
 const params=new URLSearchParams(window.location.search);
-const PLAYER_AVATAR=params.get('avatar')||'/api/avatar/local_1773447897290_gaii19';
+let PLAYER_AVATAR=params.get('avatar')||'';
 const PLAYER_NAME=params.get('username')||''; // empty = guest, no name shown
 const FLOCK_ORIGIN=params.get('origin')||'';
 const PARTY_ID=params.get('partyId')||'';
 const USER_ID=params.get('userId')||PLAYER_NAME;
 const PARTY_HOST=(params.get('partyHost')||'https://flock.partykit.dev').replace(/\/$/,'');
+
+// Listen for avatar via postMessage (avoids 414 URI Too Long with base64 avatars)
+window.addEventListener('message',function(e){
+  if(e.data&&e.data.type==='AVATAR_DATA'&&e.data.avatarUrl){
+    PLAYER_AVATAR=e.data.avatarUrl;
+    loadAvatar(PLAYER_AVATAR);
+  }
+});
 
 // ========== MULTIPLAYER ==========
 let ws=null,wsRetryTimer=null;
@@ -213,16 +221,19 @@ function getNearestTarget(ex,ey){
 
 // ========== AVATAR LOAD ==========
 let avatarImg=null;
-if(PLAYER_AVATAR){
-const img=new Image();
-// No crossOrigin — allows loading from any CDN; canvas taint is fine since we never call toDataURL/getImageData
-img.onload=()=>{avatarImg=img};
-img.onerror=()=>{
-  // Retry once after 1.5s in case CDN was slow
-  setTimeout(()=>{const img2=new Image();img2.onload=()=>{avatarImg=img2};img2.src=PLAYER_AVATAR+'?retry=1';},1500);
-};
-img.src=PLAYER_AVATAR;
+const FALLBACK_AVATAR='https://api.dicebear.com/9.x/adventurer/png?seed=warrior&backgroundColor=transparent&size=128';
+function loadAvatar(url){
+  if(!url)return;
+  const img=new Image();
+  img.onload=()=>{avatarImg=img};
+  img.onerror=()=>{
+    const img2=new Image();
+    img2.onload=()=>{avatarImg=img2};
+    img2.src=FALLBACK_AVATAR;
+  };
+  img.src=url;
 }
+loadAvatar(PLAYER_AVATAR||FALLBACK_AVATAR);
 
 // ========== AUDIO ==========
 let AX;
@@ -243,9 +254,29 @@ function loadAudio(key,path){
     AX.decodeAudioData(buf,decoded=>{_audioBuffers[key]=decoded;});
   }).catch(()=>{});
 }
-// ── Audio toggle flags — players can mute music/voice independently ──────────
+// ── Audio toggle flags ─────────────────────────────────────────────────────────
 let musicEnabled=true;
 let voiceEnabled=true;
+let soundCycleState=0; // legacy
+// ── Volume levels (0-1) — persisted via localStorage ──────────────────────────
+let _volMusic=parseFloat(localStorage.getItem('ob_volM')||'1.0');
+let _volSFX=parseFloat(localStorage.getItem('ob_volS')||'1.0');
+let _volPanelOpen=false;
+let _volDragging=null; // 'music' | 'sfx'
+// ── Supermusic — YouTube background tracks instead of procedural music ────────
+const SM_FIRST='N3eb5g9NH30'; // Sleeping In — always plays first
+const SM_REST=['B1nDzB1P8GM','Ksj-fDNtsLY','nKrvCVAD2xA','X9fLbfzCqWw','kXYiU_JCYtU'];
+let _ytPlayer=null,_ytAPIReady=false,_smPlayed=new Set();
+window.onYouTubeIframeAPIReady=function(){_ytAPIReady=true;};
+function _loadYTAPI(){if(document.getElementById('yt-api-scr'))return;const s=document.createElement('script');s.id='yt-api-scr';s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);}
+function _smStop(){if(_ytPlayer){try{_ytPlayer.stopVideo();}catch(e){}}}
+function _smNext(){let rem=SM_REST.filter(id=>!_smPlayed.has(id));if(!rem.length){_smPlayed=new Set([SM_FIRST]);rem=[...SM_REST];}const nxt=rem[Math.floor(Math.random()*rem.length)];_smPlayed.add(nxt);if(_ytPlayer)try{_ytPlayer.loadVideoById(nxt);}catch(e){}}
+function startSupermusic(){
+  _loadYTAPI();_smPlayed=new Set([SM_FIRST]);
+  if(!document.getElementById('yt-hold')){const d=document.createElement('div');d.id='yt-hold';d.style.cssText='position:fixed;width:1px;height:1px;top:-9999px;opacity:0;pointer-events:none;';document.body.appendChild(d);}
+  const _go=()=>{if(_ytPlayer){try{_ytPlayer.destroy();}catch(e){}}_ytPlayer=null;_ytPlayer=new YT.Player('yt-hold',{height:'1',width:'1',videoId:SM_FIRST,playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,modestbranding:1,rel:0},events:{onReady:ev=>{ev.target.setVolume(Math.round(_volMusic*90));},onStateChange:ev=>{if(ev.data===0)_smNext();}}});};
+  if(_ytAPIReady)_go();else{const p=setInterval(()=>{if(_ytAPIReady){clearInterval(p);_go();}},100);}
+}
 // ── Master mix constants — tune the whole balance here ──────────────────────
 const SFX_VOL=0.28;   // global multiplier for all real audio files (wolf, shatter, voice, etc.)
 const SND_VOL=0.38;   // global multiplier for all procedural oscillator sounds in snd()
@@ -256,7 +287,7 @@ function playSFX(key,vol,rate){
   const src=AX.createBufferSource();
   src.buffer=_audioBuffers[key];
   src.playbackRate.value=rate||(0.9+Math.random()*0.2);
-  const g=AX.createGain();g.gain.value=(vol||0.4)*SFX_VOL;
+  const g=AX.createGain();g.gain.value=(vol||0.4)*SFX_VOL*_volSFX*(gs._supermusic?1.1:1.0);
   src.connect(g);g.connect(AX.destination);
   src.start();
 }
@@ -415,7 +446,8 @@ document.addEventListener('keydown',()=>{setTimeout(loadAllSFX,100);},{once:true
 function snd(type,pm){
 if(!AX)return;
 const o=AX.createOscillator(),g=AX.createGain();
-o.connect(g);g.connect(AX.destination);
+const _smMaster=AX.createGain();_smMaster.gain.value=(gs._supermusic?1.1:1.0)*_volSFX;
+o.connect(g);g.connect(_smMaster);_smMaster.connect(AX.destination);
 const t=AX.currentTime;pm=pm||(0.95+Math.random()*0.1);
 switch(type){
 // All snd() volumes multiplied by SND_VOL — beat cuts through cleanly
@@ -464,8 +496,8 @@ let gp={btns:new Array(16).fill(false),axes:[0,0],jp:new Array(16).fill(false)};
 let prevGP=new Array(16).fill(false);
 document.addEventListener('keydown',e=>{
   if(e.code==='Backquote'){gs._clairvoyance=!gs._clairvoyance;return;} // ` toggle CLAIRVOYANCE
-  if(e.code==='KeyV'){initA();voiceEnabled=!voiceEnabled;return;}
-  if(e.code==='KeyQ'&&gs.state==='game'&&gs.ultReady&&gs.ult){activateUlt();return;}
+  if(e.code==='KeyV'){initA();_volPanelOpen=!_volPanelOpen;return;}
+  if(e.code==='KeyQ'&&gs.state==='game'&&gs.ultReady){activateUlt();return;}
   if(e.code==='Escape'){
     if(gs.state==='game'){gs.state='escprompt';e.preventDefault();return;}
     if(gs.state==='escprompt'){gs.state='title';stopMusic();snd('select');e.preventDefault();return;}
@@ -474,6 +506,9 @@ document.addEventListener('keydown',e=>{
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code))e.preventDefault();
 });
 document.addEventListener('keyup',e=>{keys[e.code]=false});
+// Clear all held keys when window loses focus — prevents stuck-key drift
+window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const k in keys)keys[k]=false;});
 function pollGP(){
 const gs2=navigator.getGamepads();if(!gs2)return;
 let pad=null;for(let i=0;i<gs2.length;i++)if(gs2[i]){pad=gs2[i];break}
@@ -485,9 +520,29 @@ gp.axes=[pad.axes[0]||0,pad.axes[1]||0];
 const vJoy={active:false,id:-1,bx:0,by:0,dx:0,dy:0,tapFired:false};
 const VJOY_DEAD=12; // deadzone pixels
 // Click on level-up cards or meta shop tabs
-function getCanvasXY(e){const r=C.getBoundingClientRect();return{x:(e.clientX-r.left)*(C.width/r.width),y:(e.clientY-r.top)*(C.height/r.height)};}
+function _getDrawRect(){
+  const r=C.getBoundingClientRect(),ca=C.width/C.height,ra=r.width/r.height;
+  let dw,dh,dx,dy;
+  if(ra>ca){dh=r.height;dw=dh*ca;dx=r.left+(r.width-dw)/2;dy=r.top;}
+  else{dw=r.width;dh=dw/ca;dx=r.left;dy=r.top+(r.height-dh)/2;}
+  return{left:dx,top:dy,width:dw,height:dh};
+}
+function getCanvasXY(e){const r=_getDrawRect();return{x:(e.clientX-r.left)*(C.width/r.width),y:(e.clientY-r.top)*(C.height/r.height)};}
 C.addEventListener('click',e=>{
   const{x:mx2,y:my2}=getCanvasXY(e);
+  // Volume panel icon (🔊) — top-right, always clickable
+  if(mx2>=C.width-36&&mx2<=C.width&&my2>=12&&my2<=48){_volPanelOpen=!_volPanelOpen;snd('select');return;}
+  // Volume panel slider clicks (single-click to set value)
+  if(_volPanelOpen){
+    const slX=C.width-164,slW=148;
+    if(mx2>=slX-4&&mx2<=slX+slW+4&&my2>=48&&my2<=72){
+      _volMusic=Math.max(0,Math.min(1,(mx2-slX)/slW));localStorage.setItem('ob_volM',_volMusic.toFixed(2));
+      if(_ytPlayer)try{_ytPlayer.setVolume(Math.round(_volMusic*90));}catch(_){}return;
+    }
+    if(mx2>=slX-4&&mx2<=slX+slW+4&&my2>=84&&my2<=108){
+      _volSFX=Math.max(0,Math.min(1,(mx2-slX)/slW));localStorage.setItem('ob_volS',_volSFX.toFixed(2));return;
+    }
+  }
   if(gs.state==='levelup'&&gs.lvlChoices.length>0){
     const cw=220,ch=170,gap=20;
     const startX=C.width/2-(gs.lvlChoices.length*cw+(gs.lvlChoices.length-1)*gap)/2;
@@ -514,6 +569,10 @@ C.addEventListener('click',e=>{
     if(mx2>=C.width/2-90&&mx2<=C.width/2+90&&my2>=C.height/2+246&&my2<=C.height/2+272){
       gs._upgradesDisabled=!gs._upgradesDisabled;snd('select');return;
     }
+    // Supermusic toggle — top-right (smX=C.width-186, width=144) — only if allowed via URL param
+    if(gs._supermusicAllowed&&mx2>=C.width-186&&mx2<=C.width-42&&my2>=14&&my2<=40){
+      gs._supermusic=!gs._supermusic;localStorage.setItem('outbreak_supermusic',gs._supermusic?'1':'0');snd('select');return;
+    }
   }
   if(gs.state==='powerups'){
     // Click tab buttons (All/Combat/Survival/Utility) — hit area at top of shop panel
@@ -529,8 +588,29 @@ C.addEventListener('click',e=>{
 });
 
 let _mx=-999,_my=-999;
-C.addEventListener('mousemove',e=>{const r=C.getBoundingClientRect();_mx=(e.clientX-r.left)*(C.width/r.width);_my=(e.clientY-r.top)*(C.height/r.height);});
-C.addEventListener('mouseleave',()=>{_mx=-999;_my=-999;});
+C.addEventListener('mousemove',e=>{
+  const r=_getDrawRect();
+  _mx=(e.clientX-r.left)*(C.width/r.width);_my=(e.clientY-r.top)*(C.height/r.height);
+  if(_volDragging){
+    // slX = panX+16 = (C.width-180)+16 = C.width-164
+    const slX=C.width-164,slW=148;
+    const v=Math.max(0,Math.min(1,(_mx-slX)/slW));
+    if(_volDragging==='music'){_volMusic=v;localStorage.setItem('ob_volM',v.toFixed(2));if(_ytPlayer)try{_ytPlayer.setVolume(Math.round(v*90));}catch(_){}}
+    else if(_volDragging==='sfx'){_volSFX=v;localStorage.setItem('ob_volS',v.toFixed(2));}
+  }
+});
+C.addEventListener('mouseleave',()=>{_mx=-999;_my=-999;_volDragging=null;});
+C.addEventListener('mousedown',e=>{
+  if(!_volPanelOpen)return;
+  const r=_getDrawRect();
+  const mx2=(e.clientX-r.left)*(C.width/r.width),my2=(e.clientY-r.top)*(C.height/r.height);
+  const slX=C.width-164,slW=148;
+  // Music track area (panY=44, track at panY+22=66, thumb radius 5 → hit zone 56-80)
+  if(mx2>=slX-4&&mx2<=slX+slW+4&&my2>=56&&my2<=80)_volDragging='music';
+  // SFX track area (track at panY+56=100, hit zone 90-114)
+  else if(mx2>=slX-4&&mx2<=slX+slW+4&&my2>=90&&my2<=114)_volDragging='sfx';
+});
+document.addEventListener('mouseup',()=>{_volDragging=null;});
 
 C.addEventListener('touchstart',e=>{
   e.preventDefault();initA();setTimeout(loadAllSFX,100);
@@ -539,7 +619,7 @@ C.addEventListener('touchstart',e=>{
     const r=C.getBoundingClientRect();
     const tx=(t.clientX-r.left)*(C.width/r.width),ty=(t.clientY-r.top)*(C.height/r.height);
     const ultBtnX=C.width-90,ultBtnY=C.height-100;
-    if(gs.state==='game'&&gs.ultReady&&gs.ult&&Math.hypot(tx-ultBtnX,ty-ultBtnY)<50){
+    if(gs.state==='game'&&gs.ultReady&&Math.hypot(tx-ultBtnX,ty-ultBtnY)<50){
       activateUlt();continue;
     }
     if(!vJoy.active){
@@ -583,7 +663,7 @@ function mx(){
   let x=0;
   if(keys['ArrowLeft']||keys['KeyA'])x=-1;
   if(keys['ArrowRight']||keys['KeyD'])x=1;
-  if(Math.abs(gp.axes[0])>0.25)x=gp.axes[0];
+  if(Math.abs(gp.axes[0])>0.40)x=gp.axes[0]; // raised deadzone
   if(vJoy.active&&Math.abs(vJoy.dx)>0.1)x=vJoy.dx;
   return x;
 }
@@ -591,7 +671,7 @@ function my(){
   let y=0;
   if(keys['ArrowUp']||keys['KeyW'])y=-1;
   if(keys['ArrowDown']||keys['KeyS'])y=1;
-  if(Math.abs(gp.axes[1])>0.25)y=gp.axes[1];
+  if(Math.abs(gp.axes[1])>0.40)y=gp.axes[1]; // raised deadzone — prevents idle-controller drift
   if(vJoy.active&&Math.abs(vJoy.dy)>0.1)y=vJoy.dy;
   return y;
 }
@@ -605,20 +685,22 @@ const WORLD_W=3200,WORLD_H=2400;
 const MAP_SAFE=80; // hard boundary margin — nothing crosses within this distance of the world edge
 
 const DIFFICULTIES=[
-  {id:1,name:'CASUAL',  color:'#aaddff',desc:'For new players. Slower enemies, more hearts.',     dmgMult:0.70,hpMult:0.70,spdMult:0.85,heartRate:0.30},
-  {id:2,name:'NORMAL',  color:'#44ffaa',desc:'The intended experience. Balanced challenge.',       dmgMult:1.00,hpMult:1.00,spdMult:1.00,heartRate:0.20},
-  {id:3,name:'HARD',    color:'#ffaa44',desc:'Requires upgrades. Enemies hit harder and faster.',  dmgMult:1.40,hpMult:1.40,spdMult:1.10,heartRate:0.12},
-  {id:4,name:'NIGHTMARE',color:'#ff4444',desc:'Max upgrades required. Relentless. Unforgiving.',   dmgMult:2.00,hpMult:1.80,spdMult:1.25,heartRate:0.06},
+  {id:1,name:'CASUAL',  color:'#aaddff',desc:'For new players. Slower enemies, more hearts.',     dmgMult:0.70,hpMult:0.70,spdMult:0.85,heartRate:0.33},
+  {id:2,name:'NORMAL',  color:'#44ffaa',desc:'The intended experience. Balanced challenge.',       dmgMult:1.00,hpMult:1.00,spdMult:1.00,heartRate:0.22},
+  {id:3,name:'HARD',    color:'#ffaa44',desc:'Requires upgrades. Enemies hit harder and faster.',  dmgMult:1.40,hpMult:1.40,spdMult:1.10,heartRate:0.13},
+  {id:4,name:'NIGHTMARE',color:'#ff4444',desc:'Max upgrades required. Relentless. Unforgiving.',   dmgMult:2.00,hpMult:1.80,spdMult:1.25,heartRate:0.07},
 ];
 const gs={
 state:'title',
 difficulty:parseInt(localStorage.getItem('outbreak_difficulty')||'2'),
 _upgradesDisabled:false,
+_supermusicAllowed:params.get('supermusic')==='1',
+_supermusic:params.get('supermusic')==='1'&&localStorage.getItem('outbreak_supermusic')==='1',
 time:0,gameTime:0,frame:0,
 // Player — EXACT same as Truthseeker
 px:WORLD_W/2,py:WORLD_H/2,
 pvx:0,pvy:0,
-pHP:105,pMaxHP:105,pSpeed:3,
+pHP:110,pMaxHP:110,pSpeed:3.15,
 pFacing:1,pFacingY:0,
 pInvince:0,pFlash:0,pBob:0,pDirRow:0,
 // Level
@@ -710,60 +792,65 @@ storm_call:{name:'Storm Call',desc:"Calls lightning down from the sky onto nearb
 // ========== ULTIMATE DEFINITIONS ==========
 // Ults: 1 slot, replaceable, level 1→4. Offered in level-up at level 5+.
 // Gold border cards. Meter fills at GOD TIER. Q key / mobile button to fire.
+const ULT_DUR=720; // 12 seconds at 60fps — ALL ults last this long
 const ULT_DEFS={
+berserker:{
+  name:'Berserker',emoji:'🗡️',color:'#ff2222',
+  desc:['UNLEASHED RAGE — 2× size, 2× speed, 2× dmg, 50% defense for 20s.','2.5× dmg, 60% defense.','3× dmg, 65% defense, knockback.','3× dmg, 70% defense, enemies fly on hit, screen trembles.'],
+  spdMult:[2,2,2.2,2.5],dmgMult:[2,2.5,3,3],defMult:[0.5,0.4,0.35,0.3],
+  synergy:[],
+},
 cataclysm:{
   name:'Cataclysm',emoji:'🌋',color:'#ff4400',
-  desc:['Screen explosion — 200 dmg to all enemies.','300 dmg + fire trails.','400 dmg + fire patches linger 4s.','500 dmg + leaves fire patches + burning enemies take 2×.'],
-  baseDmg:[200,300,400,500],duration:[1,1,1,1], // instant (1 frame)
-  synergy:['flame_whip','bessie_pie_throw'], // fire weapons get bonus
-  synergyMult:[1,1,1.5,2], // lvl4: burning enemies 2×
+  desc:['THE WORLD BURNS — Screen nuke + meteor rain every 1.5s for 20s. Deaths explode.','Bigger meteors, fire patches everywhere.','Everything dies in fire. Trail of flames behind you.','Hellscape. Meteors, explosions, fire patches, burning spawns. 20s of apocalypse.'],
+  burstDmg:[200,300,400,500],meteorDmg:[80,120,160,220],meteorInterval:[90,80,70,60],
+  maxFirePatches:[8,10,12,12],deathExplode:true,
+  synergy:['flame_whip','bessie_pie_throw'],synergyMult:[1,1.5,2,2.5],
 },
 temporal_rift:{
   name:'Temporal Rift',emoji:'⏳',color:'#44ddff',
-  desc:['Freeze all enemies 4s, player 2× speed.','5s freeze, 2.5× speed.','6s freeze, 2.5× speed + heal 30%.','7s freeze + time-rewind heal to full + frozen shatter for 3×.'],
-  freezeDur:[240,300,360,420], // frames
-  spdMult:[2,2.5,2.5,3],
-  healPct:[0,0,0.3,1.0],
-  shatterMult:[1,1,1,3],
+  desc:['GOD OF TIME — Enemies at 10% speed, you at 3×, weapons 3× faster for 20s.','Frozen enemies shatter on hit for AOE.','Heal 50%. Time-shatter chains.','Full heal. You exist outside time. 3.5× speed. Shatter everything.'],
+  spdMult:[3,3,3.2,3.5],enemySlow:[0.1,0.1,0.1,0.1],weaponCdMult:[0.33,0.33,0.3,0.25],
+  healPct:[0,0,0.5,1.0],shatterAOE:[0,80,120,160],
   synergy:['frost_nova'],
 },
 soul_harvest:{
   name:'Soul Harvest',emoji:'💀',color:'#aa44ff',
-  desc:['Reaper sweep — instakill <30% HP, 150 dmg rest.','<35% instakill, 200 dmg.','<40% instakill, 250 dmg + lifesteal heals 2×.','<50% instakill, 300 dmg + lifesteal 3×.'],
-  execThresh:[0.3,0.35,0.4,0.5],
-  baseDmg:[150,200,250,300],
-  lifeStealMult:[1,1,2,3],
+  desc:['THE REAPER WALKS — Instakill <30% HP. Spectral scythe orbits you. Deaths heal. 20s.','<40% instakill, deaths explode.','<50% instakill, chain death explosions, enemies flee.','<50% instakill, massive reaper scythe, death chains, lifesteal 3×, enemies flee in terror.'],
+  execThresh:[0.3,0.35,0.4,0.5],burstDmg:[150,200,250,300],
+  scytheDmg:[40,60,80,120],scytheRadius:[120,140,160,200],
+  lifeStealMult:[2,2,3,3],deathExplodeDmg:[0,50,80,120],enemyFlee:[false,false,true,true],
   synergy:['soul_scythe'],
 },
 thunder_god:{
   name:'Thunder God',emoji:'⚡',color:'#ffff44',
-  desc:['Lightning chains to ALL enemies, 3 bounces.','4 bounces + 1.5× dmg.','5 bounces + 2× dmg.','6 bounces + stun 2s + storm_call 3× during.'],
-  baseDmg:[120,180,240,360],
+  desc:['ZEUS MODE — Burst lightning + constant storm for 20s. Bolts hit clusters every 0.3s.','Stun shield, 2× size.','Bolts chain further, shield stuns 2s.','Full storm. 2× size, stun aura, bolts every 0.2s, triple chain. You ARE the storm.'],
+  burstDmg:[120,180,240,360],boltDmg:[30,45,60,100],boltInterval:[18,16,14,12],
+  maxBolts:[5,5,5,5],stunAura:[0,60,80,120],playerSize:[1,2,2,2],
   bounces:[3,4,5,6],
-  stunDur:[0,0,0,120], // frames
-  synergy:['storm_call'],
-  synergyMult:[1,1.5,2,3],
+  synergy:['storm_call'],synergyMult:[1,1.5,2,3],
 },
 phoenix_rebirth:{
   name:'Phoenix Rebirth',emoji:'🔥',color:'#ff8800',
-  desc:['Full heal + fire nova + 4s invincibility.','Full heal + fire nova + 5s invincibility.','Full heal + bigger nova + 5s + fire weapons 2×.','Full heal + massive nova + 6s invincible + fire weapons 3×.'],
-  invinceDur:[240,300,300,360], // frames
-  novaDmg:[100,150,200,300],
-  novaRadius:[200,250,300,400],
-  fireMult:[1,1,2,3],
+  desc:['IMMORTAL INFERNO — Full heal, can\'t die, fire tornado follows you for 20s.','Bigger tornado, fire trail, everything burns.','Fire weapons 3×, trail of flames, 200px burn aura.','Unkillable fire god. Massive burn aura, fire trail, fire tornado, regen 5 HP/s. YOU are the weapon.'],
+  novaDmg:[100,150,200,300],novaRadius:[200,250,300,400],
+  burnAura:[120,150,180,220],burnDmg:[5,8,12,18],trailInterval:[15,12,10,8],
+  fireMult:[1.5,2,3,3],regenPerSec:[0,0,2,5],
   synergy:['flame_whip','bessie_pie_throw'],
 },
 frost_apocalypse:{
   name:'Frost Apocalypse',emoji:'❄️',color:'#88ddff',
-  desc:['Freeze entire screen 3s, then shatter for 200 dmg.','4s freeze, 300 dmg shatter.','4s freeze, 350 dmg + chain freeze nearby.','5s freeze, 400 dmg + chain freeze + frost_nova combo: double shatter.'],
-  freezeDur:[180,240,240,300], // frames
-  shatterDmg:[200,300,350,400],
-  chainFreeze:[false,false,true,true],
-  synergy:['frost_nova'],
-  synergyMult:[1,1,1.5,2],
+  desc:['NUCLEAR WINTER — Freeze+shatter burst, then 20s blizzard. Enemies frozen on spawn.','Ice shards orbit you, shredding nearby enemies.','Frozen enemies erupt ice spikes (AOE). Orbit shards grow.','Permafrost. Spawn-freeze, orbit shards, ice spikes, chain shatter. Nothing moves but you.'],
+  burstFreeze:[180,240,240,300],shatterDmg:[200,300,350,400],
+  spawnFreezeDur:[60,90,120,180],orbitShards:[4,5,6,6],orbitDmg:[15,25,35,50],orbitRadius:[100,120,140,160],
+  iceSpikeAOE:[0,0,60,80],chainFreeze:[false,false,true,true],
+  synergy:['frost_nova'],synergyMult:[1,1,1.5,2],
 },
 };
-const ULT_KILLS_NEEDED=[250,200,160,130]; // kills to fill meter at ult level 1/2/3/4
+const ULT_KILLS_NEEDED=[275,225,175,220]; // kills to fill meter at ult level 1/2/3/GOD
+const ULT_PARTICLE_CAP=200; // hard cap on ult particles
+const ULT_MAX_FIRE_PATCHES=12;
+const ULT_MAX_CHAIN_DEPTH=3;
 
 const PASSIVES={
 bessie_pie:{name:"Survivor's Ration",desc:'+20% Max HP. You eat. You live. Simple.',stat:'maxhp',val:0.2,emoji:'🥩'},
@@ -784,7 +871,50 @@ thorn_shroud:{name:'Thorn Shroud',desc:'Anything that touches you takes 8 damage
 // Separate from Flock economy — stored in outbreak_meta localStorage key
 const OUTBREAK_META_KEY='outbreak_meta';
 function loadMeta(){try{return JSON.parse(localStorage.getItem(OUTBREAK_META_KEY)||'{}')}catch{return{}}}
-function saveMeta(m){try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(m))}catch{}}
+function saveMeta(m){try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(m))}catch{}syncMetaToServer();}
+
+// ─── R2 Profile Sync — upgrades/goldBank persist across devices & cache clears ──
+let _metaSyncT=null;
+function syncMetaToServer(){
+  if(!PLAYER_NAME)return;
+  clearTimeout(_metaSyncT);
+  _metaSyncT=setTimeout(()=>{
+    const meta=loadMeta();
+    fetch(window.location.origin+'/api/users/'+PLAYER_NAME+'/stats',{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({outbreak_meta:{powerups:meta.powerups||{},goldBank:meta.goldBank||0}})
+    }).catch(()=>{});
+  },600);
+}
+async function loadMetaFromServer(){
+  if(!PLAYER_NAME)return;
+  try{
+    const res=await fetch(window.location.origin+'/api/users/'+PLAYER_NAME);
+    if(!res.ok)return;
+    const user=await res.json();
+    // Merge outbreak_meta: take max values so cache clears can never lose progress
+    const sm=user?.stats?.outbreak_meta;
+    if(sm){
+      const local=loadMeta();
+      const merged={...local,goldBank:Math.max(local.goldBank||0,sm.goldBank||0),powerups:{...(local.powerups||{})}};
+      for(const[k,v]of Object.entries(sm.powerups||{}))merged.powerups[k]=Math.max(merged.powerups[k]||0,Number(v));
+      try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(merged));}catch{}
+      refreshMetaCache();
+    }
+    // Merge outbreak_progress: pull server-tracked totals if local is lower
+    const sStats=user?.stats;
+    if(sStats&&(sStats.outbreak_total_kills||0)>0){
+      try{
+        const lp=JSON.parse(localStorage.getItem('outbreak_progress')||'{}');
+        lp.totalKills=Math.max(lp.totalKills||0,sStats.outbreak_total_kills||0);
+        lp.totalRuns=Math.max(lp.totalRuns||0,sStats.outbreak_total_runs||0);
+        localStorage.setItem('outbreak_progress',JSON.stringify(lp));
+      }catch{}
+    }
+  }catch(e){}
+}
+loadMetaFromServer(); // run on page load — async, completes while user is on title screen
 
 // Cached meta stats (prevent localStorage reads every frame)
 let _metaCache=null;
@@ -972,10 +1102,11 @@ return v;
 function getMight(){
 // Berserker: flat % per streak tier on top of base damage
 const berserkerBonus=gs.streakTier*getMetaStat('berserker');
-return 1+getStat('might')+berserkerBonus;
+const ultDmg=gs.ultActive>0&&gs._ultDmgMult?gs._ultDmgMult:1;
+return (1+getStat('might')+berserkerBonus)*ultDmg;
 }
 function getArea(){return 1+getStat('area')}
-function getCooldown(){return Math.max(0.25,1-getStat('cooldown'))}
+function getCooldown(){const ultCd=gs.ultActive>0&&gs._ultWeaponCdMult?gs._ultWeaponCdMult:1;return Math.max(0.1,(1-getStat('cooldown'))*ultCd)}
 function getProjSpd(){return 1+getStat('projspd')||1}
 function getMagnet(){return 80*(1+getStat('magnet'))}
 function getGrowth(){return 1+getStat('growth')}
@@ -1003,12 +1134,13 @@ e.y=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,e.y));
 // VS-style piecewise scaling for 15min: 0.6× at start → ~40× at 15min
 // 0-1.5min: 0.6→1.2  |  1.5-5min: 1.2→4.0  |  5-10min: 4.0→16.0  |  10-15min: 16.0→40.0
 const p=gs.gameTime/SURVIVE_TIME;
-const timeScale=p<0.1?0.6+p*6.0:p<0.333?1.2+(p-0.1)*12.0:p<0.667?4.0+(p-0.333)*36.0:16.0+(p-0.667)*72.0;
+// 0-1.5min: 0.6→1.2 | 1.5-5min: 1.2→4.0 | 5-10min: 4.0→12.0 (was 16) | 10-15min: 12.0→36.0
+const timeScale=p<0.1?0.6+p*6.0:p<0.333?1.2+(p-0.1)*12.0:p<0.667?4.0+(p-0.333)*24.0:12.0+(p-0.667)*72.0;
 const _diff=DIFFICULTIES[(gs.difficulty||2)-1]||DIFFICULTIES[1];
 // Party HP scaling: more players = beefier enemies (+30% HP per extra player)
 const _partyHpMult=1+Object.keys(remotePlayers).length*0.3;
 e.hp=def.hp*timeScale*0.7*_diff.hpMult*_partyHpMult;e.maxHp=e.hp;
-e.spd=def.spd*_diff.spdMult;
+e.spd=def.spd*_diff.spdMult*1.05;
 // Damage: compressed for 15min — early game gentler, late game still punishing
 const dmgScale=(p<0.1?0.4+p*4.0:p<0.333?0.8+(p-0.1)*5.0:p<0.667?2.0+(p-0.333)*16.0:7.3+(p-0.667)*10.0)*_diff.dmgMult;
 e.dmg=Math.ceil(def.dmg*dmgScale);
@@ -1079,13 +1211,13 @@ function spawnWallLine(){
 function dropXP(x,y,count){
 for(let i=0;i<count;i++){
 const ang=Math.random()*Math.PI*2;const spd=1+Math.random()*2;
-gs.pills.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val:0.22,life:500,magnet:false,size:3+Math.random()*2,
+gs.pills.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val:0.264,life:2400,magnet:false,size:3+Math.random()*2,
 color:Math.random()<0.15?'#aaddff':(Math.random()<0.2?'#66bbff':'#4499ff')});
 }}
 function dropFood(x,y){
-const types=[{heal:35,color:'#ffffff',name:'Blood Vial'},{heal:20,color:'#cc4422',name:'Ration Pack'},{heal:12,color:'#ddaa44',name:'Med Kit'},{heal:8,color:'#44cc44',name:'Herb'}];
+const types=[{healPct:0.30,color:'#ffffff',name:'Blood Vial'},{healPct:0.18,color:'#cc4422',name:'Ration Pack'},{healPct:0.11,color:'#ddaa44',name:'Med Kit'},{healPct:0.07,color:'#44cc44',name:'Herb'}];
 const f=types[Math.floor(Math.random()*types.length)];
-gs.foods.push({x,y,heal:f.heal,color:f.color,name:f.name,size:6,life:900});
+gs.foods.push({x,y,healPct:f.healPct,color:f.color,name:f.name,size:6,life:4500});
 }
 function dropGold(x,y,count,val){
 val=val||1;
@@ -1093,10 +1225,42 @@ for(let i=0;i<count;i++){
   // Low velocity so coins don't fly far — small bounce only
   const ang=Math.random()*Math.PI*2;const spd=0.4+Math.random()*0.8;
   const sz=val>=5?9+Math.random()*2:val>=3?7.5+Math.random()*2:6+Math.random()*1.5;
-  gs.goldGems.push({x:x+(Math.random()-0.5)*16,y:y+(Math.random()-0.5)*16,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val,life:700,size:sz});
+  gs.goldGems.push({x:x+(Math.random()-0.5)*16,y:y+(Math.random()-0.5)*16,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,val,life:3000,size:sz});
 }}
 function dropChest(x,y){
 gs.chests.push({x,y,life:9999,size:14,open:false});
+}
+// ========== CHAOS GEM (one per game) ==========
+function spawnChaosGem(){
+  if(gs._chaosGemSpawned)return;
+  gs._chaosGemSpawned=true;
+  // Spawn at random position away from player
+  const ang=Math.random()*Math.PI*2;const dist=300+Math.random()*200;
+  const gx=gs.px+Math.cos(ang)*dist,gy=gs.py+Math.sin(ang)*dist;
+  gs.chaosGem={x:gx,y:gy,life:9999,size:16,glow:0};
+}
+function pickupChaosGem(){
+  if(!gs.chaosGem)return;
+  // Pick 2 random ults (different)
+  const ultKeys=Object.keys(ULT_DEFS).filter(k=>k!=='berserker');
+  const i1=Math.floor(Math.random()*ultKeys.length);
+  let i2=Math.floor(Math.random()*(ultKeys.length-1));if(i2>=i1)i2++;
+  const ult1={id:ultKeys[i1],lvl:Math.min(gs.level,4)};
+  const ult2={id:ultKeys[i2],lvl:Math.min(gs.level,4)};
+  const d1=ULT_DEFS[ult1.id],d2=ULT_DEFS[ult2.id];
+  // Epic feedback
+  gs.shakeDur=30;gs.flash=20;gs.flashColor='#ff00ff';gs.hitFreeze=15;
+  spawnP(gs.chaosGem.x,gs.chaosGem.y,'#ff00ff',40,12);
+  spawnP(gs.chaosGem.x,gs.chaosGem.y,'#ffffff',25,10);
+  spawnP(gs.chaosGem.x,gs.chaosGem.y,'#ffdd00',20,8);
+  floatT(gs.px,gs.py-80,'💎 CHAOS GEM 💎','#ff00ff',true);
+  floatT(gs.px,gs.py-110,d1.emoji+' '+d1.name+' + '+d2.emoji+' '+d2.name,'#ffffff',true);
+  snd('ult_activate');
+  // Fire both ults as chaos gem (isChaosGem=true: no meter cost, no streak drop)
+  activateUlt(ult1,true);
+  // Second ult overlays — add its sustained effects on top
+  setTimeout(()=>activateUlt(ult2,true),100);
+  gs.chaosGem=null;
 }
 
 // ========== PARTICLES ==========
@@ -1114,7 +1278,7 @@ for(let i=0;i<n;i++)gs.particles.push({x,y,vx:(Math.random()-0.5)*spread,vy:-Mat
 function floatT(x,y,text,color,big){gs.floatTexts.push({x,y,text,color,life:48,vy:-1.4,big:!!big})}
 
 // ========== HIT ENEMY ==========
-function hitEnemy(e,dmg){
+function hitEnemy(e,dmg,noKB){
 if(!e.active)return;
 // Gambler's Edge: crit chance for double damage
 const critChance=getMetaStat('crit');
@@ -1134,7 +1298,7 @@ updateStreak();
 const lifeSteal=getStat('lifesteal');
 if(lifeSteal>0){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+lifeSteal);if(gs.kills%8===0)floatT(gs.px,gs.py-20,'+'+lifeSteal+'🩸','#ff4466');}
 // Many small pills: avg ~2 per kill, each worth 0.22 → ~10% more XP than old 40%×1
-const pillCount=(Math.random()<0.9?1:0)+(Math.random()<0.75?1:0)+(Math.random()<0.4?1:0);
+const pillCount=(Math.random()<0.95?1:0)+(Math.random()<0.80?1:0)+(Math.random()<0.50?1:0);
 dropXP(e.x,e.y,pillCount);
 if(Math.random()<(DIFFICULTIES[(gs.difficulty||2)-1]||DIFFICULTIES[1]).heartRate)dropFood(e.x,e.y);
 // Plague bearer on-death: spreads fire patch + spawns 3 larvae
@@ -1190,51 +1354,54 @@ snd(e.isBoss?'boss':isElite||gs.streakTier>=2?'kill_big':'kill');
 playSFX(e.isBoss?'wolf_attack':isElite||gs.streakTier>=2?'shatter':'impact',e.isBoss?0.9:isElite?0.55:0.35);
 if(e.isBoss)floatT(e.x,e.y-30,'BOSS DEFEATED!','#ffcc00',true);
 freeEnemy(e);
-}else{
-const kb=10;const ang=Math.atan2(e.y-gs.py,e.x-gs.px);
+}else if(!noKB){
+const kb=7;const ang=Math.atan2(e.y-gs.py,e.x-gs.px);
 e.vx+=Math.cos(ang)*kb;e.vy+=Math.sin(ang)*kb;
 // Cap velocity to prevent enemies flying off the map
-const maxV=18;const cv=Math.hypot(e.vx,e.vy);if(cv>maxV){e.vx=(e.vx/cv)*maxV;e.vy=(e.vy/cv)*maxV;}
+const maxV=14;const cv=Math.hypot(e.vx,e.vy);if(cv>maxV){e.vx=(e.vx/cv)*maxV;e.vy=(e.vy/cv)*maxV;}
 }}
 
 // ========== STREAK + ULT METER ==========
 function updateStreak(){
-let newTier=0;
-for(let i=gs.streakThresholds.length-1;i>=0;i--){if(gs.streakKills>=gs.streakThresholds[i]){newTier=i;break}}
-if(newTier>gs.streakTier){
-gs.streakTier=newTier;snd('lvlup');
-const streakVoiceKeys=['','outbreak_streak_awake','outbreak_streak_based','outbreak_streak_ascended','outbreak_streak_godtier'];
-if(streakVoiceKeys[newTier])playVoice(streakVoiceKeys[newTier]);
-floatT(gs.px,gs.py-30,gs.streakNames[newTier],gs.streakColors[newTier],true);
-if(gs.streakQuotes[newTier])floatT(gs.px,gs.py-62,gs.streakQuotes[newTier],'rgba(255,255,255,0.8)',false);
-gs.shakeDur=4+newTier*2;gs.flash=4+newTier*2;gs.flashColor=gs.streakColors[newTier];
-if(newTier>=4){
-gs.shakeDur=18;gs.flash=14;gs.flashColor='#ffcc00';gs.hitFreeze=8;
-spawnP(gs.px,gs.py,'#ffcc00',35,8);spawnP(gs.px,gs.py,'#ff6600',20,7);spawnP(gs.px,gs.py,'#ffffff',15,6);
-for(const e of gs.enemies){if(e.active)hitEnemy(e,40)}
-}}
-// Ult meter: fills at GOD TIER when ult is equipped
-if(gs.streakTier>=4&&gs.ult&&!gs.ultReady&&gs.ultCooldown<=0){
-  const needed=ULT_KILLS_NEEDED[Math.min(gs.ult.lvl-1,3)];
-  gs.ultMeter=Math.min(1,gs.ultMeter+1/needed);
-  // Charge tick sound every 10% milestone
-  if(gs.ultMeter>0&&gs.ultMeter%0.1<1/needed)snd('ult_charge_tick');
-  if(gs.ultMeter>=1&&!gs.ultReady){
-    gs.ultReady=true;
-    snd('ult_ready_chime');
-    playVoice('ult_ready');
-    floatT(gs.px,gs.py-50,'⚡ ULT READY ⚡','#ffdd00',true);
-    gs.shakeDur=10;gs.flash=10;gs.flashColor='#ffdd00';
+// Tier ONLY advances via activateUlt.
+// Ult meter is KILL-BASED: computed directly from streakKills past the next threshold.
+if(!gs.ultReady&&gs.ultCooldown<=0&&gs.ultActive<=0){
+  const nextThresh=gs.streakThresholds[Math.min(gs.streakTier+1,gs.streakThresholds.length-1)];
+  const atThreshold=gs.streakKills>=nextThresh||gs.streakTier>=4;
+  if(atThreshold){
+    const baseNeeded=ULT_KILLS_NEEDED[Math.min(gs.streakTier,3)];
+    const godUses=Math.max(0,(gs.ultGodUseCount||0)-1);
+    const scaledNeeded=gs.streakTier>=4?Math.floor(baseNeeded*(1+0.2*godUses)):baseNeeded;
+    const prevMeter=gs.ultMeter;
+    // Meter = kills past threshold / kills needed — purely kill-driven, no frame accumulation
+    gs.ultMeter=Math.min(1,Math.max(0,(gs.streakKills-nextThresh)/scaledNeeded));
+    // Charge tick at each 10% milestone
+    if(Math.floor(gs.ultMeter*10)>Math.floor(prevMeter*10)&&gs.ultMeter<1)snd('ult_charge_tick');
+    if(gs.ultMeter>=1&&!gs.ultReady){
+      gs.ultReady=true;
+      snd('ult_ready_chime');
+      playVoice('ult_ready');
+      const ultName=gs.ult?ULT_DEFS[gs.ult.id].name:'Berserker';
+      floatT(gs.px,gs.py-50,'⚡ '+ultName+' READY ⚡','#ffdd00',true);
+      gs.shakeDur=10;gs.flash=10;gs.flashColor='#ffdd00';
+    }
   }
 }}
 
 // ========== ACTIVATE ULTIMATE ==========
-function activateUlt(){
-  if(!gs.ult||!gs.ultReady||gs.ultActive>0)return;
-  const def=ULT_DEFS[gs.ult.id];if(!def)return;
-  const lvl=Math.min(gs.ult.lvl,4)-1; // 0-indexed
-  gs.ultReady=false;gs.ultMeter=0;gs.ultActive=1; // will be set per-ult
-  gs.ultActiveId=gs.ult.id;
+function activateUlt(ultOverride,isChaosGem){
+  const ultObj=ultOverride||gs.ult||(gs.ultReady?{id:'berserker',lvl:1}:null);
+  if(!ultObj)return;
+  if(!isChaosGem&&!gs.ultReady)return;
+  if(!isChaosGem&&gs.ultActive>0)return;
+  const def=ULT_DEFS[ultObj.id];if(!def)return;
+  // Ult power scales with streak tier (0-1=weakest, 2=mid, 3=strong, 4=god)
+  const lvl=Math.min(Math.max(gs.streakTier-1,0),3);
+  if(!isChaosGem){gs.ultReady=false;gs.ultMeter=0;}
+  gs.ultActive=ULT_DUR; // ALL ults last 12 seconds
+  gs.ultActiveId=ultObj.id;
+  gs._ultTimer=0; // frame counter for periodic effects
+  gs._ultLvl=lvl;
   // Massive activation feedback
   gs.shakeDur=14+lvl*4;gs.flash=12+lvl*3;gs.flashColor=def.color;gs.hitFreeze=6+lvl*2;
   spawnP(gs.px,gs.py,def.color,35+lvl*10,10+lvl*2);
@@ -1243,30 +1410,42 @@ function activateUlt(){
   floatT(gs.px,gs.py-60,def.name,'#ffffff',true);
   floatT(gs.px,gs.py-90,def.emoji+' ULTIMATE '+def.emoji,def.color,true);
   snd('ult_activate');
-  playVoice('ult_'+gs.ult.id);
-  // Synergy boost — mark active for weapon damage calc
+  if(ultObj.id!=='berserker')playVoice('ult_'+ultObj.id);
+  // Synergy boost
   gs._ultSynergy=def.synergy||[];
   gs._ultSynergyMult=(def.synergyMult||[1,1,1,1])[lvl];
-  // Execute ult effect
   const might=getMight()*gs.streakDmgMult[gs.streakTier];
-  switch(gs.ult.id){
+
+  switch(ultObj.id){
+    case 'berserker':{
+      gs._ultSpdBoost=def.spdMult[lvl];
+      gs._ultDmgMult=def.dmgMult[lvl];
+      gs._ultDefMult=def.defMult[lvl];
+      gs.pInvince=Math.max(gs.pInvince,60);
+      floatT(gs.px,gs.py-30,'🗡️ BERSERKER MODE 🗡️','#ff2222',true);
+      break;
+    }
     case 'cataclysm':{
-      const dmg=def.baseDmg[lvl]*might;
-      for(const e of gs.enemies){if(e.active)hitEnemy(e,dmg*(e.onFire>0?(def.synergyMult||[1,1,1.5,2])[lvl]:1));}
-      // Fire patches at lvl 3+
-      if(lvl>=2){for(let i=0;i<6+lvl*3;i++){
-        const fx=gs.px+(Math.random()-0.5)*600,fy=gs.py+(Math.random()-0.5)*400;
-        gs.weaponFX.push({type:'fire_patch',x:fx,y:fy,life:240,maxLife:240,color:'#ff4400',r:50,dmg:def.baseDmg[lvl]*0.1,hit:new Set()});
-      }}
+      // Burst: screen nuke
+      const dmg=def.burstDmg[lvl]*might;
+      for(const e of gs.enemies){if(e.active)hitEnemy(e,dmg*(e.onFire>0?(def.synergyMult||[1,1,1.5,2.5])[lvl]:1));}
       gs.weaponFX.push({type:'bomb',x:gs.px,y:gs.py,life:50,maxLife:50,range:600,color:def.color,dmg:0});
-      gs.ultActive=30; // short — it's instant
+      // Sustained: meteor rain + fire patches + death explosions handled in updateUltEffect
+      gs._ultMeteorDmg=def.meteorDmg[lvl]*might;
+      gs._ultMeteorInterval=def.meteorInterval[lvl];
+      gs._ultDeathExplode=def.deathExplode;
+      gs._ultMaxFire=def.maxFirePatches[lvl];
+      gs._ultFireMult=(def.synergyMult||[1,1,1.5,2.5])[lvl];
       break;
     }
     case 'temporal_rift':{
-      for(const e of gs.enemies){if(e.active){e.frozen=def.freezeDur[lvl];e.flash=10;}}
-      gs.ultActive=def.freezeDur[lvl];
-      gs.pInvince=Math.max(gs.pInvince,60); // brief invince during rift
+      // Burst: freeze all + heal
+      for(const e of gs.enemies){if(e.active){e.frozen=ULT_DUR;e.flash=10;}}
       gs._ultSpdBoost=def.spdMult[lvl];
+      gs._ultEnemySlow=def.enemySlow[lvl];
+      gs._ultWeaponCdMult=def.weaponCdMult[lvl];
+      gs._ultShatterAOE=def.shatterAOE[lvl];
+      gs.pInvince=Math.max(gs.pInvince,120);
       if(def.healPct[lvl]>0){
         const heal=Math.floor(gs.pMaxHP*def.healPct[lvl]);
         gs.pHP=Math.min(gs.pMaxHP,gs.pHP+heal);
@@ -1275,8 +1454,9 @@ function activateUlt(){
       break;
     }
     case 'soul_harvest':{
+      // Burst: instakill + damage
       const thresh=def.execThresh[lvl];
-      const dmg=def.baseDmg[lvl]*might;
+      const dmg=def.burstDmg[lvl]*might;
       let harvested=0;
       for(const e of gs.enemies){if(!e.active)continue;
         if(e.hp/e.maxHp<=thresh){e.hp=0;e.active=false;gs.kills++;gs.streakKills++;harvested++;
@@ -1284,171 +1464,334 @@ function activateUlt(){
         }else{hitEnemy(e,dmg);}
       }
       if(harvested>0)floatT(gs.px,gs.py-30,'HARVESTED ×'+harvested,'#aa44ff',true);
-      gs.ultActive=30;
+      // Sustained: reaper scythe orbit, death heal, death explode, flee
+      gs._ultScytheDmg=def.scytheDmg[lvl]*might;
+      gs._ultScytheRadius=def.scytheRadius[lvl];
       gs._ultLifeStealMult=def.lifeStealMult[lvl];
+      gs._ultDeathExplodeDmg=def.deathExplodeDmg[lvl]*might;
+      gs._ultEnemyFlee=def.enemyFlee[lvl];
+      gs._ultScytheAngle=0;
       break;
     }
     case 'thunder_god':{
-      const dmg=def.baseDmg[lvl]*might;
-      const bounces=def.bounces[lvl];
-      // Chain lightning to every enemy
+      // Burst: chain lightning to all
+      const dmg=def.burstDmg[lvl]*might;
       for(const e of gs.enemies){if(!e.active)continue;
         hitEnemy(e,dmg);
-        if(def.stunDur[lvl]>0)e.frozen=def.stunDur[lvl];
-        // Visual: lightning bolt from player to enemy
-        gs.ultFX.push({type:'lightning',x1:gs.px,y1:gs.py,x2:e.x,y2:e.y,life:20,maxLife:20,color:'#ffff44'});
-        // Bounce to nearby enemies
-        let bx=e.x,by=e.y;const hit=new Set([gs.enemies.indexOf(e)]);
-        for(let b=0;b<bounces;b++){
-          let nearest=null,nd=Infinity;
-          for(let j=0;j<gs.enemies.length;j++){
-            if(!gs.enemies[j].active||hit.has(j))continue;
-            const d=Math.hypot(gs.enemies[j].x-bx,gs.enemies[j].y-by);
-            if(d<300&&d<nd){nd=d;nearest=j;}
-          }
-          if(nearest!==null){
-            hit.add(nearest);hitEnemy(gs.enemies[nearest],dmg*0.5);
-            gs.ultFX.push({type:'lightning',x1:bx,y1:by,x2:gs.enemies[nearest].x,y2:gs.enemies[nearest].y,life:18-b*2,maxLife:18-b*2,color:'#ffff88'});
-            bx=gs.enemies[nearest].x;by=gs.enemies[nearest].y;
-          }else break;
-        }
+        if(gs.ultFX.length<def.maxBolts[lvl])
+          gs.ultFX.push({type:'lightning',x1:gs.px,y1:gs.py,x2:e.x,y2:e.y,life:20,maxLife:20,color:'#ffff44'});
       }
-      gs.ultActive=60; // brief storm visual
+      // Sustained: constant bolts, stun aura, size boost
+      gs._ultBoltDmg=def.boltDmg[lvl]*might;
+      gs._ultBoltInterval=def.boltInterval[lvl];
+      gs._ultStunAura=def.stunAura[lvl];
+      gs._ultPlayerSize=def.playerSize[lvl];
+      gs._ultBounces=def.bounces[lvl];
       break;
     }
     case 'phoenix_rebirth':{
-      gs.pHP=gs.pMaxHP; // full heal
-      gs.pInvince=def.invinceDur[lvl];
-      gs.ultActive=def.invinceDur[lvl];
-      gs._ultFireMult=def.fireMult[lvl];
-      // Fire nova
+      // Burst: full heal + fire nova
+      gs.pHP=gs.pMaxHP;
+      gs.pInvince=ULT_DUR; // can't die for full 20s
       const novaDmg=def.novaDmg[lvl]*might;
       const novaR=def.novaRadius[lvl];
       for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-gs.px,e.y-gs.py)<novaR){
         hitEnemy(e,novaDmg);e.onFire=Math.max(e.onFire,180);
       }}
       gs.weaponFX.push({type:'bomb',x:gs.px,y:gs.py,life:40,maxLife:40,range:novaR,color:'#ff8800',dmg:0});
-      floatT(gs.px,gs.py-30,'REBORN! ❤️','#ff8800',true);
+      floatT(gs.px,gs.py-30,'🔥 REBORN! ❤️ 🔥','#ff8800',true);
+      // Sustained: burn aura, fire trail, fire weapon boost, regen
+      gs._ultBurnAura=def.burnAura[lvl];
+      gs._ultBurnDmg=def.burnDmg[lvl]*might;
+      gs._ultTrailInterval=def.trailInterval[lvl];
+      gs._ultFireMult=def.fireMult[lvl];
+      gs._ultRegen=def.regenPerSec[lvl];
       break;
     }
     case 'frost_apocalypse':{
-      const fDur=def.freezeDur[lvl];
+      // Burst: freeze all + shatter
+      const fDur=def.burstFreeze[lvl];
       for(const e of gs.enemies){if(e.active){e.frozen=fDur;e.flash=8;}}
-      gs.ultActive=fDur+30; // freeze + shatter delay
       gs._ultShatterPending=true;gs._ultShatterTime=fDur;
       gs._ultShatterDmg=def.shatterDmg[lvl]*might;
       gs._ultChainFreeze=def.chainFreeze[lvl];
+      // Sustained: spawn-freeze, orbit shards, ice spikes
+      gs._ultSpawnFreeze=def.spawnFreezeDur[lvl];
+      gs._ultOrbitShards=def.orbitShards[lvl];
+      gs._ultOrbitDmg=def.orbitDmg[lvl]*might;
+      gs._ultOrbitRadius=def.orbitRadius[lvl];
+      gs._ultIceSpikeAOE=def.iceSpikeAOE[lvl];
+      gs._ultOrbitAngle=0;
       break;
     }
   }
-  // Drop to BASED after ult — tier AND kills reset to BASED threshold
-  gs.streakTier=2;gs.streakKills=gs.streakThresholds[2]; // reset kills to BASED level
-  gs.ultCooldown=120; // 2s cooldown before meter refills
+  if(!isChaosGem){
+    gs.ultUseCount=(gs.ultUseCount||0)+1;
+    // Track GOD TIER uses separately for 20% scaling
+    if(gs.streakTier>=4){
+      gs.ultGodUseCount=(gs.ultGodUseCount||0)+1;
+      // Reset kill counter so ring empties and must refill from scratch
+      gs.streakKills=gs.streakThresholds[gs.streakThresholds.length-1];
+    }
+    // Advance to next tier if not at GOD TIER yet
+    if(gs.streakTier<4){
+      gs.streakTier++;
+      const tierNames=['DORMANT','AWAKE','BASED','ASCENDED','GOD TIER'];
+      const streakVoiceKeys=['','outbreak_streak_awake','outbreak_streak_based','outbreak_streak_ascended','outbreak_streak_godtier'];
+      floatT(gs.px,gs.py-120,'⬆ '+tierNames[gs.streakTier]+' ⬆',gs.streakColors[gs.streakTier],true);
+      if(gs.streakQuotes&&gs.streakQuotes[gs.streakTier])floatT(gs.px,gs.py-90,gs.streakQuotes[gs.streakTier],'rgba(255,255,255,0.8)',false);
+      if(streakVoiceKeys[gs.streakTier])playVoice(streakVoiceKeys[gs.streakTier]);
+      gs.shakeDur=4+gs.streakTier*2;gs.flash=4+gs.streakTier*2;gs.flashColor=gs.streakColors[gs.streakTier];
+      if(gs.streakTier>=4){
+        gs.shakeDur=18;gs.flash=14;gs.flashColor='#ffcc00';gs.hitFreeze=8;
+        spawnP(gs.px,gs.py,'#ffcc00',35,8);spawnP(gs.px,gs.py,'#ff6600',20,7);spawnP(gs.px,gs.py,'#ffffff',15,6);
+        for(const e of gs.enemies){if(e.active)hitEnemy(e,40);}
+      }
+      gs.streakKills=gs.streakThresholds[gs.streakTier];
+    }
+    gs.ultCooldown=120; // brief 2s before meter starts refilling
+  }
 }
 
 // ========== UPDATE ULT EFFECT (per frame) ==========
 function updateUltEffect(){
   if(gs.ultActive>0){
     gs.ultActive--;
-    // Temporal rift speed boost
-    if(gs.ultActiveId==='temporal_rift'&&gs._ultSpdBoost){
-      // Applied in movement code via gs._ultSpdBoost
+    gs._ultTimer=(gs._ultTimer||0)+1;
+    const uid=gs.ultActiveId;
+
+    // === BERSERKER: gentle screen pulse ===
+    if(uid==='berserker'){
+      if(gs._ultTimer%120===0)gs.shakeDur=Math.max(gs.shakeDur,2); // subtle pulse every 2s
     }
-    // Frost apocalypse shatter
-    if(gs.ultActiveId==='frost_apocalypse'&&gs._ultShatterPending){
-      gs._ultShatterTime--;
-      if(gs._ultShatterTime<=0){
-        gs._ultShatterPending=false;
-        const dmg=gs._ultShatterDmg;
-        const frostSyn=gs.weapons.some(w=>w.id==='frost_nova');
-        for(const e of gs.enemies){if(!e.active)continue;
-          const sDmg=frostSyn?dmg*((ULT_DEFS.frost_apocalypse.synergyMult||[1,1,1.5,2])[Math.min(gs.ult.lvl-1,3)]):dmg;
-          hitEnemy(e,sDmg);e.frozen=0; // unfreeze on shatter
-          spawnP(e.x,e.y,'#88ddff',6,4);
-          if(gs._ultChainFreeze){
-            // Chain freeze: nearby unfrozen enemies get frozen
-            for(const e2 of gs.enemies){
-              if(e2.active&&e2!==e&&Math.hypot(e2.x-e.x,e2.y-e.y)<120)e2.frozen=120;
-            }
-          }
+
+    // === CATACLYSM: meteor rain + death explosions ===
+    if(uid==='cataclysm'){
+      if(gs._ultTimer%gs._ultMeteorInterval===0){
+        // Drop meteor on densest enemy cluster
+        let bestX=gs.px,bestY=gs.py,bestC=0;
+        for(let i=0;i<gs.enemies.length;i+=3){const e=gs.enemies[i];if(!e.active)continue;
+          let c=0;for(let j=0;j<gs.enemies.length;j+=2){if(gs.enemies[j].active&&Math.hypot(gs.enemies[j].x-e.x,gs.enemies[j].y-e.y)<120)c++;}
+          if(c>bestC){bestC=c;bestX=e.x;bestY=e.y;}
         }
-        gs.shakeDur=16;gs.flash=12;gs.flashColor='#88ddff';
-        snd('ult_frost_apocalypse');
-        floatT(gs.px,gs.py-40,'💥 SHATTER! 💥','#88ddff',true);
+        // Hit enemies near meteor
+        for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-bestX,e.y-bestY)<100){
+          hitEnemy(e,gs._ultMeteorDmg);e.onFire=Math.max(e.onFire,120);
+        }}
+        gs.weaponFX.push({type:'bomb',x:bestX,y:bestY,life:35,maxLife:35,range:100,color:'#ff4400',dmg:0});
+        // Fire patch (capped)
+        const fireCount=gs.weaponFX.filter(f=>f.type==='fire_patch').length;
+        if(fireCount<gs._ultMaxFire){
+          gs.weaponFX.push({type:'fire_patch',x:bestX,y:bestY,life:180,maxLife:180,color:'#ff4400',r:45,dmg:gs._ultMeteorDmg*0.15,hit:new Set()});
+        }
+        gs.shakeDur=Math.max(gs.shakeDur,6);
+        if(gs.ultFX.length<ULT_PARTICLE_CAP)spawnP(bestX,bestY,'#ff4400',8,4);
       }
     }
+
+    // === TEMPORAL RIFT: slow new enemies, shatter on hit ===
+    if(uid==='temporal_rift'){
+      for(const e of gs.enemies){if(e.active&&e.frozen<=0){e.frozen=6;}} // keep slowed (re-freeze each frame = 10% speed)
+    }
+
+    // === SOUL HARVEST: spectral scythe orbit + death effects ===
+    if(uid==='soul_harvest'){
+      gs._ultScytheAngle=(gs._ultScytheAngle||0)+0.08;
+      const sx=gs.px+Math.cos(gs._ultScytheAngle)*gs._ultScytheRadius;
+      const sy=gs.py+Math.sin(gs._ultScytheAngle)*gs._ultScytheRadius;
+      // Hit enemies near scythe
+      for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-sx,e.y-sy)<60){
+        hitEnemy(e,gs._ultScytheDmg*0.15,true); // per-frame — no knockback
+      }}
+      // Visual
+      if(gs.ultFX.length<ULT_PARTICLE_CAP)
+        gs.ultFX.push({type:'scythe',x:sx,y:sy,life:3,maxLife:3,color:'#aa44ff',r:50});
+      // Enemy flee
+      if(gs._ultEnemyFlee){
+        for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-gs.px,e.y-gs.py)<250){
+          const ang=Math.atan2(e.y-gs.py,e.x-gs.px);e.x+=Math.cos(ang)*1.5;e.y+=Math.sin(ang)*1.5;
+        }}
+      }
+    }
+
+    // === THUNDER GOD: constant bolts + stun aura ===
+    if(uid==='thunder_god'){
+      if(gs._ultTimer%gs._ultBoltInterval===0){
+        // Find densest cluster
+        let tgt=null,bestD=Infinity;
+        for(const e of gs.enemies){if(!e.active)continue;
+          const d=Math.hypot(e.x-gs.px,e.y-gs.py);if(d<500&&d<bestD){bestD=d;tgt=e;}}
+        if(tgt){
+          hitEnemy(tgt,gs._ultBoltDmg);
+          if(gs.ultFX.length<5)gs.ultFX.push({type:'lightning',x1:gs.px,y1:gs.py,x2:tgt.x,y2:tgt.y,life:12,maxLife:12,color:'#ffff44'});
+          // Chain bounces
+          let bx=tgt.x,by=tgt.y;const hit=new Set();hit.add(gs.enemies.indexOf(tgt));
+          for(let b=0;b<gs._ultBounces&&b<ULT_MAX_CHAIN_DEPTH;b++){
+            let nearest=null,nd=Infinity;
+            for(let j=0;j<gs.enemies.length;j++){
+              if(!gs.enemies[j].active||hit.has(j))continue;
+              const d=Math.hypot(gs.enemies[j].x-bx,gs.enemies[j].y-by);
+              if(d<200&&d<nd){nd=d;nearest=j;}
+            }
+            if(nearest!==null){
+              hit.add(nearest);hitEnemy(gs.enemies[nearest],gs._ultBoltDmg*0.5);
+              if(gs.ultFX.length<5)gs.ultFX.push({type:'lightning',x1:bx,y1:by,x2:gs.enemies[nearest].x,y2:gs.enemies[nearest].y,life:10,maxLife:10,color:'#ffff88'});
+              bx=gs.enemies[nearest].x;by=gs.enemies[nearest].y;
+            }else break;
+          }
+          gs.shakeDur=Math.max(gs.shakeDur,2);
+        }
+      }
+      // Stun aura
+      if(gs._ultStunAura>0){
+        for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-gs.px,e.y-gs.py)<80){
+          e.frozen=Math.max(e.frozen,30);
+        }}
+      }
+    }
+
+    // === PHOENIX REBIRTH: burn aura + fire trail + regen ===
+    if(uid==='phoenix_rebirth'){
+      // Burn aura
+      for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-gs.px,e.y-gs.py)<gs._ultBurnAura){
+        e.onFire=Math.max(e.onFire,60);
+        if(gs._ultTimer%10===0)hitEnemy(e,gs._ultBurnDmg*0.15,true);
+      }}
+      // Fire trail
+      if(gs._ultTimer%gs._ultTrailInterval===0){
+        const fireCount=gs.weaponFX.filter(f=>f.type==='fire_patch').length;
+        if(fireCount<ULT_MAX_FIRE_PATCHES){
+          gs.weaponFX.push({type:'fire_patch',x:gs.px,y:gs.py,life:120,maxLife:120,color:'#ff6600',r:35,dmg:gs._ultBurnDmg*0.3,hit:new Set()});
+        }
+      }
+      // Regen
+      if(gs._ultRegen>0&&gs._ultTimer%60===0){
+        gs.pHP=Math.min(gs.pMaxHP,gs.pHP+gs._ultRegen);
+      }
+    }
+
+    // === FROST APOCALYPSE: shatter + spawn freeze + orbit shards ===
+    if(uid==='frost_apocalypse'){
+      // Shatter burst
+      if(gs._ultShatterPending){
+        gs._ultShatterTime--;
+        if(gs._ultShatterTime<=0){
+          gs._ultShatterPending=false;
+          const dmg=gs._ultShatterDmg;
+          const frostSyn=gs.weapons.some(w=>w.id==='frost_nova');
+          const synMult=frostSyn?(ULT_DEFS.frost_apocalypse.synergyMult||[1,1,1.5,2])[gs._ultLvl]:1;
+          for(const e of gs.enemies){if(!e.active)continue;
+            hitEnemy(e,dmg*synMult);e.frozen=0;
+            if(gs.ultFX.length<ULT_PARTICLE_CAP)spawnP(e.x,e.y,'#88ddff',4,3);
+            if(gs._ultChainFreeze){
+              for(const e2 of gs.enemies){if(e2.active&&e2!==e&&Math.hypot(e2.x-e.x,e2.y-e.y)<120)e2.frozen=120;}
+            }
+            // Ice spike AOE
+            if(gs._ultIceSpikeAOE>0){
+              for(const e2 of gs.enemies){if(e2.active&&e2!==e&&Math.hypot(e2.x-e.x,e2.y-e.y)<gs._ultIceSpikeAOE){
+                hitEnemy(e2,dmg*0.3);
+              }}
+            }
+          }
+          gs.shakeDur=16;gs.flash=12;gs.flashColor='#88ddff';
+          snd('ult_frost_apocalypse');
+          floatT(gs.px,gs.py-40,'💥 SHATTER! 💥','#88ddff',true);
+        }
+      }
+      // Orbit ice shards
+      gs._ultOrbitAngle=(gs._ultOrbitAngle||0)+0.06;
+      for(let i=0;i<gs._ultOrbitShards;i++){
+        const ang=gs._ultOrbitAngle+(Math.PI*2/gs._ultOrbitShards)*i;
+        const sx=gs.px+Math.cos(ang)*gs._ultOrbitRadius;
+        const sy=gs.py+Math.sin(ang)*gs._ultOrbitRadius;
+        for(const e of gs.enemies){if(e.active&&Math.hypot(e.x-sx,e.y-sy)<40){
+          hitEnemy(e,gs._ultOrbitDmg*0.1,true);e.frozen=Math.max(e.frozen,30);
+        }}
+        if(gs.ultFX.length<ULT_PARTICLE_CAP)
+          gs.ultFX.push({type:'ice_shard',x:sx,y:sy,life:3,maxLife:3,color:'#88ddff',r:20});
+      }
+      // Freeze new spawns
+      if(gs._ultSpawnFreeze>0){
+        for(const e of gs.enemies){if(e.active&&e.frozen<=0&&Math.hypot(e.x-gs.px,e.y-gs.py)>400){
+          e.frozen=gs._ultSpawnFreeze; // far enemies = just spawned
+        }}
+      }
+    }
+
     // Ult FX decay
     for(let i=gs.ultFX.length-1;i>=0;i--){gs.ultFX[i].life--;if(gs.ultFX[i].life<=0)gs.ultFX.splice(i,1);}
+
     // End of ult
     if(gs.ultActive<=0){
       gs.ultActiveId=null;gs._ultSpdBoost=0;gs._ultSynergy=[];gs._ultSynergyMult=1;
-      gs._ultLifeStealMult=1;gs._ultFireMult=1;gs.ultFX=[];
+      gs._ultLifeStealMult=1;gs._ultFireMult=1;gs._ultDmgMult=1;gs._ultDefMult=1;
+      gs._ultEnemySlow=0;gs._ultWeaponCdMult=1;gs._ultPlayerSize=1;
+      gs._ultTimer=0;gs.ultFX=[];
     }
   }
-  // Cooldown tick
   if(gs.ultCooldown>0)gs.ultCooldown--;
 }
 
 // ========== LEVEL UP ==========
 function generateChoices(){
   const choices=[];
-  const weapFull=gs.weapons.length>=gs.maxWeapons;
-  const passFull=gs.passives.length>=gs.maxPassives;
-  // VS logic: if slots full, only offer upgrades for owned items — never new ones
+  // Weapons pool: upgrades + new
   const availW=Object.keys(WEAPONS).filter(k=>{
     const owned=gs.weapons.find(w=>w.id===k);
-    if(owned)return owned.lvl<WEAPONS[k].maxLvl; // upgrade available
-    return true; // always offer new weapons — replace weakest if full
+    if(owned)return owned.lvl<WEAPONS[k].maxLvl;
+    return true;
   });
+  // Passives pool: upgrades + new (2× weight for equal frequency with weapons)
   const availP=Object.keys(PASSIVES).filter(k=>{
     const owned=gs.passives.find(p=>p.id===k);
-    if(owned)return owned.lvl<8; // upgrade available
-    return true; // always offer new passives — replace weakest if full
+    if(owned)return owned.lvl<8;
+    return true;
   });
   const weapW=availW.map(k=>({id:k,isWeapon:true}));
-  // Passives weighted 1.5× — VS shows passives frequently, weapons outnumber passives 15 vs 12
-  const passW=[...availP,...availP.slice(0,Math.ceil(availP.length/2))].map(k=>({id:k,isWeapon:false}));
-  // Ults: appear at level 5+, 0.5× weight (rarer). Can upgrade existing or replace.
+  const passW=[...availP,...availP].map(k=>({id:k,isWeapon:false}));
+  // Ults: appear at level 5+, 0.5× weight (rarer)
+  // RULES: never show Berserker (default), never show currently equipped ult
   const ultW=[];
   if(gs.level>=5){
+    const curUltId=gs.ult?gs.ult.id:null;
     for(const k of Object.keys(ULT_DEFS)){
-      const owned=gs.ult&&gs.ult.id===k;
-      if(owned&&gs.ult.lvl>=4)continue; // maxed
+      if(k==='berserker')continue;    // Berserker is default — never show
+      if(k===curUltId)continue;       // Already equipped — never show
       ultW.push({id:k,isWeapon:false,isUlt:true});
     }
-    // 0.5× weight: only add half
-    const halfUlts=ultW.slice(0,Math.ceil(ultW.length/2));
-    ultW.length=0;ultW.push(...halfUlts);
+    // 0.5× weight: use only half the ult options per roll
+    ultW.splice(Math.ceil(ultW.length/2));
   }
+  // Build pool, shuffle, pick 3 unique
   const pool=[...weapW,...passW,...ultW];
-  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
-  // Pick 3 unique choices from weighted shuffle
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
   const seen=new Set();
   for(const item of pool){if(!seen.has(item.id)&&choices.length<3){seen.add(item.id);choices.push(item);}}
+  // Fallback: if still fewer than 3 (everything maxed), relax level cap for weapons then passives
+  if(choices.length<3){
+    const allIds=[...Object.keys(WEAPONS),...Object.keys(PASSIVES)];
+    for(const k of allIds){
+      if(choices.length>=3)break;
+      if(seen.has(k))continue;
+      seen.add(k);choices.push({id:k,isWeapon:k in WEAPONS});
+    }
+  }
   return choices;
 }
 function applyChoice(choice){
 if(choice.isUlt){
-  // Ult equip/upgrade
+  // Equip a new ult (ult power scales with streak tier, not ult level)
   const def=ULT_DEFS[choice.id];
-  if(gs.ult&&gs.ult.id===choice.id){
-    // Level up existing ult
-    gs.ult.lvl=Math.min(gs.ult.lvl+1,4);
-    floatT(gs.px,gs.py-40,def.emoji+' '+def.name+' Lv'+gs.ult.lvl+' '+def.emoji,def.color,true);
-    snd('lvlup');
+  const old=gs.ult;
+  gs.ult={id:choice.id,lvl:1};
+  // Keep meter + ready state when swapping
+  if(old&&old.id!=='berserker'){
+    const oldDef=ULT_DEFS[old.id];
+    floatT(gs.px,gs.py-40,'⚡ SWAPPED '+oldDef.emoji+' → '+def.emoji,'#ffaa44',true);
   }else{
-    // Replace with new ult (or equip first)
-    const old=gs.ult;
-    gs.ult={id:choice.id,lvl:1};
-    gs.ultMeter=0;gs.ultReady=false;
-    if(old){
-      const oldDef=ULT_DEFS[old.id];
-      floatT(gs.px,gs.py-40,'⚡ SWAPPED '+oldDef.emoji+' → '+def.emoji,'#ffaa44',true);
-    }else{
-      floatT(gs.px,gs.py-40,def.emoji+' '+def.name+' EQUIPPED!',def.color,true);
-    }
-    snd('lvlup');
+    floatT(gs.px,gs.py-40,def.emoji+' '+def.name+' EQUIPPED!',def.color,true);
   }
+  snd('lvlup');
   playVoice('ult_'+choice.id);
   return;
 }
@@ -1475,7 +1818,7 @@ else{
   floatT(gs.px,gs.py-40,'⚡ SWAPPED OUT '+(replaced?replaced.emoji:'?'),'#ffaa44',true);
 }
 }
-gs.pMaxHP=105*(1+getStat('maxhp'))+(gs._levelHpBonus||0);
+gs.pMaxHP=110*(1+getStat('maxhp'))+(gs._levelHpBonus||0);
 }
 
 // ========== WEAPON FIRE ==========
@@ -1537,14 +1880,14 @@ const ox=gs.px+Math.cos(orb.ang)*orb.r;
 const oy=gs.py+Math.sin(orb.ang)*orb.r;
 for(const e of _egNear(ox,oy,60)){
 if(!e.active)continue;
-if(Math.hypot(e.x-ox,e.y-oy)<e.size+10)hitEnemy(e,def.dmg*w.lvl*might*0.15);
+if(Math.hypot(e.x-ox,e.y-oy)<e.size+10)hitEnemy(e,def.dmg*w.lvl*might*0.15,true);
 }
 gs.weaponFX.push({type:'orb',x:ox,y:oy,life:2,maxLife:2,color:def.color,size:8*area});
 }w.cd=0;break}// orbit always fires
 
 case'aura':{
 const r=def.range*area;snd('aura');
-for(const e of _egNear(gs.px,gs.py,r+20)){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might*0.3)}
+for(const e of _egNear(gs.px,gs.py,r+20)){if(!e.active)continue;if(Math.hypot(e.x-gs.px,e.y-gs.py)<r)hitEnemy(e,def.dmg*w.lvl*might*0.3,true)}
 gs.weaponFX.push({type:'aura',x:gs.px,y:gs.py,r,life:20,maxLife:20,color:def.color});
 if(getStat('regen')>0)gs.pHP=Math.min(gs.pMaxHP,gs.pHP+getStat('regen'));
 break}
@@ -1727,7 +2070,7 @@ if(fx.life<=1){
 else if(fx.type==='fire_patch'){
 // Damage every 8 frames
 if(gs.frame%8===0){
-  for(const e of _egNear(fx.x,fx.y,fx.r+20)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<fx.r){hitEnemy(e,fx.dmg*0.3);e.onFire=Math.max(e.onFire||0,420);e.onFireSpreads=e.onFireSpreads||0;}}
+  for(const e of _egNear(fx.x,fx.y,fx.r+20)){if(!e.active)continue;if(Math.hypot(e.x-fx.x,e.y-fx.y)<fx.r){hitEnemy(e,fx.dmg*0.3,true);e.onFire=Math.max(e.onFire||0,420);e.onFireSpreads=e.onFireSpreads||0;}}
   if(Math.random()<0.10)spawnP(fx.x+(Math.random()-0.5)*fx.r,fx.y+(Math.random()-0.5)*fx.r,'#ff6622',1,3);
 }
 }
@@ -1795,8 +2138,16 @@ if(gs.state==='title'){
 if(jp['KeyP']||jp['KeyU']||gp.jp[6]){gs.state='powerups';gs.puSelected=0;snd('select');}
 else if(jp['ArrowLeft']||jp['KeyA']||gp.jp[14]){gs.difficulty=Math.max(1,gs.difficulty-1);localStorage.setItem('outbreak_difficulty',gs.difficulty);snd('select');}
 else if(jp['ArrowRight']||jp['KeyD']||gp.jp[15]){gs.difficulty=Math.min(4,gs.difficulty+1);localStorage.setItem('outbreak_difficulty',gs.difficulty);snd('select');}
-else if(anyP()||confirmP()){initA();startGame()}
+else if(anyP()||confirmP()){initA();gs.state='howtoplay';snd('select');}
 for(const k in jp)jp[k]=false;gp.jp.fill(false);return
+}
+
+// ===== HOW TO PLAY =====
+if(gs.state==='howtoplay'){
+  gs.time++;
+  if(anyP()||confirmP()){initA();startGame();}
+  else if(jp['Escape']||gp.jp[1]){gs.state='title';snd('select');}
+  for(const k in jp)jp[k]=false;gp.jp.fill(false);return;
 }
 
 // ===== POWERUP SHOP =====
@@ -1807,8 +2158,8 @@ if(gs.state==='powerups'){
   if(jp['ArrowRight']||jp['KeyD']||gp.jp[15]){gs.puSelected=Math.min(filtered.length-1,gs.puSelected+1);snd('select')}
   if(jp['ArrowUp']||jp['KeyW']||gp.jp[12]){gs.puSelected=Math.max(0,gs.puSelected-4);snd('select')}
   if(jp['ArrowDown']||jp['KeyS']||gp.jp[13]){gs.puSelected=Math.min(filtered.length-1,gs.puSelected+4);snd('select')}
-  // Cycle category filter
-  if(jp['Tab']){
+  // Cycle category filter — Tab key or LB (gamepad button 4)
+  if(jp['Tab']||gp.jp[4]){
     const ci=(META_CATEGORIES.indexOf(gs.puCategory)+1)%META_CATEGORIES.length;
     gs.puCategory=META_CATEGORIES[ci];gs.puSelected=0;snd('select');
   }
@@ -1826,7 +2177,8 @@ if(gs.state==='powerups'){
 
 // ===== GAME OVER =====
 if(gs.state==='dead'||gs.state==='win'){
-if(confirmP()){
+if(jp['KeyP']||jp['KeyU']||gp.jp[6]){gs.state='powerups';gs.puSelected=0;snd('select');}
+else if(confirmP()){
 leaveParty();
 if(FLOCK_ORIGIN&&window.opener){window.opener.postMessage({type:'game_over',survived:gs.survived,kills:gs.kills},FLOCK_ORIGIN);window.close()}
 else{gs.state='title';resetGame()}
@@ -1886,9 +2238,12 @@ if(gs.downedTimer<=0){
 if(gs.pInvince>0)gs.pInvince--;
 for(let i=gs.enemies.length-1;i>=0;i--){
   const e=gs.enemies[i];if(!e.active)continue;
-  e.x+=e.vx;e.y+=e.vy;e.bob+=0.06;
+  e.x+=e.vx;e.y+=e.vy;
+  e.x=Math.max(MAP_SAFE,Math.min(WORLD_W-MAP_SAFE,e.x));
+  e.y=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,e.y));
+  e.bob+=0.06;
   if(e.flash>0)e.flash--;
-  if(e.onFire>0){e.onFire--;if(gs.frame%4===0)hitEnemy(e,2);}
+  if(e.onFire>0){e.onFire--;if(gs.frame%4===0)hitEnemy(e,2,true);}
 }
 // Update weapon FX and particles (so they keep animating)
 for(let i=gs.particles.length-1;i>=0;i--){const p=gs.particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=0.92;p.vy*=0.92;p.life--;if(p.life<=0)gs.particles.splice(i,1);}
@@ -1909,6 +2264,9 @@ if(gs.state==='escprompt'){
 
 // ===== GAME =====
 if(gs.state!=='game')return;
+
+// Gamepad RB (button 5) = ult
+if(gp.jp[5]&&gs.ultReady)activateUlt();
 
 gs.gameTime+=1/60;
 
@@ -1976,7 +2334,7 @@ gs.spawnTimer=0;
 const batch=Math.ceil((1+Math.floor(gs.gameTime/540))*partyMult);
 // Wolf howl: play once per 30s when schedule includes werewolves
 if(sched.types.includes('werewolf')&&(!gs._lastHowl||gs.gameTime-gs._lastHowl>=30)){
-  gs._lastHowl=gs.gameTime;snd('wolf_howl');
+  gs._lastHowl=gs.gameTime;playSFX('wolf_howl',0.75);
 }
 for(let b=0;b<batch;b++){
 const t=sched.types[Math.floor(Math.random()*sched.types.length)];
@@ -2009,7 +2367,7 @@ if(gs.gameTime>=240&&(!gs._lastWurm||gs.gameTime-gs._lastWurm>=45)&&!gs.enemies.
     _wurmTargetX:gs.px,_wurmTargetY:gs.py, // where it's moving underground
     _wurmTrailX:wx,_wurmTrailY:wy, // visual trail position underground
   });
-  const _p2=gs.gameTime/SURVIVE_TIME;const ts2=_p2<0.1?0.5+_p2*5.0:_p2<0.333?1.0+(_p2-0.1)*13.0:_p2<0.667?4.0+(_p2-0.333)*36.0:16.0+(_p2-0.667)*72.0;
+  const _p2=gs.gameTime/SURVIVE_TIME;const ts2=_p2<0.1?0.5+_p2*5.0:_p2<0.333?1.0+(_p2-0.1)*13.0:_p2<0.667?4.0+(_p2-0.333)*24.0:12.0+(_p2-0.667)*72.0;
   e.hp=Math.round(def.hp*ts2*0.7);e.maxHp=e.hp;e.size=def.size;e.spd=0;e.dmg=0;
   gs.enemies.push(e);
   snd('boss'); // rumble sound
@@ -2080,7 +2438,11 @@ if(e.isWall){
 const edx=nt.x-e.x,edy=nt.y-e.y;
 const ed=Math.sqrt(edx*edx+edy*edy);
 if(ed>0){e.vx=(edx/ed)*e.spd*frozenSpd+(e.vx-((edx/ed)*e.spd*frozenSpd))*0.92;e.vy=(edy/ed)*e.spd*frozenSpd+(e.vy-((edy/ed)*e.spd*frozenSpd))*0.92;}
+// Hard velocity cap — prevents knockback from sending enemies off map
+{const _maxEV=14;const _evs=Math.hypot(e.vx,e.vy);if(_evs>_maxEV){e.vx=e.vx/_evs*_maxEV;e.vy=e.vy/_evs*_maxEV;}}
 e.x+=e.vx;e.y+=e.vy;
+e.x=Math.max(MAP_SAFE,Math.min(WORLD_W-MAP_SAFE,e.x));
+e.y=Math.max(MAP_SAFE,Math.min(WORLD_H-MAP_SAFE,e.y));
 // Dampen knockback velocity
 e.vx*=0.88;e.vy*=0.88;
 e.bob+=0.06;
@@ -2089,7 +2451,7 @@ if(e.flash>0)e.flash--;
 // ===== ON-FIRE: burn tick + spread =====
 if(e.onFire>0){
 e.onFire--;
-if(gs.frame%4===0)hitEnemy(e,2);
+if(gs.frame%4===0)hitEnemy(e,2,true);
 // Fire particle smoke — throttled: only every other frame and lower chance
 if(gs.frame%2===0&&Math.random()<0.12)spawnP(e.x+(Math.random()-0.5)*e.size*0.8,e.y-e.size*0.6,'#ff6622',1,3);
 // Spread fire to nearby enemies every 45 frames, max 4 total spreads
@@ -2113,9 +2475,12 @@ if(gs.ironShells>0){
   floatT(gs.px,gs.py-24,'🛡️ BLOCKED!','#aaaaff',true);
   snd('select');
 }else{
-// One-shot protection: can't be killed in one hit unless already below 25% HP
-const _dmgAmt = (gs.pHP/gs.pMaxHP > 0.25 && gs.pHP - e.dmg <= 0) ? gs.pHP - 10 : e.dmg;
-gs.pHP-=_dmgAmt;gs.pInvince=50;
+// Damage cap: no single hit exceeds 30% of max HP (VS-style), then one-shot protection below 25%
+const _ultDef=gs.ultActive>0&&gs._ultDefMult?gs._ultDefMult:1;
+const _rawDmg=Math.floor(e.dmg*_ultDef);
+const _cappedDmg=Math.min(_rawDmg,Math.floor(gs.pMaxHP*0.30));
+const _dmgAmt=(gs.pHP/gs.pMaxHP>0.25&&gs.pHP-_cappedDmg<=0)?gs.pHP-10:_cappedDmg;
+gs.pHP-=_dmgAmt;gs.pInvince=75;
 gs.flash=8;gs.flashColor='#ff0000';gs.shakeDur=5;
 // Damage log for debug overlay
 if(!gs._dmgLog)gs._dmgLog=[];
@@ -2153,15 +2518,14 @@ const pd=Math.hypot(gs.px-p.x,gs.py-p.y);
 if(pd<magR&&pd>0){const ps=Math.min(pd,7+pd*0.07);p.vx=(gs.px-p.x)/pd*ps;p.vy=(gs.py-p.y)/pd*ps;}
 else{p.vx*=0.84;p.vy*=0.84;}
 p.x+=p.vx;p.y+=p.vy;
-if(pd<14||p.life<=0){
 if(pd<14){
   const xpGain=p.val*getGrowth()*1.1; // +10% XP from all kills
   gs.xp+=xpGain;
   snd('xp');
   sendPartyXP(xpGain); // share with teammates
+  gs.pills.splice(i,1);
+}else if(p.life<=0){gs.pills.splice(i,1);}
 }
-gs.pills.splice(i,1);
-}}
 checkLevelUp(); // called once after full loop — prevents mid-loop level-up state causing XP bar glitch
 const _mag=getMagnet(); // cache once — used by food + gold loops
 for(let i=gs.foods.length-1;i>=0;i--){
@@ -2172,7 +2536,7 @@ const fd=Math.hypot(gs.px-f.x,gs.py-f.y);
 if(fd<_mag&&fd>0){const fspd=Math.min(fd,5+fd*0.06);f.vx=(gs.px-f.x)/fd*fspd;f.vy=(gs.py-f.y)/fd*fspd;}
 else{f.vx*=0.82;f.vy*=0.82;}
 f.x+=f.vx;f.y+=f.vy;
-if(fd<12){gs.pHP=Math.min(gs.pMaxHP,gs.pHP+f.heal);floatT(gs.px,gs.py-20,'+'+f.heal,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
+if(fd<12){const healAmt=Math.max(1,Math.floor(gs.pMaxHP*(f.healPct||0.18)));gs.pHP=Math.min(gs.pMaxHP,gs.pHP+healAmt);floatT(gs.px,gs.py-20,'+'+healAmt,'#44ff88');snd('select');gs.foods.splice(i,1);continue}
 if(f.life<=0){gs.foods.splice(i,1);}
 }
 // Gold gems
@@ -2183,8 +2547,18 @@ const gd=Math.hypot(gs.px-g.x,gs.py-g.y);
 if(gd<_mag*1.4&&gd>0){const gspd=Math.min(gd,7+gd*0.07);g.vx=(gs.px-g.x)/gd*gspd;g.vy=(gs.py-g.y)/gd*gspd;}
 else{g.vx*=0.84;g.vy*=0.84;}
 g.x+=g.vx;g.y+=g.vy;
-if(gd<12||g.life<=0){if(gd<12){gs.gold+=g.val;floatT(gs.px,gs.py-24,'+'+g.val+'g','#ffd700');snd('gold');}gs.goldGems.splice(i,1);}
+if(gd<12){gs.gold+=g.val;floatT(gs.px,gs.py-24,'+'+g.val+'g','#ffd700');snd('gold');gs.goldGems.splice(i,1);}
+else if(g.life<=0){gs.goldGems.splice(i,1);}
 }
+// Chaos Gem pickup
+if(gs.chaosGem){
+  gs.chaosGem.glow=(gs.chaosGem.glow||0)+0.05;
+  const cd=Math.hypot(gs.px-gs.chaosGem.x,gs.py-gs.chaosGem.y);
+  if(cd<30)pickupChaosGem();
+}
+// Spawn chaos gem once between minute 3-4 (frames 10800-14400)
+if(!gs._chaosGemSpawned&&gs.gameTime>=10800&&gs.gameTime<10860&&Math.random()<0.02)spawnChaosGem();
+
 // Chests (open on touch → guaranteed level up bonus)
 for(let i=gs.chests.length-1;i>=0;i--){
 const ch=gs.chests[i];
@@ -2287,6 +2661,8 @@ if(gs.lvlChoices.length===0){
 }
 gs.state='levelup';
 gs.partyLevelUpChosen={};
+// Clear held movement keys so player doesn't drift after menu opens
+['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].forEach(k=>{keys[k]=false;});
 gs.shakeDur=8;gs.flash=10;gs.flashColor='#ffd700';
 // Broadcast to party so everyone enters level-up together
 if(PARTY_ID&&ws&&ws.readyState===1){
@@ -2300,8 +2676,9 @@ stopMusic(); // stop any previous music before reset
 resetGame();gs.state='game';
 connectParty();
 gs.weapons.push({id:'moonbolt',lvl:1,cd:0,_orbs:null});
-// Start procedural music after a short intro delay
-if(AX)setTimeout(()=>{if(gs.state==='game')startMusic();},600);
+// Start music — supermusic (YouTube) or procedural beat
+if(gs._supermusic){startSupermusic();}
+else if(AX)setTimeout(()=>{if(gs.state==='game')startMusic();},600);
 else{const _mStart=()=>{stopMusic();setTimeout(()=>{if(gs.state==='game')startMusic();},600);};document.addEventListener('pointerdown',_mStart,{once:true});}
 // Apply Iron Shell — start with free blocked hits from meta powerup
 gs.ironShells=getMetaStat('iron_shell');
@@ -2312,7 +2689,7 @@ if(gs.ironShells>0)floatT(gs.px,gs.py-40,`🛡️ ${gs.ironShells} Iron Shell${g
 function resetGame(){
 gs.gameTime=0;gs.frame=0;
 gs.px=WORLD_W/2;gs.py=WORLD_H/2;gs.pvx=0;gs.pvy=0;
-gs.pHP=105;gs.pMaxHP=105;gs.pInvince=0;gs.pFlash=0;gs.pBob=0;gs._levelHpBonus=0;
+gs.pHP=110;gs.pMaxHP=110;gs.pInvince=0;gs.pFlash=0;gs.pBob=0;gs._levelHpBonus=0;
 gs.xp=0;gs.xpNeeded=5;gs.level=1;
 gs.streakKills=0;gs.streakTier=0;
 gs.weapons=[];gs.passives=[];
@@ -2325,14 +2702,15 @@ gs.survived=false;
 gs._wallTimer=0;gs._lastWurm=0;
 // Ult reset (keep equipped ult across runs — it's progression)
 gs.ultMeter=0;gs.ultReady=false;gs.ultActive=0;gs.ultActiveId=null;gs.ultCooldown=0;gs.ultFX=[];
+gs.chaosGem=null;gs._chaosGemSpawned=false;gs._ultTimer=0;gs._ultDmgMult=1;gs._ultDefMult=1;gs._ultWeaponCdMult=1;gs._ultPlayerSize=1;gs._ultEnemySlow=0;
 gs._ultSynergy=[];gs._ultSynergyMult=1;gs._ultSpdBoost=0;gs._ultLifeStealMult=1;gs._ultFireMult=1;
 }
 
 // ========== PROCEDURAL MUSIC ==========
 let _musicRunning=false,_musicBeat=0,_musicNext=0;
 const MUSIC_BPM=128,MUSIC_BEAT_S=60/MUSIC_BPM;
-function startMusic(){if(_musicRunning||!AX)return;_musicRunning=true;_musicNext=AX.currentTime+0.15;_scheduleMusicLoop();}
-function stopMusic(){_musicRunning=false;_musicBeat=0;}
+function startMusic(){if(_musicRunning||!AX||!musicEnabled)return;_musicRunning=true;_musicNext=AX.currentTime+0.15;_scheduleMusicLoop();}
+function stopMusic(){_musicRunning=false;_musicBeat=0;_smStop();}
 function _scheduleMusicLoop(){
   if(!_musicRunning||!musicEnabled){_musicRunning=false;return;}
   if(!AX){setTimeout(_scheduleMusicLoop,200);return;}
@@ -2355,16 +2733,16 @@ function _scheduleMusicLoop(){
   setTimeout(_scheduleMusicLoop,80);
 }
 // KICK — the hero of the mix, punchy and loud so it cuts through SFX
-function _mKick(t,v){if(!AX)return;const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sine';o.frequency.setValueAtTime(180,t);o.frequency.exponentialRampToValueAtTime(38,t+0.12);g.gain.setValueAtTime(0.52+v*0.22,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.42);o.start(t);o.stop(t+0.42);}
+function _mKick(t,v){if(!AX)return;const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sine';o.frequency.setValueAtTime(180,t);o.frequency.exponentialRampToValueAtTime(38,t+0.12);g.gain.setValueAtTime((0.52+v*0.22)*_volMusic,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.42);o.start(t);o.stop(t+0.42);}
 // BASS — kept lower so kick stands out
-function _mBass(t,v,b){if(!AX)return;const notes=[55,55,49,55,55,46,55,49];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sawtooth';o.frequency.setValueAtTime(notes[b%notes.length],t);const vol=0.032+v*0.038;g.gain.setValueAtTime(vol,t);g.gain.setValueAtTime(vol*0.4,t+MUSIC_BEAT_S*0.55);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*0.9);o.start(t);o.stop(t+MUSIC_BEAT_S);}
+function _mBass(t,v,b){if(!AX)return;const notes=[55,55,49,55,55,46,55,49];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='sawtooth';o.frequency.setValueAtTime(notes[b%notes.length],t);const vol=(0.032+v*0.038)*_volMusic;g.gain.setValueAtTime(vol,t);g.gain.setValueAtTime(vol*0.4,t+MUSIC_BEAT_S*0.55);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*0.9);o.start(t);o.stop(t+MUSIC_BEAT_S);}
 // SNARE — subtle, doesn't compete with kick
-function _mSnare(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.11);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.65;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=1800;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime(0.045+v*0.03,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.11);s.start(t);s.stop(t+0.12);}
+function _mSnare(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.11);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.65;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=1800;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime((0.045+v*0.03)*_volMusic,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.11);s.start(t);s.stop(t+0.12);}
 // HI-HAT — very quiet texture only
-function _mHat(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.035);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.45;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=8500;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime((v||0.09)*0.28,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.035);s.start(t);s.stop(t+0.035);}
+function _mHat(t,v){if(!AX)return;const bl=Math.ceil(AX.sampleRate*0.035);const buf=AX.createBuffer(1,bl,AX.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<bl;i++)d[i]=(Math.random()*2-1)*(1-i/bl)*0.45;const s=AX.createBufferSource(),g=AX.createGain(),f=AX.createBiquadFilter();f.type='highpass';f.frequency.value=8500;s.buffer=buf;s.connect(f);f.connect(g);g.connect(AX.destination);g.gain.setValueAtTime((v||0.09)*0.28*_volMusic,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.035);s.start(t);s.stop(t+0.035);}
 // MELODY — quiet background texture
 const _MNOTES=[220,247,261,220,196,220,247,294];
-function _mMelody(t,v){if(!AX)return;const note=_MNOTES[Math.floor(_musicBeat/4)%_MNOTES.length];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='triangle';o.frequency.setValueAtTime(note,t);const vol=(v-0.65)*0.14;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*1.8);o.start(t);o.stop(t+MUSIC_BEAT_S*2);}
+function _mMelody(t,v){if(!AX)return;const note=_MNOTES[Math.floor(_musicBeat/4)%_MNOTES.length];const o=AX.createOscillator(),g=AX.createGain();o.connect(g);g.connect(AX.destination);o.type='triangle';o.frequency.setValueAtTime(note,t);const vol=((v-0.65)*0.14)*_volMusic;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+MUSIC_BEAT_S*1.8);o.start(t);o.stop(t+MUSIC_BEAT_S*2);}
 
 // ========== WORLD DECORATION ==========
 // Deterministic seeded placement — drawn from world coord hash
@@ -2722,12 +3100,48 @@ if(PLAYER_NAME){X.save();X.font='bold 11px monospace';X.fillStyle='#fff';X.strok
 X.strokeText(PLAYER_NAME,px,py+bob+22);X.fillText(PLAYER_NAME,px,py+bob+22);X.restore();}
 }
 
+// ── Volume panel overlay — shared across all screens ──────────────────────────
+function drawVolPanel(){
+  // Icon — top-right corner, always visible
+  X.save();
+  X.font='18px serif';X.textAlign='right';X.textBaseline='middle';
+  X.globalAlpha=_volPanelOpen?1.0:0.55;
+  X.fillText('🔊',C.width-10,30);
+  X.globalAlpha=1;
+
+  if(_volPanelOpen){
+    const panX=C.width-180,panY=44,panW=174,panH=80;
+    const slX=panX+16,slW=148;
+    // Backdrop
+    X.fillStyle='rgba(0,0,0,0.90)';X.beginPath();X.roundRect(panX,panY,panW,panH,8);X.fill();
+    X.strokeStyle='rgba(180,210,255,0.3)';X.lineWidth=1;X.beginPath();X.roundRect(panX,panY,panW,panH,8);X.stroke();
+    // Music
+    X.font='bold 10px monospace';X.fillStyle='rgba(180,220,255,0.9)';X.textAlign='left';X.textBaseline='middle';
+    X.fillText('♪ MUSIC',slX,panY+14);
+    X.font='10px monospace';X.fillStyle='rgba(140,180,255,0.75)';X.textAlign='right';
+    X.fillText(Math.round(_volMusic*100)+'%',panX+panW-6,panY+14);
+    X.fillStyle='rgba(50,55,75,0.9)';X.beginPath();X.roundRect(slX,panY+22,slW,7,3);X.fill();
+    if(_volMusic>0){X.fillStyle='#4488ff';X.beginPath();X.roundRect(slX,panY+22,slW*_volMusic,7,3);X.fill();}
+    X.fillStyle='#cce4ff';X.beginPath();X.arc(slX+slW*_volMusic,panY+25,5,0,Math.PI*2);X.fill();
+    // SFX
+    X.font='bold 10px monospace';X.fillStyle='rgba(180,255,200,0.9)';X.textAlign='left';X.textBaseline='middle';
+    X.fillText('🔊 SFX',slX,panY+48);
+    X.font='10px monospace';X.fillStyle='rgba(140,255,170,0.75)';X.textAlign='right';
+    X.fillText(Math.round(_volSFX*100)+'%',panX+panW-6,panY+48);
+    X.fillStyle='rgba(50,55,75,0.9)';X.beginPath();X.roundRect(slX,panY+56,slW,7,3);X.fill();
+    if(_volSFX>0){X.fillStyle='#44cc88';X.beginPath();X.roundRect(slX,panY+56,slW*_volSFX,7,3);X.fill();}
+    X.fillStyle='#ccffdd';X.beginPath();X.arc(slX+slW*_volSFX,panY+59,5,0,Math.PI*2);X.fill();
+  }
+  X.restore();
+}
+
 function draw(){
 const cx=gs.camX+gs.shakeX,cy=gs.camY+gs.shakeY;
 X.clearRect(0,0,C.width,C.height);
 
-if(gs.state==='title'){drawTitle();return}
-if(gs.state==='powerups'){drawPowerUps();return}
+if(gs.state==='title'){drawTitle();drawVolPanel();return}
+if(gs.state==='howtoplay'){drawHowToPlay();drawVolPanel();return}
+if(gs.state==='powerups'){drawPowerUps();drawVolPanel();return}
 
 // Zoom in — scale world around canvas center so player stays centered
 X.save();
@@ -2766,6 +3180,7 @@ if(gs.state==='game'||gs.state==='downed'||gs.state==='levelup')drawWorldDecor(c
 
 // ===== DROPS =====
 for(const p of gs.pills){
+if(Math.abs(p.x-gs.px)>700||Math.abs(p.y-gs.py)>420)continue;
 const px2=p.x-cx,py2=p.y-cy;
 const pulse=0.8+Math.sin(gs.time*0.12+p.x)*0.18;
 X.globalAlpha=pulse;
@@ -2782,11 +3197,13 @@ X.moveTo(px2,py2-p.size*0.5);X.lineTo(px2+p.size*0.3,py2);X.lineTo(px2,py2+p.siz
 X.restore();X.shadowBlur=0;
 }
 for(const f of gs.foods){
+if(Math.abs(f.x-gs.px)>700||Math.abs(f.y-gs.py)>420)continue;
 X.globalAlpha=0.9;X.font='14px serif';X.textAlign='center';X.textBaseline='middle';
 X.fillText('❤️',f.x-cx,f.y-cy);
 }
 // Gold coins — BTC-style orange coin with ₿ symbol
 for(const g of gs.goldGems){
+if(Math.abs(g.x-gs.px)>700||Math.abs(g.y-gs.py)>420)continue;
 const gx=g.x-cx,gy=g.y-cy;
 const pulse=0.82+Math.sin(gs.time*0.18+g.x*0.05)*0.18;
 X.save();
@@ -2843,6 +3260,48 @@ for(let si=0;si<4;si++){
 X.restore();X.shadowBlur=0;
 }
 X.globalAlpha=1;X.shadowBlur=0;
+
+// ===== CHAOS GEM =====
+if(gs.chaosGem){
+  const gem=gs.chaosGem;const gx=gem.x-cx,gy=gem.y-cy;
+  const gPulse=Math.sin((gem.glow||0))*0.5+0.5;
+  const hue=((gem.glow||0)*60)%360;
+  X.save();
+  // Vertical beacon (rainbow pillar visible from far)
+  const beamGrad=X.createLinearGradient(gx,gy-120,gx,gy);
+  beamGrad.addColorStop(0,'rgba(255,0,255,0)');
+  beamGrad.addColorStop(0.4,`hsla(${hue},100%,70%,0.2)`);
+  beamGrad.addColorStop(1,`hsla(${hue},100%,70%,0.6)`);
+  X.fillStyle=beamGrad;X.fillRect(gx-6,gy-120,12,120);
+  // Ground glow (color-shifting)
+  X.shadowColor=`hsl(${hue},100%,60%)`;X.shadowBlur=40+gPulse*30;
+  X.globalAlpha=0.6+gPulse*0.4;
+  X.fillStyle=`hsl(${hue},100%,60%)`;X.beginPath();X.ellipse(gx,gy+2,24,8,0,0,Math.PI*2);X.fill();
+  // Outer ring (pulsing, rainbow)
+  X.globalAlpha=0.5+gPulse*0.5;
+  X.strokeStyle=`hsl(${(hue+120)%360},100%,70%)`;X.lineWidth=3+gPulse*2;
+  X.beginPath();X.arc(gx,gy,20+gPulse*6,0,Math.PI*2);X.stroke();
+  // Inner ring
+  X.strokeStyle=`hsl(${(hue+240)%360},100%,80%)`;X.lineWidth=1.5;
+  X.beginPath();X.arc(gx,gy,12,0,Math.PI*2);X.stroke();
+  // Diamond shape
+  X.globalAlpha=1;X.fillStyle='#ffffff';
+  X.beginPath();X.moveTo(gx,gy-14);X.lineTo(gx+10,gy);X.lineTo(gx,gy+14);X.lineTo(gx-10,gy);X.closePath();X.fill();
+  X.fillStyle=`hsl(${hue},100%,60%)`;
+  X.beginPath();X.moveTo(gx,gy-10);X.lineTo(gx+7,gy);X.lineTo(gx,gy+10);X.lineTo(gx-7,gy);X.closePath();X.fill();
+  // Sparkle orbits (only 4)
+  for(let si=0;si<4;si++){
+    const sa=si*(Math.PI/2)+(gem.glow||0)*1.5;
+    const sr=18+Math.sin((gem.glow||0)*2+si)*6;
+    X.globalAlpha=0.7+gPulse*0.3;X.fillStyle=`hsl(${(hue+si*90)%360},100%,85%)`;
+    X.beginPath();X.arc(gx+Math.cos(sa)*sr,gy+Math.sin(sa)*sr,2.5,0,Math.PI*2);X.fill();
+  }
+  // Label
+  X.shadowBlur=0;X.globalAlpha=0.8+gPulse*0.2;
+  X.font='bold 9px monospace';X.fillStyle='#ffffff';X.textAlign='center';X.textBaseline='middle';
+  X.fillText('💎 CHAOS GEM',gx,gy-28);
+  X.restore();X.shadowBlur=0;
+}
 
 // ===== WEAPON FX =====
 for(const fx of gs.weaponFX){
@@ -3503,6 +3962,7 @@ if(gs.state==='escprompt'){
   X.fillText('[ESC / Y]  Leave    [N / R]  Resume',cx2,cy2+38);
 }
 if(gs._clairvoyance)drawClairvoyance();
+drawVolPanel();
 }
 
 // ===== CLAIRVOYANCE DEBUG OVERLAY ===== (toggle with ` key)
@@ -3613,6 +4073,7 @@ if(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1
   X.fillText('🛠 TEST  '+_ts,C.width/2,10);
 }
 X.shadowBlur=0;
+// (Sound state indicator removed — volume panel replaces V-key cycle)
 
 // Timer — shifted down below HP bar
 X.font='bold 24px monospace';X.textAlign='center';X.textBaseline='top';
@@ -3624,11 +4085,8 @@ X.beginPath();X.roundRect(C.width/2-64,24,128,40,8);X.stroke();
 X.restore();
 X.fillStyle=timerColor;X.fillText(mm+':'+ss,C.width/2,32);
 
-// Voice toggle — speaker icon top right, greyed when off
-X.font='18px serif';X.textAlign='right';X.textBaseline='middle';
-X.globalAlpha=voiceEnabled?0.85:0.25;
-X.fillText('🔊',C.width-10,35);
-X.globalAlpha=1;
+// ── Volume panel (shared helper) ──
+drawVolPanel();
 
 // ── STREAK TIER BANNER — top center, always visible, more glow ──
 {
@@ -3723,9 +4181,14 @@ if(xpPct>0.88){
 // ===== STREAK RING — vivid, more halos, more glow =====
 const sr=gs.streakTier,sc=gs.streakColors[sr];
 const ringX=C.width/2,ringY=C.height-108,ringR=50,ringTk=9;
-const tierMin=gs.streakThresholds[sr];
-const tierMax=sr<gs.streakThresholds.length-1?gs.streakThresholds[sr+1]:tierMin+500;
-const tierPct=Math.min(1,Math.max(0,(gs.streakKills-tierMin)/(tierMax-tierMin)));
+// Ring fill = continuous kill progress from tier entry to ult ready (0→100% in one sweep)
+{const _tb=gs.streakThresholds[Math.min(sr,gs.streakThresholds.length-1)];
+const _nt=gs.streakThresholds[Math.min(sr+1,gs.streakThresholds.length-1)];
+const _bn=ULT_KILLS_NEEDED[Math.min(sr,3)];
+const _gu=Math.max(0,(gs.ultGodUseCount||0)-1);
+const _sn=sr>=4?Math.floor(_bn*(1+0.2*_gu)):_bn;
+const _ph=(_nt-_tb)+_sn;
+var tierPct=gs.ultReady?1:Math.min(1,Math.max(0,(gs.streakKills-_tb)/(_ph||1)));}
 const pulse=0.5+Math.sin(gs.time*0.14)*0.5;
 
 // Outer glow halos — always visible even at tier 0, intensify with tier
@@ -3784,31 +4247,14 @@ if(sr>=1){
   }
 }
 
-// ── ULT METER OVERLAY (at GOD TIER with ult equipped) ──
-if(sr>=4&&gs.ult&&!gs.ultReady&&gs.ultMeter>0){
-  X.save();
-  const ultColor='#ffffaa';const ultGlow=gs.ultMeter*30+pulse*20;
-  X.shadowColor=ultColor;X.shadowBlur=ultGlow;
-  X.strokeStyle=ultColor;X.lineWidth=ringTk*0.8;X.lineCap='round';X.globalAlpha=0.6+gs.ultMeter*0.4;
-  X.beginPath();X.arc(ringX,ringY,ringR+1,-Math.PI/2,-Math.PI/2+gs.ultMeter*Math.PI*2);X.stroke();
-  X.restore();
-  // Extra orbiting dots scale with charge
-  const extraDots=Math.floor(gs.ultMeter*8);
-  for(let od=0;od<extraDots;od++){
-    const oa2=gs.time*0.08+od*(Math.PI*2/Math.max(1,extraDots));
-    X.save();X.shadowColor='#ffffaa';X.shadowBlur=12+pulse*10;X.fillStyle='#ffffaa';X.globalAlpha=0.6+pulse*0.3;
-    X.beginPath();X.arc(ringX+Math.cos(oa2)*(ringR+ringTk+8),ringY+Math.sin(oa2)*(ringR+ringTk+8)*0.62,3.5,0,Math.PI*2);X.fill();
-    X.restore();
-  }
-}
 // ── ULT READY STATE ──
-if(gs.ultReady&&gs.ult){
-  const ultDef=ULT_DEFS[gs.ult.id];
+if(gs.ultReady){
+  const ultDef=gs.ult?ULT_DEFS[gs.ult.id]:ULT_DEFS.berserker;
   X.save();
-  // Blazing ring pulse
+  // Blazing ring pulse — color matches current tier
   const readyPulse=0.7+Math.sin(gs.time*0.25)*0.3;
-  X.shadowColor='#ffdd00';X.shadowBlur=40+readyPulse*30;
-  X.strokeStyle='#ffdd00';X.lineWidth=ringTk+2;X.lineCap='round';X.globalAlpha=readyPulse;
+  X.shadowColor=sc;X.shadowBlur=40+readyPulse*30;
+  X.strokeStyle=sc;X.lineWidth=ringTk+2;X.lineCap='round';X.globalAlpha=readyPulse;
   X.beginPath();X.arc(ringX,ringY,ringR,0,Math.PI*2);X.stroke();
   // White inner ring
   X.shadowBlur=0;X.strokeStyle='#ffffff';X.lineWidth=ringTk*0.4;X.globalAlpha=0.5+readyPulse*0.3;
@@ -3817,9 +4263,9 @@ if(gs.ultReady&&gs.ult){
   // Ult emoji in center
   X.save();X.font='24px serif';X.textAlign='center';X.textBaseline='middle';X.globalAlpha=readyPulse;
   X.fillText(ultDef.emoji,ringX,ringY);X.restore();
-  // "⚡ ULT READY" text
-  X.save();X.shadowColor='#ffdd00';X.shadowBlur=14+readyPulse*10;
-  X.font='bold 11px monospace';X.fillStyle='#ffdd00';X.textAlign='center';X.textBaseline='middle';
+  // "⚡ ULT READY" text — tier color
+  X.save();X.shadowColor=sc;X.shadowBlur=14+readyPulse*10;
+  X.font='bold 11px monospace';X.fillStyle=sc;X.textAlign='center';X.textBaseline='middle';
   X.fillText('⚡ ULT READY ⚡',ringX,ringY+ringR+18);
   // Q key hint (desktop)
   if(!vJoy.active)X.fillText('[Q]',ringX,ringY+ringR+32);
@@ -3832,8 +4278,11 @@ if(gs.ultReady&&gs.ult){
   X.fillText(gs.streakNames[sr],ringX,ringY-6);
   X.font='9px monospace';X.fillStyle='rgba(255,255,255,0.6)';X.shadowBlur=0;
   X.fillText(gs.streakKills+' kills',ringX,ringY+9);
-  // Show ult emoji if equipped (small, below kills)
-  if(gs.ult){const ud=ULT_DEFS[gs.ult.id];X.font='14px serif';X.fillText(ud.emoji,ringX,ringY+24);}
+  // Show equipped ult (or BERSERKER default) below kills
+  {const ud=gs.ult?ULT_DEFS[gs.ult.id]:ULT_DEFS.berserker;
+  if(ud){X.font='16px serif';X.fillText(ud.emoji,ringX,ringY+24);
+  X.font='bold 7px monospace';X.fillStyle=ud.color;X.globalAlpha=0.7;
+  X.fillText(ud.name+(gs.ult?' Lv'+(gs.ult.lvl||1):''),ringX,ringY+38);}}
   X.restore();
 }
 
@@ -4342,6 +4791,91 @@ X.fillText('▶  SPACE / ENTER to '+(FLOCK_ORIGIN?'return to Flock':'play again'
 X.globalAlpha=1;
 }
 
+function drawHowToPlay(){
+X.fillStyle='#060c06';X.fillRect(0,0,C.width,C.height);
+// Animated embers
+for(let i=0;i<20;i++){
+  const ex=((i*173+gs.time*0.5)%C.width),ey=C.height-(((i*97+gs.time*(0.4+i*0.02))%C.height));
+  X.globalAlpha=0.07+Math.sin(gs.time*0.05+i)*0.04;X.font='12px serif';X.textAlign='center';X.fillText('🔥',ex,ey);
+}X.globalAlpha=1;
+// Header
+const pulse=0.8+Math.sin(gs.time*0.07)*0.2;
+X.save();X.shadowColor='#44ff88';X.shadowBlur=20*pulse;
+X.font='bold 36px monospace';X.textAlign='center';X.textBaseline='top';
+X.fillStyle='#44ff88';X.fillText('HOW TO PLAY',C.width/2,28);
+X.restore();
+X.font='13px monospace';X.fillStyle='rgba(100,220,120,0.5)';X.textAlign='center';X.textBaseline='top';
+X.fillText('RYFT: OUTBREAK — Vampire Survivors-style horde slayer',C.width/2,72);
+
+// Layout: two columns
+const col1=C.width/2-300,col2=C.width/2+30,colW=270,lineH=24,secH=20;
+let y1=110,y2=110;
+
+function secHead(x,y,icon,title,color){
+  X.save();X.font='bold 13px monospace';X.fillStyle=color||'#ffdd44';X.textAlign='left';X.textBaseline='top';
+  X.shadowColor=color||'#ffdd44';X.shadowBlur=8;X.fillText(icon+' '+title,x,y);X.restore();
+  return y+secH+4;
+}
+function bullet(x,y,text,color){
+  X.font='11px monospace';X.fillStyle=color||'rgba(200,255,210,0.85)';X.textAlign='left';X.textBaseline='top';
+  X.fillText('• '+text,x,y);
+  return y+lineH;
+}
+
+// ── LEFT COL: BASICS ──────────────────────────────
+y1=secHead(col1,y1,'🎮','CONTROLS','#44ffaa');
+y1=bullet(col1,y1,'WASD / Arrows / Left stick — move','#aaffcc');
+y1=bullet(col1,y1,'Weapons fire automatically');
+y1=bullet(col1,y1,'Q / RB — ACTIVATE ULT','#ffdd44');
+y1=bullet(col1,y1,'P / Select — Upgrades (title or death screen)');
+y1=bullet(col1,y1,'V / 🔊 icon — volume panel (music & SFX)');
+y1=bullet(col1,y1,'Esc / Start — Pause / quit run');
+y1+=12;
+y1=secHead(col1,y1,'🎯','GOAL','#44ffaa');
+y1=bullet(col1,y1,'Survive 15 minutes');
+y1=bullet(col1,y1,'Kill zombies → collect XP pills');
+y1=bullet(col1,y1,'Level up → pick new weapons & passives');
+y1=bullet(col1,y1,'Collect gold → spend at Upgrades shop');
+y1+=12;
+y1=secHead(col1,y1,'❤️','SURVIVAL','#ff6666');
+y1=bullet(col1,y1,'HP: walk over red hearts to heal');
+y1=bullet(col1,y1,'Invincibility: brief window after being hit');
+y1=bullet(col1,y1,'Bosses spawn on a timer — dodge first!','#ff9955');
+y1=bullet(col1,y1,'Co-op: revive downed teammates (hold Y)','#88ffff');
+
+// ── RIGHT COL: TIER & ULT SYSTEM ──────────────────
+y2=secHead(col2,y2,'⚡','TIER & ULT SYSTEM','#ffdd44');
+const tiers=[
+  {name:'DORMANT',color:'#555555',desc:'Start here. Kill ~30 to fill meter. Use Q/RB → AWAKE.'},
+  {name:'AWAKE',color:'#88ffaa',desc:'Fill meter (~200 kills). Use ult → BASED.'},
+  {name:'BASED',color:'#44ccff',desc:'Fill meter (~160 kills). Use ult → ASCENDED.'},
+  {name:'ASCENDED',color:'#ff6600',desc:'Fill meter (~130 kills). Use ult → GOD TIER.'},
+  {name:'GOD TIER',color:'#ffcc00',desc:'Stay forever. Each ult costs 20% more kills after the 1st.'},
+];
+for(const t of tiers){
+  X.font='bold 11px monospace';X.fillStyle=t.color;X.textAlign='left';X.textBaseline='top';
+  X.fillText('▸ '+t.name,col2,y2);
+  X.font='10px monospace';X.fillStyle='rgba(200,220,200,0.7)';
+  X.fillText(t.desc,col2+90,y2+1);
+  y2+=lineH;
+}
+y2+=8;
+y2=secHead(col2,y2,'🔮','ULT POWER = YOUR TIER','#cc88ff');
+y2=bullet(col2,y2,'Higher tier = stronger ult version','#cc88ff');
+y2=bullet(col2,y2,'No ult equipped? BERSERKER fires instead','#ff8888');
+y2=bullet(col2,y2,'GOD TIER: stay there — just keep ulting','#ffcc00');
+y2+=8;
+y2=secHead(col2,y2,'💎','CHAOS GEM (RARE)','#ff44ff');
+y2=bullet(col2,y2,'Pick up → fires TWO ults at once!','#ff88ff');
+y2=bullet(col2,y2,'Extremely rare — cherish it','#ff88ff');
+
+// Prompt
+X.globalAlpha=0.6+Math.sin(gs.time*0.09)*0.35;
+X.font='bold 16px monospace';X.fillStyle='#88ffaa';X.textAlign='center';X.textBaseline='bottom';
+X.fillText('▶  ANY KEY / BUTTON / A TO START   [Esc / Start] = BACK',C.width/2,C.height-14);
+X.globalAlpha=1;
+}
+
 function drawTitle(){
 // Background flicker
 X.fillStyle='#0a140a';X.fillRect(0,0,C.width,C.height);
@@ -4361,7 +4895,7 @@ X.fillStyle='#44ff88';X.fillText('RYFT: OUTBREAK',0,0);
 X.restore();
 // Subtitle
 X.font='14px monospace';X.fillStyle='rgba(100,220,120,0.55)';X.textAlign='center';
-X.fillText('Survive 6 minutes • Your Ryft avatar vs the undead',C.width/2,C.height/2-30);
+X.fillText('Survive 15 minutes • Your Ryft avatar vs the undead',C.width/2,C.height/2-30);
 // Avatar preview
 if(avatarImg){
 X.save();X.beginPath();X.arc(C.width/2,C.height/2+40,32,0,Math.PI*2);X.clip();
@@ -4389,6 +4923,15 @@ X.drawImage(avatarImg,C.width/2-32,C.height/2+8,64,64);X.restore();
   X.font='9px monospace';X.fillStyle='rgba(255,255,255,0.25)';
   X.fillText('← → to change difficulty',C.width/2,sy+bh+28);
 }
+// Supermusic toggle — top-right (only shown if allowed via URL param)
+if(gs._supermusicAllowed){const smX=C.width-186,smY=14;
+X.fillStyle=gs._supermusic?'rgba(10,50,40,0.9)':'rgba(0,0,0,0.5)';
+X.beginPath();X.roundRect(smX,smY,144,26,6);X.fill();
+X.strokeStyle=gs._supermusic?'#44ffdd':'rgba(255,255,255,0.15)';X.lineWidth=1.5;
+X.beginPath();X.roundRect(smX,smY,144,26,6);X.stroke();
+X.font='bold 10px monospace';X.fillStyle=gs._supermusic?'#44ffdd':'rgba(160,160,160,0.55)';
+X.textAlign='center';X.textBaseline='middle';
+X.fillText((gs._supermusic?'[✓]':'[ ]')+' SUPERMUSIC',smX+72,smY+13);}
 // Start prompt
 X.globalAlpha=0.6+Math.sin(gs.time*0.08)*0.3;
 X.font='bold 18px monospace';X.fillStyle='#88ffaa';X.textAlign='center';
@@ -4511,7 +5054,7 @@ for(let i=0;i<filtered.length;i++){
   }
 
   // Desc
-  X.font='9px monospace';X.fillStyle='rgba(180,165,210,0.75)';X.textAlign='center';X.textBaseline='top';
+  X.font='9px monospace';X.fillStyle='rgba(215,200,245,0.95)';X.textAlign='center';X.textBaseline='top';
   // Wrap at ~20 chars
   const words=def.desc.split(' ');let line='';const lines=[];
   words.forEach(w=>{if((line+w).length>22){lines.push(line.trim());line='';}line+=w+' ';});if(line.trim())lines.push(line.trim());
@@ -4529,7 +5072,7 @@ for(let i=0;i<filtered.length;i++){
 
 // Instructions
 X.font='11px monospace';X.fillStyle='rgba(150,130,200,0.55)';X.textAlign='center';X.textBaseline='bottom';
-X.fillText('↕↔ Navigate  •  SPACE/Enter to Buy  •  Tab to filter  •  [P/Esc] Close',C.width/2,C.height-8);
+X.fillText('↕↔ Navigate  •  SPACE/Enter/A to Buy  •  Tab/LB to filter  •  P/Select/Esc to Close',C.width/2,C.height-8);
 }
 
 // ========== GAME LOOP (frame-rate independent) ==========

@@ -650,6 +650,11 @@ export default function EditProfilePage() {
   const [loadedSongUrl, setLoadedSongUrl] = useState("");
   const [replyPrivacy, setReplyPrivacy] = useState("anyone");
   const [favoriteGame, setFavoriteGame] = useState<string>("");
+  const [email, setEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordMsg, setPasswordMsg] = useState("");
+  const [passwordErr, setPasswordErr] = useState("");
 
   useEffect(() => {
     if (status === "loading") return;
@@ -672,6 +677,7 @@ export default function EditProfilePage() {
           setDiscord(data.discord_handle ?? "");
           setSteam(data.steam_handle ?? "");
           setAvatarUrl(data.avatar_url ?? "");
+          setEmail(data.email ?? "");
         }
         setLoading(false);
       }).catch(() => setLoading(false));
@@ -701,6 +707,7 @@ export default function EditProfilePage() {
         profile_song_url: songUrl.trim() || undefined,
         discord_handle: discord.trim(),
         steam_handle: steam.trim(),
+        email: email.trim() || undefined,
       });
       // Save privacy setting
       await fetch("/api/user/privacy", {
@@ -785,6 +792,61 @@ export default function EditProfilePage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {field("DISCORD", discord, setDiscord, { placeholder: "username or username#1234", hint: "Your Discord username" })}
             {field("STEAM", steam, setSteam, { placeholder: "SteamID or vanity URL name", hint: "Your Steam profile name or ID" })}
+          </div>
+        </div>
+
+        {/* Moonhaven Avatar */}
+        <div className="panel" style={{ padding: 20 }}>
+          <div className="panel-header" style={{ marginBottom: 4 }}>Moonhaven Avatar</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Customize your 3D character class, colors, and appearance.</div>
+          <a href="/customize" style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            padding: "10px 18px", borderRadius: 8,
+            background: "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(0,229,255,0.1))",
+            border: "1px solid var(--border)", color: "var(--accent-purple-bright)",
+            textDecoration: "none", fontSize: 13, fontWeight: 700,
+          }}>
+            🎭 Customize Avatar →
+          </a>
+        </div>
+
+        {/* Account Security */}
+        <div className="panel" style={{ padding: 20 }}>
+          <div className="panel-header" style={{ marginBottom: 4 }}>Account Security</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Add an email for password recovery. Change your password below.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {field("EMAIL", email, setEmail, { placeholder: "you@email.com", type: "email", hint: "For password resets only. Never shared." })}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 10, letterSpacing: "0.5px" }}>CHANGE PASSWORD</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Current password"
+                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="New password (min 3 chars)"
+                  style={{ width: "100%", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                <button type="button" disabled={!currentPassword || newPassword.length < 3}
+                  onClick={async () => {
+                    setPasswordMsg(""); setPasswordErr("");
+                    const res = await fetch("/api/user/change-password", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ currentPassword, newPassword }),
+                    });
+                    const d = await res.json();
+                    if (res.ok) { setPasswordMsg("Password updated!"); setCurrentPassword(""); setNewPassword(""); }
+                    else setPasswordErr(d.error ?? "Failed to change password.");
+                  }}
+                  style={{
+                    alignSelf: "flex-start", padding: "8px 20px", fontSize: 13, fontWeight: 700,
+                    background: !currentPassword || newPassword.length < 3 ? "var(--bg-elevated)" : "var(--accent-purple)",
+                    color: !currentPassword || newPassword.length < 3 ? "var(--text-muted)" : "#fff",
+                    border: "1px solid var(--border)", borderRadius: 8, cursor: !currentPassword || newPassword.length < 3 ? "default" : "pointer",
+                  }}>
+                  Update Password
+                </button>
+                {passwordMsg && <div style={{ fontSize: 12, color: "var(--accent-green)" }}>{passwordMsg}</div>}
+                {passwordErr && <div style={{ fontSize: 12, color: "#f08080" }}>{passwordErr}</div>}
+              </div>
+            </div>
           </div>
         </div>
 

@@ -50,6 +50,8 @@ export async function initDb() {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS chess_draws INTEGER DEFAULT 0`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reply_privacy TEXT DEFAULT 'anyone'`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS gs_portal BOOLEAN DEFAULT FALSE`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_config JSONB`;
   await sql`
     CREATE TABLE IF NOT EXISTS friendships (
       id SERIAL PRIMARY KEY,

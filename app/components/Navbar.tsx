@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { click, swoosh } from "@/app/components/sounds";
 import StoryRecorder from "./StoryRecorder";
 import { useNotifications } from "@/lib/useNotifications";
+import { usePortal } from "./PortalContext";
 
 const navItems = [
   { href: "/feed", label: "✨ Share", short: "✨" },
@@ -15,19 +16,21 @@ const navItems = [
   { href: "/messages", label: "Messages", short: "💬" },
   { href: "/town", label: "🏘️ Town", short: "🏘️" },
   { href: "/stremio", label: "🎬 Stream", short: "🎬" },
+  { href: "/leaderboards", label: "🏆 Ranks", short: "🏆" },
 ];
 
 // Top-level routes that do NOT get a back button
-const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
+const TOP_LEVEL = ["/profile", "/friends", "/messages", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/signin", "/draw", "/feed", "/town", "/chronicle", "/waddabi", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/leaderboards", "/games"];
 
 // Major sections where Town/Share should always show (signed-in top bar)
 const TOWN_SHARE_SECTIONS = ["/feed", "/profile", "/friends", "/messages", "/town", "/chronicle", "/draw", "/stremio", "/chess", "/quiz", "/poker", "/emulator", "/pong", "/waddabi", "/signin", "/vibe", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
 
 const gameItems = [
+  { href: "/games", label: "🎮 All Games", desc: "Browse all games" },
   { href: "/chess", label: "♟️ Chess", desc: "Play 1v1 chess" },
   { href: "/quiz", label: "🧠 Quiz", desc: "Trivia with friends" },
   { href: "/pong", label: "🏓 Paddle", desc: "Classic back-and-forth" },
-  { href: "/emulator", label: "🎮 SNES", desc: "Classic games" },
+  { href: "/emulator", label: "🎮 SNES", desc: "Classic games", snesOnly: true },
   { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
   { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
   { href: "/draw", label: "🎨 Draw", desc: "Free canvas drawing" },
@@ -35,6 +38,30 @@ const gameItems = [
   { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
   { href: "/whodoneit", label: "🔪 Who Done It?", desc: "Murder mystery party" },
   { href: "/tightrope", label: "🪢 Tightrope Terror", desc: "Balance or fall" },
+];
+
+const gameSections = [
+  { label: "⚔️ BATTLE ARENA", items: [
+    { href: "/outbreak", label: "🧟 Outbreak", desc: "Co-op zombie survival" },
+    { href: "/whodoneit", label: "🔪 Who Done It?", desc: "Murder mystery party" },
+    { href: "/tightrope", label: "🎪 Tightrope Terror", desc: "Balance or fall" },
+    { href: "/games/matty-milkers", label: "🥛 Matty Milkers", desc: "Raw milk platformer" },
+    { href: "/games/wingman", label: "💘 Wingman", desc: "Dating platformer" },
+  ]},
+  { label: "🎲 TABLE GAMES", items: [
+    { href: "/chess", label: "♟️ Chess", desc: "1v1 with ELO rating" },
+    { href: "/poker", label: "🃏 Poker", desc: "Texas Hold'em" },
+    { href: "/pong", label: "🏓 Paddle", desc: "Classic back-and-forth" },
+  ]},
+  { label: "🎉 PARTY GAMES", items: [
+    { href: "/waddabi", label: "🎨 Wadabbi?!", desc: "Draw it. Guess it. Win." },
+    { href: "/quiz", label: "🧠 Quiz", desc: "Trivia with friends" },
+    { href: "/draw", label: "🖌️ Draw", desc: "Free canvas drawing" },
+  ]},
+  { label: "🗺️ ADVENTURE", items: [
+    { href: "/moonhaven", label: "🌙 Moonhaven", desc: "RPG adventure world" },
+    { href: "/town", label: "🏘️ Town", desc: "Hang out in the square" },
+  ]},
 ];
 
 export default function Navbar() {
@@ -52,6 +79,12 @@ export default function Navbar() {
   const [firstFriendAvatar, setFirstFriendAvatar] = useState<string | null>(null);
   const [hasSnesAccess, setHasSnesAccess] = useState(false);
   const [storyRecorderOpen, setStoryRecorderOpen] = useState(false);
+  const [hasVisitedGs, setHasVisitedGs] = useState(false);
+
+  const { portal, setPortal } = usePortal();
+  useEffect(() => {
+    try { if (localStorage.getItem("ryft_gs_visited")) setHasVisitedGs(true); } catch {}
+  }, [path]);
   const gamesRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number>(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -270,8 +303,14 @@ export default function Navbar() {
     </div>
   );
 
+  const isGS = portal === "greatsouls";
+
   return (
-    <header style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 1000 }}>
+    <header style={{
+      background: isGS ? "rgba(10,8,4,0.97)" : "var(--bg-surface)",
+      borderBottom: isGS ? "1px solid rgba(212,169,66,0.25)" : "1px solid var(--border)",
+      position: "sticky", top: 0, zIndex: 1000,
+    }}>
 
       {/* ── DESKTOP header row ───────────────────────────────────────────────── */}
       <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 12px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -288,6 +327,25 @@ export default function Navbar() {
             style={{ height: 34, width: 34, display: "block", filter: "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
           />
         </Link>
+        {isGS ? (
+          <button onClick={() => setPortal("ryft")} style={{
+            display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+            background: "rgba(139,60,247,0.12)", border: "1px solid rgba(139,60,247,0.35)",
+            borderRadius: 6, padding: "3px 9px", cursor: "pointer",
+            color: "#a78bfa", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+          }}>
+            ⚡ RYFT
+          </button>
+        ) : hasVisitedGs ? (
+          <Link href="/greatsouls/hub" style={{
+            display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+            background: "rgba(212,169,66,0.12)", border: "1px solid rgba(212,169,66,0.35)",
+            borderRadius: 6, padding: "3px 9px", textDecoration: "none",
+            color: "#d4a942", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+          }}>
+            🔥 GS
+          </Link>
+        ) : null}
         <nav className="nav-links-desktop" style={{ display: "flex", gap: 2, alignItems: "center", flex: 1, justifyContent: "center" }}>
           {navItems.map(({ href, label, short }) => {
             const active = path.startsWith(href);
@@ -297,7 +355,7 @@ export default function Navbar() {
             return (
               <Link key={href} href={href} className="nav-item-mobile"
                 onClick={() => { click(); if (isMessages) setUnreadMessages(0); if (isChronicle) setChronicleUnread(0); }}
-                style={{ position: "relative", padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: "none", color: active ? "var(--accent-purple-bright)" : "var(--text-secondary)", background: active ? "rgba(124,92,191,0.15)" : "transparent", border: active ? "1px solid rgba(124,92,191,0.3)" : "1px solid transparent", transition: "all 0.15s ease", whiteSpace: "nowrap" }}>
+                style={{ position: "relative", padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: "none", color: active ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-secondary)", background: active ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.15)") : "transparent", border: active ? (isGS ? "1px solid rgba(212,169,66,0.3)" : "1px solid rgba(124,92,191,0.3)") : "1px solid transparent", transition: "all 0.15s ease", whiteSpace: "nowrap" }}>
                 <span className="nav-link-label">{label}</span>
                 <span className="nav-link-short">{short}</span>
                 {isFriends && pendingCount > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e05555", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{pendingCount}</span>}
@@ -314,21 +372,43 @@ export default function Navbar() {
               <span style={{ fontSize: 9, opacity: 0.7, transition: "transform 0.15s ease", display: "inline-block", transform: gamesOpen ? "rotate(180deg)" : "none" }}>▼</span>
             </button>
             {gamesOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 12, padding: 8, minWidth: 200, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 10000 }}>
-                {visibleGameItems.map(g => {
-                  const active = path.startsWith(g.href);
-                  return (
-                    <Link key={g.href} href={g.href} onClick={() => setGamesOpen(false)}
-                      style={{ display: "flex", flexDirection: "column", padding: "10px 12px", borderRadius: 8, textDecoration: "none", background: active ? "rgba(124,92,191,0.15)" : "transparent", color: active ? "var(--accent-purple-bright)" : "var(--text-primary)", transition: "background 0.1s ease" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.2)" : "rgba(255,255,255,0.05)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.15)" : "transparent")}>
-                      <span style={{ fontWeight: 700, fontSize: 13 }}>{g.label}</span>
-                      <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>{g.desc}</span>
-                    </Link>
-                  );
-                })}
-                <div style={{ borderTop: "1px solid var(--border)", margin: "6px 0" }} />
-                <div style={{ padding: "6px 12px", fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>Challenge friends in any game ⚔️</div>
+              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 12, padding: "8px 6px", minWidth: 240, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 10000 }}>
+                <Link href="/games" onClick={() => setGamesOpen(false)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 8, textDecoration: "none", color: "var(--accent-purple-bright)", fontWeight: 700, fontSize: 12, letterSpacing: "0.05em" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                  🎮 All Games →
+                </Link>
+                <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0 6px" }} />
+                {gameSections.map(section => (
+                  <div key={section.label}>
+                    <div style={{ padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--accent-purple-bright)", letterSpacing: "0.12em", opacity: 0.7 }}>
+                      {section.label}
+                    </div>
+                    {section.items.map(g => {
+                      const active = path.startsWith(g.href);
+                      return (
+                        <Link key={g.href} href={g.href} onClick={() => setGamesOpen(false)}
+                          style={{ display: "flex", flexDirection: "column", padding: "6px 10px", borderRadius: 7, textDecoration: "none", background: active ? "rgba(124,92,191,0.15)" : "transparent", color: active ? "var(--accent-purple-bright)" : "var(--text-primary)", transition: "background 0.1s ease" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.2)" : "rgba(255,255,255,0.05)")}
+                          onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(124,92,191,0.15)" : "transparent")}>
+                          <span style={{ fontWeight: 600, fontSize: 12 }}>{g.label}</span>
+                          <span style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{g.desc}</span>
+                        </Link>
+                      );
+                    })}
+                    <div style={{ height: 6 }} />
+                  </div>
+                ))}
+                {hasSnesAccess && (
+                  <Link href="/emulator" onClick={() => setGamesOpen(false)}
+                    style={{ display: "flex", flexDirection: "column", padding: "6px 10px", borderRadius: 7, textDecoration: "none", color: "var(--text-primary)" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                    <span style={{ fontWeight: 600, fontSize: 12 }}>🕹️ SNES</span>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Classic retro games + netplay</span>
+                  </Link>
+                )}
               </div>
             )}
           </div>
@@ -365,9 +445,11 @@ export default function Navbar() {
         {/* Center cluster: [Town] · ryft · [Share] — show on all major sections when signed in */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {showTownShare && (
-            <Link href="/town" onClick={() => click()}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8, color: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "var(--accent-purple-bright)" : "var(--text-muted)", background: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? "rgba(124,92,191,0.12)" : "transparent" }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>🏘️</span>
+            <Link href="/moonhaven" onClick={() => click()}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8,
+                color: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-muted)",
+                background: (path.startsWith("/moonhaven") || path.startsWith("/town")) ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.12)") : "transparent" }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>🌙</span>
               <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Town</span>
             </Link>
           )}
@@ -376,13 +458,15 @@ export default function Navbar() {
             <img
               src="/RYFTLOGO.png"
               alt="RYFT"
-              style={{ height: 34, width: 34, display: "block", filter: "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
+              style={{ height: 34, width: 34, display: "block", filter: isGS ? "drop-shadow(0 0 6px rgba(212,169,66,0.6)) drop-shadow(0 0 12px rgba(212,169,66,0.3))" : "drop-shadow(0 0 6px rgba(0,229,255,0.5)) drop-shadow(0 0 12px rgba(139,60,247,0.35))" }}
             />
           </Link>
 
           {showTownShare && (
             <Link href="/feed" onClick={() => click()}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8, color: path.startsWith("/feed") ? "var(--accent-purple-bright)" : "var(--text-muted)", background: path.startsWith("/feed") ? "rgba(124,92,191,0.12)" : "transparent" }}>
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textDecoration: "none", padding: "4px 6px", borderRadius: 8,
+                color: path.startsWith("/feed") ? (isGS ? "#d4a942" : "var(--accent-purple-bright)") : "var(--text-muted)",
+                background: path.startsWith("/feed") ? (isGS ? "rgba(212,169,66,0.12)" : "rgba(124,92,191,0.12)") : "transparent" }}>
               <span style={{ fontSize: 18, lineHeight: 1 }}>✨</span>
               <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3 }}>Share</span>
             </Link>
@@ -414,8 +498,8 @@ export default function Navbar() {
       <div className="mobile-bottom-nav" style={{
         display: "none",
         position: "fixed", bottom: 0, left: 0, right: 0,
-        background: "rgba(13,15,20,0.97)", backdropFilter: "blur(12px)",
-        borderTop: "1px solid rgba(255,255,255,0.08)",
+        background: isGS ? "rgba(8,6,2,0.97)" : "rgba(13,15,20,0.97)", backdropFilter: "blur(12px)",
+        borderTop: isGS ? "1px solid rgba(212,169,66,0.2)" : "1px solid rgba(255,255,255,0.08)",
         zIndex: 200, alignItems: "stretch",
         paddingBottom: "env(safe-area-inset-bottom)",
       }}>
