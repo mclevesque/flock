@@ -2040,7 +2040,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           userId={userId}
           username={username}
           avatarUrl={avatarUrl}
-          myStats={myAdventureStats ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 }}
+          myStats={(myAdventureStats ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 }) as Parameters<typeof AdventureOverlay>[0]["myStats"]}
           sessionId={null}
           missionData={activeMission as Parameters<typeof AdventureOverlay>[0]["missionData"]}
           teamMembers={nearbyPlayers.map(p => ({ userId: p.user_id, username: p.username, avatarUrl: p.avatar_url, hp: 100, maxHp: 100, playerClass: null, isDowned: false }))}
