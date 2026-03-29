@@ -30,6 +30,7 @@ interface OutbreakEntry {
   difficulty: string | number;
   upgrade_count?: string | number;
   items_used?: string | number;
+  damage_dealt?: string | number;
   survived?: boolean;
 }
 
@@ -142,6 +143,8 @@ export default function LeaderboardsPage() {
   const overviewOutbreak = Array.from(bestKillsMap.entries())
     .map(([username, kills]) => ({ username, kills }))
     .sort((a, b) => b.kills - a.kills);
+
+  const fmtDmg = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 
   const filteredOutbreak = outbreakEntries
     .filter(e => Number(e.difficulty) === diffTab)
@@ -257,10 +260,10 @@ export default function LeaderboardsPage() {
           </div>
           <Card>
             <CardTitle>🧟 OUTBREAK — {DIFFICULTIES.find(d => d.id === diffTab)?.label}</CardTitle>
-            <ColHeader cols={["ITEMS", "KILLS"]} />
+            <ColHeader cols={["DAMAGE", "KILLS"]} />
             {filteredOutbreak.map((e, i) => (
               <LeaderRowFull key={e.username + i} rank={i + 1} name={e.username}
-                col1={e.items_used != null ? e.items_used : (e.upgrade_count != null ? e.upgrade_count : "—")} value={Number(e.kills).toLocaleString()} />
+                col1={e.damage_dealt != null ? fmtDmg(Number(e.damage_dealt)) : "—"} value={Number(e.kills).toLocaleString()} />
             ))}
             {filteredOutbreak.length === 0 && (
               <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
