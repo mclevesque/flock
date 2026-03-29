@@ -1656,7 +1656,7 @@ export async function getVoiceRoom(id: string) {
 
 export async function getActiveVoiceRooms() {
   await ensureVoiceTables();
-  const stale = Date.now() - 15000;
+  const stale = Date.now() - 60000; // 60s — matches getVoiceParticipants window
   return sql`
     SELECT vr.*, u.username AS creator_username, u.avatar_url AS creator_avatar,
            COUNT(vp.user_id)::int AS participant_count
@@ -1688,7 +1688,7 @@ export async function heartbeatVoice(roomId: string, userId: string) {
 }
 
 export async function getVoiceParticipants(roomId: string) {
-  const stale = Date.now() - 15000;
+  const stale = Date.now() - 60000; // 60s — generous window so participants don't flicker between polls
   return sql`
     SELECT vp.*, u.avatar_url
     FROM voice_participants vp
@@ -1916,7 +1916,7 @@ export async function closeVoiceRoom(roomId: string, userId: string) {
 
 export async function getIncomingDmCallsForUser(userId: string) {
   await ensureVoiceTables();
-  const stale = Date.now() - 20000;
+  const stale = Date.now() - 60000; // 60s — matches voice participant window
   return sql`
     SELECT vr.id, vr.name, vr.dm_pair,
            vp.user_id AS caller_id,
@@ -4113,9 +4113,16 @@ export async function joinParty(partyId: string, userId: string, username: strin
   const rows = await sql`SELECT * FROM town_parties WHERE id = ${partyId}`.catch(() => []);
   if (!rows[0]) return { ok: false, error: "Party not found" };
   const party = rows[0];
-  const members: PartyMember[] = (party.members as PartyMember[]) ?? [];
+  let members: PartyMember[] = (party.members as PartyMember[]) ?? [];
+  // Deduplicate members by userId (fixes ghost accumulation from browser crashes / reconnects)
+  const seen = new Set<string>();
+  members = members.filter(m => { if (seen.has(m.userId)) return false; seen.add(m.userId); return true; });
+  if (members.find((m) => m.userId === userId)) {
+    // Already in party — just update the deduped list and return
+    await sql`UPDATE town_parties SET members = ${JSON.stringify(members)}::jsonb WHERE id = ${partyId}`;
+    return { ok: true };
+  }
   if (members.length >= Number(party.max_size)) return { ok: false, error: "Party is full" };
-  if (members.find((m) => m.userId === userId)) return { ok: true };
   await leaveParty(userId);
   const newMembers = [...members, { userId, username, avatarUrl, isLeader: false }];
   await sql`UPDATE town_parties SET members = ${JSON.stringify(newMembers)}::jsonb WHERE id = ${partyId}`;
@@ -4161,12 +4168,21 @@ export async function getPartyForUser(userId: string): Promise<Party | null> {
     LIMIT 1
   `.catch(() => []);
   if (!rows[0]) return null;
+  // Deduplicate members — fixes ghost accumulation from browser crashes / reconnects
+  let members: PartyMember[] = (rows[0].members as PartyMember[]) ?? [];
+  const seen = new Set<string>();
+  const deduped = members.filter(m => { if (seen.has(m.userId)) return false; seen.add(m.userId); return true; });
+  // Auto-repair if ghosts were found
+  if (deduped.length !== members.length) {
+    await sql`UPDATE town_parties SET members = ${JSON.stringify(deduped)}::jsonb WHERE id = ${rows[0].id as string}`.catch(() => {});
+    members = deduped;
+  }
   return {
     id: rows[0].id as string,
     leaderId: rows[0].leader_id as string,
     leaderName: rows[0].leader_name as string,
     leaderAvatar: rows[0].leader_avatar as string,
-    members: (rows[0].members as PartyMember[]) ?? [],
+    members,
     maxSize: Number(rows[0].max_size),
     createdAt: Number(rows[0].created_at),
   };

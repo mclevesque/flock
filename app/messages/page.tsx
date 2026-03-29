@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useVoice } from "@/app/components/VoiceWidget";
 import { usePresence } from "@/lib/usePresence";
+import { useNotifications } from "@/lib/useNotifications";
 
 interface User { id: string; username: string; display_name: string; avatar_url: string; }
 interface Message { id: number; sender_id: string; content: string; created_at: string; username: string; avatar_url: string; }
@@ -887,6 +888,7 @@ function MessagesInner() {
   const withId = searchParams.get("with");
   const { openRooms, joinRoom: joinVoiceRoom, currentRoomId: voiceRoomId, openMaxi, startDmCall, leaveRoom: leaveVoiceRoom, isInVoice, participantCount } = useVoice();
   const { isOnline } = usePresence();
+  const { onNotification } = useNotifications();
 
   // Track visual viewport height for Android keyboard support
   const [vpHeight, setVpHeight] = useState<number | null>(null);
@@ -973,9 +975,29 @@ function MessagesInner() {
   useEffect(() => {
     prevMsgIds.current = new Set();
     loadMessages();
-    const t = setInterval(loadMessages, 60000); // 60s fallback — BroadcastChannel handles own sends instantly
+    const t = setInterval(loadMessages, 30000); // 30s fallback — PartyKit push handles real-time
     return () => clearInterval(t);
   }, [loadMessages]);
+
+  // Real-time DM delivery via PartyKit notifications push
+  useEffect(() => {
+    if (!activeUser || !session?.user?.id) return;
+    const unsub = onNotification((n) => {
+      if (n.type !== "new-message") return;
+      const msg = n as unknown as Record<string, unknown>;
+      // Only handle messages for the active conversation
+      const senderId = msg.senderId as string;
+      const receiverId = msg.receiverId as string;
+      const myId = session.user!.id;
+      const partnerId = activeUser.id;
+      const isRelevant = (senderId === partnerId && receiverId === myId) || (senderId === myId && receiverId === partnerId);
+      if (!isRelevant) return;
+      // Reload full message list to get DB-assigned IDs and consistent state
+      loadMessages();
+      if (senderId !== myId) bloop("receive");
+    });
+    return unsub;
+  }, [activeUser, session, onNotification, loadMessages]);
 
   // Sync with popup DM — reload when the popup sends a message to the active conversation
   useEffect(() => {
@@ -1003,7 +1025,7 @@ function MessagesInner() {
   useEffect(() => {
     prevGroupMsgIds.current = new Set();
     loadGroupMessages();
-    const t = setInterval(loadGroupMessages, 60000);
+    const t = setInterval(loadGroupMessages, 30000); // 30s fallback — PartyKit push handles real-time
     return () => clearInterval(t);
   }, [loadGroupMessages]);
 

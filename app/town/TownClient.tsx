@@ -576,6 +576,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   const applyRpsUpdateRef = useRef<((game: RpsGame | null) => void) | null>(null);
 
 
+  const theaterSocketRef = useRef<{ send: (data: string) => void; close: () => void } | null>(null);
+
   const [theaterOpen, setTheaterOpen] = useState(false);
   const theaterOpenRef = useRef(false);
   const openTheaterRef = useRef<(() => void) | null>(null);
@@ -4437,6 +4439,56 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Theater PartyKit WebSocket — real-time theater sync ─────────────────────
+  useEffect(() => {
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "FILL_IN_IF_USING_PARTYKIT" || host === "DISABLED") return;
+    if (!theaterOpen) {
+      // Close theater WS when theater panel is closed
+      theaterSocketRef.current?.close();
+      theaterSocketRef.current = null;
+      return;
+    }
+
+    let ws: { send: (data: string) => void; close: () => void; addEventListener: (type: string, cb: (e: Event) => void) => void } | null = null;
+    let cancelled = false;
+    const roomName = partyIdRef.current || "main";
+
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      ws = new PartySocket({ host, party: "theater", room: roomName }) as unknown as typeof ws;
+      theaterSocketRef.current = ws;
+
+      ws!.addEventListener("message", (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          if (msg.type === "state" || msg.type === "state-patch") {
+            const incoming = msg.type === "state" ? msg.state : msg.patch;
+            if (incoming) {
+              setTheaterState(prev => {
+                const updated = { ...(prev ?? { videoUrl: null, startedAt: null, hostId: null, seats: {}, isPaused: false, pausedAt: null }), ...incoming };
+                theaterStateRef.current = updated;
+                return updated;
+              });
+            }
+            if (msg.chat) {
+              setTheaterChat(msg.chat);
+            }
+          } else if (msg.type === "chat" && msg.messages) {
+            setTheaterChat(msg.messages);
+          }
+        } catch { /* ignore */ }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      ws?.close();
+      theaterSocketRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theaterOpen]);
+
   useEffect(() => {
     document.body.style.overscrollBehavior = "none";
     return () => { document.body.style.overscrollBehavior = ""; };
@@ -6099,7 +6151,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           username={username}
           avatarUrl={avatarUrl}
           myCoins={myCoinsRef.current}
-          hostId={theaterState?.hostId ?? null}
+          hostId={theaterState?.hostId ?? myParty?.leaderId ?? null}
           partyId={partyIdRef.current ?? null}
           theaterChat={theaterChat}
           onClose={closeTheater}
@@ -6113,12 +6165,15 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             const updated = { videoUrl, startedAt: now, hostId: userId, seats: theaterStateRef.current?.seats ?? {}, isPaused: false, pausedAt: null };
             setTheaterState(updated);
             theaterStateRef.current = updated;
+            // Broadcast via PartyKit for instant sync
+            theaterSocketRef.current?.send(JSON.stringify({ type: "state-update", state: updated }));
           }}
           onClearVideo={async () => {
             await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-clear-video", partyId: partyIdRef.current }) });
             const cleared = { videoUrl: null, startedAt: null, hostId: null, seats: theaterStateRef.current?.seats ?? {}, isPaused: false, pausedAt: null };
             setTheaterState(cleared);
             theaterStateRef.current = cleared;
+            theaterSocketRef.current?.send(JSON.stringify({ type: "state-update", state: cleared }));
           }}
           onPause={async () => {
             await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "theater-pause", partyId: partyIdRef.current }) });
@@ -6126,6 +6181,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             if (cur) {
               const updated = { ...cur, isPaused: true, pausedAt: Date.now() };
               setTheaterState(updated); theaterStateRef.current = updated;
+              theaterSocketRef.current?.send(JSON.stringify({ type: "state-patch", patch: { isPaused: true, pausedAt: updated.pausedAt } }));
             }
           }}
           onUnpause={async () => {
@@ -6135,6 +6191,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               const pausedDuration = cur.pausedAt ? Date.now() - cur.pausedAt : 0;
               const updated = { ...cur, isPaused: false, pausedAt: null, startedAt: cur.startedAt ? cur.startedAt + pausedDuration : cur.startedAt };
               setTheaterState(updated); theaterStateRef.current = updated;
+              theaterSocketRef.current?.send(JSON.stringify({ type: "state-patch", patch: { isPaused: false, pausedAt: null, startedAt: updated.startedAt } }));
             }
           }}
           onSeek={async (newStartedAt: number) => {
@@ -6143,6 +6200,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             if (cur) {
               const updated = { ...cur, startedAt: newStartedAt, isPaused: false, pausedAt: null };
               setTheaterState(updated); theaterStateRef.current = updated;
+              theaterSocketRef.current?.send(JSON.stringify({ type: "state-patch", patch: { startedAt: newStartedAt, isPaused: false, pausedAt: null } }));
             }
           }}
           onSit={(seatIdx: number) => {
@@ -6156,6 +6214,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             // Optimistic update
             const newMsg = { userId, username, avatarUrl: avatarUrl ?? "", message, createdAt: Date.now() };
             setTheaterChat(prev => [...prev, newMsg]);
+            theaterSocketRef.current?.send(JSON.stringify({ type: "chat", message: newMsg }));
           }}
         />
       )}

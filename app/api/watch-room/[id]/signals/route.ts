@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { storeScreenShareSignal, getScreenShareSignals } from "@/lib/db";
+import { pushNotification } from "@/lib/pushNotification";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -29,6 +30,15 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   try {
     const sigId = await storeScreenShareSignal(id, session.user.id, toUser, type, payload ?? {});
+    // Push signal to recipient via PartyKit for instant delivery
+    pushNotification(toUser, {
+      type: "screen-signal",
+      signalId: sigId,
+      roomId: id,
+      fromUserId: session.user.id,
+      signalType: type,
+      payload: payload ?? {},
+    });
     return NextResponse.json({ ok: true, id: sigId });
   } catch (e) {
     console.error(e);

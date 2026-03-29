@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { storeVoiceSignal, getVoiceSignals } from "@/lib/db";
+import { pushNotification } from "@/lib/pushNotification";
 
 function genId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
   try {
     const id = genId();
     await storeVoiceSignal(id, roomId, session.user.id, toUserId, type, JSON.stringify(payload));
+    // Push signal to recipient via PartyKit for instant delivery
+    pushNotification(toUserId, {
+      type: "voice-signal",
+      signalId: id,
+      roomId,
+      fromUserId: session.user.id,
+      signalType: type,
+      payload,
+    });
     return NextResponse.json({ ok: true, id });
   } catch (e) {
     console.error(e);

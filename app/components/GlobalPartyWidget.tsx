@@ -73,6 +73,11 @@ export default function GlobalPartyWidget() {
           setChatLog(prev => [...prev.slice(-49), entry]);
           if (!openRef.current) setUnread(n => n + 1);
           setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        } else if (msg.type === "party_membership") {
+          // Party membership changed — re-fetch fresh state
+          fetch("/api/party?action=my-party").then(r => r.json()).then(d => {
+            setParty(d.party ?? null);
+          }).catch(() => {});
         }
       } catch { /* ignore */ }
     };
@@ -115,7 +120,7 @@ export default function GlobalPartyWidget() {
         .finally(() => clearTimeout(t));
     };
     poll();
-    const iv = setInterval(poll, 12000);
+    const iv = setInterval(poll, 60000); // 60s fallback — PartyKit WS handles real-time updates
     return () => { cancelled = true; clearInterval(iv); };
   }, [session]);
 

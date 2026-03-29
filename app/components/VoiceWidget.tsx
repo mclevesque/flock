@@ -293,6 +293,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const signalPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const signalAfterRef = useRef<number>(Date.now() - 5000);
   const currentRoomRef = useRef<string | null>(null);
+  const voiceWsRef = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
   const pendingIce = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   // ── Device enumeration ───────────────────────────────────────────────────────
@@ -504,6 +505,35 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       signalAfterRef.current = Date.now();
       fetchRoomMessages(roomId);
       setIsConnecting(false);
+
+      // Connect voice presence WS for instant participant updates
+      const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+      if (host && host !== "DISABLED") {
+        import("partysocket").then(({ default: PartySocket }) => {
+          voiceWsRef.current?.close();
+          const vws = new PartySocket({ host, room: `voice-${roomId}` }) as unknown as
+            { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
+          voiceWsRef.current = vws;
+          // Announce join
+          vws.send(JSON.stringify({ type: "voice-join", userId, username: (session?.user as { name?: string })?.name ?? "User", avatarUrl: (session?.user as { image?: string })?.image ?? null, isMuted: false }));
+          // Listen for participant updates
+          vws.addEventListener("message", (evt: Event) => {
+            try {
+              const msg = JSON.parse((evt as MessageEvent).data as string);
+              if (msg.type === "voice-join" && msg.userId !== userId) {
+                setParticipants(prev => {
+                  if (prev.find(p => p.user_id === msg.userId)) return prev;
+                  return [...prev, { user_id: msg.userId, username: msg.username, avatar_url: msg.avatarUrl, is_muted: msg.isMuted ?? false, last_heartbeat: Date.now() }];
+                });
+              } else if (msg.type === "voice-leave") {
+                setParticipants(prev => prev.filter(p => p.user_id !== msg.userId));
+              } else if (msg.type === "voice-mute") {
+                setParticipants(prev => prev.map(p => p.user_id === msg.userId ? { ...p, is_muted: msg.isMuted } : p));
+              }
+            } catch { /* ignore */ }
+          });
+        }).catch(() => {});
+      }
     } catch (e) {
       setIsConnecting(false);
       setCurrentRoomId(null);
@@ -597,6 +627,10 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const doLeave = useCallback(async () => {
     const roomId = currentRoomRef.current;
     if (roomId && userId) {
+      // Announce leave via voice WS before closing
+      voiceWsRef.current?.send(JSON.stringify({ type: "voice-leave", userId }));
+      voiceWsRef.current?.close();
+      voiceWsRef.current = null;
       fetch(`/api/voice/${roomId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -980,9 +1014,20 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         if (Array.isArray(pp)) setParticipants(pp);
       }).catch(() => {});
       fetchRoomMessages(roomId);
-    }, 25000); // 25s — room list doesn't need to be real-time
+    }, 60000); // 60s fallback — PartyKit voice WS handles real-time participant updates
 
-    signalPollRef.current = setInterval(() => { if (!document.hidden) processSignals(); }, 15000); // 15s — WebRTC signals
+    signalPollRef.current = setInterval(() => { if (!document.hidden) processSignals(); }, 45000); // 45s fallback — PartyKit push delivers signals instantly
+
+    // Dedicated heartbeat — keeps us visible in "IN VOICE" list between polls
+    const heartbeatTimer = setInterval(() => {
+      const roomId = currentRoomRef.current;
+      if (!roomId || document.hidden) return;
+      fetch(`/api/voice/${roomId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "heartbeat" }),
+      }).catch(() => {});
+    }, 45000); // 45s — DB heartbeat for staleness cleanup, WS handles liveness
 
     fetch("/api/voice").then(r => r.json()).then(d => {
       if (Array.isArray(d)) setOpenRooms(d);
@@ -991,6 +1036,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     return () => {
       clearInterval(pollRef.current);
       clearInterval(signalPollRef.current);
+      clearInterval(heartbeatTimer);
     };
   }, [processSignals, userId, fetchRoomMessages]);
 
@@ -1027,6 +1073,8 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mute", muted: newMuted }),
       }).catch(() => {});
+      // Broadcast mute state via voice WS
+      voiceWsRef.current?.send(JSON.stringify({ type: "voice-mute", userId, isMuted: newMuted }));
     }
   }
 

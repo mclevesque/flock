@@ -33,13 +33,19 @@ export async function POST(req: Request) {
 
   const { receiverId, content } = await req.json();
   await sendMessage(session.user.id, receiverId, content);
-  // Push notification to recipient
-  import("@/lib/pushNotification").then(({ pushNotification }) =>
-    pushNotification(receiverId, {
-      type: "new-message",
-      from: { userId: session.user!.id, username: session.user!.name || "Someone" },
-      preview: typeof content === "string" ? content.slice(0, 60) : "New message",
-    })
-  ).catch(() => {});
+  // Push full message to both recipient and sender (for multi-tab sync) via PartyKit
+  const msgPayload = {
+    type: "new-message",
+    from: { userId: session.user!.id, username: session.user!.name || "Someone", avatarUrl: session.user!.image || "" },
+    preview: typeof content === "string" ? content.slice(0, 60) : "New message",
+    content,
+    senderId: session.user!.id,
+    receiverId,
+    timestamp: Date.now(),
+  };
+  import("@/lib/pushNotification").then(({ pushNotification }) => {
+    pushNotification(receiverId, msgPayload);
+    pushNotification(session.user!.id!, msgPayload); // sender's other tabs
+  }).catch(() => {});
   return NextResponse.json({ ok: true });
 }

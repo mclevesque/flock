@@ -707,7 +707,7 @@ state:'title',
 difficulty:parseInt(localStorage.getItem('outbreak_difficulty')||'2'),
 _upgradesDisabled:false,
 _supermusicAllowed:params.get('supermusic')==='1',
-_supermusic:params.get('supermusic')==='1'&&localStorage.getItem('outbreak_supermusic')==='1',
+_supermusic:params.get('supermusic')==='1'&&localStorage.getItem('outbreak_supermusic')!=='0',
 time:0,gameTime:0,frame:0,
 // Player — EXACT same as Truthseeker
 px:WORLD_W/2,py:WORLD_H/2,

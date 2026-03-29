@@ -721,8 +721,42 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       } catch { /* silent */ }
     };
     pollTheater();
-    const iv = setInterval(pollTheater, 30000);
+    const iv = setInterval(pollTheater, 90000); // 90s fallback — PartyKit theater WS handles real-time
     return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Theater PartyKit WebSocket — real-time theater sync ─────────────────────
+  useEffect(() => {
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "FILL_IN_IF_USING_PARTYKIT" || host === "DISABLED") return;
+
+    let ws: { send: (d: string) => void; close: () => void; addEventListener: (type: string, cb: (e: Event) => void) => void } | null = null;
+    let cancelled = false;
+
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      ws = new PartySocket({ host, party: "theater", room: "main" }) as unknown as typeof ws;
+
+      ws!.addEventListener("message", (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          if (msg.type === "state" || msg.type === "state-patch") {
+            const incoming = msg.type === "state" ? msg.state : msg.patch;
+            if (incoming) {
+              setTheaterState(prev => {
+                const updated = { ...(prev ?? {}), ...incoming } as TheaterState;
+                theaterStateRef.current = updated;
+                lastTheaterJson.current = JSON.stringify(updated);
+                return updated;
+              });
+            }
+          }
+        } catch { /* ignore */ }
+      });
+    });
+
+    return () => { cancelled = true; ws?.close(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

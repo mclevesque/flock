@@ -9,6 +9,26 @@ import {
   disbandParty,
   transferLead,
 } from "@/lib/db";
+import { pushNotification } from "@/lib/pushNotification";
+
+/** Push updated party state to all members via PartyKit */
+async function broadcastPartyUpdate(partyId: string) {
+  const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+  if (!host || host === "DISABLED") return;
+  // Broadcast to the party-${partyId} room so GlobalPartyWidget picks it up
+  // We need to get the fresh party state — but we can't easily fetch it here since
+  // the caller already has it. Instead, just send a "refresh" signal.
+  fetch(`https://${host}/party/main/party-${encodeURIComponent(partyId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "party_membership", partyId }),
+  }).catch(() => {});
+}
+
+/** Push party refresh signal to a specific user's notification room */
+function notifyPartyChange(userId: string, partyId: string) {
+  pushNotification(userId, { type: "party-update", partyId });
+}
 
 async function getUser() {
   const session = await auth();
@@ -55,11 +75,17 @@ export async function POST(req: NextRequest) {
     const result = await joinParty(body.partyId, u.id, u.name, u.image).catch(
       () => ({ ok: false, error: "DB error" })
     );
+    if (result.ok) broadcastPartyUpdate(body.partyId);
     return NextResponse.json(result);
   }
 
   if (action === "leave") {
+    const party = await getPartyForUser(u.id).catch(() => null);
     await leaveParty(u.id).catch(() => {});
+    if (party) {
+      broadcastPartyUpdate(party.id);
+      party.members.forEach(m => notifyPartyChange(m.userId, party.id));
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -68,7 +94,10 @@ export async function POST(req: NextRequest) {
     if (!party || party.leaderId !== u.id) {
       return NextResponse.json({ error: "Not your party" }, { status: 403 });
     }
+    // Notify all members before disbanding
+    party.members.forEach(m => notifyPartyChange(m.userId, party.id));
     await disbandParty(party.id).catch(() => {});
+    broadcastPartyUpdate(party.id);
     return NextResponse.json({ ok: true });
   }
 
@@ -80,6 +109,7 @@ export async function POST(req: NextRequest) {
     const target = party.members.find((m) => m.userId === body.targetId);
     if (!target) return NextResponse.json({ error: "Member not found" }, { status: 404 });
     await transferLead(party.id, target.userId, target.username, target.avatarUrl).catch(() => {});
+    broadcastPartyUpdate(party.id);
     return NextResponse.json({ ok: true });
   }
 
