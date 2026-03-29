@@ -116,38 +116,55 @@ function makeEmojiCanvas(emoji: string, size = 128): HTMLCanvasElement {
 
 function makeUsernameCanvas(name: string): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = 256; canvas.height = 48;
+  canvas.width = 400; canvas.height = 64;
   const ctx = canvas.getContext("2d")!;
-  ctx.clearRect(0, 0, 256, 48);
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.roundRect(4, 6, 248, 36, 8);
+  ctx.clearRect(0, 0, 400, 64);
+  // Comic-style name plate
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 2;
+  ctx.roundRect(8, 8, 384, 48, 12);
   ctx.fill();
-  ctx.font = "bold 18px monospace";
+  ctx.stroke();
+  ctx.font = "900 28px sans-serif";
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(name.length > 16 ? name.slice(0, 14) + "…" : name, 128, 24);
+  // Text shadow for comic depth
+  ctx.shadowColor = "rgba(0,0,0,0.8)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetX = 2;
+  ctx.shadowOffsetY = 2;
+  ctx.fillText(name.length > 16 ? name.slice(0, 14) + "…" : name, 200, 32);
   return canvas;
 }
 
 // ── Chat bubble canvas ─────────────────────────────────────────────────────────
 function makeChatCanvas(text: string): HTMLCanvasElement {
-  const maxLen = 30;
+  const maxLen = 28;
   const display = text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
   const canvas = document.createElement("canvas");
-  canvas.width = 280; canvas.height = 60;
+  canvas.width = 420; canvas.height = 80;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "rgba(240,240,255,0.93)";
-  ctx.strokeStyle = "#9977cc";
-  ctx.lineWidth = 2;
-  ctx.roundRect(4, 4, 272, 52, 12);
+  // Comic-style speech bubble
+  ctx.fillStyle = "rgba(255,255,255,0.97)";
+  ctx.strokeStyle = "#6644bb";
+  ctx.lineWidth = 3;
+  ctx.shadowColor = "rgba(50,0,100,0.3)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetX = 2;
+  ctx.shadowOffsetY = 3;
+  ctx.roundRect(6, 6, 408, 62, 16);
   ctx.fill();
   ctx.stroke();
-  ctx.font = "bold 15px sans-serif";
-  ctx.fillStyle = "#220044";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.font = "900 24px sans-serif";
+  ctx.fillStyle = "#1a0033";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(display, 140, 30);
+  ctx.fillText(display, 210, 38);
   return canvas;
 }
 
@@ -1849,11 +1866,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <div style={{ fontSize: 26 }}>{activeNPC.npc.emoji}</div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: "#ccbbff" }}>{activeNPC.npc.name}</div>
-              <div style={{ fontSize: 10, color: "rgba(150,130,200,0.5)" }}>{activeNPC.npc.role}</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#ccbbff" }}>{activeNPC.npc.name}</div>
+              <div style={{ fontSize: 13, color: "rgba(150,130,200,0.6)" }}>{activeNPC.npc.role}</div>
             </div>
           </div>
-          <div style={{ fontSize: 13, color: "rgba(220,215,255,0.9)", lineHeight: 1.5, fontStyle: "italic" }}>
+          <div style={{ fontSize: 18, color: "rgba(220,215,255,0.95)", lineHeight: 1.6, fontStyle: "italic" }}>
             "{activeNPC.line}"
           </div>
         </div>
@@ -1872,14 +1889,14 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") sendChat(); if (e.key === "Escape") setChatOpen(false); }}
             placeholder="Say something…"
             style={{
-              padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(130,110,220,0.4)",
-              background: "rgba(10,8,30,0.95)", color: "#fff", fontSize: 13,
-              width: 280, outline: "none",
+              padding: "10px 16px", borderRadius: 12, border: "2px solid rgba(130,110,220,0.5)",
+              background: "rgba(10,8,30,0.95)", color: "#fff", fontSize: 18, fontWeight: 600,
+              width: 320, outline: "none",
             }}
           />
           <button onClick={sendChat} style={{
-            padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(130,110,220,0.4)",
-            background: "rgba(80,60,180,0.6)", color: "#ccbbff", fontSize: 12, cursor: "pointer",
+            padding: "10px 18px", borderRadius: 12, border: "2px solid rgba(130,110,220,0.5)",
+            background: "rgba(80,60,180,0.6)", color: "#ccbbff", fontSize: 16, fontWeight: 700, cursor: "pointer",
           }}>Send</button>
         </div>
       )}

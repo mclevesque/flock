@@ -1173,16 +1173,45 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     }
   }, [dmOpen, userId]); // eslint-disable-line
 
+  // ── DM WebSocket — pure real-time messaging ─────────────────────────────────
+  const dmWsRef2 = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
+
   useEffect(() => {
-    if (!dmActiveUser) return;
-    const load = async () => {
-      const msgs = await fetch(`/api/messages?with=${dmActiveUser.id}`).then(r => r.json()).catch(() => []);
+    if (!dmActiveUser || !userId) return;
+    // Load history
+    fetch(`/api/messages?with=${dmActiveUser.id}`).then(r => r.json()).then((msgs: unknown) => {
       if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
-    };
-    load();
-    dmPollRef.current = setInterval(load, 30000); // 30s fallback — BroadcastChannel handles instant sync
-    return () => clearInterval(dmPollRef.current);
-  }, [dmActiveUser]); // eslint-disable-line
+    }).catch(() => {});
+
+    // Connect DM WebSocket
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "DISABLED") return;
+    let cancelled = false;
+    const pairId = [userId, dmActiveUser.id].sort().join("_");
+
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      dmWsRef2.current?.close();
+      const ws = new PartySocket({ host, room: `dm-${pairId}` }) as unknown as
+        { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
+      dmWsRef2.current = ws;
+
+      ws.addEventListener("message", (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          if (msg.type === "dm") {
+            const newMsg = { id: msg.id ?? Date.now(), sender_id: msg.senderId, content: msg.content, created_at: msg.createdAt ?? new Date().toISOString(), username: msg.username, avatar_url: msg.avatarUrl ?? "" };
+            setDmMessages(prev => {
+              if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
+              return [...prev.slice(-39), newMsg];
+            });
+          }
+        } catch { /* ignore */ }
+      });
+    }).catch(() => {});
+
+    return () => { cancelled = true; dmWsRef2.current?.close(); dmWsRef2.current = null; };
+  }, [dmActiveUser, userId]); // eslint-disable-line
 
   useEffect(() => {
     dmMsgBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1194,15 +1223,15 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     const text = dmInput.trim();
     setDmInput("");
     try {
-      await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiverId: dmActiveUser.id, content: text }),
-      });
-      const msgs = await fetch(`/api/messages?with=${dmActiveUser.id}`).then(r => r.json()).catch(() => []);
-      if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
-      // Notify messages page to reload this conversation
-      try { new BroadcastChannel("ryft_dm").postMessage({ type: "new_dm", with: dmActiveUser.id }); } catch { /* ignore */ }
+      const myName = (session?.user as { name?: string })?.name ?? "User";
+      const myAvatar = (session?.user as { image?: string })?.image ?? "";
+      // Broadcast via WebSocket for instant delivery
+      dmWsRef2.current?.send(JSON.stringify({
+        type: "dm", id: Date.now(), senderId: userId, content: text,
+        username: myName, avatarUrl: myAvatar, createdAt: new Date().toISOString(),
+      }));
+      // Fire-and-forget DB write for persistence
+      fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: dmActiveUser.id, content: text }) }).catch(() => {});
     } catch { /* ignore */ } finally {
       setDmSending(false);
     }

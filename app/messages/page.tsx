@@ -960,55 +960,69 @@ function MessagesInner() {
     }
   }, [withId, users]);
 
+  // ── Pure WebSocket DM system ─────────────────────────────────────────────────
+  const dmWsRef = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
+
   const loadMessages = useCallback(() => {
     if (!activeUser || !session?.user?.id) return;
     fetch(`/api/messages?with=${activeUser.id}`).then(r => r.json()).then((data: ChatMessage[]) => {
       if (!Array.isArray(data)) return;
       const filtered = data.filter(m => !deletedMsgIds.current.has(m.id));
-      const newIds = new Set(filtered.map(m => m.id));
-      if (prevMsgIds.current.size > 0 && filtered.some(m => !prevMsgIds.current.has(m.id) && m.sender_id !== session?.user?.id)) bloop("receive");
-      prevMsgIds.current = newIds as Set<number>;
+      prevMsgIds.current = new Set(filtered.map(m => m.id)) as Set<number>;
       setMessages(filtered);
     }).catch(() => {});
   }, [activeUser, session]);
 
-  useEffect(() => {
-    prevMsgIds.current = new Set();
-    loadMessages();
-    const t = setInterval(loadMessages, 30000); // 30s fallback — PartyKit push handles real-time
-    return () => clearInterval(t);
-  }, [loadMessages]);
-
-  // Real-time DM delivery via PartyKit notifications push
+  // Load initial messages + connect DM WebSocket when conversation changes
   useEffect(() => {
     if (!activeUser || !session?.user?.id) return;
-    const unsub = onNotification((n) => {
-      if (n.type !== "new-message") return;
-      const msg = n as unknown as Record<string, unknown>;
-      // Only handle messages for the active conversation
-      const senderId = msg.senderId as string;
-      const receiverId = msg.receiverId as string;
-      const myId = session.user!.id;
-      const partnerId = activeUser.id;
-      const isRelevant = (senderId === partnerId && receiverId === myId) || (senderId === myId && receiverId === partnerId);
-      if (!isRelevant) return;
-      // Reload full message list to get DB-assigned IDs and consistent state
-      loadMessages();
-      if (senderId !== myId) bloop("receive");
-    });
-    return unsub;
-  }, [activeUser, session, onNotification, loadMessages]);
+    prevMsgIds.current = new Set();
+    loadMessages(); // Load history from DB
 
-  // Sync with popup DM — reload when the popup sends a message to the active conversation
-  useEffect(() => {
-    const bc = new BroadcastChannel("ryft_dm");
-    bc.onmessage = (e) => {
-      if (e.data?.type === "new_dm" && e.data?.with === activeUser?.id) {
-        loadMessages();
-      }
+    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!host || host === "DISABLED") return;
+
+    let cancelled = false;
+    const myId = session.user!.id;
+    const pairId = [myId, activeUser.id].sort().join("_");
+
+    import("partysocket").then(({ default: PartySocket }) => {
+      if (cancelled) return;
+      dmWsRef.current?.close();
+      const ws = new PartySocket({ host, room: `dm-${pairId}` }) as unknown as
+        { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
+      dmWsRef.current = ws;
+
+      ws.addEventListener("message", (evt: Event) => {
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data as string);
+          if (msg.type === "dm") {
+            // Append message instantly — no DB round-trip needed
+            const newMsg: ChatMessage = {
+              id: msg.id ?? Date.now(),
+              sender_id: msg.senderId,
+              content: msg.content,
+              created_at: msg.createdAt ?? new Date().toISOString(),
+              username: msg.username,
+              avatar_url: msg.avatarUrl ?? "",
+            };
+            setMessages(prev => {
+              // Deduplicate by checking if we already have this message
+              if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
+              return [...prev, newMsg];
+            });
+            if (msg.senderId !== myId) bloop("receive");
+          }
+        } catch { /* ignore */ }
+      });
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      dmWsRef.current?.close();
+      dmWsRef.current = null;
     };
-    return () => bc.close();
-  }, [activeUser, loadMessages]);
+  }, [activeUser, session]); // eslint-disable-line
 
   const loadGroupMessages = useCallback(() => {
     if (!activeGroup) return;
@@ -1030,10 +1044,23 @@ function MessagesInner() {
   }, [loadGroupMessages]);
 
   async function sendDM(text: string) {
-    if (!activeUser) return;
+    if (!activeUser || !session?.user?.id) return;
     bloop("send");
-    await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
-    setTimeout(loadMessages, 400);
+    const myId = session.user.id;
+    const myName = (session.user as { name?: string }).name ?? "User";
+    const myAvatar = (session.user as { image?: string }).image ?? "";
+    // Broadcast via WebSocket for instant delivery
+    dmWsRef.current?.send(JSON.stringify({
+      type: "dm",
+      id: Date.now(),
+      senderId: myId,
+      content: text,
+      username: myName,
+      avatarUrl: myAvatar,
+      createdAt: new Date().toISOString(),
+    }));
+    // Fire-and-forget DB write for persistence
+    fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
   }
 
   async function sendGroupMsg(text: string) {
