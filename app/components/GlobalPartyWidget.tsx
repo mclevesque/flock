@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
+import { useRouter } from "next/navigation";
 import { useVoice } from "./VoiceWidget";
 import { useNotifications, type PushNotification } from "@/lib/useNotifications";
 
@@ -31,6 +32,7 @@ interface IncomingPartyInvite { partyId: string; inviterName: string; inviterAva
 
 export default function GlobalPartyWidget() {
   const { data: session } = useSession();
+  const router = useRouter();
   const { isInVoice, isMuted, toggleMute, openMaxi, joinRoom, leaveRoom, currentRoomId } = useVoice();
   const { onNotification } = useNotifications();
   const [party, setParty] = useState<Party | null>(null);
@@ -44,6 +46,7 @@ export default function GlobalPartyWidget() {
   const [inviteSearch, setInviteSearch] = useState("");
   const [inviteSentTo, setInviteSentTo] = useState<string | null>(null);
   const [incomingInvite, setIncomingInvite] = useState<IncomingPartyInvite | null>(null);
+  const [moonhavenPull, setMoonhavenPull] = useState<{ leaderName: string } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const draggedRef = useRef(false);
   const pillRef = useRef<HTMLDivElement>(null);
@@ -142,6 +145,12 @@ export default function GlobalPartyWidget() {
     setOpen(false);
   };
 
+  const transferLead = async (targetId: string) => {
+    if (!party) return;
+    await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "transfer-lead", targetId }) });
+    // Party will refresh via WS party_membership event
+  };
+
   const createParty = async () => {
     const r = await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create" }) });
     const d = await r.json();
@@ -153,7 +162,7 @@ export default function GlobalPartyWidget() {
     if (!party) return;
     setInviteSentTo(targetId);
     await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "invite", targetId }) }).catch(() => {});
-    setTimeout(() => setInviteSentTo(null), 3000);
+    setTimeout(() => { setInviteSentTo(null); setShowInvite(false); }, 1500);
   };
 
   // Load friends list when invite panel opens
@@ -168,9 +177,12 @@ export default function GlobalPartyWidget() {
   useEffect(() => {
     if (!userId) return;
     const unsub = onNotification((n: PushNotification) => {
-      if (n.type === "party-invite" && (n as unknown as Record<string, unknown>).partyId) {
-        const d = n as unknown as Record<string, unknown>;
+      const d = n as unknown as Record<string, unknown>;
+      if (n.type === "party-invite" && d.partyId) {
         setIncomingInvite({ partyId: d.partyId as string, inviterName: (d.inviterName as string) ?? "Someone", inviterAvatar: (d.inviterAvatar as string | null) ?? null });
+      }
+      if (n.type === "moonhaven-pull") {
+        setMoonhavenPull({ leaderName: (d.leaderName as string) ?? "Your leader" });
       }
     });
     return unsub;
@@ -299,9 +311,18 @@ export default function GlobalPartyWidget() {
                     alt={m.username}
                     style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: m.isLeader ? "1px solid #ffd700" : "1px solid rgba(255,255,255,0.15)" }}
                   />
-                  <span style={{ fontSize: 12, color: m.isLeader ? "#ffd700" : "rgba(255,255,255,0.75)", fontWeight: m.isLeader ? 700 : 400 }}>
+                  <span style={{ flex: 1, fontSize: 12, color: m.isLeader ? "#ffd700" : "rgba(255,255,255,0.75)", fontWeight: m.isLeader ? 700 : 400 }}>
                     @{m.username}{m.userId === userId ? " (you)" : ""}{m.isLeader ? " 👑" : ""}
                   </span>
+                  {party.leaderId === userId && !m.isLeader && (
+                    <button
+                      onClick={() => transferLead(m.userId)}
+                      title="Make party leader"
+                      style={{ background: "none", border: "1px solid rgba(255,215,0,0.25)", borderRadius: 5, padding: "1px 5px", color: "#ffd700", fontSize: 10, cursor: "pointer", fontFamily: "monospace", flexShrink: 0 }}
+                    >
+                      👑
+                    </button>
+                  )}
                 </div>
               ))}
 
@@ -455,6 +476,32 @@ export default function GlobalPartyWidget() {
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={acceptInvite} style={{ flex: 1, padding: "6px 0", background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.4)", borderRadius: 8, color: "#4ade80", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>⚔️ Join</button>
             <button onClick={() => setIncomingInvite(null)} style={{ flex: 1, padding: "6px 0", background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 8, color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}>Decline</button>
+          </div>
+        </div>
+      )}
+
+      {/* Moonhaven pull popup */}
+      {moonhavenPull && (
+        <div style={{
+          position: "fixed", bottom: incomingInvite ? 180 : 90, left: 16, zIndex: 9900,
+          background: "rgba(8,14,28,0.97)", backdropFilter: "blur(14px)",
+          border: "1px solid rgba(100,80,220,0.4)", borderRadius: 14,
+          padding: "14px 16px", minWidth: 220, maxWidth: 280,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)", fontFamily: "monospace",
+        }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>🌙 Moonhaven</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginBottom: 12 }}>
+            <span style={{ color: "#c4b5ff", fontWeight: 700 }}>@{moonhavenPull.leaderName}</span> entered Moonhaven — join your party?
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={() => { setMoonhavenPull(null); router.push("/moonhaven"); }}
+              style={{ flex: 1, padding: "6px 0", background: "rgba(100,80,220,0.2)", border: "1px solid rgba(130,110,255,0.5)", borderRadius: 8, color: "#c4b5ff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}
+            >🌙 Enter</button>
+            <button
+              onClick={() => setMoonhavenPull(null)}
+              style={{ flex: 1, padding: "6px 0", background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 8, color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}
+            >Later</button>
           </div>
         </div>
       )}

@@ -769,6 +769,7 @@ function ChatView({
                       className="unsend-btn"
                       title="Unsend"
                       onClick={async () => {
+                        if (msg.is_ephemeral) { onUnsend?.(msg.id); return; } // ephemeral images: no DB, remove immediately
                         const endpoint = groupId ? `/api/groups/${groupId}/messages` : "/api/messages";
                         const res = await fetch(endpoint, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: msg.id }) });
                         if (res.ok) onUnsend?.(msg.id);
@@ -1016,16 +1017,19 @@ function MessagesInner() {
     if (!host || host === "DISABLED") return;
 
     const pairId = [sessionUserId, activeUser.id].sort().join("-");
+    let cancelled = false; // guard against stale WS firing after conversation switch
 
     // Small delay to avoid React strict mode double-mount teardown
     const timer = setTimeout(() => {
       import("partysocket").then(({ default: PartySocket }) => {
+        if (cancelled) return;
         dmWsRef.current?.close();
         const ws = new PartySocket({ host, room: `dm-${pairId}` }) as unknown as
           { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
         dmWsRef.current = ws;
 
         ws.addEventListener("message", (evt: Event) => {
+          if (cancelled) return; // drop messages after conversation switch
           try {
             const msg = JSON.parse((evt as MessageEvent).data as string);
             if (msg.type === "dm") {
@@ -1068,6 +1072,7 @@ function MessagesInner() {
     const pollIv = setInterval(loadMessages, 30000);
 
     return () => {
+      cancelled = true; // stop stale WS from writing to new conversation's state
       clearTimeout(timer);
       clearInterval(pollIv);
       dmWsRef.current?.close();

@@ -885,48 +885,42 @@ const OUTBREAK_META_KEY='outbreak_meta';
 function loadMeta(){try{return JSON.parse(localStorage.getItem(OUTBREAK_META_KEY)||'{}')}catch{return{}}}
 function saveMeta(m){try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(m))}catch{}syncMetaToServer();}
 
-// ─── R2 Profile Sync — upgrades/goldBank persist across devices & cache clears ──
+// ─── R2 Meta Sync — upgrades/goldBank persist across devices, zero Neon compute ──
 let _metaSyncT=null;
 function syncMetaToServer(){
-  if(!PLAYER_NAME)return;
+  if(!USER_ID)return;
   clearTimeout(_metaSyncT);
   _metaSyncT=setTimeout(()=>{
     const meta=loadMeta();
-    fetch(window.location.origin+'/api/users/'+PLAYER_NAME+'/stats',{
-      method:'PATCH',
+    fetch(window.location.origin+'/api/outbreak/meta',{
+      method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({outbreak_meta:{powerups:meta.powerups||{},goldBank:meta.goldBank||0}})
+      body:JSON.stringify({powerups:meta.powerups||{},goldBank:meta.goldBank||0,totalGoldEarned:meta.totalGoldEarned||0})
     }).catch(()=>{});
   },600);
 }
 async function loadMetaFromServer(){
-  if(!PLAYER_NAME)return;
+  if(!USER_ID)return;
   try{
-    const res=await fetch(window.location.origin+'/api/users/'+PLAYER_NAME);
+    const res=await fetch(window.location.origin+'/api/outbreak/meta');
     if(!res.ok)return;
-    const user=await res.json();
-    // Merge outbreak_meta: take max values so cache clears can never lose progress
-    const sm=user?.stats?.outbreak_meta;
+    const {meta:sm}=await res.json();
     if(sm){
+      // Merge: take max values so neither local nor server ever loses progress
       const local=loadMeta();
-      const merged={...local,goldBank:Math.max(local.goldBank||0,sm.goldBank||0),powerups:{...(local.powerups||{})}};
+      const merged={
+        ...local,
+        goldBank:Math.max(local.goldBank||0,sm.goldBank||0),
+        totalGoldEarned:Math.max(local.totalGoldEarned||0,sm.totalGoldEarned||0),
+        powerups:{...(local.powerups||{})}
+      };
       for(const[k,v]of Object.entries(sm.powerups||{}))merged.powerups[k]=Math.max(merged.powerups[k]||0,Number(v));
       try{localStorage.setItem(OUTBREAK_META_KEY,JSON.stringify(merged));}catch{}
       refreshMetaCache();
     }
-    // Merge outbreak_progress: pull server-tracked totals if local is lower
-    const sStats=user?.stats;
-    if(sStats&&(sStats.outbreak_total_kills||0)>0){
-      try{
-        const lp=JSON.parse(localStorage.getItem('outbreak_progress')||'{}');
-        lp.totalKills=Math.max(lp.totalKills||0,sStats.outbreak_total_kills||0);
-        lp.totalRuns=Math.max(lp.totalRuns||0,sStats.outbreak_total_runs||0);
-        localStorage.setItem('outbreak_progress',JSON.stringify(lp));
-      }catch{}
-    }
   }catch(e){}
 }
-loadMetaFromServer(); // run on page load — async, completes while user is on title screen
+loadMetaFromServer(); // async — completes while user is on title screen
 
 // Cached meta stats (prevent localStorage reads every frame)
 let _metaCache=null;
@@ -4688,7 +4682,7 @@ function saveRun(){
     // Keep history of last 10 detailed runs
     try{const h=JSON.parse(localStorage.getItem('outbreak_run_history')||'[]');h.unshift(debugSnap);if(h.length>10)h.pop();localStorage.setItem('outbreak_run_history',JSON.stringify(h));}catch(e){}
 
-    // ── POST to server for dev stats tracking ──────────────────────────
+    // ── POST to server for leaderboard save ──────────────────────────
     const origin=window.location.origin;
     fetch(origin+'/api/outbreak',{
       method:'POST',
@@ -4710,8 +4704,10 @@ function saveRun(){
         deathCause:gs._deathCause||null,
         dmgLog:gs._dmgLog||[]
       })
-    }).catch(()=>{});
-  }catch(e){}
+    }).then(r=>{
+      if(!r.ok)r.json().then(d=>console.warn('[outbreak] score save failed:',d.error||r.status)).catch(()=>{});
+    }).catch(err=>console.warn('[outbreak] score save network error:',err));
+  }catch(e){console.warn('[outbreak] saveRun error:',e);}
 }
 function loadProgress(){
   try{return JSON.parse(localStorage.getItem('outbreak_progress')||'{}');}catch(e){return {};}

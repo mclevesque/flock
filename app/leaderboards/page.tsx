@@ -146,7 +146,8 @@ export default function LeaderboardsPage() {
   const filteredOutbreak = outbreakEntries
     .filter(e => Number(e.difficulty) === diffTab)
     .sort((a, b) => Number(b.kills) - Number(a.kills))
-    .slice(0, 15);
+    .slice(0, 15)
+    .map(e => ({ ...e, username: e.username === "guest" ? "Mystery Knight" : e.username }));
 
   const TABS: { id: Tab; label: string; emoji: string }[] = [
     { id: "overview", label: "OVERVIEW", emoji: "🏆" },

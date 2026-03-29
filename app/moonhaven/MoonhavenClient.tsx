@@ -66,6 +66,7 @@ interface Props {
   avatarUrl: string;
   avatarConfig?: AvatarConfig | null;
   partyId?: string | null;
+  partyLeaderId?: string | null;
 }
 
 const TAG_GAME_DURATION = 30;
@@ -168,10 +169,14 @@ function makeChatCanvas(text: string): HTMLCanvasElement {
   return canvas;
 }
 
-export default function MoonhavenClient({ userId, username, avatarUrl, avatarConfig, partyId }: Props) {
+export default function MoonhavenClient({ userId, username, avatarUrl, avatarConfig, partyId, partyLeaderId: partyLeaderIdProp }: Props) {
   const router = useRouter();
   const mountRef = useRef<HTMLDivElement>(null);
   const partyIdRef = useRef<string | null>(partyId ?? null);
+  const [partyLeaderId, setPartyLeaderId] = useState<string | null>(partyLeaderIdProp ?? null);
+
+  // Keep partyLeaderId in sync if prop changes (e.g. hot reload)
+  useEffect(() => { setPartyLeaderId(partyLeaderIdProp ?? null); }, [partyLeaderIdProp]);
 
   // ── Quality ───────────────────────────────────────────────────────────────
   const [quality, setQuality] = useState<QualityLevel>(detectQuality);
@@ -835,13 +840,16 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
   // ── Drive-in open/close ───────────────────────────────────────────────────
   // Drive-in no longer opens a separate room — screen share plays directly on the 3D screen
+  // Only the party leader can initiate a screen share (solo players can always share)
   const openDriveIn = useCallback(() => {
-    // If no share active and we're the one pressing E, prompt to share
     if (ssStatus === "idle" && !theaterState?.screenshareOffer?.active) {
+      const inParty = !!partyIdRef.current;
+      const isLeader = !inParty || partyLeaderId === userId;
+      if (!isLeader) return; // non-leaders can't initiate
       startScreenShare();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ssStatus, theaterState?.screenshareOffer, startScreenShare]);
+  }, [ssStatus, theaterState?.screenshareOffer, startScreenShare, partyLeaderId, userId]);
 
   // ── WebSocket (PartyKit) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -2228,16 +2236,24 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             {ssError && <div style={{ fontSize: 10, color: "#ff6666", marginTop: 3 }}>{ssError}</div>}
           </div>
           <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
-            {ssStatus === "idle" && !theaterState?.screenshareOffer?.active && (<>
-              <button
-                style={{ background: "linear-gradient(135deg,rgba(80,60,200,0.9),rgba(120,80,255,0.8))", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
-                onClick={startScreenShare}
-              >📺 Share Screen</button>
-              <button
-                style={{ background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: 8, color: "#ffaa00", padding: "6px 12px", fontWeight: 600, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
-                onClick={() => setShowGameCast(prev => !prev)}
-              >🎮 Cast a Game</button>
-            </>)}
+            {ssStatus === "idle" && !theaterState?.screenshareOffer?.active && (() => {
+              const inParty = !!partyIdRef.current;
+              const isLeader = !inParty || partyLeaderId === userId;
+              return isLeader ? (<>
+                <button
+                  style={{ background: "linear-gradient(135deg,rgba(80,60,200,0.9),rgba(120,80,255,0.8))", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+                  onClick={startScreenShare}
+                >📺 Share Screen</button>
+                <button
+                  style={{ background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: 8, color: "#ffaa00", padding: "6px 12px", fontWeight: 600, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+                  onClick={() => setShowGameCast(prev => !prev)}
+                >🎮 Cast a Game</button>
+              </>) : (
+                <div style={{ fontSize: 10, color: "rgba(180,160,255,0.5)", textAlign: "center", maxWidth: 110 }}>
+                  👑 Party leader controls the screen
+                </div>
+              );
+            })()}
             {ssStatus === "hosting" && (
               <button
                 style={{ background: "rgba(255,60,60,0.8)", border: "1px solid rgba(255,100,100,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
