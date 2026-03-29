@@ -8,7 +8,7 @@ import { usePresence } from "@/lib/usePresence";
 import { useNotifications } from "@/lib/useNotifications";
 
 interface User { id: string; username: string; display_name: string; avatar_url: string; }
-interface Message { id: number; sender_id: string; content: string; created_at: string; username: string; avatar_url: string; }
+interface Message { id: number; sender_id: string; content: string; created_at: string; username: string; avatar_url: string; image_data?: string; is_ephemeral?: boolean; }
 interface Group { id: number; name: string; created_by: string; created_at: string; member_count: number; }
 type ChatMessage = Message;
 
@@ -576,12 +576,13 @@ function GifPicker({ onPick, onClose }: { onPick: (url: string) => void; onClose
 }
 
 function ChatView({
-  messages, sessionUserId, onSend, onUnsend, placeholder, headerContent, onBack, isMobile, opponentId, onCall, isInCall, groupId
+  messages, sessionUserId, onSend, onUnsend, onSendImage, placeholder, headerContent, onBack, isMobile, opponentId, onCall, isInCall, groupId
 }: {
   messages: ChatMessage[];
   sessionUserId: string;
   onSend: (text: string) => Promise<void>;
   onUnsend?: (id: number) => void;
+  onSendImage?: (imageData: string) => void;
   placeholder: string;
   headerContent: React.ReactNode;
   onBack?: () => void;
@@ -601,6 +602,28 @@ function ChatView({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function handlePaste(e: React.ClipboardEvent) {
+    if (!onSendImage) return;
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find(item => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    const bitmap = await createImageBitmap(file);
+    const MAX = 600;
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+    if (dataUrl.length > 820000) { alert("Image too large to send — try a smaller screenshot."); return; }
+    onSendImage(dataUrl);
+  }
 
   // Browser session restore can repopulate the textarea after React's initial render.
   // This fires after mount, overriding any browser-restored value with an empty string.
@@ -726,7 +749,7 @@ function ChatView({
                   <div
                     className={mine ? "bubble-mine" : "bubble-theirs"}
                     style={{
-                      padding: isMedia ? "6px" : "7px 12px",
+                      padding: (isMedia || msg.image_data) ? "6px" : "7px 12px",
                       fontSize: 14,
                       lineHeight: 1.5,
                       color: "var(--text-primary)",
@@ -734,7 +757,11 @@ function ChatView({
                       width: isQuiz ? "100%" : undefined,
                     }}
                   >
-                    <MessageContent content={msg.content} sessionUserId={sessionUserId} senderId={msg.sender_id} />
+                    {msg.image_data ? (
+                      <img src={msg.image_data} alt="pasted image" style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: "block" }} />
+                    ) : (
+                      <MessageContent content={msg.content} sessionUserId={sessionUserId} senderId={msg.sender_id} />
+                    )}
                   </div>
                   {/* Unsend button — own messages only, revealed on hover */}
                   {mine && (
@@ -850,6 +877,7 @@ function ChatView({
           value={input}
           onChange={e => handleInput(e.target.value)}
           onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          onPaste={handlePaste}
           onFocus={() => { setTimeout(() => { textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, 300); }}
           placeholder={isMobile ? "Message..." : placeholder}
           autoComplete="off"
@@ -964,9 +992,13 @@ function MessagesInner() {
       const filtered = data.filter(m => !deletedMsgIds.current.has(m.id));
       const dbIds = new Set(filtered.map(m => m.id));
       prevMsgIds.current = dbIds as Set<number>;
-      // Merge: keep DB as source of truth, but preserve any recent local messages not yet in DB
+      // Merge: keep DB as source of truth, preserve recent local msgs + ephemeral images (up to 5 min)
       setMessages(prev => {
-        const recentLocal = prev.filter(m => !dbIds.has(m.id) && (Date.now() - new Date(m.created_at).getTime()) < 15000); // keep local msgs < 15s old
+        const now = Date.now();
+        const recentLocal = prev.filter(m => !dbIds.has(m.id) && (
+          (m.is_ephemeral && now - new Date(m.created_at).getTime() < 300000) || // ephemeral images: 5 min TTL
+          (!m.is_ephemeral && now - new Date(m.created_at).getTime() < 15000)    // regular optimistic: 15s
+        ));
         if (recentLocal.length === 0) return filtered;
         return [...filtered, ...recentLocal];
       });
@@ -1007,6 +1039,22 @@ function MessagesInner() {
               };
               setMessages(prev => {
                 if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
+                return [...prev, newMsg];
+              });
+              if (msg.senderId !== sessionUserId) bloop("receive");
+            } else if (msg.type === "dm-image" && msg.imageData) {
+              const newMsg: ChatMessage = {
+                id: msg.id ?? Date.now(),
+                sender_id: msg.senderId,
+                content: "",
+                image_data: msg.imageData,
+                is_ephemeral: true,
+                created_at: msg.createdAt ?? new Date().toISOString(),
+                username: msg.username,
+                avatar_url: msg.avatarUrl ?? "",
+              };
+              setMessages(prev => {
+                if (prev.some(m => m.id === newMsg.id)) return prev;
                 return [...prev, newMsg];
               });
               if (msg.senderId !== sessionUserId) bloop("receive");
@@ -1093,6 +1141,20 @@ function MessagesInner() {
     } else {
       console.error("DM failed to save after 3 attempts — message may be lost");
     }
+  }
+
+  function sendImageDM(imageData: string) {
+    if (!activeUser || !session?.user?.id) return;
+    const myId = session.user.id;
+    const myName = (session.user as { name?: string }).name ?? "User";
+    const myAvatar = (session.user as { image?: string }).image ?? "";
+    const now = new Date().toISOString();
+    const tempId = Date.now();
+    // Optimistic append — ephemeral, no DB write
+    setMessages(prev => [...prev, { id: tempId, sender_id: myId, content: "", image_data: imageData, is_ephemeral: true, created_at: now, username: myName, avatar_url: myAvatar }]);
+    // WS only
+    dmWsRef.current?.send(JSON.stringify({ type: "dm-image", id: tempId, senderId: myId, imageData, username: myName, avatarUrl: myAvatar, createdAt: now }));
+    bloop("send");
   }
 
   async function sendGroupMsg(text: string) {
@@ -1293,7 +1355,7 @@ function MessagesInner() {
             <div style={{ fontSize: 11, opacity: 0.6, textAlign: "center" }}>Type /chess for chess · /quiz to challenge<br />Use GIF button for GIFs · 🧠 for quiz</div>
           </div>
         ) : (
-          <ChatView messages={messages} sessionUserId={session.user?.id ?? ""} onSend={sendDM}
+          <ChatView messages={messages} sessionUserId={session.user?.id ?? ""} onSend={sendDM} onSendImage={sendImageDM}
             onUnsend={(id) => { deletedMsgIds.current.add(id); setMessages(prev => prev.filter(m => m.id !== id)); }}
             placeholder={`Message @${activeUser.username}... (/chess)`}
             isMobile={isMobile} onBack={() => setShowChat(false)}

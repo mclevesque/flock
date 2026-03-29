@@ -63,8 +63,10 @@ export async function GET(req: NextRequest) {
       sql`SELECT username, COUNT(*) as runs, MAX(kills) as best_kills, MAX(level) as best_level, AVG(kills)::int as avg_kills, SUM(CASE WHEN survived THEN 1 ELSE 0 END) as wins FROM outbreak_runs GROUP BY username ORDER BY best_kills DESC`,
       // All-time best run
       sql`SELECT * FROM outbreak_runs ORDER BY kills DESC LIMIT 1`,
-      // Leaderboard: best run per user per difficulty (ranked by kills)
-      sql`SELECT DISTINCT ON (username, difficulty) username, difficulty, kills, damage_dealt, upgrade_count, survived, time_survived, created_at FROM outbreak_runs ORDER BY username, difficulty, kills DESC`,
+      // Leaderboard: best run per user per difficulty (ranked by kills), with items used count
+      sql`SELECT DISTINCT ON (username, difficulty) username, difficulty, kills, damage_dealt, upgrade_count, survived, time_survived, created_at,
+          (COALESCE(jsonb_array_length(weapons), 0) + COALESCE(jsonb_array_length(passives), 0)) AS items_used
+          FROM outbreak_runs ORDER BY username, difficulty, kills DESC`,
     ]);
 
     return NextResponse.json({ runs, totals: totals[0], perUser, best: best[0], leaderboard });

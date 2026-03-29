@@ -2196,11 +2196,14 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                       <span style={{ background: "rgba(74,222,128,0.2)", color: "#4ade80", borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
                         {participants.length}
                       </span>
-                      <button
+                      <span
+                        role="button"
+                        tabIndex={0}
                         onClick={e => { e.stopPropagation(); setOpen(true); setUiSize("maxi"); }}
+                        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setOpen(true); setUiSize("maxi"); } }}
                         title="Expand"
-                        style={{ background: "rgba(74,222,128,0.15)", border: "none", borderRadius: 6, padding: "2px 6px", color: "#4ade80", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
-                      >⊞</button>
+                        style={{ background: "rgba(74,222,128,0.15)", borderRadius: 6, padding: "2px 6px", color: "#4ade80", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
+                      >⊞</span>
                     </>
                   )}
                 </>

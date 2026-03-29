@@ -29,6 +29,7 @@ interface OutbreakEntry {
   kills: string | number;
   difficulty: string | number;
   upgrade_count?: string | number;
+  items_used?: string | number;
   survived?: boolean;
 }
 
@@ -144,7 +145,8 @@ export default function LeaderboardsPage() {
 
   const filteredOutbreak = outbreakEntries
     .filter(e => Number(e.difficulty) === diffTab)
-    .sort((a, b) => Number(b.kills) - Number(a.kills));
+    .sort((a, b) => Number(b.kills) - Number(a.kills))
+    .slice(0, 15);
 
   const TABS: { id: Tab; label: string; emoji: string }[] = [
     { id: "overview", label: "OVERVIEW", emoji: "🏆" },
@@ -254,10 +256,10 @@ export default function LeaderboardsPage() {
           </div>
           <Card>
             <CardTitle>🧟 OUTBREAK — {DIFFICULTIES.find(d => d.id === diffTab)?.label}</CardTitle>
-            <ColHeader cols={["UPGR", "KILLS"]} />
+            <ColHeader cols={["ITEMS", "KILLS"]} />
             {filteredOutbreak.map((e, i) => (
               <LeaderRowFull key={e.username + i} rank={i + 1} name={e.username}
-                col1={e.upgrade_count != null ? e.upgrade_count : "—"} value={Number(e.kills).toLocaleString()} />
+                col1={e.items_used != null ? e.items_used : (e.upgrade_count != null ? e.upgrade_count : "—")} value={Number(e.kills).toLocaleString()} />
             ))}
             {filteredOutbreak.length === 0 && (
               <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>

@@ -20,7 +20,9 @@ export function sql(strings: TemplateStringsArray, ...values: postgres.Parameter
 (sql as unknown as Record<string, unknown>).query = (text: string, params?: unknown[]) =>
   getDb().unsafe(text, params as any[] | undefined) as Promise<Record<string, unknown>[]>;
 
+let _initDbReady = false;
 export async function initDb() {
+  if (_initDbReady) return; _initDbReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -1569,7 +1571,9 @@ export async function closeAllRoomsForUser(userId: string) {
 
 // ─── VOICE CHAT ───────────────────────────────────────────────────────────────
 
+let _voiceTablesReady = false;
 async function ensureVoiceTables() {
+  if (_voiceTablesReady) return; _voiceTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS voice_rooms (
       id TEXT PRIMARY KEY,
@@ -1735,7 +1739,9 @@ export async function getVoiceRoomByDmPair(dmPair: string) {
 
 // ─── WATCH TOGETHER ───────────────────────────────────────────────────────────
 
+let _watchTablesReady = false;
 async function ensureWatchTables() {
+  if (_watchTablesReady) return; _watchTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS watch_rooms (
       id TEXT PRIMARY KEY,
@@ -1938,7 +1944,9 @@ export async function getIncomingDmCallsForUser(userId: string) {
 
 // ─── POKER ────────────────────────────────────────────────────────────────────
 
+let _pokerTablesReady = false;
 async function ensurePokerTables() {
+  if (_pokerTablesReady) return; _pokerTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS poker_rooms (
       id TEXT PRIMARY KEY,
@@ -2079,7 +2087,9 @@ export async function getPokerLobbies() {
 
 // ── Screen Share Signals ──────────────────────────────────────────────────
 
+let _screenShareReady = false;
 async function ensureScreenShareSignals() {
+  if (_screenShareReady) return; _screenShareReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS screen_share_signals (
       id SERIAL PRIMARY KEY,
@@ -2136,7 +2146,9 @@ export async function setWatchRoomScreenSharing(roomId: string, active: boolean)
 
 // ─── Draw Rooms ───────────────────────────────────────────────────────────────
 
+let _drawTablesReady = false;
 async function ensureDrawTables() {
+  if (_drawTablesReady) return; _drawTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS draw_rooms (
       id TEXT PRIMARY KEY,
@@ -2284,7 +2296,9 @@ export async function getDrawMessages(roomId: string) {
 
 // ─── Share Feed ───────────────────────────────────────────────────────────────
 
+let _shareTablesReady = false;
 async function ensureShareTables() {
+  if (_shareTablesReady) return; _shareTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS shares (
       id TEXT PRIMARY KEY,
@@ -2463,7 +2477,9 @@ export async function deleteShare(shareId: string, userId: string) {
 
 // ─── Town Square ──────────────────────────────────────────────────────────────
 
+let _townTableReady = false;
 async function ensureTownTable() {
+  if (_townTableReady) return; _townTableReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS town_players (
       user_id TEXT PRIMARY KEY,
@@ -2618,7 +2634,9 @@ export async function setTownEquippedDisplay(userId: string, emoji: string | nul
 
 // ── RPS (Rock Paper Scissors) ─────────────────────────────────────────────────
 
+let _rpsTableReady = false;
 async function ensureRpsTable() {
+  if (_rpsTableReady) return; _rpsTableReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS rps_games (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -2700,7 +2718,9 @@ export async function cleanupExpiredRps() {
 
 // ─── Adventure System ─────────────────────────────────────────────────────────
 
+let _adventureTablesReady = false;
 async function ensureAdventureTables() {
+  if (_adventureTablesReady) return; _adventureTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS player_adventure_stats (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -3010,7 +3030,9 @@ export async function upsertPrivileges(userId: string, patch: {
 }
 
 // ── NPC Memory ────────────────────────────────────────────────────────────────
+let _npcMemoryTableReady = false;
 async function ensureNpcMemoryTable() {
+  if (_npcMemoryTableReady) return; _npcMemoryTableReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS npc_memory (
       user_id TEXT NOT NULL,
@@ -4255,7 +4277,9 @@ export async function transferLead(partyId: string, newLeaderId: string, newLead
 
 // ── Pong Multiplayer ───────────────────────────────────────────────────────────
 
+let _pongTablesReady = false;
 async function ensurePongTables() {
+  if (_pongTablesReady) return; _pongTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS pong_rooms (
       id TEXT PRIMARY KEY,
@@ -4584,7 +4608,9 @@ export async function deleteChronicleComment(commentId: number, userId: string) 
 
 // ── WADDABI (Draw & Guess) ─────────────────────────────────────────────────
 
+let _waddabiTablesReady = false;
 async function ensureWaddabiTables() {
+  if (_waddabiTablesReady) return; _waddabiTablesReady = true;
   await sql`
     CREATE TABLE IF NOT EXISTS waddabi_rooms (
       id TEXT PRIMARY KEY,
