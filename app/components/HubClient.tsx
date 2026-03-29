@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
 
 interface GameCard {
   id: string;
@@ -20,8 +19,7 @@ const GAME_SECTIONS: { label: string; icon: string; games: GameCard[] }[] = [
     games: [
       { id: "outbreak",  title: "Outbreak",        desc: "Co-op zombie survival roguelike",     emoji: "🧟", multiplayer: true,
         iframeUrl: `/games/outbreak/index.html` },
-      { id: "waddabi",   title: "Wadabbi?!",        desc: "Draw it. Guess it. Win.",             emoji: "🎨", multiplayer: true, href: "/waddabi" },
-      { id: "tightrope", title: "Tightrope Terror", desc: "Balance your way across the void",   emoji: "🎪",
+{ id: "tightrope", title: "Tightrope Terror", desc: "Balance your way across the void",   emoji: "🎪",
         iframeUrl: "/games/tightrope/index.html" },
       { id: "matty",     title: "Matty Milkers",    desc: "Raw milk platformer adventure",       emoji: "🥛",
         iframeUrl: "/games/matty-milkers/index.html" },
@@ -55,7 +53,43 @@ export default function HubClient({ username, userId }: { username: string; user
   const [escPrompt, setEscPrompt] = useState(false);
   const [gpConnected, setGpConnected] = useState(false);
   const [gpName, setGpName] = useState("");
+  const [showAppBanner, setShowAppBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Mobile app install banner
+  useEffect(() => {
+    const isMobile = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    const dismissed = localStorage.getItem("gs_app_banner_dismissed");
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const standalone = (window.navigator as any).standalone === true;
+    // Don't show if already installed as PWA
+    if (!isMobile || dismissed || standalone) return;
+    setIsIOS(ios);
+    // Android: show once beforeinstallprompt is ready, or immediately
+    setShowAppBanner(true);
+  }, []);
+
+  function handleInstallClick() {
+    const prompt = (window as any).__pwaInstallPrompt;
+    if (prompt) {
+      prompt.prompt();
+      prompt.userChoice.then(() => {
+        (window as any).__pwaInstallPrompt = null;
+        setShowAppBanner(false);
+        localStorage.setItem("gs_app_banner_dismissed", "1");
+      });
+    }
+  }
+
+  // Listen for exit-game message from game iframes (e.g. when in fullscreen)
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "exit-game") { setActiveGame(null); setEscPrompt(false); }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   // Gamepad detection
   useEffect(() => {
@@ -157,6 +191,25 @@ export default function HubClient({ username, userId }: { username: string; user
       {/* Hub */}
       {!activeGame && (
         <>
+          {/* Mobile app install banner */}
+          {showAppBanner && (
+            <div style={{ background: "linear-gradient(90deg,#1a1000,#2a1800)", borderBottom: "1px solid #d4a942", padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", zIndex: 10, position: "relative" }}>
+              <span style={{ fontSize: 22 }}>🔥</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", fontSize: 13, fontWeight: 700 }}>Get the Great Souls App</div>
+                <div style={{ color: "#a08040", fontSize: 12, marginTop: 2 }}>
+                  {isIOS ? "Tap the Share button → \"Add to Home Screen\"" : "Install for full-screen landscape gaming"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                {!isIOS && (
+                  <button onClick={handleInstallClick} style={{ background: "#d4a942", color: "#0d0d0d", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, fontFamily: "'Cinzel', serif", cursor: "pointer", letterSpacing: "0.05em" }}>INSTALL</button>
+                )}
+                <button onClick={() => { setShowAppBanner(false); localStorage.setItem("gs_app_banner_dismissed", "1"); }} style={{ width: 32, height: 32, background: "transparent", border: "1px solid #444", borderRadius: 6, color: "#666", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+              </div>
+            </div>
+          )}
+
           {/* Ember particles */}
           {[22, 38, 55, 70, 30, 48].map((left, i) => (
             <div key={i} className="ember" style={{ left: `${left}%`, bottom: `${6 + i * 3}%`, "--dur": `${3.5 + (i % 3) * 0.8}s`, animationDelay: `${i * 0.6}s` } as React.CSSProperties} />
@@ -188,15 +241,6 @@ export default function HubClient({ username, userId }: { username: string; user
               </div>
             ))}
 
-            {/* Leaderboard preview */}
-            <div className="section-header"><span>🏆 LEADERBOARDS</span></div>
-            <LeaderboardPreview />
-            <div style={{ textAlign: "center", marginTop: 12 }}>
-              <Link href="/leaderboards" style={{ fontFamily: "'Cinzel', serif", fontSize: 11, letterSpacing: "0.12em", color: "#8a6d2b", textDecoration: "none" }}>
-                VIEW FULL LEADERBOARDS →
-              </Link>
-            </div>
-
             {/* Footer */}
             <div style={{ textAlign: "center", padding: "40px 0 16px", borderTop: "1px solid #2a2a2a", marginTop: 40 }}>
               <p style={{ color: "#444", fontSize: 11, margin: 0 }}>🔥 GREAT SOULS · A gathering of legends</p>
@@ -204,37 +248,6 @@ export default function HubClient({ username, userId }: { username: string; user
           </main>
         </>
       )}
-    </div>
-  );
-}
-
-function LeaderboardPreview() {
-  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
-  useEffect(() => {
-    fetch("/api/users/all").then(r => r.ok ? r.json() : []).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
-  }, []);
-
-  if (!users.length) return <div style={{ color: "#444", fontSize: 13, padding: "12px 0" }}>Loading...</div>;
-
-  const card = (title: string, sorted: typeof users, key: string, fallback: number) => (
-    <div style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, padding: 16 }}>
-      <h4 style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", fontSize: 11, fontWeight: 700, marginBottom: 12, letterSpacing: "0.12em" }}>{title}</h4>
-      {sorted.slice(0, 5).map((u: any, i: number) => (
-        <div key={u.username as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-          <span style={{ color: "#8a6d2b", fontSize: 11, width: 16 }}>{i + 1}</span>
-          <img src={`/api/avatar/${u.id}?v=2`} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
-          <span style={{ flex: 1, fontSize: 13, color: "#e8dcc8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.username as string}</span>
-          <span style={{ color: "#d4a942", fontSize: 13, fontWeight: 700 }}>{(u.stats as any)?.[key] ?? fallback}</span>
-        </div>
-      ))}
-    </div>
-  );
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
-      {card("♟️ CHESS ELO", [...users].sort((a: any, b: any) => (b.stats?.chess_rating ?? 1200) - (a.stats?.chess_rating ?? 1200)), "chess_rating", 1200)}
-      {card("🏓 PADDLE ELO", [...users].sort((a: any, b: any) => (b.stats?.paddle_rating ?? 1200) - (a.stats?.paddle_rating ?? 1200)), "paddle_rating", 1200)}
-      {card("🧟 OUTBREAK KILLS", [...users].sort((a: any, b: any) => (b.stats?.outbreak_best_kills ?? 0) - (a.stats?.outbreak_best_kills ?? 0)), "outbreak_best_kills", 0)}
     </div>
   );
 }

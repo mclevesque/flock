@@ -2,16 +2,74 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <title>MATTY MILKERS</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-        canvas { image-rendering: pixelated; width: 100vw; height: 100vh; object-fit: contain; }
+        html, body { background: #000; width: 100%; height: 100%; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; position: fixed; inset: 0; }
+        body { display: flex; align-items: center; justify-content: center; }
+        canvas { image-rendering: pixelated; width: 100vw; height: 100vh; object-fit: contain; display: block; }
+
+        /* Portrait lock */
+        #mm-rotate { display: none; position: fixed; inset: 0; z-index: 9999; background: #0a0a12; flex-direction: column; align-items: center; justify-content: center; color: #44cc44; font-family: monospace; text-align: center; gap: 16px; }
+        #mm-rotate .ri { font-size: 60px; animation: rh 2s ease-in-out infinite; }
+        #mm-rotate p { color: #778866; font-size: 15px; padding: 0 28px; }
+        @keyframes rh { 0%,100% { transform:rotate(0deg); } 25%,75% { transform:rotate(90deg); } }
+        @media (hover:none) and (pointer:coarse) and (orientation:portrait) {
+            #mm-rotate { display: flex !important; }
+            #mm-ctrl { display: none !important; }
+            canvas { visibility: hidden; }
+        }
+
+        /* Touch controls */
+        #mm-ctrl { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+        @media (hover:none) and (pointer:coarse) and (orientation:landscape) { #mm-ctrl { display: block; } }
+
+        .mm-btn {
+            position: fixed; border-radius: 50%; border: 2.5px solid rgba(80,200,100,0.8);
+            background: rgba(6,14,8,0.88); color: rgba(120,240,140,1);
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; touch-action: none;
+            transition: background 0.07s, transform 0.07s;
+            box-shadow: 0 0 14px rgba(60,200,80,0.28);
+        }
+        .mm-btn.active { background: rgba(60,160,70,0.5); transform: scale(0.89); }
+        .mm-btn-act { border-color: rgba(255,200,50,0.85); color: rgba(255,220,100,1); box-shadow: 0 0 14px rgba(255,180,40,0.3); }
+        .mm-btn-act.active { background: rgba(180,130,20,0.5); }
+
+        #mm-left  { width:72px; height:72px; font-size:26px; bottom:max(14px,env(safe-area-inset-bottom)); left:max(14px,env(safe-area-inset-left)); }
+        #mm-right { width:72px; height:72px; font-size:26px; bottom:max(14px,env(safe-area-inset-bottom)); left:calc(max(14px,env(safe-area-inset-left)) + 78px); }
+        #mm-jump  { width:72px; height:72px; font-size:13px; font-weight:700; bottom:max(14px,env(safe-area-inset-bottom)); right:calc(max(14px,env(safe-area-inset-right)) + 78px); }
+        #mm-atk   { width:72px; height:72px; font-size:12px; font-weight:700; bottom:max(14px,env(safe-area-inset-bottom)); right:max(14px,env(safe-area-inset-right)); }
+        #mm-shield{ width:66px; height:66px; font-size:12px; font-weight:700; bottom:calc(max(14px,env(safe-area-inset-bottom)) + 78px); right:calc(max(14px,env(safe-area-inset-right)) + 78px); }
+        #mm-rant  { width:66px; height:66px; font-size:11px; font-weight:700; bottom:calc(max(14px,env(safe-area-inset-bottom)) + 78px); right:max(14px,env(safe-area-inset-right)); }
+
+        #mm-exit { width:44px; height:44px; font-size:18px; top:max(8px,env(safe-area-inset-top)); left:max(8px,env(safe-area-inset-left)); border-radius:10px; background:rgba(6,14,8,0.75); border:1px solid #333; color:#666; position:fixed; pointer-events:auto; touch-action:none; display:flex; align-items:center; justify-content:center; z-index:200; cursor:pointer; }
     </style>
 </head>
 <body>
     <canvas id="game-canvas"></canvas>
+
+    <!-- Portrait rotate prompt -->
+    <div id="mm-rotate">
+        <div class="ri">📱</div>
+        <h2 style="font-size:18px;letter-spacing:.05em">Rotate Your Phone</h2>
+        <p>Matty Milkers plays in landscape mode.</p>
+    </div>
+
+    <!-- Touch controls -->
+    <div id="mm-ctrl">
+        <div id="mm-left"   class="mm-btn">◀</div>
+        <div id="mm-right"  class="mm-btn">▶</div>
+        <div id="mm-jump"   class="mm-btn mm-btn-act">JUMP</div>
+        <div id="mm-atk"    class="mm-btn mm-btn-act">BIBLE</div>
+        <div id="mm-shield" class="mm-btn mm-btn-act">SHIELD</div>
+        <div id="mm-rant"   class="mm-btn mm-btn-act">RANT</div>
+    </div>
+
+    <!-- Exit to hub -->
+    <div id="mm-exit" onclick="window.parent.postMessage({type:'exit-game'},'*')">✕</div>
 
     <script>
     // Universal gamepad state — receives from postMessage (iframe) OR polls directly (standalone)
@@ -1617,7 +1675,8 @@
         c5.color = '#ff8844'; c5.align = 'center';
         scene.addChild(c5);
 
-        const st = new TextNode('ST', 'PRESS A / START');
+        const isMob = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const st = new TextNode('ST', isMob ? 'TAP TO START' : 'PRESS A / START');
         st.position = { x: 320, y: 250 }; st.font = 'bold 14px monospace';
         st.color = '#ffffff'; st.align = 'center';
         scene.addChild(st);
@@ -1671,7 +1730,7 @@
         s.font = '12px monospace'; s.color = '#ffcc00'; s.align = 'center';
         scene.addChild(s);
 
-        const r = new TextNode('R', 'PRESS A TO TRY AGAIN');
+        const r = new TextNode('R', ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'TAP TO TRY AGAIN' : 'PRESS A TO TRY AGAIN');
         r.position = { x: 320, y: 200 }; r.font = '14px monospace';
         r.color = '#ffffff'; r.align = 'center';
         scene.addChild(r);
@@ -2645,6 +2704,63 @@
     }, { once: true });
 
     console.log('RAW MILK loaded! Press Space to start.');
+
+    // ==================== MOBILE TOUCH SETUP ====================
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+        // Orientation lock attempt
+        try { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {}); } catch(e) {}
+
+        // Fill viewport on resize/rotate
+        function mmResize() {
+            const c = document.getElementById('game-canvas');
+            if (c) { c.style.width = window.innerWidth + 'px'; c.style.height = window.innerHeight + 'px'; }
+        }
+        window.addEventListener('resize', mmResize);
+        window.addEventListener('orientationchange', () => setTimeout(mmResize, 100));
+        mmResize();
+
+        // Tap canvas = resume audio + confirm on title/gameover screens
+        document.getElementById('game-canvas').addEventListener('touchstart', () => {
+            music._ensureContext?.();
+            engine.audio.resume?.();
+            // Inject Space as just-pressed so title/gameover scenes pick it up
+            engine.input._keysDown['Space'] = true;
+            engine.input._keys['Space'] = true;
+            setTimeout(() => { engine.input._keys['Space'] = false; }, 80);
+        }, { passive: true });
+
+        // Wire a touch button to the engine input system
+        function mmWireBtn(id, heldCode, tapCode) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                el.classList.add('active');
+                if (heldCode) engine.input._keys[heldCode] = true;
+                if (tapCode) { engine.input._keysDown[tapCode] = true; engine.input._keys[tapCode] = true; }
+                engine.audio.resume?.();
+            }, { passive: false });
+            el.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                el.classList.remove('active');
+                if (heldCode) engine.input._keys[heldCode] = false;
+                if (tapCode) engine.input._keys[tapCode] = false;
+            }, { passive: false });
+            el.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                el.classList.remove('active');
+                if (heldCode) engine.input._keys[heldCode] = false;
+                if (tapCode) engine.input._keys[tapCode] = false;
+            }, { passive: false });
+        }
+
+        mmWireBtn('mm-left',   'ArrowLeft',  null);
+        mmWireBtn('mm-right',  'ArrowRight', null);
+        mmWireBtn('mm-jump',   null,         'Space');       // isKeyDown('Space')
+        mmWireBtn('mm-atk',    'KeyX',       null);          // isKey('KeyX') — rising edge in game
+        mmWireBtn('mm-shield', 'KeyZ',       null);          // isKey('KeyZ') — held shield
+        mmWireBtn('mm-rant',   null,         'KeyR');        // isKeyDown('KeyR')
+    }
     </script>
 </body>
 </html>

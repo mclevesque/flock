@@ -9,6 +9,7 @@ import { VibeProvider } from "./components/VibePlayer";
 import GlobalNotifications from "./components/GlobalNotifications";
 import GlobalPartyWidget from "./components/GlobalPartyWidget";
 import { PortalProvider } from "./components/PortalContext";
+import PWAInstall from "./components/PWAInstall";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&display=swap" rel="stylesheet" />
       </head>
       <body className={`${geist.variable} antialiased gs-theme`}>
+        <PWAInstall />
         <SessionWrapper>
           <PortalProvider>
           <VoiceProvider>

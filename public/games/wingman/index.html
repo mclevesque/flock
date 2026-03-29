@@ -1,14 +1,82 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>WINGMAN — A Vibe Engine Game</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: monospace; }
-canvas { }
+html, body { background: #000; overflow: hidden; width: 100%; height: 100%; touch-action: none; -webkit-user-select: none; user-select: none; position: fixed; inset: 0; }
+body { display: flex; align-items: center; justify-content: center; font-family: monospace; }
+canvas { width: 100vw; height: 100vh; object-fit: contain; display: block; }
+
+/* Portrait lock overlay */
+#wm-rotate { display: none; position: fixed; inset: 0; z-index: 9999; background: #100820; flex-direction: column; align-items: center; justify-content: center; color: #ff69b4; font-family: monospace; text-align: center; gap: 16px; }
+#wm-rotate .ri { font-size: 60px; animation: rh 2s ease-in-out infinite; }
+#wm-rotate p { color: #aa88aa; font-size: 15px; padding: 0 28px; }
+@keyframes rh { 0%,100% { transform:rotate(0deg); } 25%,75% { transform:rotate(90deg); } }
+@media (hover:none) and (pointer:coarse) and (orientation:portrait) {
+    #wm-rotate { display: flex !important; }
+    #wm-ctrl { display: none !important; }
+    canvas { visibility: hidden; }
+}
+
+/* Touch controls */
+#wm-ctrl { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+@media (hover:none) and (pointer:coarse) and (orientation:landscape) { #wm-ctrl { display: block; } }
+
+.wm-btn {
+    position: fixed; border-radius: 50%; border: 2.5px solid rgba(255,100,200,0.8);
+    background: rgba(10,4,20,0.85); color: rgba(255,160,220,1);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; touch-action: none;
+    transition: background 0.07s, transform 0.07s;
+    box-shadow: 0 0 14px rgba(255,80,180,0.3);
+}
+.wm-btn.active { background: rgba(220,60,140,0.5); transform: scale(0.89); border-color: #ff69b4; }
+.wm-btn-act { border-color: rgba(255,200,80,0.8); color: rgba(255,220,120,1); box-shadow: 0 0 14px rgba(255,180,50,0.3); }
+.wm-btn-act.active { background: rgba(200,140,30,0.5); }
+
+/* D-pad left cluster */
+#wm-left  { width:72px; height:72px; font-size:26px; bottom:max(14px,env(safe-area-inset-bottom)); left:max(14px,env(safe-area-inset-left)); }
+#wm-right { width:72px; height:72px; font-size:26px; bottom:max(14px,env(safe-area-inset-bottom)); left:calc(max(14px,env(safe-area-inset-left)) + 78px); }
+#wm-up    { width:60px; height:60px; font-size:22px; bottom:max(94px,calc(env(safe-area-inset-bottom) + 80px)); left:max(14px,env(safe-area-inset-left)); }
+#wm-down  { width:60px; height:60px; font-size:22px; bottom:max(94px,calc(env(safe-area-inset-bottom) + 80px)); left:calc(max(14px,env(safe-area-inset-left)) + 78px); }
+
+/* Action buttons right cluster */
+#wm-jump    { width:72px; height:72px; font-size:13px; font-weight:700; bottom:max(14px,env(safe-area-inset-bottom)); right:calc(max(14px,env(safe-area-inset-right)) + 78px); }
+#wm-fight   { width:72px; height:72px; font-size:13px; font-weight:700; bottom:max(14px,env(safe-area-inset-bottom)); right:max(14px,env(safe-area-inset-right)); }
+#wm-charm   { width:72px; height:72px; font-size:13px; font-weight:700; bottom:calc(max(14px,env(safe-area-inset-bottom)) + 78px); right:calc(max(14px,env(safe-area-inset-right)) + 78px); }
+#wm-wingman { width:72px; height:72px; font-size:11px; font-weight:700; bottom:calc(max(14px,env(safe-area-inset-bottom)) + 78px); right:max(14px,env(safe-area-inset-right)); }
+
+/* Back to hub button */
+#wm-exit { width:44px; height:44px; font-size:18px; top:max(8px,env(safe-area-inset-top)); left:max(8px,env(safe-area-inset-left)); border-radius:10px; background:rgba(10,4,20,0.75); border:1px solid #333; color:#888; position:fixed; pointer-events:auto; touch-action:none; display:flex; align-items:center; justify-content:center; z-index:200; cursor:pointer; }
 </style>
 </head><body>
 <canvas id="game"></canvas>
+
+<!-- Portrait rotate prompt -->
+<div id="wm-rotate">
+  <div class="ri">📱</div>
+  <h2 style="font-size:18px;letter-spacing:.05em">Rotate Your Phone</h2>
+  <p>Wingman plays in landscape mode.</p>
+</div>
+
+<!-- Touch controls -->
+<div id="wm-ctrl">
+  <div id="wm-left"  class="wm-btn">◀</div>
+  <div id="wm-right" class="wm-btn">▶</div>
+  <div id="wm-up"    class="wm-btn" style="font-size:18px">▲</div>
+  <div id="wm-down"  class="wm-btn" style="font-size:18px">▼</div>
+  <div id="wm-jump"    class="wm-btn wm-btn-act">JUMP</div>
+  <div id="wm-fight"   class="wm-btn wm-btn-act">FIGHT</div>
+  <div id="wm-charm"   class="wm-btn wm-btn-act">CHARM</div>
+  <div id="wm-wingman" class="wm-btn wm-btn-act">WING<br>MAN</div>
+</div>
+
+<!-- Exit to hub -->
+<div id="wm-exit" onclick="window.parent.postMessage({type:'exit-game'},'*')">✕</div>
+
 <script>
 /* =====================================================
    WINGMAN v3 — CLAIRVOYANCE VALIDATED BUILD
@@ -45,6 +113,9 @@ canvas.style.width = '100vw';
 canvas.style.height = '100vh';
 canvas.style.objectFit = 'contain';
 ctx.imageSmoothingEnabled = false;
+
+const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+let touchTap = false; // cleared each update — used for title/gameover/win tap-to-continue
 
 // ==================== CONSTANTS ====================
 const GRAVITY = 0.35;
@@ -150,7 +221,7 @@ function jumpBtn() { return wasP('Space') || wasP('ArrowUp') || wasP('KeyW') || 
 function fightBtn() { return wasP('KeyX') || wasP('KeyJ') || gpP(2); }
 function charmBtn() { return wasP('KeyZ') || wasP('KeyK') || gpP(1); }
 function wingmanBtn() { return wasP('KeyC') || wasP('KeyL') || gpP(3); }
-function confirmBtn() { return wasP('Space') || wasP('Enter') || wasP('KeyZ') || gpP(0) || gpP(1); }
+function confirmBtn() { return wasP('Space') || wasP('Enter') || wasP('KeyZ') || gpP(0) || gpP(1) || touchTap; }
 function anyBtn() { return Object.values(justPressed).some(v=>v) || gpState.jp.some(v=>v); }
 
 // ==================== AUDIO ====================
@@ -1219,6 +1290,7 @@ function update() {
     // Clear input
     for (const k in justPressed) justPressed[k] = false;
     gpState.jp.fill(false);
+    touchTap = false;
 }
 
 // ==================== RENDER ====================
@@ -1248,7 +1320,7 @@ function render() {
         ctx.fillText('Each enemy has a weakness!', 640, 410);
         ctx.fillStyle = Math.sin(gs.time*0.05) > 0 ? '#fff' : '#888';
         ctx.font = '24px monospace';
-        ctx.fillText('Press A / SPACE to start', 640, 540);
+        ctx.fillText(isMobile ? 'TAP to start' : 'Press A / SPACE to start', 640, 540);
         ctx.fillStyle = '#555';
         ctx.font = '16px monospace';
         ctx.fillText('A Vibe Engine Game', 640, 660);
@@ -1673,6 +1745,56 @@ function loop(now) {
     accum += dt;
     while (accum >= TARGET_DT) { update(); accum -= TARGET_DT; }
     render();
+}
+
+// ==================== MOBILE TOUCH SETUP ====================
+if (isMobile) {
+    // Tap canvas to confirm on title/gameover/win/credits screens
+    canvas.addEventListener('touchstart', () => { touchTap = true; initAudio(); }, { passive: true });
+
+    // Orientation lock attempt
+    try { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {}); } catch(e) {}
+
+    // Resize fill
+    function wmResize() { canvas.style.width = window.innerWidth + 'px'; canvas.style.height = window.innerHeight + 'px'; }
+    window.addEventListener('resize', wmResize);
+    window.addEventListener('orientationchange', () => setTimeout(wmResize, 100));
+    wmResize();
+
+    // Wire a touch button: held = sets keys[code], tap = sets justPressed[code]
+    function wireTouchBtn(id, heldCode, tapCode) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const startFn = (e) => {
+            e.preventDefault();
+            el.classList.add('active');
+            if (heldCode) keys[heldCode] = true;
+            if (tapCode) { justPressed[tapCode] = true; initAudio(); }
+        };
+        const endFn = (e) => {
+            e.preventDefault();
+            el.classList.remove('active');
+            if (heldCode) keys[heldCode] = false;
+        };
+        el.addEventListener('touchstart', startFn, { passive: false });
+        el.addEventListener('touchend',   endFn,   { passive: false });
+        el.addEventListener('touchcancel',endFn,   { passive: false });
+    }
+
+    // Left/right = held movement; up/down = tap for charm-pick navigation
+    wireTouchBtn('wm-left',    'ArrowLeft',  null);
+    wireTouchBtn('wm-right',   'ArrowRight', null);
+    wireTouchBtn('wm-up',      null,         'ArrowUp');
+    wireTouchBtn('wm-down',    null,         'ArrowDown');
+    // Action buttons = tap only (game detects rising edge)
+    wireTouchBtn('wm-jump',    null,         'Space');
+    wireTouchBtn('wm-fight',   null,         'KeyX');
+    wireTouchBtn('wm-charm',   null,         'KeyZ');
+    wireTouchBtn('wm-wingman', null,         'KeyC');
+
+    // Re-fire justPressed each frame while held for up/down (charm-pick repeat)
+    const _origUpdate = update;
+    // No special repeat needed — user just taps again
 }
 
 requestAnimationFrame(loop);

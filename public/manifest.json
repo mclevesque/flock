@@ -1,12 +1,12 @@
 {
-  "name": "RYFT",
-  "short_name": "RYFT",
-  "description": "Your space. No ads. Ever.",
+  "name": "Great Souls",
+  "short_name": "Great Souls",
+  "description": "Friends-only gaming hub. No ads. No tracking. Just legends.",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#0d0f14",
-  "theme_color": "#00e5ff",
+  "orientation": "landscape",
+  "background_color": "#0d0d0d",
+  "theme_color": "#d4a942",
   "icons": [
     { "src": "/RYFTLOGO.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" },
     { "src": "/RYFTLOGO.png", "sizes": "1024x1024", "type": "image/png", "purpose": "maskable" }

@@ -161,6 +161,9 @@
         <p>Tightrope Terror plays in landscape mode.</p>
     </div>
 
+    <!-- Exit to hub (touch devices only) -->
+    <div id="tr-exit" onclick="window.parent.postMessage({type:'exit-game'},'*')" style="display:none;width:44px;height:44px;font-size:18px;position:fixed;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));border-radius:10px;background:rgba(10,8,18,0.75);border:1px solid #333;color:#666;align-items:center;justify-content:center;z-index:200;cursor:pointer;pointer-events:auto;touch-action:none;">✕</div>
+
     <!-- Mobile touch controls (landscape touch devices only) -->
     <div id="mobile-controls">
         <div id="touch-left" class="touch-btn">&larr;</div>
@@ -594,7 +597,7 @@
                 star.twinkle += dt * (1 + Math.random());
             }
 
-            if (this.timer > 2.5 && (this.engine.input.isKeyDown('Space') || touchState.spaceDown)) {
+            if (this.timer > 1.0 && (this.engine.input.isKeyDown('Space') || touchState.spaceDown)) {
                 this.engine.switchScene('game', 'fade');
             }
         }
@@ -1666,6 +1669,10 @@
     setupTouchBtn('touch-left', 'left');
     setupTouchBtn('touch-right', 'right');
     setupTouchBtn('touch-step', 'step');
+
+    // Show exit button on touch devices
+    const trExit = document.getElementById('tr-exit');
+    if (trExit) trExit.style.display = 'flex';
 
     // Tap anywhere on canvas = SPACE (for title screen / restart)
     document.getElementById('game-canvas').addEventListener('touchstart', (e) => {
