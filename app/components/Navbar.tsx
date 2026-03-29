@@ -159,6 +159,7 @@ export default function Navbar() {
             💬 Messages
             <Badge n={unreadMessages} />
           </Link>
+          <Link href="/moonhaven" style={activeStyle(path.startsWith("/moonhaven")) as React.CSSProperties}>🌙 Moonhaven</Link>
           <Link href="/leaderboards" style={activeStyle(path.startsWith("/leaderboards")) as React.CSSProperties}>🏆 Leaderboards</Link>
         </nav>
 
@@ -209,8 +210,8 @@ export default function Navbar() {
       }}>
         <BottomTab href="/" icon="🏠" label="Games" />
         <BottomTab href="/messages" icon="💬" label="Messages" badge={unreadMessages} onClick={() => setUnreadMessages(0)} />
+        <BottomTab href="/moonhaven" icon="🌙" label="Moonhaven" />
         <BottomTab href="/friends" icon="👥" label="Friends" badge={pendingCount} />
-        <BottomTab href="/leaderboards" icon="🏆" label="Ranks" />
         {/* Profile tab */}
         <Link href={session ? `/profile/${session.user?.name}` : "/signin"} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "7px 4px 6px", textDecoration: "none", position: "relative", gap: 3, minHeight: 56, color: path.startsWith("/profile") ? "#d4a942" : "#555" }}>
           {path.startsWith("/profile") && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: 2, background: "#d4a942", borderRadius: "0 0 3px 3px" }} />}

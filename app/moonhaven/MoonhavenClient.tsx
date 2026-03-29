@@ -358,7 +358,19 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     pc.ontrack = (e) => {
       if (!e.streams[0]) return;
       setSsStatus("viewing");
-      applyVideoToScreen(e.streams[0]);
+      applyVideoToScreen(e.streams[0]).then(() => {
+        // Attempt immediate unmute (works in Chrome if user has interacted)
+        const vid = screenVideoRef.current;
+        if (vid) vid.muted = false;
+        // Fallback: unlock audio on next user gesture (required for Safari)
+        const unlock = () => {
+          if (screenVideoRef.current?.srcObject) screenVideoRef.current.muted = false;
+          document.removeEventListener("click", unlock);
+          document.removeEventListener("keydown", unlock);
+        };
+        document.addEventListener("click", unlock, { passive: true });
+        document.addEventListener("keydown", unlock, { passive: true });
+      });
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "failed" && !isSharingRef.current && hasRequestedRef.current) {
@@ -1189,8 +1201,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         }
       };
       const onKeyUp = (e: KeyboardEvent) => { keysRef.current.delete(e.code); };
+      // Clear all held keys on blur — prevents stuck movement when switching tabs/apps
+      const onWindowBlur = () => keysRef.current.clear();
       window.addEventListener("keydown", onKeyDown);
       window.addEventListener("keyup", onKeyUp);
+      window.addEventListener("blur", onWindowBlur);
 
       // ── Resize ────────────────────────────────────────────────────────────
       const onResize = () => {
@@ -1477,6 +1492,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         window.removeEventListener("mouseup", onMouseUp);
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
+        window.removeEventListener("blur", onWindowBlur);
         window.removeEventListener("resize", onResize);
         renderer.dispose();
         mountRef.current?.removeChild(renderer.domElement);
@@ -2289,7 +2305,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       )}
 
       {/* Emoji reactions bar — visible when near the drive-in and something is playing */}
-      {driveInNear && ssStatus !== "idle" && (
+      {driveInNear && (ssStatus !== "idle" || !!theaterState?.videoUrl) && (
         <div
           onPointerDown={e => e.stopPropagation()}
           onMouseDown={e => e.stopPropagation()}
@@ -2311,11 +2327,23 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             { emoji: "🔥", label: "Fire" },
           ].map(r => (
             <button key={r.emoji} title={r.label} onClick={() => {
-              // Send reaction via PartyKit chat (visible to all)
+              // Send reaction to all
               const ws = townSocketRef.current;
               if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({ type: "chat", userId, text: r.emoji }));
               }
+              // Show on own avatar bubble (playerMeshRef, not otherMeshes)
+              getThree().then(THREE => {
+                if (!playerMeshRef.current) return;
+                const bubble = playerMeshRef.current.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
+                if (bubble) {
+                  const tex = new THREE.CanvasTexture(makeChatCanvas(r.emoji));
+                  (bubble.material as import("three").MeshBasicMaterial).map = tex;
+                  (bubble.material as import("three").MeshBasicMaterial).needsUpdate = true;
+                  bubble.visible = true;
+                  setTimeout(() => { if (bubble) bubble.visible = false; }, 5000);
+                }
+              });
             }} style={{
               background: "none", border: "none", fontSize: 22, cursor: "pointer",
               padding: "4px 6px", borderRadius: 8, transition: "transform 0.15s",
