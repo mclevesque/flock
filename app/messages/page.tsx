@@ -1058,8 +1058,22 @@ function MessagesInner() {
       type: "dm", id: msgId, senderId: myId, content: text,
       username: myName, avatarUrl: myAvatar, createdAt: now,
     }));
-    // Fire-and-forget DB write for persistence
-    fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
+    // DB write for persistence — await and retry once on failure
+    try {
+      const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) });
+      if (!r.ok) {
+        console.error("DM save failed:", r.status, await r.text().catch(() => ""));
+        // Retry once after 1s
+        setTimeout(() => {
+          fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
+        }, 1000);
+      }
+    } catch (e) {
+      console.error("DM save error:", e);
+      setTimeout(() => {
+        fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
+      }, 1000);
+    }
   }
 
   async function sendGroupMsg(text: string) {
