@@ -12,15 +12,12 @@ function OutbreakFrame({ userId, username, avatarUrl }: Props) {
   const searchParams = useSearchParams();
   const partyId = searchParams.get("partyId") ?? "";
 
-  // Check if user is in GS portal mode (cookie)
-  const isGsPortal = typeof document !== "undefined" && document.cookie.includes("ryft_portal=greatsouls");
-
   const params = new URLSearchParams({
     userId,
     username,
     avatar: avatarUrl,
+    supermusic: "1",
     ...(partyId ? { partyId, partyHost: "https://flock.partykit.dev" } : {}),
-    ...(isGsPortal ? { supermusic: "1" } : {}),
   });
 
   const src = `/games/outbreak/index.html?${params.toString()}`;

@@ -269,6 +269,10 @@ const SM_REST=['B1nDzB1P8GM','Ksj-fDNtsLY','nKrvCVAD2xA','X9fLbfzCqWw','kXYiU_JC
 let _ytPlayer=null,_ytAPIReady=false,_smPlayed=new Set();
 window.onYouTubeIframeAPIReady=function(){_ytAPIReady=true;};
 function _loadYTAPI(){if(document.getElementById('yt-api-scr'))return;const s=document.createElement('script');s.id='yt-api-scr';s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);}
+// Preload YT API immediately on page load if supermusic is enabled — ensures
+// _ytAPIReady=true by the time the user clicks Play, so _go() fires inside
+// the browser's user-activation window and autoplay is never blocked.
+if(params.get('supermusic')==='1')_loadYTAPI();
 function _smStop(){if(_ytPlayer){try{_ytPlayer.stopVideo();}catch(e){}}}
 function _smNext(){let rem=SM_REST.filter(id=>!_smPlayed.has(id));if(!rem.length){_smPlayed=new Set([SM_FIRST]);rem=[...SM_REST];}const nxt=rem[Math.floor(Math.random()*rem.length)];_smPlayed.add(nxt);if(_ytPlayer)try{_ytPlayer.loadVideoById(nxt);}catch(e){}}
 function startSupermusic(){
