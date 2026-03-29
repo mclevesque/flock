@@ -1225,10 +1225,14 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     try {
       const myName = (session?.user as { name?: string })?.name ?? "User";
       const myAvatar = (session?.user as { image?: string })?.image ?? "";
-      // Broadcast via WebSocket for instant delivery
+      const now = new Date().toISOString();
+      const msgId = Date.now();
+      // Optimistic local append — show immediately
+      setDmMessages(prev => [...prev.slice(-39), { id: msgId, sender_id: userId, content: text, created_at: now, username: myName, avatar_url: myAvatar }]);
+      // Broadcast via WebSocket for instant delivery to recipient
       dmWsRef2.current?.send(JSON.stringify({
-        type: "dm", id: Date.now(), senderId: userId, content: text,
-        username: myName, avatarUrl: myAvatar, createdAt: new Date().toISOString(),
+        type: "dm", id: msgId, senderId: userId, content: text,
+        username: myName, avatarUrl: myAvatar, createdAt: now,
       }));
       // Fire-and-forget DB write for persistence
       fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: dmActiveUser.id, content: text }) }).catch(() => {});
