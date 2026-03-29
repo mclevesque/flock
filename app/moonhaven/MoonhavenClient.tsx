@@ -1132,12 +1132,33 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
       renderer.domElement.addEventListener("click", onCanvasClick);
 
-      // ── Camera: scroll zoom only, no drag rotation ──────────────────────
+      // ── Camera: scroll zoom + right-click drag to orbit ─────────────────
       const onWheel = (e: WheelEvent) => {
         camOrbitRef.current.radius = Math.max(5, Math.min(40, camOrbitRef.current.radius + e.deltaY * 0.02));
       };
       renderer.domElement.addEventListener("wheel", onWheel, { passive: true });
       renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
+
+      const onMouseDown = (e: MouseEvent) => {
+        if (e.button === 2) {
+          camOrbitRef.current.dragging = true;
+          camOrbitRef.current.lastX = e.clientX;
+          camOrbitRef.current.lastY = e.clientY;
+        }
+      };
+      const onMouseMove = (e: MouseEvent) => {
+        if (!camOrbitRef.current.dragging) return;
+        const dx = e.clientX - camOrbitRef.current.lastX;
+        const dy = e.clientY - camOrbitRef.current.lastY;
+        camOrbitRef.current.lastX = e.clientX;
+        camOrbitRef.current.lastY = e.clientY;
+        camOrbitRef.current.theta -= dx * 0.005;
+        camOrbitRef.current.phi = Math.max(0.1, Math.min(1.3, camOrbitRef.current.phi + dy * 0.005));
+      };
+      const onMouseUp = () => { camOrbitRef.current.dragging = false; };
+      renderer.domElement.addEventListener("mousedown", onMouseDown);
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
 
       // ── Keyboard ─────────────────────────────────────────────────────────
       const onKeyDown = (e: KeyboardEvent) => {
@@ -1451,6 +1472,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         cancelAnimationFrame(frameIdRef.current);
         renderer.domElement.removeEventListener("click", onCanvasClick);
         renderer.domElement.removeEventListener("wheel", onWheel);
+        renderer.domElement.removeEventListener("mousedown", onMouseDown);
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
         window.removeEventListener("resize", onResize);
