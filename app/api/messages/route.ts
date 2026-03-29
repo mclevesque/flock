@@ -33,8 +33,9 @@ export async function POST(req: Request) {
 
   const { receiverId, content } = await req.json();
   if (!receiverId || !content) return NextResponse.json({ error: "receiverId and content required" }, { status: 400 });
+  let savedRow: { id: number; created_at: string } | undefined;
   try {
-    await sendMessage(session.user.id, receiverId, content);
+    savedRow = await sendMessage(session.user.id, receiverId, content);
   } catch (e) {
     console.error("sendMessage DB error:", e);
     return NextResponse.json({ error: "DB write failed" }, { status: 500 });
@@ -48,10 +49,12 @@ export async function POST(req: Request) {
     senderId: session.user!.id,
     receiverId,
     timestamp: Date.now(),
+    messageId: savedRow?.id,
+    createdAt: savedRow?.created_at,
   };
   import("@/lib/pushNotification").then(({ pushNotification }) => {
     pushNotification(receiverId, msgPayload);
     pushNotification(session.user!.id!, msgPayload); // sender's other tabs
   }).catch(() => {});
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, message: { id: savedRow?.id, created_at: savedRow?.created_at } });
 }

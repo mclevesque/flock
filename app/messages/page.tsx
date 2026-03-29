@@ -1016,8 +1016,12 @@ function MessagesInner() {
       }).catch(() => {});
     }, 500); // debounce to let React settle
 
+    // 30s fallback poll — catches any messages missed by WS
+    const pollIv = setInterval(loadMessages, 30000);
+
     return () => {
       clearTimeout(timer);
+      clearInterval(pollIv);
       dmWsRef.current?.close();
       dmWsRef.current = null;
     };
@@ -1056,11 +1060,20 @@ function MessagesInner() {
     // DB save FIRST — must succeed before broadcasting
     const body = JSON.stringify({ receiverId: activeUser.id, content: text });
     let saved = false;
+    let realId: number | undefined;
+    let realCreatedAt: string | undefined;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-        if (r.ok) { saved = true; break; }
-        console.warn(`DM save attempt ${attempt} failed (${r.status})`);
+        if (r.ok) {
+          const data = await r.json().catch(() => ({}));
+          realId = data.message?.id;
+          realCreatedAt = data.message?.created_at;
+          saved = true;
+          break;
+        }
+        const errText = await r.text().catch(() => "");
+        console.warn(`DM save attempt ${attempt} failed (${r.status}):`, errText);
       } catch (e) {
         console.warn(`DM save attempt ${attempt} error:`, e);
       }
@@ -1068,10 +1081,14 @@ function MessagesInner() {
     }
 
     if (saved) {
-      // Only broadcast via WS after confirmed DB save
+      // Replace tempId with real DB id so message survives refresh
+      if (realId) {
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: realId!, created_at: realCreatedAt ?? m.created_at } : m));
+      }
+      // Broadcast via WS with real id so other side deduplicates correctly
       dmWsRef.current?.send(JSON.stringify({
-        type: "dm", id: tempId, senderId: myId, content: text,
-        username: myName, avatarUrl: myAvatar, createdAt: now,
+        type: "dm", id: realId ?? tempId, senderId: myId, content: text,
+        username: myName, avatarUrl: myAvatar, createdAt: realCreatedAt ?? now,
       }));
     } else {
       console.error("DM failed to save after 3 attempts — message may be lost");

@@ -901,10 +901,12 @@ export async function getMessages(userId: string, otherId: string) {
 }
 
 export async function sendMessage(senderId: string, receiverId: string, content: string) {
-  await sql`
+  const rows = await sql`
     INSERT INTO direct_messages (sender_id, receiver_id, content)
     VALUES (${senderId}, ${receiverId}, ${content})
+    RETURNING id, created_at
   `;
+  return rows[0] as { id: number; created_at: string };
 }
 
 export async function getRecentGameInvites(userId: string) {

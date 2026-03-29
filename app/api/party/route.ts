@@ -101,6 +101,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (action === "invite") {
+    const party = await getPartyForUser(u.id).catch(() => null);
+    if (!party) return NextResponse.json({ error: "Not in a party" }, { status: 400 });
+    if (!body.targetId) return NextResponse.json({ error: "targetId required" }, { status: 400 });
+    if (party.members.length >= party.maxSize) return NextResponse.json({ error: "Party full" }, { status: 400 });
+    pushNotification(body.targetId, {
+      type: "party-invite",
+      partyId: party.id,
+      inviterId: u.id,
+      inviterName: u.name,
+      inviterAvatar: u.image,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
   if (action === "transfer-lead") {
     const party = await getPartyForUser(u.id).catch(() => null);
     if (!party || party.leaderId !== u.id) {

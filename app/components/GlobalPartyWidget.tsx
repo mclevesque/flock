@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { useVoice } from "./VoiceWidget";
+import { useNotifications, type PushNotification } from "@/lib/useNotifications";
 
 interface PartyChatMsg {
   userId: string;
@@ -25,15 +26,24 @@ interface Party {
   maxSize: number;
 }
 
+interface Friend { id: string; username: string; avatar_url: string | null; }
+interface IncomingPartyInvite { partyId: string; inviterName: string; inviterAvatar: string | null; }
+
 export default function GlobalPartyWidget() {
   const { data: session } = useSession();
   const { isInVoice, isMuted, toggleMute, openMaxi, joinRoom, leaveRoom, currentRoomId } = useVoice();
+  const { onNotification } = useNotifications();
   const [party, setParty] = useState<Party | null>(null);
   const [open, setOpen] = useState(false);
   const [chatLog, setChatLog] = useState<PartyChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [unread, setUnread] = useState(0);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [showInvite, setShowInvite] = useState(false);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [inviteSearch, setInviteSearch] = useState("");
+  const [inviteSentTo, setInviteSentTo] = useState<string | null>(null);
+  const [incomingInvite, setIncomingInvite] = useState<IncomingPartyInvite | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const draggedRef = useRef(false);
   const pillRef = useRef<HTMLDivElement>(null);
@@ -136,6 +146,46 @@ export default function GlobalPartyWidget() {
     const r = await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create" }) });
     const d = await r.json();
     if (d.party) setParty(d.party);
+  };
+
+  // Send a party invite to a friend
+  const sendInvite = async (targetId: string) => {
+    if (!party) return;
+    setInviteSentTo(targetId);
+    await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "invite", targetId }) }).catch(() => {});
+    setTimeout(() => setInviteSentTo(null), 3000);
+  };
+
+  // Load friends list when invite panel opens
+  useEffect(() => {
+    if (!showInvite) return;
+    fetch("/api/friends").then(r => r.json()).then((data: Friend[]) => {
+      if (Array.isArray(data)) setFriends(data);
+    }).catch(() => {});
+  }, [showInvite]);
+
+  // Listen for incoming party invites
+  useEffect(() => {
+    if (!userId) return;
+    const unsub = onNotification((n: PushNotification) => {
+      if (n.type === "party-invite" && (n as unknown as Record<string, unknown>).partyId) {
+        const d = n as unknown as Record<string, unknown>;
+        setIncomingInvite({ partyId: d.partyId as string, inviterName: (d.inviterName as string) ?? "Someone", inviterAvatar: (d.inviterAvatar as string | null) ?? null });
+      }
+    });
+    return unsub;
+  }, [userId, onNotification]);
+
+  // Accept incoming party invite
+  const acceptInvite = async () => {
+    if (!incomingInvite) return;
+    const r = await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "join", partyId: incomingInvite.partyId }) }).catch(() => null);
+    const d = await r?.json().catch(() => ({}));
+    if (d?.ok || d?.party) {
+      const fresh = await fetch("/api/party?action=my-party").then(r2 => r2.json()).catch(() => ({}));
+      setParty(fresh.party ?? null);
+    }
+    setIncomingInvite(null);
   };
 
   // Join party voice room when in a party
@@ -285,6 +335,56 @@ export default function GlobalPartyWidget() {
                 </button>
               )}
 
+              {/* Invite button (leader only, party not full) */}
+              {party.leaderId === userId && party.members.length < party.maxSize && (
+                <button
+                  onClick={() => { setShowInvite(v => !v); setInviteSearch(""); }}
+                  style={{
+                    width: "100%", marginTop: 4, padding: "6px 0",
+                    background: showInvite ? "rgba(160,180,255,0.15)" : "rgba(100,120,255,0.08)",
+                    border: `1px solid ${showInvite ? "rgba(160,180,255,0.4)" : "rgba(100,120,255,0.2)"}`,
+                    borderRadius: 8, color: "#a0b4ff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
+                  }}
+                >
+                  👥 Invite Friend
+                </button>
+              )}
+
+              {/* Friend picker */}
+              {showInvite && (
+                <div style={{ marginTop: 6, background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8 }}>
+                  <input
+                    value={inviteSearch}
+                    onChange={e => setInviteSearch(e.target.value)}
+                    placeholder="Search friends…"
+                    style={{ width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, padding: "4px 8px", color: "#fff", fontSize: 11, outline: "none", fontFamily: "monospace", marginBottom: 4 }}
+                  />
+                  <div style={{ maxHeight: 120, overflowY: "auto" }}>
+                    {friends
+                      .filter(f => !party.members.some(m => m.userId === f.id) && (!inviteSearch || f.username.toLowerCase().includes(inviteSearch.toLowerCase())))
+                      .map(f => (
+                        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <img src={f.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`} alt={f.username} style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
+                          <span style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.75)" }}>@{f.username}</span>
+                          <button
+                            onClick={() => sendInvite(f.id)}
+                            style={{
+                              padding: "2px 8px", fontSize: 10, fontWeight: 700,
+                              background: inviteSentTo === f.id ? "rgba(74,222,128,0.2)" : "rgba(100,200,100,0.15)",
+                              border: `1px solid ${inviteSentTo === f.id ? "rgba(74,222,128,0.5)" : "rgba(100,200,100,0.35)"}`,
+                              borderRadius: 5, color: inviteSentTo === f.id ? "#4ade80" : "#88dd99", cursor: "pointer", fontFamily: "monospace",
+                            }}
+                          >{inviteSentTo === f.id ? "✓ Sent!" : "Invite"}</button>
+                        </div>
+                      ))
+                    }
+                    {friends.filter(f => !party.members.some(m => m.userId === f.id)).length === 0 && (
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textAlign: "center" }}>All friends are in party</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Party chat log */}
               <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
                 <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", letterSpacing: 1, marginBottom: 5, fontWeight: 700 }}>PARTY CHAT</div>
@@ -336,6 +436,26 @@ export default function GlobalPartyWidget() {
               </p>
             </>
           )}
+        </div>
+      )}
+
+      {/* Incoming party invite popup */}
+      {incomingInvite && (
+        <div style={{
+          position: "fixed", bottom: 90, left: 16, zIndex: 9900,
+          background: "rgba(8,14,28,0.97)", backdropFilter: "blur(14px)",
+          border: "1px solid rgba(160,100,255,0.45)", borderRadius: 14,
+          padding: "14px 16px", minWidth: 220, maxWidth: 260,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.7)", fontFamily: "monospace",
+        }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Party Invite!</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginBottom: 12 }}>
+            <span style={{ color: "#ffd070", fontWeight: 700 }}>@{incomingInvite.inviterName}</span> wants you in their party!
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={acceptInvite} style={{ flex: 1, padding: "6px 0", background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.4)", borderRadius: 8, color: "#4ade80", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>⚔️ Join</button>
+            <button onClick={() => setIncomingInvite(null)} style={{ flex: 1, padding: "6px 0", background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 8, color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}>Decline</button>
+          </div>
         </div>
       )}
 
