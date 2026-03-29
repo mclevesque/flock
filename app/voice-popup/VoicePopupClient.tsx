@@ -292,10 +292,10 @@ export default function VoicePopupClient() {
 
       // Start signal + participant polls
       if (signalTimerRef.current) clearInterval(signalTimerRef.current);
-      signalTimerRef.current = setInterval(() => processSignals(), 1200);
+      signalTimerRef.current = setInterval(() => processSignals(), 15000); // 15s — PartyKit push handles real-time signals
 
       if (participantTimer.current) clearInterval(participantTimer.current);
-      participantTimer.current = setInterval(() => refreshParticipants(roomId), 3000);
+      participantTimer.current = setInterval(() => refreshParticipants(roomId), 30000); // 30s fallback — PartyKit WS handles real-time
 
     } catch (e) {
       console.error("Voice popup join error:", e);
@@ -461,7 +461,7 @@ export default function VoicePopupClient() {
       if (Array.isArray(msgs)) setDmMessages(msgs.slice(-40));
     };
     load();
-    dmPollRef.current = setInterval(load, 3000);
+    dmPollRef.current = setInterval(load, 30000); // 30s fallback — PartyKit WS handles real-time
     return () => { if (dmPollRef.current) clearInterval(dmPollRef.current); };
   }, [dmActiveUser]);
 

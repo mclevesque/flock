@@ -32,7 +32,13 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { receiverId, content } = await req.json();
-  await sendMessage(session.user.id, receiverId, content);
+  if (!receiverId || !content) return NextResponse.json({ error: "receiverId and content required" }, { status: 400 });
+  try {
+    await sendMessage(session.user.id, receiverId, content);
+  } catch (e) {
+    console.error("sendMessage DB error:", e);
+    return NextResponse.json({ error: "DB write failed" }, { status: 500 });
+  }
   // Push full message to both recipient and sender (for multi-tab sync) via PartyKit
   const msgPayload = {
     type: "new-message",

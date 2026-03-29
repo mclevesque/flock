@@ -968,8 +968,14 @@ function MessagesInner() {
     fetch(`/api/messages?with=${activeUser.id}`).then(r => r.json()).then((data: ChatMessage[]) => {
       if (!Array.isArray(data)) return;
       const filtered = data.filter(m => !deletedMsgIds.current.has(m.id));
-      prevMsgIds.current = new Set(filtered.map(m => m.id)) as Set<number>;
-      setMessages(filtered);
+      const dbIds = new Set(filtered.map(m => m.id));
+      prevMsgIds.current = dbIds as Set<number>;
+      // Merge: keep DB as source of truth, but preserve any recent local messages not yet in DB
+      setMessages(prev => {
+        const recentLocal = prev.filter(m => !dbIds.has(m.id) && (Date.now() - new Date(m.created_at).getTime()) < 15000); // keep local msgs < 15s old
+        if (recentLocal.length === 0) return filtered;
+        return [...filtered, ...recentLocal];
+      });
     }).catch(() => {});
   }, [activeUser, session]);
 
@@ -1050,29 +1056,32 @@ function MessagesInner() {
     const myName = (session.user as { name?: string }).name ?? "User";
     const myAvatar = (session.user as { image?: string }).image ?? "";
     const now = new Date().toISOString();
-    const msgId = Date.now();
-    // Optimistic local append — show immediately
-    setMessages(prev => [...prev, { id: msgId, sender_id: myId, content: text, created_at: now, username: myName, avatar_url: myAvatar }]);
-    // Broadcast via WebSocket for instant delivery to recipient
-    dmWsRef.current?.send(JSON.stringify({
-      type: "dm", id: msgId, senderId: myId, content: text,
-      username: myName, avatarUrl: myAvatar, createdAt: now,
-    }));
-    // DB write for persistence — await and retry once on failure
-    try {
-      const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) });
-      if (!r.ok) {
-        console.error("DM save failed:", r.status, await r.text().catch(() => ""));
-        // Retry once after 1s
-        setTimeout(() => {
-          fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
-        }, 1000);
+    const tempId = Date.now();
+    // Optimistic local append — show immediately while DB saves
+    setMessages(prev => [...prev, { id: tempId, sender_id: myId, content: text, created_at: now, username: myName, avatar_url: myAvatar }]);
+
+    // DB save FIRST — must succeed before broadcasting
+    const body = JSON.stringify({ receiverId: activeUser.id, content: text });
+    let saved = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+        if (r.ok) { saved = true; break; }
+        console.warn(`DM save attempt ${attempt} failed (${r.status})`);
+      } catch (e) {
+        console.warn(`DM save attempt ${attempt} error:`, e);
       }
-    } catch (e) {
-      console.error("DM save error:", e);
-      setTimeout(() => {
-        fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activeUser.id, content: text }) }).catch(() => {});
-      }, 1000);
+      if (attempt < 3) await new Promise(res => setTimeout(res, attempt * 2000)); // 2s, 4s backoff
+    }
+
+    if (saved) {
+      // Only broadcast via WS after confirmed DB save
+      dmWsRef.current?.send(JSON.stringify({
+        type: "dm", id: tempId, senderId: myId, content: text,
+        username: myName, avatarUrl: myAvatar, createdAt: now,
+      }));
+    } else {
+      console.error("DM failed to save after 3 attempts — message may be lost");
     }
   }
 

@@ -1226,16 +1226,26 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       const myName = (session?.user as { name?: string })?.name ?? "User";
       const myAvatar = (session?.user as { image?: string })?.image ?? "";
       const now = new Date().toISOString();
-      const msgId = Date.now();
-      // Optimistic local append — show immediately
-      setDmMessages(prev => [...prev.slice(-39), { id: msgId, sender_id: userId, content: text, created_at: now, username: myName, avatar_url: myAvatar }]);
-      // Broadcast via WebSocket for instant delivery to recipient
-      dmWsRef2.current?.send(JSON.stringify({
-        type: "dm", id: msgId, senderId: userId, content: text,
-        username: myName, avatarUrl: myAvatar, createdAt: now,
-      }));
-      // Fire-and-forget DB write for persistence
-      fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: dmActiveUser.id, content: text }) }).catch(() => {});
+      const tempId = Date.now();
+      // Optimistic local append
+      setDmMessages(prev => [...prev.slice(-39), { id: tempId, sender_id: userId, content: text, created_at: now, username: myName, avatar_url: myAvatar }]);
+
+      // DB save FIRST — must succeed before broadcasting
+      const body = JSON.stringify({ receiverId: dmActiveUser.id, content: text });
+      let saved = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+          if (r.ok) { saved = true; break; }
+        } catch { /* retry */ }
+        if (attempt < 3) await new Promise(res => setTimeout(res, attempt * 2000));
+      }
+      if (saved) {
+        dmWsRef2.current?.send(JSON.stringify({
+          type: "dm", id: tempId, senderId: userId, content: text,
+          username: myName, avatarUrl: myAvatar, createdAt: now,
+        }));
+      }
     } catch { /* ignore */ } finally {
       setDmSending(false);
     }

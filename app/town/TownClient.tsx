@@ -718,7 +718,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
     setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
   }, []);
 
-  // ── Passive HP regen: +1 HP every 3 seconds anywhere in town ─────────────
+  // ── Passive HP regen: +1 HP every 3 seconds (local only — saved on 60s auto-save) ──
   useEffect(() => {
     const iv = setInterval(() => {
       if (document.hidden) return;
@@ -728,8 +728,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
       const updated = { ...stats, hp: newHp };
       adventureStatsRef.current = updated;
       setAdventureStats(updated);
-      fetch("/api/adventure", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-stats", patch: { hp: newHp } }) }).catch(() => {});
+      gameDirtyRef.current = true; // will be persisted on next auto-save
     }, 3000);
     return () => clearInterval(iv);
   }, []);
@@ -3934,8 +3933,8 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           const isIdle = afkMs > 180 * 1000; // 3 min AFK
           // WS handles real-time positions; REST POST only needed to refresh last_seen every 10s
           const wsConnected = townSocketRef.current?.readyState === 1; // WebSocket.OPEN
-          const posThreshold  = isIdle ? 999999 : (wsConnected ? 10000 : 3000); // 10s via WS, 3s fallback
-          const pollThreshold = isIdle ? 60000 : 10000;  // 60s poll when idle, 10s when active
+          const posThreshold  = isIdle ? 999999 : 30000; // 30s — legacy town, Moonhaven is primary
+          const pollThreshold = 60000;  // 60s — Moonhaven is primary, town is legacy
 
           if (this.posTimer >= posThreshold) {
             this.posTimer = 0;

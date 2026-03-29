@@ -270,7 +270,7 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
 
   useEffect(() => {
     fetchState();
-    const interval = setInterval(fetchState, 700);
+    const interval = setInterval(fetchState, 5000); // 5s — reduced from 700ms to save DB connections
     pollRef.current = interval;
     return () => clearInterval(interval);
   }, [fetchState]);
