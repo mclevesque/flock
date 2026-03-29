@@ -567,21 +567,21 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   // ── Fetch stash + inventory + vendor data ────────────────────────────────
   const fetchStashData = useCallback(async () => {
     try {
-      const r = await fetchWithTimeout("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get-stash" }) }, 5000);
+      const r = await fetchWithTimeout("/api/town", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "get-stash" }) }, 8000);
       const d = await r.json();
       if (d.stash_items) {
         setStashData(d);
         setMyInventory(Array.isArray(d.inventory) ? d.inventory : []);
         setMyEquippedSlots(d.equipped_slots ?? {});
       }
-    } catch {}
+    } catch (e) { console.warn("Stash fetch failed:", e); }
     try {
       const r2 = await fetchWithTimeout("/api/town", { method: "GET" }, 5000);
       const d2 = await r2.json();
       if (d2.adventure_stats) setMyAdventureStats(d2.adventure_stats);
       if (d2.vendor_stock) setVendorStock(d2.vendor_stock);
       if (d2.coins !== undefined) setMyCoins(d2.coins);
-    } catch {}
+    } catch (e) { console.warn("Stash vendor fetch failed:", e); }
   }, []);
 
   // ── Load economy on mount ─────────────────────────────────────────────────
@@ -1124,29 +1124,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
       renderer.domElement.addEventListener("click", onCanvasClick);
 
-      // ── Camera orbit (mouse drag) ─────────────────────────────────────────
-      const onMouseDown = (e: MouseEvent) => {
-        if (e.button !== 2) return; // right-drag to orbit
-        camOrbitRef.current.dragging = true;
-        camOrbitRef.current.lastX = e.clientX;
-        camOrbitRef.current.lastY = e.clientY;
-      };
-      const onMouseMove = (e: MouseEvent) => {
-        if (!camOrbitRef.current.dragging) return;
-        const dx = e.clientX - camOrbitRef.current.lastX;
-        const dy = e.clientY - camOrbitRef.current.lastY;
-        camOrbitRef.current.theta -= dx * 0.005;
-        camOrbitRef.current.phi = Math.max(0.15, Math.min(1.2, camOrbitRef.current.phi + dy * 0.005));
-        camOrbitRef.current.lastX = e.clientX;
-        camOrbitRef.current.lastY = e.clientY;
-      };
-      const onMouseUp = () => { camOrbitRef.current.dragging = false; };
+      // ── Camera: scroll zoom only, no drag rotation ──────────────────────
       const onWheel = (e: WheelEvent) => {
         camOrbitRef.current.radius = Math.max(5, Math.min(40, camOrbitRef.current.radius + e.deltaY * 0.02));
       };
-      renderer.domElement.addEventListener("mousedown", onMouseDown);
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
       renderer.domElement.addEventListener("wheel", onWheel, { passive: true });
       renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
 
@@ -1461,9 +1442,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         document.removeEventListener("visibilitychange", onVisChange);
         cancelAnimationFrame(frameIdRef.current);
         renderer.domElement.removeEventListener("click", onCanvasClick);
-        renderer.domElement.removeEventListener("mousedown", onMouseDown);
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
         renderer.domElement.removeEventListener("wheel", onWheel);
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);

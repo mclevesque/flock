@@ -621,7 +621,7 @@ function ChatView({
 
   function handleInput(val: string) {
     setInput(val);
-    setImaginePrompt(val.startsWith("/imagine ") && val.length > 9 ? val.slice(9) : null);
+    setImaginePrompt(null); // /imagine disabled
     setChessHint(val === "/chess");
     setQuizHint(val === "/quiz" || val.startsWith("/quiz "));
   }
@@ -630,13 +630,7 @@ function ChatView({
     const text = input.trim();
     if (!text) return;
     setInput(""); setImaginePrompt(null); setChessHint(false); setQuizHint(false);
-    if (text.startsWith("/imagine ")) {
-      const prompt = text.slice(9).trim();
-      if (!prompt) return;
-      setGenerating(true);
-      await onSend(`[image:hf:${prompt}]`);
-      setGenerating(false);
-    } else if (text === "/chess" && opponentId) {
+    if (text === "/chess" && opponentId) {
       setGenerating(true);
       try {
         const res = await fetch("/api/chess", {
@@ -980,55 +974,54 @@ function MessagesInner() {
   }, [activeUser, session]);
 
   // Load initial messages + connect DM WebSocket when conversation changes
+  const sessionUserId = session?.user?.id;
   useEffect(() => {
-    if (!activeUser || !session?.user?.id) return;
+    if (!activeUser?.id || !sessionUserId) return;
     prevMsgIds.current = new Set();
     loadMessages(); // Load history from DB
 
     const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
     if (!host || host === "DISABLED") return;
 
-    let cancelled = false;
-    const myId = session.user!.id;
-    const pairId = [myId, activeUser.id].sort().join("_");
+    const pairId = [sessionUserId, activeUser.id].sort().join("-");
 
-    import("partysocket").then(({ default: PartySocket }) => {
-      if (cancelled) return;
-      dmWsRef.current?.close();
-      const ws = new PartySocket({ host, room: `dm-${pairId}` }) as unknown as
-        { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
-      dmWsRef.current = ws;
+    // Small delay to avoid React strict mode double-mount teardown
+    const timer = setTimeout(() => {
+      import("partysocket").then(({ default: PartySocket }) => {
+        dmWsRef.current?.close();
+        const ws = new PartySocket({ host, room: `dm-${pairId}` }) as unknown as
+          { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
+        dmWsRef.current = ws;
 
-      ws.addEventListener("message", (evt: Event) => {
-        try {
-          const msg = JSON.parse((evt as MessageEvent).data as string);
-          if (msg.type === "dm") {
-            // Append message instantly — no DB round-trip needed
-            const newMsg: ChatMessage = {
-              id: msg.id ?? Date.now(),
-              sender_id: msg.senderId,
-              content: msg.content,
-              created_at: msg.createdAt ?? new Date().toISOString(),
-              username: msg.username,
-              avatar_url: msg.avatarUrl ?? "",
-            };
-            setMessages(prev => {
-              // Deduplicate by checking if we already have this message
-              if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
-              return [...prev, newMsg];
-            });
-            if (msg.senderId !== myId) bloop("receive");
-          }
-        } catch { /* ignore */ }
-      });
-    }).catch(() => {});
+        ws.addEventListener("message", (evt: Event) => {
+          try {
+            const msg = JSON.parse((evt as MessageEvent).data as string);
+            if (msg.type === "dm") {
+              const newMsg: ChatMessage = {
+                id: msg.id ?? Date.now(),
+                sender_id: msg.senderId,
+                content: msg.content,
+                created_at: msg.createdAt ?? new Date().toISOString(),
+                username: msg.username,
+                avatar_url: msg.avatarUrl ?? "",
+              };
+              setMessages(prev => {
+                if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
+                return [...prev, newMsg];
+              });
+              if (msg.senderId !== sessionUserId) bloop("receive");
+            }
+          } catch { /* ignore */ }
+        });
+      }).catch(() => {});
+    }, 500); // debounce to let React settle
 
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
       dmWsRef.current?.close();
       dmWsRef.current = null;
     };
-  }, [activeUser, session]); // eslint-disable-line
+  }, [activeUser?.id, sessionUserId]); // eslint-disable-line
 
   const loadGroupMessages = useCallback(() => {
     if (!activeGroup) return;
@@ -1280,12 +1273,12 @@ function MessagesInner() {
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, color: "var(--text-muted)" }}>
             <div style={{ fontSize: 32 }}>👈</div>
             <div style={{ fontSize: 14 }}>Select someone to message</div>
-            <div style={{ fontSize: 11, opacity: 0.6, textAlign: "center" }}>Type /imagine [prompt] for AI art · /chess for chess · /quiz to challenge<br />Use GIF button for GIFs · 🧠 for quiz</div>
+            <div style={{ fontSize: 11, opacity: 0.6, textAlign: "center" }}>Type /chess for chess · /quiz to challenge<br />Use GIF button for GIFs · 🧠 for quiz</div>
           </div>
         ) : (
           <ChatView messages={messages} sessionUserId={session.user?.id ?? ""} onSend={sendDM}
             onUnsend={(id) => { deletedMsgIds.current.add(id); setMessages(prev => prev.filter(m => m.id !== id)); }}
-            placeholder={`Message @${activeUser.username}... (/imagine · /chess)`}
+            placeholder={`Message @${activeUser.username}... (/chess)`}
             isMobile={isMobile} onBack={() => setShowChat(false)}
             opponentId={activeUser.id}
             onCall={() => isInVoice ? leaveVoiceRoom() : startDmCall(activeUser.id, activeUser.username)}
@@ -1304,7 +1297,7 @@ function MessagesInner() {
         ) : (
           <ChatView messages={groupMessages} sessionUserId={session.user?.id ?? ""} onSend={sendGroupMsg}
             onUnsend={(id) => { deletedGroupMsgIds.current.add(id); setGroupMessages(prev => prev.filter(m => m.id !== id)); }}
-            placeholder={`Message ${activeGroup.name}... (/imagine for AI art)`}
+            placeholder={`Message ${activeGroup.name}...`}
             isMobile={isMobile} onBack={() => setShowChat(false)} groupId={activeGroup.id}
             headerContent={
               <>

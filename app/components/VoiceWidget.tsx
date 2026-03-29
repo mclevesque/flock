@@ -1187,7 +1187,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
     if (!host || host === "DISABLED") return;
     let cancelled = false;
-    const pairId = [userId, dmActiveUser.id].sort().join("_");
+    const pairId = [userId, dmActiveUser.id].sort().join("-");
 
     import("partysocket").then(({ default: PartySocket }) => {
       if (cancelled) return;

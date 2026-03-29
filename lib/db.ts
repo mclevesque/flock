@@ -4177,6 +4177,24 @@ export async function getPartyForUser(userId: string): Promise<Party | null> {
     await sql`UPDATE town_parties SET members = ${JSON.stringify(deduped)}::jsonb WHERE id = ${rows[0].id as string}`.catch(() => {});
     members = deduped;
   }
+  // Refresh avatars from users table so they're always current
+  if (members.length > 0) {
+    const memberIds = members.map(m => m.userId);
+    const userRows = await sql`SELECT id, username, avatar_url FROM users WHERE id = ANY(${memberIds}::text[])`.catch(() => []);
+    const userMap = new Map(userRows.map((u) => [u.id as string, { id: u.id as string, username: u.username as string, avatar_url: u.avatar_url as string | null }]));
+    let changed = false;
+    members = members.map(m => {
+      const fresh = userMap.get(m.userId);
+      if (fresh && (fresh.avatar_url !== m.avatarUrl || fresh.username !== m.username)) {
+        changed = true;
+        return { ...m, username: fresh.username, avatarUrl: fresh.avatar_url ?? m.avatarUrl };
+      }
+      return m;
+    });
+    if (changed) {
+      await sql`UPDATE town_parties SET members = ${JSON.stringify(members)}::jsonb WHERE id = ${rows[0].id as string}`.catch(() => {});
+    }
+  }
   return {
     id: rows[0].id as string,
     leaderId: rows[0].leader_id as string,
