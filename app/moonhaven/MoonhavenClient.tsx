@@ -731,32 +731,20 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     wsSend({ type: "tag_transfer", itId: targetId, itUsername: targetUsername });
   }
 
-  // ── Theater + tag state polling ───────────────────────────────────────────
+  // ── Theater + tag state — one-time fetch on mount, PartyKit WS handles all real-time updates ──
   const lastTheaterJson = useRef<string>("");
   const lastCoins = useRef<number | null>(null);
   useEffect(() => {
-    const pollTheater = async () => {
-      if (document.hidden) return;
-      try {
-        const r = await fetchWithTimeout("/api/town", { method: "GET" }, 5000);
-        const d = await r.json() as Record<string, unknown>;
+    // Single fetch on join to hydrate initial state (screenshare active? coins balance?)
+    // No interval — PartyKit theater WS pushes all subsequent changes in real-time
+    fetchWithTimeout("/api/town", { method: "GET" }, 5000)
+      .then(r => r.json())
+      .then((d: Record<string, unknown>) => {
         const ts = d.theater_state as TheaterState | null;
-        if (ts) {
-          const j = JSON.stringify(ts);
-          if (j !== lastTheaterJson.current) {
-            lastTheaterJson.current = j;
-            setTheaterState(ts); theaterStateRef.current = ts;
-          }
-        }
-        if (d.coins !== undefined && d.coins !== lastCoins.current) {
-          lastCoins.current = d.coins as number;
-          setMyCoins(d.coins as number);
-        }
-      } catch { /* silent */ }
-    };
-    pollTheater();
-    const iv = setInterval(pollTheater, 90000); // 90s fallback — PartyKit theater WS handles real-time
-    return () => clearInterval(iv);
+        if (ts) { lastTheaterJson.current = JSON.stringify(ts); setTheaterState(ts); theaterStateRef.current = ts; }
+        if (d.coins !== undefined) { lastCoins.current = d.coins as number; setMyCoins(d.coins as number); }
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1453,11 +1441,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
                 }
               } catch { /* cross-origin — fallback to static glow */ }
             } else {
-              const isYT = !!theaterStateRef.current?.videoUrl;
-              sLight.intensity = isYT
-                ? 2.5 + Math.sin(clock.elapsedTime * 2) * 0.5
-                : 0.8 + Math.sin(clock.elapsedTime * 0.8) * 0.2;
-              sLight.color.set(isYT ? 0x8899ff : 0x4455cc);
+              sLight.intensity = 0.8 + Math.sin(clock.elapsedTime * 0.8) * 0.2;
+              sLight.color.set(0x4455cc);
             }
           }
         }
@@ -2305,7 +2290,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       )}
 
       {/* Emoji reactions bar — visible when near the drive-in and something is playing */}
-      {driveInNear && (ssStatus !== "idle" || !!theaterState?.videoUrl) && (
+      {driveInNear && ssStatus !== "idle" && (
         <div
           onPointerDown={e => e.stopPropagation()}
           onMouseDown={e => e.stopPropagation()}
