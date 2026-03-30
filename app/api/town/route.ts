@@ -26,6 +26,11 @@ async function postHeraldShare(_content: string, _title: string) {
 
 // GET — fetch all active players + active event
 export async function GET(req: NextRequest) {
+  // Require auth — unauthenticated requests (bots, crawlers) get empty shell with no DB queries
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ players: [], active_event: null, recent_victory: null, theater_state: null, theater_chat: [] });
+  }
   try {
     checkAndTriggerTownEvent().catch(() => {});
     const { searchParams } = new URL(req.url);
