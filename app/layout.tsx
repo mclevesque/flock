@@ -10,6 +10,7 @@ import GlobalNotifications from "./components/GlobalNotifications";
 import GlobalPartyWidget from "./components/GlobalPartyWidget";
 import { PortalProvider } from "./components/PortalContext";
 import PWAInstall from "./components/PWAInstall";
+import IdleLogout from "./components/IdleLogout";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geist.variable} antialiased gs-theme`}>
         <PWAInstall />
         <SessionWrapper>
+          <IdleLogout />
           <PortalProvider>
           <VoiceProvider>
             <VibeProvider>
