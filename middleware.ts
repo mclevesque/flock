@@ -20,10 +20,10 @@ export default function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for NextAuth session cookie (http or https variant)
+  // Check for NextAuth v5 session cookie (http or https variant)
   const sessionCookie =
-    req.cookies.get("next-auth.session-token") ??
-    req.cookies.get("__Secure-next-auth.session-token");
+    req.cookies.get("authjs.session-token") ??
+    req.cookies.get("__Secure-authjs.session-token");
 
   if (!sessionCookie) {
     // API calls from an unauthenticated context → 401 (no redirect loop)
