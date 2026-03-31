@@ -75,6 +75,25 @@ const CHASE_NOTES = [220, 233, 261, 246, 220, 196, 207, 233];
 const NPC_VOICE_PATH = "/audio/npc";
 const MOONHAVEN_WS_ROOM = "moonhaven-town";
 
+// ── Drive-In emote system ──────────────────────────────────────────────────────
+const DRIVE_EMOTES = [
+  { id: "laugh",   emoji: "😂", label: "Laugh",   color: "#ffcc00", border: "#aa8800", cd: 2500 },
+  { id: "cry",     emoji: "😢", label: "Cry",      color: "#5599ff", border: "#2255cc", cd: 2500 },
+  { id: "tomato",  emoji: "🍅", label: "Throw!",   color: "#ff5522", border: "#aa2200", cd: 4000 },
+  { id: "shush",   emoji: "🤫", label: "Shush",    color: "#cc55ff", border: "#7722aa", cd: 2000 },
+  { id: "cola",    emoji: "🥤", label: "Sip Cola", color: "#cc9944", border: "#886622", cd: 3000 },
+  { id: "popcorn", emoji: "🍿", label: "Popcorn",  color: "#ffbb33", border: "#cc8800", cd: 2000 },
+] as const;
+type DriveEmoteId = typeof DRIVE_EMOTES[number]["id"];
+interface DriveParticle {
+  x: number; y: number; vx: number; vy: number;
+  content: string; isText?: boolean; textColor?: string;
+  alpha: number; size: number; decay: number; gravity: number;
+  rotation: number; rotV: number;
+}
+interface DriveTomato { sx: number; sy: number; tx: number; ty: number; t: number; }
+interface DriveSplat { id: number; x: number; y: number; r: number; rot: number; }
+
 // ── Quality system ─────────────────────────────────────────────────────────────
 type QualityLevel = "low" | "med" | "high";
 
@@ -208,6 +227,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const [activeNPC, setActiveNPC] = useState<{ npc: MoonhavenNPC; line: string } | null>(null);
   const npcVoiceIndexRef = useRef<Record<string, number>>({});
   const npcDialogueCooldownRef = useRef<Record<string, number>>({});
+  const [nearestNPC, setNearestNPC] = useState<MoonhavenNPC | null>(null);
+  const nearestNPCRef = useRef<MoonhavenNPC | null>(null);
 
   // ── Party ─────────────────────────────────────────────────────────────────
   const [myParty, setMyParty] = useState<{ id: string; members: { userId: string; username: string }[] } | null>(null);
@@ -581,6 +602,43 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const camOrbitRef = useRef({ theta: 0.8, phi: Math.PI / 5, radius: 16, dragging: false, lastX: 0, lastY: 0 });
   const jumpRef = useRef({ vy: 0, grounded: true });
 
+  // ── Drive-In emote particle system ────────────────────────────────────────
+  const driveParticlesRef = useRef<DriveParticle[]>([]);
+  const driveTomatoRef = useRef<DriveTomato | null>(null);
+  const [driveSplats, setDriveSplats] = useState<DriveSplat[]>([]);
+  const driveSplatIdRef = useRef(0);
+  const driveCooldownsRef = useRef<Partial<Record<DriveEmoteId, number>>>({});
+  const [, setDriveCdTick] = useState(0);
+  const driveCdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const driveEmoteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const driveEmoteRafRef = useRef<number | null>(null);
+  const driveAudioCtxRef = useRef<AudioContext | null>(null);
+
+  // ── RPS Arena state ────────────────────────────────────────────────────────
+  type RPSChoice = "rock" | "paper" | "scissors";
+  type RPSPhase = "idle" | "waiting" | "choosing" | "revealing" | "result";
+  const [rpsPhase, setRpsPhase] = useState<RPSPhase>("idle");
+  const [rpsTimeLeft, setRpsTimeLeft] = useState(5);
+  const [rpsMyChoice, setRpsMyChoice] = useState<RPSChoice | null>(null);
+  const [rpsOpponentChoice, setRpsOpponentChoice] = useState<RPSChoice | null>(null);
+  const [rpsOpponent, setRpsOpponent] = useState<{ userId: string; username: string } | null>(null);
+  const [rpsResultWinner, setRpsResultWinner] = useState<string | null | "draw">(null); // userId or "draw"
+  const [rpsNear, setRpsNear] = useState(false);
+  const rpsNearRef = useRef(false);
+  const rpsPhaseRef = useRef<RPSPhase>("idle");
+  const rpsMyChoiceRef = useRef<RPSChoice | null>(null);
+  const rpsOpponentRef = useRef<{ userId: string; username: string } | null>(null);
+  const rpsMatchIdRef = useRef<string | null>(null);
+  const rpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rpsMyCommitRef = useRef<string | null>(null); // base64 of choice+nonce
+  const rpsOpponentCommitRef = useRef<string | null>(null);
+  const rpsOpponentRevealedRef = useRef<RPSChoice | null>(null);
+
+  const setRpsPhaseSync = (p: RPSPhase) => { rpsPhaseRef.current = p; setRpsPhase(p); };
+
+  const RPS_ARENA_POS: [number, number, number] = [40, 0, 4];
+  const RPS_ARENA_RADIUS = 5;
+
   // ── Fetch stash + inventory + vendor data ────────────────────────────────
   const fetchStashData = useCallback(async () => {
     try {
@@ -838,6 +896,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     setTimeout(() => setActiveNPC(null), 4000);
   }, [playNPCVoice]);
 
+  // Stable ref so the keydown handler (captured once) always calls the latest version
+  const handleNPCClickRef = useRef(handleNPCClick);
+  useEffect(() => { handleNPCClickRef.current = handleNPCClick; }, [handleNPCClick]);
+
   // ── Drive-in open/close ───────────────────────────────────────────────────
   // Drive-in no longer opens a separate room — screen share plays directly on the 3D screen
   // Only the party leader can initiate a screen share (solo players can always share)
@@ -851,6 +913,557 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ssStatus, theaterState?.screenshareOffer, startScreenShare, partyLeaderId, userId]);
 
+  // ── Drive-In emote: audio synthesis ─────────────────────────────────────
+  const getEmoteAudioCtx = useCallback(() => {
+    if (!driveAudioCtxRef.current) driveAudioCtxRef.current = new AudioContext();
+    if (driveAudioCtxRef.current.state === "suspended") driveAudioCtxRef.current.resume().catch(() => {});
+    return driveAudioCtxRef.current;
+  }, []);
+
+  const playEmoteSound = useCallback((id: DriveEmoteId) => {
+    try {
+      const ctx = getEmoteAudioCtx();
+      const dest = ctx.destination;
+      const t = ctx.currentTime;
+      const noise = (dur: number) => {
+        const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        return buf;
+      };
+      if (id === "laugh") {
+        [0, 0.13, 0.26].forEach((delay, i) => {
+          const osc = ctx.createOscillator(), g = ctx.createGain();
+          osc.type = "sine"; osc.frequency.value = 480 + i * 90;
+          osc.connect(g); g.connect(dest);
+          g.gain.setValueAtTime(0, t + delay);
+          g.gain.linearRampToValueAtTime(0.13, t + delay + 0.04);
+          g.gain.linearRampToValueAtTime(0, t + delay + 0.1);
+          osc.start(t + delay); osc.stop(t + delay + 0.11);
+        });
+      } else if (id === "cry") {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.type = "sine"; osc.frequency.setValueAtTime(360, t); osc.frequency.linearRampToValueAtTime(190, t + 0.55);
+        osc.connect(g); g.connect(dest);
+        g.gain.setValueAtTime(0.1, t); g.gain.linearRampToValueAtTime(0, t + 0.55);
+        osc.start(t); osc.stop(t + 0.56);
+      } else if (id === "tomato") {
+        const src = ctx.createBufferSource(), g = ctx.createGain(), filt = ctx.createBiquadFilter();
+        filt.type = "lowpass"; filt.frequency.value = 350;
+        src.buffer = noise(0.12); src.connect(filt); filt.connect(g); g.connect(dest);
+        g.gain.value = 0.5; src.start(t);
+      } else if (id === "shush") {
+        const src = ctx.createBufferSource(), filt = ctx.createBiquadFilter(), g = ctx.createGain();
+        filt.type = "bandpass"; filt.frequency.value = 2800; filt.Q.value = 0.7;
+        src.buffer = noise(0.4); src.connect(filt); filt.connect(g); g.connect(dest);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.07, t + 0.05);
+        g.gain.linearRampToValueAtTime(0.07, t + 0.3); g.gain.linearRampToValueAtTime(0, t + 0.4);
+        src.start(t);
+      } else if (id === "cola") {
+        const src = ctx.createBufferSource(), filt = ctx.createBiquadFilter(), g = ctx.createGain();
+        filt.type = "bandpass"; filt.Q.value = 2;
+        filt.frequency.setValueAtTime(900, t); filt.frequency.linearRampToValueAtTime(200, t + 0.3);
+        src.buffer = noise(0.3); src.connect(filt); filt.connect(g); g.connect(dest);
+        g.gain.setValueAtTime(0.18, t); g.gain.linearRampToValueAtTime(0, t + 0.3);
+        src.start(t);
+      } else if (id === "popcorn") {
+        for (let i = 0; i < 7; i++) {
+          const delay = i * 0.055 + Math.random() * 0.025;
+          const src = ctx.createBufferSource(), g = ctx.createGain();
+          const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.04), ctx.sampleRate);
+          const d = buf.getChannelData(0);
+          for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.exp(-j / (d.length * 0.18));
+          src.buffer = buf; src.connect(g); g.connect(dest);
+          g.gain.value = 0.18 + Math.random() * 0.12;
+          src.start(t + delay);
+        }
+      }
+    } catch { /* AudioContext blocked */ }
+  }, [getEmoteAudioCtx]);
+
+  // ── Drive-In emote: project 3D world pos → 2D screen px ─────────────────
+  const projectToScreen = useCallback((worldX: number, worldY: number, worldZ: number) => {
+    const cam = cameraRef.current;
+    if (!cam) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    // Inline THREE.Vector3 project to avoid async import at calltime
+    const v = { x: worldX, y: worldY, z: worldZ };
+    const e = cam.matrixWorldInverse.elements;
+    const pe = cam.projectionMatrix.elements;
+    const vx = e[0]*v.x + e[4]*v.y + e[8]*v.z + e[12];
+    const vy = e[1]*v.x + e[5]*v.y + e[9]*v.z + e[13];
+    const vz = e[2]*v.x + e[6]*v.y + e[10]*v.z + e[14];
+    const vw = e[3]*v.x + e[7]*v.y + e[11]*v.z + e[15];
+    const cx = (pe[0]*vx + pe[4]*vy + pe[8]*vz + pe[12]*vw) / (pe[3]*vx + pe[7]*vy + pe[11]*vz + pe[15]*vw);
+    const cy = (pe[1]*vx + pe[5]*vy + pe[9]*vz + pe[13]*vw) / (pe[3]*vx + pe[7]*vy + pe[11]*vz + pe[15]*vw);
+    return { x: (cx * 0.5 + 0.5) * window.innerWidth, y: (-cy * 0.5 + 0.5) * window.innerHeight };
+  }, []);
+
+  // ── Drive-In emote: trigger local particle + WS broadcast ────────────────
+  const triggerDriveEmote = useCallback((id: DriveEmoteId) => {
+    const cds = driveCooldownsRef.current;
+    const emote = DRIVE_EMOTES.find(e => e.id === id)!;
+    if ((cds[id] ?? 0) > Date.now()) return;
+    cds[id] = Date.now() + emote.cd;
+    playEmoteSound(id);
+
+    // Kick off cooldown ticker
+    if (!driveCdTimerRef.current) {
+      driveCdTimerRef.current = setInterval(() => {
+        setDriveCdTick(n => n + 1);
+        if (!DRIVE_EMOTES.some(e => (driveCooldownsRef.current[e.id] ?? 0) > Date.now())) {
+          clearInterval(driveCdTimerRef.current!);
+          driveCdTimerRef.current = null;
+        }
+      }, 80);
+    }
+    setDriveCdTick(n => n + 1);
+
+    // Broadcast to party WS
+    if (townSocketRef.current?.readyState === 1) {
+      townSocketRef.current.send(JSON.stringify({ type: "drive_emote", userId, emoteId: id }));
+    }
+
+    // Also show on own 3D avatar bubble
+    getThree().then(THREE => {
+      if (!playerMeshRef.current) return;
+      const bubble = playerMeshRef.current.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
+      if (bubble) {
+        const tex = new THREE.CanvasTexture(makeChatCanvas(emote.emoji));
+        (bubble.material as import("three").MeshBasicMaterial).map = tex;
+        (bubble.material as import("three").MeshBasicMaterial).needsUpdate = true;
+        bubble.visible = true;
+        setTimeout(() => { if (bubble) bubble.visible = false; }, 4000);
+      }
+    });
+
+    // Particle spawn — using player's screen position as origin
+    const [px, py, pz] = playerPosRef.current;
+    const sp = projectToScreen(px, py + 1.5, pz);
+    const pts = driveParticlesRef.current;
+
+    const anchor = (content: string, opts: Partial<DriveParticle> = {}) => pts.push({
+      x: sp.x, y: sp.y,
+      vx: 0, vy: -0.5, gravity: 0,
+      content, alpha: 1, size: 52, decay: 0.005, rotation: 0, rotV: 0,
+      ...opts,
+    });
+    const float = (content: string, opts: Partial<DriveParticle> = {}) => pts.push({
+      x: sp.x + (Math.random() - 0.5) * 40, y: sp.y,
+      vx: (Math.random() - 0.5) * 2.2, vy: -2.2 - Math.random() * 2,
+      content, alpha: 0.9, size: 20, decay: 0.016, gravity: 0.025,
+      rotation: 0, rotV: (Math.random() - 0.5) * 0.08,
+      ...opts,
+    });
+    const spawnText = (text: string, color: string, opts: Partial<DriveParticle> = {}) => pts.push({
+      x: sp.x, y: sp.y - 60, vx: 0, vy: -1.1,
+      content: text, isText: true, textColor: color,
+      alpha: 1, size: 16, decay: 0.01, gravity: 0, rotation: 0, rotV: 0,
+      ...opts,
+    });
+
+    if (id === "laugh") {
+      anchor("😂");
+      for (let i = 0; i < 5; i++) float("😂", { size: 14 + Math.random() * 10 });
+      spawnText("HA HA!", "#ffee00", { size: 18 });
+    } else if (id === "cry") {
+      anchor("😢");
+      for (let i = 0; i < 9; i++) pts.push({
+        x: sp.x + (Math.random() - 0.5) * 24, y: sp.y,
+        vx: (Math.random() - 0.5) * 0.9, vy: 1.6 + Math.random() * 2.2,
+        content: "💧", alpha: 0.9, size: 12 + Math.random() * 8, decay: 0.02, gravity: 0.08,
+        rotation: 0, rotV: 0,
+      });
+      spawnText("...", "#88aaff");
+    } else if (id === "tomato") {
+      // Get screen-space center of the drive-in screen mesh
+      const screenCenter = screenMeshRef.current
+        ? (() => { const v = { x: 0, y: 0, z: 0 }; screenMeshRef.current!.getWorldPosition(v as unknown as import("three").Vector3); return projectToScreen(v.x, v.y + 2, v.z); })()
+        : { x: window.innerWidth * 0.5, y: window.innerHeight * 0.28 };
+      driveTomatoRef.current = { sx: sp.x, sy: sp.y, tx: screenCenter.x, ty: screenCenter.y, t: 0 };
+    } else if (id === "shush") {
+      anchor("🤫");
+      spawnText("SHHH!", "#dd88ff", { size: 17 });
+      for (let i = 0; i < 4; i++) pts.push({
+        x: sp.x + 20 + i * 14, y: sp.y - 30 - i * 10,
+        vx: 1.0 + i * 0.3, vy: -0.7,
+        content: "~", isText: true, textColor: "#cc99ee",
+        alpha: 0.75 - i * 0.1, size: 14 - i, decay: 0.016, gravity: 0, rotation: 0, rotV: 0,
+      });
+    } else if (id === "cola") {
+      anchor("🥤");
+      for (let i = 0; i < 8; i++) pts.push({
+        x: sp.x + (Math.random() - 0.5) * 18, y: sp.y,
+        vx: (Math.random() - 0.5) * 1.5, vy: -2.2 - Math.random() * 1.5,
+        content: "🫧", alpha: 0.85, size: 11 + Math.random() * 9, decay: 0.02, gravity: -0.02,
+        rotation: 0, rotV: 0,
+      });
+      spawnText("glug glug", "#ffcc88", { size: 13 });
+    } else if (id === "popcorn") {
+      anchor("🍿");
+      for (let i = 0; i < 12; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        pts.push({
+          x: sp.x + (Math.random() - 0.5) * 20, y: sp.y,
+          vx: Math.cos(angle) * (1.5 + Math.random() * 2.2),
+          vy: -3 - Math.random() * 2.5,
+          content: i % 2 === 0 ? "🌽" : "⭐",
+          alpha: 1, size: 13 + Math.random() * 9, decay: 0.017, gravity: 0.1,
+          rotation: Math.random() * Math.PI, rotV: (Math.random() - 0.5) * 0.2,
+        });
+      }
+      spawnText("nom nom!", "#ffdd88", { size: 14 });
+    }
+  }, [playEmoteSound, projectToScreen, userId]);
+
+  // ── Drive-In emote: remote player triggered animation ────────────────────
+  const triggerRemoteDriveEmote = useCallback((fromUserId: string, id: DriveEmoteId) => {
+    const emote = DRIVE_EMOTES.find(e => e.id === id);
+    if (!emote) return;
+    playEmoteSound(id);
+
+    // Show on their 3D avatar bubble
+    const mesh = otherMeshesRef.current.get(fromUserId);
+    if (mesh) {
+      const bubble = mesh.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
+      if (bubble) {
+        getThree().then(THREE => {
+          const tex = new THREE.CanvasTexture(makeChatCanvas(emote.emoji));
+          (bubble.material as import("three").MeshBasicMaterial).map = tex;
+          (bubble.material as import("three").MeshBasicMaterial).needsUpdate = true;
+          bubble.visible = true;
+          setTimeout(() => { if (bubble) bubble.visible = false; }, 4000);
+        });
+      }
+      // Spawn particles from their screen position
+      const wp = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
+      const sp = projectToScreen(wp.x, wp.y + 1.5, wp.z);
+      const pts = driveParticlesRef.current;
+      if (id === "tomato") {
+        const screenCenter = screenMeshRef.current
+          ? (() => { const v = { x: 0, y: 0, z: 0 }; screenMeshRef.current!.getWorldPosition(v as unknown as import("three").Vector3); return projectToScreen(v.x, v.y + 2, v.z); })()
+          : { x: window.innerWidth * 0.5, y: window.innerHeight * 0.28 };
+        driveTomatoRef.current = { sx: sp.x, sy: sp.y, tx: screenCenter.x, ty: screenCenter.y, t: 0 };
+      } else {
+        pts.push({ x: sp.x, y: sp.y, vx: 0, vy: -0.5, gravity: 0, content: emote.emoji, alpha: 1, size: 52, decay: 0.005, rotation: 0, rotV: 0 });
+        for (let i = 0; i < 4; i++) pts.push({
+          x: sp.x + (Math.random() - 0.5) * 36, y: sp.y,
+          vx: (Math.random() - 0.5) * 2, vy: -2 - Math.random() * 1.8,
+          content: emote.emoji, alpha: 0.85, size: 16 + Math.random() * 10, decay: 0.018, gravity: 0.025,
+          rotation: 0, rotV: (Math.random() - 0.5) * 0.07,
+        });
+      }
+    }
+  }, [playEmoteSound, projectToScreen]);
+
+  // ── RPS Arena: game logic ─────────────────────────────────────────────────
+  const rpsChoiceEmoji = (c: RPSChoice | null) =>
+    c === "rock" ? "🪨" : c === "paper" ? "📄" : c === "scissors" ? "✂️" : "❓";
+
+  const rpsResolve = useCallback((myChoice: RPSChoice, opponentChoice: RPSChoice): "win" | "lose" | "draw" => {
+    if (myChoice === opponentChoice) return "draw";
+    if ((myChoice === "rock" && opponentChoice === "scissors") ||
+        (myChoice === "paper" && opponentChoice === "rock") ||
+        (myChoice === "scissors" && opponentChoice === "paper")) return "win";
+    return "lose";
+  }, []);
+
+  const rpsStopTimer = useCallback(() => {
+    if (rpsTimerRef.current) { clearInterval(rpsTimerRef.current); rpsTimerRef.current = null; }
+  }, []);
+
+  const rpsCleanup = useCallback(() => {
+    rpsStopTimer();
+    setRpsPhaseSync("idle");
+    setRpsMyChoice(null);
+    setRpsOpponentChoice(null);
+    setRpsOpponent(null);
+    setRpsResultWinner(null);
+    setRpsTimeLeft(5);
+    rpsMyChoiceRef.current = null;
+    rpsOpponentRef.current = null;
+    rpsMatchIdRef.current = null;
+    rpsMyCommitRef.current = null;
+    rpsOpponentCommitRef.current = null;
+    rpsOpponentRevealedRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rpsStopTimer]);
+
+  // Show choice emoji above a player's head via chat bubble
+  const rpsShowChoiceAboveHead = useCallback((targetMesh: import("three").Group | null, choice: RPSChoice) => {
+    if (!targetMesh) return;
+    const emoji = rpsChoiceEmoji(choice);
+    getThree().then(THREE => {
+      const bubble = targetMesh.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
+      if (bubble) {
+        const tex = new THREE.CanvasTexture(makeChatCanvas(emoji));
+        (bubble.material as import("three").MeshBasicMaterial).map = tex;
+        (bubble.material as import("three").MeshBasicMaterial).needsUpdate = true;
+        bubble.visible = true;
+        setTimeout(() => { if (bubble) bubble.visible = false; }, 5000);
+      }
+    });
+  }, []);
+
+  // Commit choice: XOR each char with 7 to lightly obfuscate (not crypto — friends-only)
+  const rpsObfuscate = (s: string) => btoa(s.split("").map(c => String.fromCharCode(c.charCodeAt(0) ^ 7)).join(""));
+
+  const rpsSubmitChoice = useCallback((choice: RPSChoice) => {
+    if (rpsPhaseRef.current !== "choosing" || rpsMyChoiceRef.current) return;
+    rpsMyChoiceRef.current = choice;
+    setRpsMyChoice(choice);
+    rpsMyCommitRef.current = rpsObfuscate(choice);
+    // Send commit (obfuscated)
+    if (townSocketRef.current?.readyState === 1) {
+      townSocketRef.current.send(JSON.stringify({
+        type: "rps_commit", matchId: rpsMatchIdRef.current, userId, commit: rpsMyCommitRef.current,
+      }));
+    }
+    // If opponent already committed and revealed, we can reveal now
+    if (rpsOpponentRevealedRef.current) {
+      rpsRevealAndFinish(choice, rpsOpponentRevealedRef.current);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const rpsRevealAndFinish = useCallback((myChoice: RPSChoice, oppChoice: RPSChoice) => {
+    rpsStopTimer();
+    setRpsOpponentChoice(oppChoice);
+    setRpsPhaseSync("revealing");
+
+    // Show choices above heads
+    rpsShowChoiceAboveHead(playerMeshRef.current, myChoice);
+    const opp = rpsOpponentRef.current;
+    if (opp) rpsShowChoiceAboveHead(otherMeshesRef.current.get(opp.userId) ?? null, oppChoice);
+
+    const outcome = rpsResolve(myChoice, oppChoice);
+    const winnerId = outcome === "draw" ? null : outcome === "win" ? userId : (opp?.userId ?? null);
+
+    setTimeout(() => {
+      setRpsResultWinner(outcome === "draw" ? "draw" : winnerId);
+      setRpsPhaseSync("result");
+
+      // Celebration/cry particles
+      const [px, py, pz] = playerPosRef.current;
+      if (outcome === "win") {
+        // laugh particles for winner
+        const sp = projectToScreen(px, py + 1.5, pz);
+        for (let i = 0; i < 8; i++) driveParticlesRef.current.push({
+          x: sp.x + (Math.random() - 0.5) * 50, y: sp.y,
+          vx: (Math.random() - 0.5) * 3, vy: -3 - Math.random() * 2,
+          content: ["🎉", "⭐", "✨", "🏆"][Math.floor(Math.random() * 4)],
+          alpha: 1, size: 24, decay: 0.014, gravity: 0.06, rotation: 0, rotV: (Math.random() - 0.5) * 0.15,
+        });
+        playEmoteSound("laugh");
+      } else if (outcome === "lose") {
+        playEmoteSound("cry");
+        const sp = projectToScreen(px, py + 1.5, pz);
+        for (let i = 0; i < 6; i++) driveParticlesRef.current.push({
+          x: sp.x + (Math.random() - 0.5) * 24, y: sp.y,
+          vx: (Math.random() - 0.5) * 0.8, vy: 2 + Math.random() * 2,
+          content: "💧", alpha: 0.9, size: 12, decay: 0.02, gravity: 0.08, rotation: 0, rotV: 0,
+        });
+      }
+
+      // Record in DB — both clients POST, ON CONFLICT DO NOTHING makes it idempotent
+      if (opp) {
+        const [pid1, pid2] = [userId, opp.userId].sort();
+        const p1Choice = pid1 === userId ? myChoice : oppChoice;
+        const p2Choice = pid1 === userId ? oppChoice : myChoice;
+        fetch("/api/rps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            matchId: rpsMatchIdRef.current,
+            p1Id: pid1, p2Id: pid2,
+            p1Choice, p2Choice,
+            winnerId: outcome === "draw" ? null : winnerId,
+          }),
+        }).catch(() => {});
+      }
+
+      // Auto-reset after 4 seconds
+      setTimeout(() => rpsCleanup(), 4000);
+    }, 800); // 800ms dramatic pause before showing result
+  }, [rpsStopTimer, rpsResolve, userId, playEmoteSound, projectToScreen, rpsShowChoiceAboveHead, rpsCleanup]);
+
+  const rpsHandleMessage = useCallback((msg: Record<string, unknown>) => {
+    if (msg.type === "rps_enter" && msg.userId !== userId) {
+      // Someone entered arena — if we're waiting, start match
+      if (rpsPhaseRef.current === "waiting") {
+        const opp = { userId: msg.userId as string, username: msg.username as string };
+        rpsOpponentRef.current = opp;
+        setRpsOpponent(opp);
+        const matchId = [userId, msg.userId as string].sort().join("-") + "-" + Date.now();
+        rpsMatchIdRef.current = matchId;
+        setRpsPhaseSync("choosing");
+        setRpsTimeLeft(5);
+        // Countdown
+        rpsStopTimer();
+        let t = 5;
+        rpsTimerRef.current = setInterval(() => {
+          t--;
+          setRpsTimeLeft(t);
+          if (t <= 0) {
+            rpsStopTimer();
+            // Time's up — if no choice made, auto-lose
+            if (!rpsMyChoiceRef.current) {
+              rpsMyChoiceRef.current = "rock"; // default for timeout
+              rpsMyCommitRef.current = rpsObfuscate("rock");
+              if (townSocketRef.current?.readyState === 1) {
+                townSocketRef.current.send(JSON.stringify({
+                  type: "rps_commit", matchId: rpsMatchIdRef.current, userId, commit: rpsMyCommitRef.current, timedOut: true,
+                }));
+              }
+            }
+            // If opp already revealed, finish; else wait for their reveal
+            if (rpsOpponentRevealedRef.current) {
+              rpsRevealAndFinish(rpsMyChoiceRef.current!, rpsOpponentRevealedRef.current);
+            }
+          }
+        }, 1000);
+        // Broadcast that match started
+        if (townSocketRef.current?.readyState === 1) {
+          townSocketRef.current.send(JSON.stringify({ type: "rps_start", matchId, p1: userId, p2: msg.userId }));
+        }
+      }
+    } else if (msg.type === "rps_start" && (msg.p1 === userId || msg.p2 === userId)) {
+      const oppId = msg.p1 === userId ? msg.p2 as string : msg.p1 as string;
+      const existing = rpsOpponentRef.current;
+      if (!existing || existing.userId !== oppId) {
+        // We're the second player — init match on our side
+        const opp = { userId: oppId, username: rpsOpponentRef.current?.username ?? "Opponent" };
+        rpsOpponentRef.current = opp;
+        setRpsOpponent(opp);
+        rpsMatchIdRef.current = msg.matchId as string;
+        setRpsPhaseSync("choosing");
+        setRpsTimeLeft(5);
+        rpsStopTimer();
+        let t = 5;
+        rpsTimerRef.current = setInterval(() => {
+          t--;
+          setRpsTimeLeft(t);
+          if (t <= 0) {
+            rpsStopTimer();
+            if (!rpsMyChoiceRef.current) {
+              rpsMyChoiceRef.current = "rock";
+              rpsMyCommitRef.current = rpsObfuscate("rock");
+              if (townSocketRef.current?.readyState === 1) {
+                townSocketRef.current.send(JSON.stringify({
+                  type: "rps_commit", matchId: rpsMatchIdRef.current, userId, commit: rpsMyCommitRef.current, timedOut: true,
+                }));
+              }
+            }
+            if (rpsOpponentRevealedRef.current) {
+              rpsRevealAndFinish(rpsMyChoiceRef.current!, rpsOpponentRevealedRef.current);
+            }
+          }
+        }, 1000);
+      }
+    } else if (msg.type === "rps_commit" && msg.userId !== userId && msg.matchId === rpsMatchIdRef.current) {
+      rpsOpponentCommitRef.current = msg.commit as string;
+      // Both committed — trigger simultaneous reveal
+      if (rpsMyChoiceRef.current) {
+        if (townSocketRef.current?.readyState === 1) {
+          townSocketRef.current.send(JSON.stringify({
+            type: "rps_reveal", matchId: rpsMatchIdRef.current, userId, choice: rpsMyChoiceRef.current,
+          }));
+        }
+      }
+    } else if (msg.type === "rps_reveal" && msg.userId !== userId && msg.matchId === rpsMatchIdRef.current) {
+      const oppChoice = msg.choice as RPSChoice;
+      rpsOpponentRevealedRef.current = oppChoice;
+      // Send our reveal too
+      if (rpsMyChoiceRef.current) {
+        if (townSocketRef.current?.readyState === 1) {
+          townSocketRef.current.send(JSON.stringify({
+            type: "rps_reveal", matchId: rpsMatchIdRef.current, userId, choice: rpsMyChoiceRef.current,
+          }));
+        }
+        rpsRevealAndFinish(rpsMyChoiceRef.current, oppChoice);
+      }
+      // If we haven't chosen yet, store for when we do
+    } else if (msg.type === "rps_leave" && msg.userId !== userId) {
+      if (rpsOpponentRef.current?.userId === msg.userId && rpsPhaseRef.current !== "result") {
+        rpsCleanup();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, rpsStopTimer, rpsRevealAndFinish, rpsCleanup]);
+
+  // ── Drive-In emote: particle canvas rAF loop ─────────────────────────────
+  useEffect(() => {
+    const canvas = driveEmoteCanvasRef.current;
+    if (!canvas) return;
+    let running = true;
+    const render = () => {
+      if (!running) return;
+      driveEmoteRafRef.current = requestAnimationFrame(render);
+      const ctx2 = canvas.getContext("2d");
+      if (!ctx2) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      ctx2.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw particles
+      for (const pt of driveParticlesRef.current) {
+        ctx2.save();
+        ctx2.globalAlpha = Math.max(0, pt.alpha);
+        ctx2.translate(pt.x, pt.y);
+        ctx2.rotate(pt.rotation);
+        if (pt.isText) {
+          ctx2.font = `bold ${pt.size}px sans-serif`;
+          ctx2.fillStyle = pt.textColor ?? "#fff";
+          ctx2.textAlign = "center";
+          ctx2.fillText(pt.content, 0, 0);
+        } else {
+          ctx2.font = `${pt.size}px serif`;
+          ctx2.textAlign = "center";
+          ctx2.fillText(pt.content, 0, 0);
+        }
+        ctx2.restore();
+        pt.x += pt.vx; pt.y += pt.vy; pt.vy += pt.gravity;
+        pt.alpha -= pt.decay; pt.rotation += pt.rotV;
+      }
+      driveParticlesRef.current = driveParticlesRef.current.filter(p => p.alpha > 0);
+
+      // Draw tomato projectile
+      const tom = driveTomatoRef.current;
+      if (tom) {
+        const arc = Math.sin(tom.t * Math.PI) * -120;
+        const tx = tom.sx + (tom.tx - tom.sx) * tom.t;
+        const ty = tom.sy + (tom.ty - tom.sy) * tom.t + arc;
+        ctx2.save();
+        ctx2.font = `${28 + tom.t * 8}px serif`;
+        ctx2.textAlign = "center";
+        ctx2.translate(tx, ty);
+        ctx2.rotate(tom.t * Math.PI * 3);
+        ctx2.fillText("🍅", 0, 0);
+        ctx2.restore();
+        tom.t = Math.min(1, tom.t + 0.028);
+        if (tom.t >= 1) {
+          driveTomatoRef.current = null;
+          // Splat on screen
+          const cx = 20 + Math.random() * 60;
+          const cy = 10 + Math.random() * 80;
+          const splats: DriveSplat[] = [
+            { id: ++driveSplatIdRef.current, x: cx, y: cy, r: 12 + Math.random() * 7, rot: Math.random() * 360 },
+          ];
+          for (let d = 0; d < 5; d++) splats.push({
+            id: ++driveSplatIdRef.current,
+            x: cx + (Math.random() - 0.5) * 24, y: cy + (Math.random() - 0.5) * 24 + 4 + d * 3,
+            r: 3 + Math.random() * 5, rot: Math.random() * 360,
+          });
+          setDriveSplats(prev => [...prev, ...splats]);
+          const ids = splats.map(s => s.id);
+          setTimeout(() => setDriveSplats(prev => prev.filter(s => !ids.includes(s.id))), 8000);
+        }
+      }
+    };
+    render();
+    return () => { running = false; if (driveEmoteRafRef.current) cancelAnimationFrame(driveEmoteRafRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // canvas ref is stable — particles are driven by refs not state
+
   // ── WebSocket (PartyKit) ───────────────────────────────────────────────────
   useEffect(() => {
     let ws: { send: (d: string) => void; close: () => void; readyState: number } | null = null;
@@ -858,9 +1471,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
     const connect = async () => {
       const { PartySocket } = await import("partysocket");
+      // Party members share their party room; solo players get a private room so
+      // strangers never bleed in. MOONHAVEN_WS_ROOM is kept for future public areas.
       ws = new PartySocket({
         host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999",
-        room: partyIdRef.current ? `party-${partyIdRef.current}` : MOONHAVEN_WS_ROOM,
+        room: partyIdRef.current ? `party-${partyIdRef.current}` : `solo-${userId}`,
       }) as unknown as typeof ws;
       townSocketRef.current = ws;
 
@@ -882,6 +1497,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             else { stopChaseMusic(); }
           } else if (msg.type === "tag_end" && tagGameActiveRef.current) {
             endTagGame();
+          } else if (msg.type === "drive_emote" && msg.userId !== userId && msg.emoteId) {
+            triggerRemoteDriveEmote(msg.userId, msg.emoteId as DriveEmoteId);
+          } else if (msg.type === "rps_enter" || msg.type === "rps_start" || msg.type === "rps_commit" || msg.type === "rps_reveal" || msg.type === "rps_leave") {
+            rpsHandleMessage(msg as Record<string, unknown>);
           }
         } catch { /* ignore */ }
       };
@@ -1056,6 +1675,53 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       setLoadMsg("Setting up Drive-In…");
       screenMeshRef.current = buildDriveIn(THREE, scene, QL);
 
+      // ── RPS Arena ─────────────────────────────────────────────────────────
+      setLoadMsg("Forging the arena…");
+      (() => {
+        const [ax, ay, az] = RPS_ARENA_POS;
+        // Platform
+        const platGeo = new THREE.CylinderGeometry(RPS_ARENA_RADIUS, RPS_ARENA_RADIUS, 0.35, 32);
+        const platMat = new THREE.MeshStandardMaterial({ color: 0x2a1a3a, roughness: 0.7, metalness: 0.3 });
+        const plat = new THREE.Mesh(platGeo, platMat); plat.position.set(ax, ay + 0.175, az); plat.receiveShadow = true; scene.add(plat);
+        // Glowing ring border
+        const ringGeo = new THREE.TorusGeometry(RPS_ARENA_RADIUS, 0.18, 8, 48);
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0xaa44ff, emissive: 0x7722cc, emissiveIntensity: 1.2, roughness: 0.3, metalness: 0.6 });
+        const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = Math.PI / 2; ring.position.set(ax, ay + 0.36, az); scene.add(ring);
+        // Inner divider line (thin plane)
+        const lineGeo = new THREE.PlaneGeometry(RPS_ARENA_RADIUS * 2, 0.06);
+        const lineMat = new THREE.MeshStandardMaterial({ color: 0xdd99ff, emissive: 0xaa55ff, emissiveIntensity: 0.8, roughness: 0.5 });
+        const line = new THREE.Mesh(lineGeo, lineMat); line.rotation.x = -Math.PI / 2; line.position.set(ax, ay + 0.38, az); scene.add(line);
+        // Torch posts at cardinal corners
+        const torchPositions: [number, number][] = [[ax+4.5, az], [ax-4.5, az], [ax, az+4.5], [ax, az-4.5]];
+        torchPositions.forEach(([tx, tz]) => {
+          const postGeo = new THREE.CylinderGeometry(0.1, 0.12, 2.2, 6);
+          const postMat = new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 0.8 });
+          const post = new THREE.Mesh(postGeo, postMat); post.position.set(tx, ay + 1.1, tz); scene.add(post);
+          // Flame orb
+          const flameGeo = new THREE.SphereGeometry(0.22, 6, 6);
+          const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff3300, emissiveIntensity: 2.5, roughness: 0.3 });
+          const flame = new THREE.Mesh(flameGeo, flameMat); flame.position.set(tx, ay + 2.35, tz); scene.add(flame);
+          if (QL !== "low") {
+            const light = new THREE.PointLight(0xff5500, 1.8, 8); light.position.set(tx, ay + 2.5, tz); scene.add(light);
+          }
+        });
+        // Floating sign: "⚔ RPS ARENA"
+        const signCanvas = document.createElement("canvas"); signCanvas.width = 320; signCanvas.height = 80;
+        const sc = signCanvas.getContext("2d")!;
+        sc.fillStyle = "rgba(18,6,36,0.92)"; sc.roundRect(4, 4, 312, 72, 12); sc.fill();
+        sc.strokeStyle = "#aa44ff"; sc.lineWidth = 3; sc.strokeRect(5, 5, 310, 70);
+        sc.font = "bold 32px serif"; sc.textAlign = "center"; sc.fillStyle = "#e8d4ff"; sc.fillText("⚔ RPS ARENA", 160, 38);
+        sc.font = "13px monospace"; sc.fillStyle = "#9966cc"; sc.fillText("Enter the circle to fight", 160, 62);
+        const signTex = new THREE.CanvasTexture(signCanvas);
+        const signGeo = new THREE.PlaneGeometry(4.5, 1.1);
+        const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+        const sign = new THREE.Mesh(signGeo, signMat); sign.position.set(ax, ay + 5.2, az - RPS_ARENA_RADIUS - 0.5); scene.add(sign);
+        // Sign post
+        const spostGeo = new THREE.CylinderGeometry(0.07, 0.07, 4.8, 6);
+        const spostMat = new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 0.8 });
+        const spost = new THREE.Mesh(spostGeo, spostMat); spost.position.set(ax, ay + 2.4, az - RPS_ARENA_RADIUS - 0.5); scene.add(spost);
+      })();
+
       // ── Stars backdrop — skip on low (pure cosmetic, many points) ───────────
       if (QL !== "low") { setLoadMsg("Painting stars…"); buildStars(THREE, scene); }
 
@@ -1167,7 +1833,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         if (e.code === "Escape") { setChatOpen(false); setActiveNPC(null); }
         if (e.code === "KeyC" && !chatOpenRef.current) { setShowCharacter(c => !c); e.preventDefault(); }
         if (e.code === "KeyB" && !chatOpenRef.current) { setShowStash(s => !s); e.preventDefault(); }
-        if (e.code === "KeyE" && !chatOpenRef.current && driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
+        if (e.code === "KeyE" && !chatOpenRef.current) {
+          if (nearestNPCRef.current) { handleNPCClickRef.current(nearestNPCRef.current); e.preventDefault(); }
+          else if (driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
+        }
         if (e.code === "Space" && jumpRef.current.grounded && !chatOpenRef.current) {
           jumpRef.current.vy = 9;
           jumpRef.current.grounded = false;
@@ -1219,6 +1888,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         const dt = Math.min(clock.getDelta(), 0.1);
         const [px, , pz] = playerPosRef.current;
 
+        // Arrow keys — orbit camera (look around without mouse)
+        const camRotSpeed = 1.8; // radians per second
+        if (keysRef.current.has("ArrowLeft"))  camOrbitRef.current.theta += camRotSpeed * dt;
+        if (keysRef.current.has("ArrowRight")) camOrbitRef.current.theta -= camRotSpeed * dt;
+        if (keysRef.current.has("ArrowUp"))    camOrbitRef.current.phi = Math.max(0.1, camOrbitRef.current.phi - camRotSpeed * 0.7 * dt);
+        if (keysRef.current.has("ArrowDown"))  camOrbitRef.current.phi = Math.min(1.3, camOrbitRef.current.phi + camRotSpeed * 0.7 * dt);
+
         // Player movement — WASD relative to camera
         const speed = 6;
         let mx = 0, mz = 0;
@@ -1233,16 +1909,16 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           -Math.sin(camOrbitRef.current.theta)
         );
 
-        if (keysRef.current.has("KeyW") || keysRef.current.has("ArrowUp")) {
+        if (keysRef.current.has("KeyW")) {
           mx -= camFwd.x; mz -= camFwd.z;
         }
-        if (keysRef.current.has("KeyS") || keysRef.current.has("ArrowDown")) {
+        if (keysRef.current.has("KeyS")) {
           mx += camFwd.x; mz += camFwd.z;
         }
-        if (keysRef.current.has("KeyA") || keysRef.current.has("ArrowLeft")) {
+        if (keysRef.current.has("KeyA")) {
           mx -= camRight.x; mz -= camRight.z;
         }
-        if (keysRef.current.has("KeyD") || keysRef.current.has("ArrowRight")) {
+        if (keysRef.current.has("KeyD")) {
           mx += camRight.x; mz += camRight.z;
         }
         // Mobile joystick input
@@ -1390,12 +2066,49 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           }
         }
 
+        // NPC proximity — find nearest interactable NPC within 7 units
+        {
+          let closestNPC: MoonhavenNPC | null = null;
+          let closestNPCDist = 7;
+          for (const npc of MOONHAVEN_NPCS) {
+            if (npc.hostile) continue;
+            const mesh = npcMeshesRef.current.get(npc.id);
+            const [nx, , nz] = npc.position;
+            const npcX = mesh ? mesh.position.x : nx;
+            const npcZ = mesh ? mesh.position.z : nz;
+            const d = Math.hypot(cpx - npcX, cpz - npcZ);
+            if (d < closestNPCDist) { closestNPCDist = d; closestNPC = npc; }
+          }
+          if (closestNPC?.id !== nearestNPCRef.current?.id) {
+            nearestNPCRef.current = closestNPC;
+            setNearestNPC(closestNPC);
+          }
+        }
+
         // Drive-in proximity — screen at [62, 0, 52], interact within 18 units (bigger theater)
         const distToScreen = Math.hypot(cpx - 62, cpz - 52);
         const nearScreen = distToScreen < 18;
         if (nearScreen !== driveInNearRef.current) {
           driveInNearRef.current = nearScreen;
           setDriveInNear(nearScreen);
+        }
+
+        // RPS Arena proximity
+        const distToArena = Math.hypot(cpx - RPS_ARENA_POS[0], cpz - RPS_ARENA_POS[2]);
+        const nearArena = distToArena < RPS_ARENA_RADIUS + 3;
+        if (nearArena !== rpsNearRef.current) { rpsNearRef.current = nearArena; setRpsNear(nearArena); }
+        // Enter/leave arena circle
+        const insideArena = distToArena < RPS_ARENA_RADIUS;
+        if (insideArena && rpsPhaseRef.current === "idle") {
+          setRpsPhaseSync("waiting");
+          if (townSocketRef.current?.readyState === 1) {
+            townSocketRef.current.send(JSON.stringify({ type: "rps_enter", userId, username }));
+          }
+        } else if (!insideArena && rpsPhaseRef.current === "waiting") {
+          setRpsPhaseSync("idle");
+          if (townSocketRef.current?.readyState === 1) {
+            townSocketRef.current.send(JSON.stringify({ type: "rps_leave", userId }));
+          }
         }
 
         // Proximity audio — volume scales with distance to screen (like a real drive-in)
@@ -1864,6 +2577,29 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         </div>
       </div>
 
+      {/* [E] Interact prompt — floats above toolbar when near an NPC or the drive-in screen */}
+      {!loading && (nearestNPC || (driveInNear && ssStatus === "idle")) && !activeNPC && (
+        <div style={{
+          position: "absolute", bottom: 110, left: "50%", transform: "translateX(-50%)",
+          zIndex: 55, pointerEvents: "none",
+          display: "flex", alignItems: "center", gap: 8,
+          background: "rgba(5,3,20,0.88)", border: "1px solid rgba(130,110,220,0.45)",
+          borderRadius: 10, padding: "6px 14px",
+          animation: "npc-pop 0.18s ease-out",
+        }}>
+          <span style={{
+            background: "rgba(100,80,200,0.35)", border: "1px solid rgba(150,130,255,0.5)",
+            borderRadius: 5, padding: "2px 7px", fontSize: 11, fontWeight: 700, color: "#ccbbff", letterSpacing: 1,
+          }}>E</span>
+          <span style={{ fontSize: 13, color: "rgba(210,200,255,0.85)", fontWeight: 600 }}>
+            {nearestNPC
+              ? `Talk to ${nearestNPC.name}`
+              : "Open Drive-In Theater"}
+          </span>
+          {nearestNPC && <span style={{ fontSize: 16 }}>{nearestNPC.emoji}</span>}
+        </div>
+      )}
+
       {/* NPC dialogue popup */}
       {activeNPC && (
         <div style={{
@@ -1890,7 +2626,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       {/* Chat input */}
       {chatOpen && (
         <div style={{
-          position: "absolute", bottom: 70, left: "50%", transform: "translateX(-50%)",
+          position: "absolute", bottom: 116, left: "50%", transform: "translateX(-50%)",
           zIndex: 60, display: "flex", gap: 8, alignItems: "center",
         }}>
           <input
@@ -1926,7 +2662,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         ];
         return (
           <div style={{
-            position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
+            position: "absolute", bottom: 56, left: "50%", transform: "translateX(-50%)",
             zIndex: 50, display: "flex", gap: 8, alignItems: "center",
             background: "rgba(5,3,20,0.85)", border: "1px solid rgba(100,80,200,0.3)",
             borderRadius: 14, padding: "8px 14px",
@@ -1961,11 +2697,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       {/* Controls hint */}
       {!loading && (
         <div style={{
-          position: "absolute", bottom: 70, right: 14, zIndex: 40,
+          position: "absolute", bottom: 116, right: 14, zIndex: 40,
           fontSize: 9, color: "rgba(100,90,180,0.4)", lineHeight: 1.8, textAlign: "right",
         }}>
-          WASD / ↑↓←→ move · Space jump<br />
-          C = Character · B = Bag<br />
+          WASD move · ↑↓←→ look · Space jump<br />
+          C = Character · B = Bag · E = Talk<br />
           Click ground to walk · Enter to chat<br />
           Right-drag to orbit · Scroll to zoom
         </div>
@@ -2289,56 +3025,232 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         </div>
       )}
 
-      {/* Emoji reactions bar — visible when near the drive-in and something is playing */}
-      {driveInNear && ssStatus !== "idle" && (
-        <div
-          onPointerDown={e => e.stopPropagation()}
-          onMouseDown={e => e.stopPropagation()}
-          onClick={e => e.stopPropagation()}
-          style={{
-          position: "fixed", bottom: 36, left: "50%", transform: "translateX(-50%)",
-          zIndex: 500, display: "flex", gap: 6, background: "rgba(10,6,28,0.8)",
-          borderRadius: 30, padding: "6px 10px", backdropFilter: "blur(6px)",
-          border: "1px solid rgba(100,80,220,0.3)",
-        }}>
-          {[
-            { emoji: "🍿", label: "Popcorn" },
-            { emoji: "😂", label: "Laugh" },
-            { emoji: "😢", label: "Cry" },
-            { emoji: "🍅", label: "Tomato!" },
-            { emoji: "🤫", label: "Shush" },
-            { emoji: "🥤", label: "Sip" },
-            { emoji: "👏", label: "Clap" },
-            { emoji: "🔥", label: "Fire" },
-          ].map(r => (
-            <button key={r.emoji} title={r.label} onClick={() => {
-              // Send reaction to all
-              const ws = townSocketRef.current;
-              if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ type: "chat", userId, text: r.emoji }));
-              }
-              // Show on own avatar bubble (playerMeshRef, not otherMeshes)
-              getThree().then(THREE => {
-                if (!playerMeshRef.current) return;
-                const bubble = playerMeshRef.current.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
-                if (bubble) {
-                  const tex = new THREE.CanvasTexture(makeChatCanvas(r.emoji));
-                  (bubble.material as import("three").MeshBasicMaterial).map = tex;
-                  (bubble.material as import("three").MeshBasicMaterial).needsUpdate = true;
-                  bubble.visible = true;
-                  setTimeout(() => { if (bubble) bubble.visible = false; }, 5000);
-                }
-              });
-            }} style={{
-              background: "none", border: "none", fontSize: 22, cursor: "pointer",
-              padding: "4px 6px", borderRadius: 8, transition: "transform 0.15s",
+      {/* Drive-In emoji reactions — full animated system with cooldowns, particles, tomato throw */}
+      {driveInNear && ssStatus !== "idle" && (() => {
+        const now = Date.now();
+        return (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+              zIndex: 500, display: "flex", gap: 8,
+              background: "rgba(8,4,22,0.92)", borderRadius: 18,
+              padding: "10px 14px", backdropFilter: "blur(10px)",
+              border: "1px solid rgba(100,80,220,0.45)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.6)",
+            }}>
+            {DRIVE_EMOTES.map(emote => {
+              const cdExpiry = driveCooldownsRef.current[emote.id] ?? 0;
+              const onCd = cdExpiry > now;
+              const cdLeft = onCd ? Math.ceil((cdExpiry - now) / 1000) : 0;
+              return (
+                <button
+                  key={emote.id}
+                  title={emote.label}
+                  disabled={onCd}
+                  onClick={() => triggerDriveEmote(emote.id)}
+                  style={{
+                    position: "relative", overflow: "hidden",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: 3,
+                    background: onCd ? "rgba(0,0,0,0.55)" : "rgba(10,5,25,0.88)",
+                    border: `2px solid ${onCd ? "#333" : emote.border}`,
+                    borderRadius: 12, padding: "9px 7px",
+                    cursor: onCd ? "default" : "pointer",
+                    width: 58, flexShrink: 0,
+                    backdropFilter: "blur(6px)",
+                    boxShadow: onCd ? "none" : `0 0 12px ${emote.color}44, inset 0 1px 0 rgba(255,255,255,0.08)`,
+                    transition: "transform 0.1s, box-shadow 0.1s",
+                    opacity: onCd ? 0.5 : 1,
+                    userSelect: "none",
+                    WebkitTapHighlightColor: "transparent",
+                    touchAction: "manipulation",
+                  }}
+                  onMouseEnter={e => { if (!onCd) (e.currentTarget as HTMLElement).style.transform = "scale(1.12)"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                >
+                  {onCd && (
+                    <div style={{
+                      position: "absolute", inset: 0, borderRadius: "inherit",
+                      background: "rgba(0,0,0,0.5)", display: "flex",
+                      alignItems: "center", justifyContent: "center",
+                      fontSize: 14, color: "#aaa", fontWeight: "bold",
+                    }}>{cdLeft}s</div>
+                  )}
+                  <span style={{ fontSize: 28, lineHeight: 1, filter: onCd ? "grayscale(80%)" : "none" }}>{emote.emoji}</span>
+                  <span style={{ fontSize: 9, color: onCd ? "#555" : emote.color, fontWeight: "bold", textAlign: "center", lineHeight: 1.2, whiteSpace: "nowrap" }}>{emote.label}</span>
+                  {!onCd && <div style={{ position: "absolute", bottom: 0, left: 6, right: 6, height: 2, borderRadius: 1, background: emote.color, opacity: 0.6 }} />}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* Particle canvas overlay — draws emote particles + tomato arc on top of Three.js */}
+      <canvas
+        ref={driveEmoteCanvasRef}
+        style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 490 }}
+      />
+
+      {/* Tomato splats — rendered as DOM elements over the projected drive-in screen position */}
+      {driveSplats.length > 0 && screenMeshRef.current && (() => {
+        const wp = { x: 0, y: 0, z: 0 };
+        screenMeshRef.current!.getWorldPosition(wp as unknown as import("three").Vector3);
+        const sp = projectToScreen(wp.x, wp.y, wp.z);
+        // Estimate screen size in pixels from its world scale
+        const scaleX = (screenMeshRef.current!.scale.x || 1) * 18;
+        const scaleY = (screenMeshRef.current!.scale.y || 1) * 12;
+        return (
+          <div style={{ position: "fixed", left: sp.x - scaleX, top: sp.y - scaleY, width: scaleX * 2, height: scaleY * 2, pointerEvents: "none", zIndex: 491, overflow: "hidden" }}>
+            {driveSplats.map(s => (
+              <div key={s.id} style={{
+                position: "absolute",
+                left: `${s.x}%`, top: `${s.y}%`,
+                width: s.r * 2, height: s.r * 2,
+                marginLeft: -s.r, marginTop: -s.r,
+                borderRadius: "50%",
+                background: "radial-gradient(circle at 40% 35%, #ff6644, #cc2200 60%, #881100)",
+                transform: `rotate(${s.rot}deg) scaleX(${0.7 + Math.random() * 0.6})`,
+                opacity: 0.88,
+                boxShadow: "0 0 4px rgba(200,50,0,0.5)",
+              }} />
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* RPS Arena UI — appears when near the arena or in a match */}
+      {(rpsNear || rpsPhase !== "idle") && (() => {
+        const choiceBtn = (choice: RPSChoice, emoji: string, label: string) => (
+          <button
+            key={choice}
+            onClick={() => rpsSubmitChoice(choice)}
+            disabled={!!rpsMyChoice}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+              padding: "14px 18px", fontSize: 14, fontWeight: 800,
+              background: rpsMyChoice === choice ? "rgba(170,68,255,0.35)" : rpsMyChoice ? "rgba(255,255,255,0.04)" : "rgba(20,8,44,0.9)",
+              border: `2px solid ${rpsMyChoice === choice ? "#aa44ff" : "rgba(150,100,255,0.4)"}`,
+              borderRadius: 14, cursor: rpsMyChoice ? "default" : "pointer",
+              color: rpsMyChoice === choice ? "#e8d4ff" : "rgba(255,255,255,0.6)",
+              boxShadow: rpsMyChoice === choice ? "0 0 18px rgba(170,68,255,0.5)" : "none",
+              transition: "all 0.15s", opacity: rpsMyChoice && rpsMyChoice !== choice ? 0.4 : 1,
+              userSelect: "none", touchAction: "manipulation",
+              transform: rpsMyChoice === choice ? "scale(1.08)" : "scale(1)",
             }}
-            onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.35)")}
-            onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
-            >{r.emoji}</button>
-          ))}
-        </div>
-      )}
+            onMouseEnter={e => { if (!rpsMyChoice) (e.currentTarget as HTMLElement).style.transform = "scale(1.06)"; }}
+            onMouseLeave={e => { if (!rpsMyChoice) (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+          >
+            <span style={{ fontSize: 40, lineHeight: 1 }}>{emoji}</span>
+            <span style={{ fontSize: 12, letterSpacing: "0.08em" }}>{label}</span>
+          </button>
+        );
+
+        return (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+              zIndex: 600,
+              background: "rgba(8,3,22,0.97)", backdropFilter: "blur(14px)",
+              border: "2px solid rgba(150,80,255,0.6)", borderRadius: 20,
+              padding: "22px 28px", minWidth: 340, maxWidth: 420,
+              boxShadow: "0 8px 48px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)",
+              fontFamily: "monospace",
+              animation: "npc-pop 0.22s ease-out",
+            }}
+          >
+            {/* Header */}
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "rgba(200,170,255,0.5)", letterSpacing: "0.15em", fontWeight: 700, marginBottom: 4 }}>⚔ RPS ARENA</div>
+
+              {rpsPhase === "waiting" && (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: "#c4b5ff" }}>Waiting for opponent…</div>
+                  <div style={{ fontSize: 11, color: "rgba(200,170,255,0.4)", marginTop: 6 }}>Step into the circle when another player enters</div>
+                </>
+              )}
+              {rpsPhase === "choosing" && (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "#ffdd44" }}>vs @{rpsOpponent?.username}</div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: rpsTimeLeft <= 2 ? "#ff5555" : "#aaffaa", fontWeight: 900, letterSpacing: "0.1em" }}>
+                    {rpsMyChoice ? "⏳ Waiting for opponent…" : `⏱ Choose in ${rpsTimeLeft}s`}
+                  </div>
+                </>
+              )}
+              {(rpsPhase === "revealing" || rpsPhase === "result") && (
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#ffdd44" }}>vs @{rpsOpponent?.username}</div>
+              )}
+            </div>
+
+            {/* Choice buttons */}
+            {rpsPhase === "choosing" && (
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 6 }}>
+                {choiceBtn("rock", "🪨", "ROCK")}
+                {choiceBtn("paper", "📄", "PAPER")}
+                {choiceBtn("scissors", "✂️", "SCISSORS")}
+              </div>
+            )}
+
+            {/* Reveal phase */}
+            {rpsPhase === "revealing" && (
+              <div style={{ display: "flex", gap: 20, justifyContent: "center", alignItems: "center", padding: "10px 0" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>YOU</div>
+                  <div style={{ fontSize: 56 }}>{rpsChoiceEmoji(rpsMyChoice)}</div>
+                </div>
+                <div style={{ fontSize: 20, color: "rgba(255,255,255,0.3)", fontWeight: 900 }}>VS</div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>@{rpsOpponent?.username}</div>
+                  <div style={{ fontSize: 56 }}>{rpsOpponentChoice ? rpsChoiceEmoji(rpsOpponentChoice) : "❓"}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Result */}
+            {rpsPhase === "result" && (
+              <>
+                <div style={{ display: "flex", gap: 20, justifyContent: "center", alignItems: "center", padding: "8px 0" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>YOU</div>
+                    <div style={{ fontSize: 52 }}>{rpsChoiceEmoji(rpsMyChoice)}</div>
+                  </div>
+                  <div style={{ fontSize: 18, color: "rgba(255,255,255,0.3)", fontWeight: 900 }}>VS</div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>@{rpsOpponent?.username}</div>
+                    <div style={{ fontSize: 52 }}>{rpsChoiceEmoji(rpsOpponentChoice)}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center", marginTop: 10, padding: "10px 0 4px" }}>
+                  {rpsResultWinner === "draw" && (
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#ffdd44" }}>🤝 DRAW!</div>
+                  )}
+                  {rpsResultWinner === userId && (
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#4ade80" }}>🏆 YOU WIN!</div>
+                  )}
+                  {rpsResultWinner !== "draw" && rpsResultWinner !== userId && rpsResultWinner !== null && (
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#f87171" }}>💀 YOU LOSE</div>
+                  )}
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>ELO updated · ranked match</div>
+                </div>
+              </>
+            )}
+
+            {/* Dismiss for waiting phase */}
+            {rpsPhase === "waiting" && (
+              <button
+                onClick={() => { rpsCleanup(); if (townSocketRef.current?.readyState === 1) townSocketRef.current.send(JSON.stringify({ type: "rps_leave", userId })); }}
+                style={{ width: "100%", marginTop: 10, padding: "6px 0", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "monospace", fontSize: 11 }}
+              >Leave Arena</button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Game Cast picker — opens game in new tab, then triggers screen share */}
       {showGameCast && ssStatus === "idle" && (

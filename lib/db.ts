@@ -233,6 +233,22 @@ export async function initDb() {
       updated_at TIMESTAMP DEFAULT NOW()
     )
   `;
+  // RPS Arena
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS rps_rating INTEGER DEFAULT 1200`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS rps_wins INTEGER DEFAULT 0`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS rps_losses INTEGER DEFAULT 0`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS rps_draws INTEGER DEFAULT 0`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS rps_matches (
+      id TEXT PRIMARY KEY,
+      p1_id TEXT NOT NULL,
+      p2_id TEXT NOT NULL,
+      p1_choice TEXT,
+      p2_choice TEXT,
+      winner_id TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
   // Quiz system
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiz_rating INTEGER DEFAULT 1200`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiz_wins INTEGER DEFAULT 0`;

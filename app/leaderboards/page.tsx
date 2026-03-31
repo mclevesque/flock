@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 
-type Tab = "overview" | "chess" | "outbreak" | "quiz";
+type Tab = "overview" | "chess" | "outbreak" | "quiz" | "rps";
 
 const DIFFICULTIES = [
   { id: 1, label: "CASUAL" },
@@ -22,6 +22,19 @@ interface Player {
   quiz_rating: number;
   quiz_wins: number;
   quiz_losses: number;
+  rps_rating: number;
+  rps_wins: number;
+  rps_losses: number;
+  rps_draws: number;
+}
+
+interface RpsEntry {
+  username: string;
+  display_name?: string;
+  rps_rating: number;
+  rps_wins: number;
+  rps_losses: number;
+  rps_draws: number;
 }
 
 interface OutbreakEntry {
@@ -115,6 +128,7 @@ export default function LeaderboardsPage() {
   const [diffTab, setDiffTab] = useState(2);
   const [players, setPlayers] = useState<Player[]>([]);
   const [outbreakEntries, setOutbreakEntries] = useState<OutbreakEntry[]>([]);
+  const [rpsEntries, setRpsEntries] = useState<RpsEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -125,9 +139,11 @@ export default function LeaderboardsPage() {
     Promise.all([
       fetch("/api/users/all").then(r => r.ok ? r.json() : []).catch(() => []),
       fetch("/api/outbreak?dev=1").then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([users, outbreak]) => {
+      fetch("/api/rps").then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([users, outbreak, rps]) => {
       setPlayers(users || []);
       if (outbreak?.leaderboard) setOutbreakEntries(outbreak.leaderboard);
+      if (Array.isArray(rps)) setRpsEntries(rps);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -157,6 +173,7 @@ export default function LeaderboardsPage() {
     { id: "chess",    label: "CHESS",    emoji: "♟️" },
     { id: "outbreak", label: "OUTBREAK", emoji: "🧟" },
     { id: "quiz",     label: "QUIZ",     emoji: "🧠" },
+    { id: "rps",      label: "RPS",      emoji: "✂️" },
   ];
 
   if (loading || status === "loading") {
@@ -284,6 +301,34 @@ export default function LeaderboardsPage() {
               col1={u.quiz_wins} col2={u.quiz_losses} value={u.quiz_rating} />
           ))}
           {byQuiz.length === 0 && <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>No quiz games played yet.</p>}
+        </Card>
+      )}
+
+      {/* ── RPS ── */}
+      {tab === "rps" && (
+        <Card>
+          <CardTitle>✂️ ROCK PAPER SCISSORS — ELO RANKINGS</CardTitle>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 10 }}>
+            🌙 Fought in the Moonhaven Arena · Starting ELO: 1200
+          </div>
+          <ColHeader cols={["W", "L", "D", "ELO"]} />
+          {rpsEntries.map((u, i) => (
+            <div key={u.username} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+              <RankNum rank={i + 1} />
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                @{u.username}{u.display_name ? ` — ${u.display_name}` : ""}
+              </span>
+              <span style={{ width: 28, textAlign: "center", fontSize: 12, color: "var(--accent-green, #4ade80)", fontWeight: 700 }}>{u.rps_wins}</span>
+              <span style={{ width: 28, textAlign: "center", fontSize: 12, color: "#f87171", fontWeight: 700 }}>{u.rps_losses}</span>
+              <span style={{ width: 28, textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>{u.rps_draws}</span>
+              <span style={{ width: 60, textAlign: "center", fontSize: 13, fontWeight: 900, color: i === 0 ? "var(--accent-purple-bright)" : "var(--text-primary)" }}>{u.rps_rating}</span>
+            </div>
+          ))}
+          {rpsEntries.length === 0 && (
+            <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
+              No matches yet — head to 🌙 Moonhaven to fight in the arena!
+            </p>
+          )}
         </Card>
       )}
 

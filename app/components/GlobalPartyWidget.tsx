@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useVoice } from "./VoiceWidget";
 import { useNotifications, type PushNotification } from "@/lib/useNotifications";
 
@@ -33,8 +33,9 @@ interface IncomingPartyInvite { partyId: string; inviterName: string; inviterAva
 export default function GlobalPartyWidget() {
   const { data: session } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   const { isInVoice, isMuted, toggleMute, openMaxi, joinRoom, leaveRoom, currentRoomId } = useVoice();
-  const { onNotification } = useNotifications();
+  const { onNotification, notifications } = useNotifications();
   const [party, setParty] = useState<Party | null>(null);
   const [open, setOpen] = useState(false);
   const [chatLog, setChatLog] = useState<PartyChatMsg[]>([]);
@@ -46,6 +47,9 @@ export default function GlobalPartyWidget() {
   const [inviteSearch, setInviteSearch] = useState("");
   const [inviteSentTo, setInviteSentTo] = useState<string | null>(null);
   const [incomingInvite, setIncomingInvite] = useState<IncomingPartyInvite | null>(null);
+  const [inviteSecondsLeft, setInviteSecondsLeft] = useState(30);
+  // Track partyIds that have been acted on (joined, declined, expired) so snapshot fallback won't re-show them
+  const handledInviteIds = useRef<Set<string>>(new Set());
   const [moonhavenPull, setMoonhavenPull] = useState<{ leaderName: string } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const draggedRef = useRef(false);
@@ -173,13 +177,22 @@ export default function GlobalPartyWidget() {
     }).catch(() => {});
   }, [showInvite]);
 
-  // Listen for incoming party invites
+  // Dismiss an invite permanently (decline, expire, or accept) — prevents snapshot fallback from re-showing it
+  const dismissInvite = useCallback((partyId: string) => {
+    handledInviteIds.current.add(partyId);
+    setIncomingInvite(null);
+  }, []);
+
+  // Listen for incoming party invites + moonhaven-pull via real-time callback
   useEffect(() => {
     if (!userId) return;
     const unsub = onNotification((n: PushNotification) => {
       const d = n as unknown as Record<string, unknown>;
       if (n.type === "party-invite" && d.partyId) {
-        setIncomingInvite({ partyId: d.partyId as string, inviterName: (d.inviterName as string) ?? "Someone", inviterAvatar: (d.inviterAvatar as string | null) ?? null });
+        const pid = d.partyId as string;
+        if (!handledInviteIds.current.has(pid)) {
+          setIncomingInvite(prev => prev?.partyId === pid ? prev : { partyId: pid, inviterName: (d.inviterName as string) ?? "Someone", inviterAvatar: (d.inviterAvatar as string | null) ?? null });
+        }
       }
       if (n.type === "moonhaven-pull") {
         setMoonhavenPull({ leaderName: (d.leaderName as string) ?? "Your leader" });
@@ -188,16 +201,50 @@ export default function GlobalPartyWidget() {
     return unsub;
   }, [userId, onNotification]);
 
+  // Catch party invites that arrived as snapshot (queued before WS connected + callback registered)
+  useEffect(() => {
+    if (incomingInvite) return; // already have one showing
+    const recent = notifications.find(n => {
+      const d = n as unknown as Record<string, unknown>;
+      return n.type === "party-invite" && d.partyId
+        && !handledInviteIds.current.has(d.partyId as string)
+        && n.ts && Date.now() - (n.ts as number) < 5 * 60 * 1000;
+    });
+    if (recent) {
+      const d = recent as unknown as Record<string, unknown>;
+      setIncomingInvite({ partyId: d.partyId as string, inviterName: (d.inviterName as string) ?? "Someone", inviterAvatar: (d.inviterAvatar as string | null) ?? null });
+    }
+  }, [notifications, incomingInvite]);
+
+  // Auto-dismiss invite after 30 s + countdown ticker (no DB calls)
+  useEffect(() => {
+    if (!incomingInvite) { setInviteSecondsLeft(30); return; }
+    setInviteSecondsLeft(30);
+    const tick = setInterval(() => {
+      setInviteSecondsLeft(s => {
+        if (s <= 1) {
+          clearInterval(tick);
+          dismissInvite(incomingInvite.partyId); // mark handled so it won't re-show
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [incomingInvite, dismissInvite]);
+
   // Accept incoming party invite
   const acceptInvite = async () => {
     if (!incomingInvite) return;
-    const r = await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "join", partyId: incomingInvite.partyId }) }).catch(() => null);
+    const partyId = incomingInvite.partyId;
+    dismissInvite(partyId); // mark handled immediately so no re-show on any path
+    const r = await fetch("/api/party", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "join", partyId }) }).catch(() => null);
     const d = await r?.json().catch(() => ({}));
     if (d?.ok || d?.party) {
       const fresh = await fetch("/api/party?action=my-party").then(r2 => r2.json()).catch(() => ({}));
       setParty(fresh.party ?? null);
+      if (pathname === "/moonhaven") { router.refresh(); return; }
     }
-    setIncomingInvite(null);
   };
 
   // Join party voice room when in a party
@@ -465,17 +512,30 @@ export default function GlobalPartyWidget() {
         <div style={{
           position: "fixed", bottom: 90, left: 16, zIndex: 9900,
           background: "rgba(8,14,28,0.97)", backdropFilter: "blur(14px)",
+          animation: "invite-slide-in 0.25s cubic-bezier(0.34,1.56,0.64,1)",
           border: "1px solid rgba(160,100,255,0.45)", borderRadius: 14,
           padding: "14px 16px", minWidth: 220, maxWidth: 260,
           boxShadow: "0 8px 32px rgba(0,0,0,0.7)", fontFamily: "monospace",
         }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Party Invite!</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Party Invite!</div>
+            <div style={{ fontSize: 11, color: inviteSecondsLeft <= 5 ? "#f87171" : "rgba(255,255,255,0.3)", fontWeight: 700, fontFamily: "monospace" }}>{inviteSecondsLeft}s</div>
+          </div>
+          {/* Countdown progress bar */}
+          <div style={{ height: 2, background: "rgba(255,255,255,0.08)", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 2,
+              width: `${(inviteSecondsLeft / 30) * 100}%`,
+              background: inviteSecondsLeft <= 5 ? "#f87171" : inviteSecondsLeft <= 10 ? "#fbbf24" : "#4ade80",
+              transition: "width 1s linear, background 0.3s",
+            }} />
+          </div>
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginBottom: 12 }}>
             <span style={{ color: "#ffd070", fontWeight: 700 }}>@{incomingInvite.inviterName}</span> wants you in their party!
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={acceptInvite} style={{ flex: 1, padding: "6px 0", background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.4)", borderRadius: 8, color: "#4ade80", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>⚔️ Join</button>
-            <button onClick={() => setIncomingInvite(null)} style={{ flex: 1, padding: "6px 0", background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 8, color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}>Decline</button>
+            <button onClick={() => dismissInvite(incomingInvite.partyId)} style={{ flex: 1, padding: "6px 0", background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 8, color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}>Decline</button>
           </div>
         </div>
       )}
@@ -506,7 +566,10 @@ export default function GlobalPartyWidget() {
         </div>
       )}
 
-      <style>{`@keyframes gpw-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+      <style>{`
+        @keyframes gpw-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes invite-slide-in { 0%{transform:translateX(-110%) scale(0.9);opacity:0} 100%{transform:translateX(0) scale(1);opacity:1} }
+      `}</style>
     </div>
   );
 }

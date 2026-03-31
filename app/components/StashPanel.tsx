@@ -79,8 +79,8 @@ export default function StashPanel({
   const [dragOverZone, setDragOverZone] = useState<"stash" | "backpack" | string | null>(null);
   const [abilityCooldowns, setAbilityCooldowns] = useState<Record<string, number>>({});
 
-  const [localStash, setLocalStash] = useState<AdventureItem[]>(stashItems);
-  const [localInventory, setLocalInventory] = useState<AdventureItem[]>(inventoryItems);
+  const [localStash, setLocalStash] = useState<AdventureItem[]>(Array.isArray(stashItems) ? stashItems : []);
+  const [localInventory, setLocalInventory] = useState<AdventureItem[]>(Array.isArray(inventoryItems) ? inventoryItems : []);
 
   const [arrivedIds, setArrivedIds] = useState<Set<string>>(new Set());
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set());

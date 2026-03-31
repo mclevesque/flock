@@ -94,8 +94,13 @@ export default function GlobalNotifications() {
       if (isMessagesPage && n.type === "new-message") return; // don't toast on messages page
       if (document.hidden) return;
 
-      const isPartyInvite = n.type === "new-message" && n.preview?.startsWith("[party:");
-      const partyId = isPartyInvite ? n.preview?.slice(7, -1) : undefined;
+      const isPartyInvite = n.type === "party-invite" || (n.type === "new-message" && n.preview?.startsWith("[party:"));
+      const rawPartyId = n.type === "party-invite"
+        ? (n as unknown as Record<string, unknown>).partyId as string | undefined
+        : (n.type === "new-message" && n.preview?.startsWith("[party:") ? n.preview?.slice(7, -1) : undefined);
+      const partyId = rawPartyId;
+      // party-invite type already triggers GlobalPartyWidget popup — skip double-toast
+      if (n.type === "party-invite") return;
 
       const notif: Notification = {
         id: n.id || Date.now().toString(),

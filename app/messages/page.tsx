@@ -1010,6 +1010,7 @@ function MessagesInner() {
   const sessionUserId = session?.user?.id;
   useEffect(() => {
     if (!activeUser?.id || !sessionUserId) return;
+    setMessages([]); // Clear immediately — prevents optimistic msgs from bleeding into next conversation
     prevMsgIds.current = new Set();
     loadMessages(); // Load history from DB
 
