@@ -4246,6 +4246,31 @@ export async function getPartyForUser(userId: string): Promise<Party | null> {
   };
 }
 
+/**
+ * Lightweight party lookup — only queries by leader_id, no avatar refresh,
+ * no JSONB containment scan. Use this when you need a fast auth check
+ * (e.g. invite handler) and the caller is always the leader.
+ */
+export async function getPartyByLeader(leaderId: string): Promise<Party | null> {
+  const rows = await sql`
+    SELECT id, leader_id, leader_name, leader_avatar, members, max_size, created_at
+    FROM town_parties
+    WHERE leader_id = ${leaderId}
+    LIMIT 1
+  `.catch(() => []);
+  if (!rows[0]) return null;
+  const members: PartyMember[] = Array.isArray(rows[0].members) ? (rows[0].members as PartyMember[]) : [];
+  return {
+    id: rows[0].id as string,
+    leaderId: rows[0].leader_id as string,
+    leaderName: rows[0].leader_name as string,
+    leaderAvatar: rows[0].leader_avatar as string,
+    members,
+    maxSize: Number(rows[0].max_size),
+    createdAt: Number(rows[0].created_at),
+  };
+}
+
 export async function getFriendParties(userId: string): Promise<Party[]> {
   await ensureExpansionTables();
   const friendRows = await sql`

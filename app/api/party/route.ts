@@ -5,6 +5,7 @@ import {
   joinParty,
   leaveParty,
   getPartyForUser,
+  getPartyByLeader,
   getFriendParties,
   disbandParty,
   transferLead,
@@ -45,7 +46,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const action = searchParams.get("action");
 
   if (action === "my-party") {
-    const party = await getPartyForUser(u.id).catch(() => null);
+    let party = await getPartyForUser(u.id).catch(() => null);
+    if (!party) party = await getPartyByLeader(u.id).catch(() => null);
     return NextResponse.json({ party });
   }
 
@@ -102,9 +104,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "invite") {
-    // Retry once — transient DB timeouts on Neon free tier can cause false "not found"
+    // Try full lookup first, then lightweight leader-only query as fallback.
+    // getPartyForUser does avatar refresh + JSONB scan which can timeout on Neon free tier.
+    // getPartyByLeader is a single simple SELECT by primary key — much more reliable.
     let party = await getPartyForUser(u.id).catch(() => null);
-    if (!party) party = await getPartyForUser(u.id).catch(() => null);
+    if (!party) party = await getPartyByLeader(u.id).catch(() => null);
+    if (!party) party = await getPartyByLeader(u.id).catch(() => null); // one more retry
     if (!party) return NextResponse.json({ error: "Not in a party" }, { status: 400 });
     if (!body.targetId) return NextResponse.json({ error: "targetId required" }, { status: 400 });
     if (party.members.length >= party.maxSize) return NextResponse.json({ error: "Party full" }, { status: 400 });

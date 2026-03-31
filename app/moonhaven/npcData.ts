@@ -27,6 +27,10 @@ export interface MoonhavenNPC {
   hostile?: boolean;
   /** Interaction type — determines what opens on talk */
   interaction: "dialogue" | "vendor" | "herald" | "adventure" | "quest";
+  /** GLB model path relative to /public (only set when file actually exists) */
+  model?: string;
+  /** Portrait image path relative to /public (only set when file actually exists) */
+  portrait?: string;
 }
 
 export const MOONHAVEN_NPCS: MoonhavenNPC[] = [

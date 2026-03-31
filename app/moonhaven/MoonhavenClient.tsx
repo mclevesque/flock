@@ -3567,9 +3567,9 @@ async function buildNPCBillboard(
 ): Promise<import("three").Group> {
   const group = new THREE.Group();
 
-  // Try to load GLB model first
-  const glbPath = `/models/moonhaven/${npc.id}.glb`;
-  if (GLTFLoader) {
+  // Try to load GLB model — only if path is explicitly set on the NPC definition
+  const glbPath = npc.model ?? null;
+  if (GLTFLoader && glbPath) {
     try {
       const glb = await loadGLB(GLTFLoader, glbPath);
       if (glb) {
@@ -3597,8 +3597,8 @@ async function buildNPCBillboard(
   emojiMesh.position.set(0, 1.2, 0);
   emojiMesh.userData.billboard = true;
 
-  // Try to load NPC portrait image — overlay on top of NPC canvas if available
-  const imgPath = `/images/npcs/${npc.id}.png`;
+  // Try to load NPC portrait image — only if path is explicitly set on the NPC definition
+  const imgPath = npc.portrait ?? null;
   const imgEl = new Image();
   imgEl.crossOrigin = "anonymous";
   imgEl.onload = () => {
@@ -3614,7 +3614,7 @@ async function buildNPCBillboard(
     emojiTex.image = tc;
     emojiTex.needsUpdate = true;
   };
-  imgEl.src = imgPath;
+  if (imgPath) imgEl.src = imgPath; // only fetch if portrait path is explicitly defined
 
   group.add(emojiMesh);
 
