@@ -314,6 +314,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const currentRoomRef = useRef<string | null>(null);
   const voiceWsRef = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
   const pendingIce = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const localAudioCtxRef = useRef<AudioContext | null>(null);
 
   // ── Device enumeration ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -364,6 +365,17 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     // ── Local speaker self-detection (so YOU see your own glow) ──────────────
     try {
       const ctx = new AudioContext();
+      localAudioCtxRef.current = ctx;
+
+      // Silent oscillator keeps AudioContext alive when tab is backgrounded
+      // (browsers suspend AudioContext in hidden tabs without an active output node)
+      const keepAliveOsc = ctx.createOscillator();
+      const keepAliveGain = ctx.createGain();
+      keepAliveGain.gain.value = 0; // completely silent
+      keepAliveOsc.connect(keepAliveGain);
+      keepAliveGain.connect(ctx.destination);
+      keepAliveOsc.start();
+
       const src = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
@@ -1027,6 +1039,10 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     function handleVisible() {
       if (document.visibilityState !== "visible") return;
+      // Resume AudioContext if browser suspended it
+      if (localAudioCtxRef.current?.state === "suspended") {
+        localAudioCtxRef.current.resume().catch(() => {});
+      }
       // Resume any paused audio elements (browser may have suspended them)
       peersRef.current.forEach(({ audioEl }) => {
         if (audioEl.paused && audioEl.srcObject) {
@@ -1077,10 +1093,10 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       // no-op: party server handles participant updates in real-time
     }, 60000); // 60s — only used for open rooms list refresh now
 
-    // Heartbeat keeps room visible in browse list
+    // Heartbeat keeps room visible in browse list — must fire even when tab is hidden
     const heartbeatTimer = setInterval(() => {
       const roomId = currentRoomRef.current;
-      if (!roomId || document.hidden) return;
+      if (!roomId) return;
       fetch(`/api/voice/${roomId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
