@@ -2268,82 +2268,94 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         );
 
         if (skateModeRef.current) {
-          // ── TONY HAWK SKATE PHYSICS ──────────────────────────────────────
-          // Like THPS: W=push forward in facing dir, A/D=turn, momentum-based
+          // ═══════════════════════════════════════════════════════════════════
+          // TONY HAWK PRO SKATER PHYSICS — board-relative controls
+          // Researched from THPS1 speedrun mechanics + community breakdowns
+          // Key rule: velocity = heading * speed. NO lateral drift. Ever.
+          // ═══════════════════════════════════════════════════════════════════
           const sk = skateRef.current;
-          const ACCEL = 14;       // push acceleration
-          const MAX_SPEED = 20;   // top speed
-          const FRICTION = 2.8;   // ground friction (low = more coast)
-          const TURN_SPEED = 2.8; // radians/sec — tighter when slow
-          const GRAVITY = 26;     // snappy air
-          const GRIND_SNAP = 3.0; // snap distance to rails
-          const GRIND_SPEED = 10; // speed along rail
+          const PUSH_IMPULSE = 4.0;  // speed burst per W press (per second held)
+          const MAX_SPEED = 18;      // speed cap
+          const FRICTION = 0.992;    // multiplicative per-frame decay (~0.5%/frame)
+          const BRAKE_RATE = 12;     // speed units/sec lost when braking
+          const TURN_RATE = 2.2;     // radians/sec base turn speed
+          const TURN_SPEED_BLEED = 0.994; // speed multiplier when turning
+          const GRAVITY = 26;
+          const GRIND_SNAP = 3.0;
+          const GRIND_SPEED = 10;
+          const STICK_DEAD_ZONE = 0.25; // aggressive dead zone for analog
 
-          // Initialize heading from camera on first frame
+          // Init heading from camera on first frame
           if (sk.speed === 0 && sk.heading === 0) {
-            sk.heading = camOrbitRef.current.theta + Math.PI; // face away from camera
+            sk.heading = camOrbitRef.current.theta + Math.PI;
           }
 
-          // Steering: A/D rotate heading — sharper at low speed (like THPS)
-          const turnMult = sk.speed < 3 ? 1.6 : (sk.speed < 8 ? 1.0 : 0.7);
+          // ── STEERING (board-relative: A=left, D=right) ──────────────────
+          // THPS uses binary D-pad input. For keyboard, strictly binary.
+          // For analog, apply aggressive dead zone to prevent drift.
           let skateTurnInput = 0;
-          if (keysRef.current.has("KeyA")) skateTurnInput -= 1;
-          if (keysRef.current.has("KeyD")) skateTurnInput += 1;
-          if (gpLx !== 0) skateTurnInput += gpLx;
-          if (joystickRef.current.active) skateTurnInput += joystickRef.current.dx;
-          // Only turn when moving (or very slightly when still, like THPS)
-          if (sk.speed > 0.5 || Math.abs(skateTurnInput) > 0) {
-            sk.heading += skateTurnInput * TURN_SPEED * turnMult * dt;
+          // A = turn LEFT (decrease heading), D = turn RIGHT (increase heading)
+          if (keysRef.current.has("KeyA")) skateTurnInput = -1;
+          else if (keysRef.current.has("KeyD")) skateTurnInput = 1;
+          // Analog stick with dead zone
+          if (Math.abs(gpLx) > STICK_DEAD_ZONE) skateTurnInput = gpLx;
+          if (joystickRef.current.active && Math.abs(joystickRef.current.dx) > 0.2) {
+            skateTurnInput = joystickRef.current.dx;
+          }
+          // Apply turn — only when moving
+          if (sk.speed > 0.3 && skateTurnInput !== 0 && !sk.grinding) {
+            sk.heading += skateTurnInput * TURN_RATE * dt;
+            // Turning bleeds speed (confirmed THPS mechanic)
+            sk.speed *= TURN_SPEED_BLEED;
           }
 
-          // Acceleration: W to push, S to brake
-          let pushInput = 0;
-          if (keysRef.current.has("KeyW")) pushInput = 1;
-          if (keysRef.current.has("KeyS")) pushInput = -2.0; // braking is stronger
-          if (gpLy < -0.2) pushInput = -gpLy; // stick forward = push
-          if (gpLy > 0.2) pushInput = -gpLy * 2.0; // stick back = brake
-          if (joystickRef.current.active && joystickRef.current.dy < -0.15) pushInput = 1;
-          if (joystickRef.current.active && joystickRef.current.dy > 0.15) pushInput = -1.5;
-
+          // ── PUSH / BRAKE ────────────────────────────────────────────────
           if (!sk.airborne && !sk.grinding) {
-            if (pushInput > 0) {
-              sk.speed = Math.min(MAX_SPEED, sk.speed + ACCEL * dt * pushInput);
-            } else if (pushInput < 0) {
-              sk.speed = Math.max(0, sk.speed + pushInput * FRICTION * 2.5 * dt);
+            let pushing = false;
+            if (keysRef.current.has("KeyW")) pushing = true;
+            if (gpLy < -STICK_DEAD_ZONE) pushing = true; // stick forward
+            if (joystickRef.current.active && joystickRef.current.dy < -0.2) pushing = true;
+
+            let braking = false;
+            if (keysRef.current.has("KeyS")) braking = true;
+            if (gpLy > STICK_DEAD_ZONE) braking = true; // stick back
+            if (joystickRef.current.active && joystickRef.current.dy > 0.2) braking = true;
+
+            if (pushing) {
+              // Push adds impulse each frame held (like holding X in THPS)
+              sk.speed = Math.min(MAX_SPEED, sk.speed + PUSH_IMPULSE * dt);
+            } else if (braking) {
+              sk.speed = Math.max(0, sk.speed - BRAKE_RATE * dt);
             } else {
-              // Coast with friction — slow decay like real skating
-              sk.speed = Math.max(0, sk.speed - FRICTION * dt);
+              // Coast — multiplicative friction (natural THPS feel)
+              sk.speed *= FRICTION;
+              if (sk.speed < 0.1) sk.speed = 0; // clamp near-zero
             }
           }
 
-          // Ollie (Space) — hold to crouch, release to pop (THPS style)
+          // ── OLLIE (hold Space to crouch, release to pop) ────────────────
           if (keysRef.current.has("Space") && !sk.airborne && !sk.grinding) {
             if (!sk.spaceHeld) { sk.spaceHeld = true; sk.spaceHeldTime = 0; }
             sk.spaceHeldTime = Math.min(0.4, sk.spaceHeldTime + dt);
-            // Crouch animation — squash the board down
-            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = -0.6;
+            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = 0.05;
           } else if (sk.spaceHeld && !keysRef.current.has("Space")) {
-            // Release — POP! Height based on charge time
-            const power = 8 + sk.spaceHeldTime * 18; // 8-15.2 upward velocity
+            const power = 8 + sk.spaceHeldTime * 16;
             sk.vy = power;
             sk.airborne = true;
-            sk.spaceHeld = false;
-            sk.spaceHeldTime = 0;
-            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = -0.5;
-            // Ollie pop sound
+            sk.spaceHeld = false; sk.spaceHeldTime = 0;
+            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = 0.15;
             try {
-              const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
-              osc.connect(g); g.connect(ac.destination); osc.type = "square";
-              osc.frequency.setValueAtTime(200, ac.currentTime);
-              osc.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.06);
-              osc.frequency.exponentialRampToValueAtTime(250, ac.currentTime + 0.12);
+              const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
+              o.connect(g); g.connect(ac.destination); o.type = "square";
+              o.frequency.setValueAtTime(200, ac.currentTime);
+              o.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.06);
+              o.frequency.exponentialRampToValueAtTime(250, ac.currentTime + 0.12);
               g.gain.setValueAtTime(0.18, ac.currentTime);
               g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.18);
-              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.18);
-              osc.onended = () => ac.close();
+              o.start(ac.currentTime); o.stop(ac.currentTime + 0.18); o.onended = () => ac.close();
             } catch { /**/ }
           }
-          // Gamepad A for ollie too
+          // Gamepad A for ollie
           if (gpAPressed && !gpAPrev && !sk.airborne && !sk.grinding) {
             sk.vy = 13; sk.airborne = true;
           }
@@ -2526,7 +2538,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               skateBoardMeshRef.current.rotation.x += dt * 14; // flip during tricks
             } else if (!sk.spaceHeld) {
               skateBoardMeshRef.current.rotation.x = 0;
-              skateBoardMeshRef.current.position.y = -0.5;
+              skateBoardMeshRef.current.position.y = 0.15;
             }
           }
 
@@ -4094,7 +4106,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
                 const gfxPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.8), new THREE.MeshBasicMaterial({ map: gfxTex }));
                 gfxPlane.rotation.x = -Math.PI / 2; gfxPlane.position.y = 0.17;
                 board.add(gfxPlane);
-                board.position.y = -0.5; // position under player's feet
+                board.position.y = 0.15; // just above ground at player's feet
                 playerMeshRef.current.add(board);
                 skateBoardMeshRef.current = board;
               });
@@ -5499,106 +5511,111 @@ function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: Qu
   pad.receiveShadow = true; scene.add(pad);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ── EMPTY POOL (classic THPS backyard pool — sunken with curved walls) ──
+  // ── EMPTY POOL (classic THPS — sunken rectangular bowl with thick walls) ─
+  // Built with solid BoxGeometry so it's clearly visible as a hole in ground
   // ═══════════════════════════════════════════════════════════════════════════
   const PX = 56, PZ = -28; // pool center
-  const PW = 14, PD = 18, POOL_DEPTH = 3.5; // width(X), depth(Z), how deep
-  const WALL_SEGS = 8; // curved wall segments
+  const PW = 14, PD = 18, POOL_DEPTH = 3.5;
+  const WALL_THICK = 0.5; // wall thickness
 
-  // Pool floor (sunken — below ground level)
-  const poolFloor = new THREE.Mesh(new THREE.PlaneGeometry(PW - 4, PD - 4), poolDarkMat);
-  poolFloor.rotation.x = -Math.PI / 2;
-  poolFloor.position.set(PX, -POOL_DEPTH + 0.02, PZ);
+  // Pool floor — flat bottom of the bowl
+  const poolFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(PW - WALL_THICK * 2, 0.3, PD - WALL_THICK * 2), poolDarkMat
+  );
+  poolFloor.position.set(PX, -POOL_DEPTH, PZ);
   scene.add(poolFloor);
 
-  // Pool lane lines on floor (like a real empty pool)
+  // Pool lane lines on floor
   const lineMat = new THREE.MeshBasicMaterial({ color: 0x336677 });
   for (let li = -2; li <= 2; li++) {
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, PD - 5), lineMat);
-    line.rotation.x = -Math.PI / 2;
-    line.position.set(PX + li * 2, -POOL_DEPTH + 0.04, PZ);
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, PD - 4), lineMat);
+    line.position.set(PX + li * 2, -POOL_DEPTH + 0.17, PZ);
     scene.add(line);
   }
 
-  // "NO DIVING" text on pool floor
+  // "NO DIVING" on floor
   const ndCanvas = document.createElement("canvas"); ndCanvas.width = 256; ndCanvas.height = 64;
   const ndctx = ndCanvas.getContext("2d")!;
-  ndctx.fillStyle = "rgba(0,0,0,0)"; ndctx.clearRect(0, 0, 256, 64);
+  ndctx.clearRect(0, 0, 256, 64);
   ndctx.font = "bold 32px monospace"; ndctx.fillStyle = "#2a5566"; ndctx.textAlign = "center";
   ndctx.fillText("NO DIVING", 128, 42);
-  const ndTex = new THREE.CanvasTexture(ndCanvas);
-  ndTex.premultiplyAlpha = true;
   const ndSign = new THREE.Mesh(new THREE.PlaneGeometry(4, 1),
-    new THREE.MeshBasicMaterial({ map: ndTex, transparent: true, side: THREE.DoubleSide }));
-  ndSign.rotation.x = -Math.PI / 2; ndSign.position.set(PX, -POOL_DEPTH + 0.05, PZ + 4);
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(ndCanvas), transparent: true, side: THREE.DoubleSide }));
+  ndSign.rotation.x = -Math.PI / 2; ndSign.position.set(PX, -POOL_DEPTH + 0.2, PZ + 4);
   scene.add(ndSign);
 
-  // Curved walls — 4 sides of the pool, each a series of tilted planes
-  // North and South walls (along X axis)
-  for (const [wallZ, dir] of [[PZ - PD / 2, -1], [PZ + PD / 2, 1]] as [number, number][]) {
-    for (let i = 0; i < WALL_SEGS; i++) {
-      const t0 = i / WALL_SEGS, t1 = (i + 1) / WALL_SEGS;
-      const angle0 = t0 * Math.PI * 0.5, angle1 = t1 * Math.PI * 0.5;
-      const y0 = -POOL_DEPTH * Math.cos(angle0), y1 = -POOL_DEPTH * Math.cos(angle1);
-      const z0 = dir * (PD / 2 - 2) * (1 - Math.sin(angle0));
-      const z1 = dir * (PD / 2 - 2) * (1 - Math.sin(angle1));
-      const segH = Math.sqrt((y1 - y0) ** 2 + (z1 - z0) ** 2);
-      const seg = new THREE.Mesh(new THREE.PlaneGeometry(PW - 4, segH), poolMat);
-      seg.position.set(PX, (y0 + y1) / 2, wallZ + (z0 + z1) / 2);
-      seg.rotation.x = Math.atan2(y1 - y0, (z1 - z0) * dir) * dir;
-      scene.add(seg);
-    }
-  }
-  // East and West walls (along Z axis)
-  for (const [wallX, dir] of [[PX - PW / 2, -1], [PX + PW / 2, 1]] as [number, number][]) {
-    for (let i = 0; i < WALL_SEGS; i++) {
-      const t0 = i / WALL_SEGS, t1 = (i + 1) / WALL_SEGS;
-      const angle0 = t0 * Math.PI * 0.5, angle1 = t1 * Math.PI * 0.5;
-      const y0 = -POOL_DEPTH * Math.cos(angle0), y1 = -POOL_DEPTH * Math.cos(angle1);
-      const x0 = dir * (PW / 2 - 2) * (1 - Math.sin(angle0));
-      const x1 = dir * (PW / 2 - 2) * (1 - Math.sin(angle1));
-      const segH = Math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2);
-      const seg = new THREE.Mesh(new THREE.PlaneGeometry(PD - 4, segH), poolMat);
-      seg.position.set(wallX + (x0 + x1) / 2, (y0 + y1) / 2, PZ);
-      seg.rotation.y = Math.PI / 2;
-      seg.rotation.x = Math.atan2(y1 - y0, (x1 - x0) * dir) * dir;
-      scene.add(seg);
-    }
-  }
+  // 4 Pool walls — solid boxes forming the inside of the bowl
+  // Each wall is a tall box going from ground level DOWN to pool floor
+  // North wall (front face visible from inside)
+  const northWall = new THREE.Mesh(new THREE.BoxGeometry(PW, POOL_DEPTH, WALL_THICK), poolMat);
+  northWall.position.set(PX, -POOL_DEPTH / 2, PZ - PD / 2 + WALL_THICK / 2);
+  scene.add(northWall);
+  // South wall
+  const southWall = new THREE.Mesh(new THREE.BoxGeometry(PW, POOL_DEPTH, WALL_THICK), poolMat);
+  southWall.position.set(PX, -POOL_DEPTH / 2, PZ + PD / 2 - WALL_THICK / 2);
+  scene.add(southWall);
+  // West wall
+  const westWall = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, POOL_DEPTH, PD), poolMat);
+  westWall.position.set(PX - PW / 2 + WALL_THICK / 2, -POOL_DEPTH / 2, PZ);
+  scene.add(westWall);
+  // East wall
+  const eastWall = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, POOL_DEPTH, PD), poolMat);
+  eastWall.position.set(PX + PW / 2 - WALL_THICK / 2, -POOL_DEPTH / 2, PZ);
+  scene.add(eastWall);
 
-  // Pool rim / coping — grindable metal edge around top
+  // Transition ramps — angled boxes at the base of each wall (where wall meets floor)
+  // These create the curved transition a skater rides up
+  const transW = 2.5; // how far the transition extends from wall
+  const transMat = new THREE.MeshStandardMaterial({ color: 0x55bbcc, roughness: 0.7 }); // match pool
+  // North transition
+  const transN = new THREE.Mesh(new THREE.BoxGeometry(PW - 2, 0.3, transW), transMat);
+  transN.position.set(PX, -POOL_DEPTH + 0.8, PZ - PD / 2 + WALL_THICK + transW / 2);
+  transN.rotation.x = 0.5; scene.add(transN);
+  // South transition
+  const transS = new THREE.Mesh(new THREE.BoxGeometry(PW - 2, 0.3, transW), transMat);
+  transS.position.set(PX, -POOL_DEPTH + 0.8, PZ + PD / 2 - WALL_THICK - transW / 2);
+  transS.rotation.x = -0.5; scene.add(transS);
+  // West transition
+  const transWest = new THREE.Mesh(new THREE.BoxGeometry(transW, 0.3, PD - 2), transMat);
+  transWest.position.set(PX - PW / 2 + WALL_THICK + transW / 2, -POOL_DEPTH + 0.8, PZ);
+  transWest.rotation.z = -0.5; scene.add(transWest);
+  // East transition
+  const transEast = new THREE.Mesh(new THREE.BoxGeometry(transW, 0.3, PD - 2), transMat);
+  transEast.position.set(PX + PW / 2 - WALL_THICK - transW / 2, -POOL_DEPTH + 0.8, PZ);
+  transEast.rotation.z = 0.5; scene.add(transEast);
+
+  // Pool rim / coping — thick concrete lip + grindable metal pipe at ground level
   for (const [x1, z1, x2, z2] of [
-    [PX - PW / 2, PZ - PD / 2, PX + PW / 2, PZ - PD / 2], // north
-    [PX - PW / 2, PZ + PD / 2, PX + PW / 2, PZ + PD / 2], // south
-    [PX - PW / 2, PZ - PD / 2, PX - PW / 2, PZ + PD / 2], // west
-    [PX + PW / 2, PZ - PD / 2, PX + PW / 2, PZ + PD / 2], // east
+    [PX - PW / 2, PZ - PD / 2, PX + PW / 2, PZ - PD / 2],
+    [PX - PW / 2, PZ + PD / 2, PX + PW / 2, PZ + PD / 2],
+    [PX - PW / 2, PZ - PD / 2, PX - PW / 2, PZ + PD / 2],
+    [PX + PW / 2, PZ - PD / 2, PX + PW / 2, PZ + PD / 2],
   ] as [number, number, number, number][]) {
     const len = Math.hypot(x2 - x1, z2 - z1);
     const ang = Math.atan2(z2 - z1, x2 - x1);
     // Thick concrete lip
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(len, 0.4, 0.6), concreteMat);
-    lip.position.set((x1 + x2) / 2, 0.2, (z1 + z2) / 2);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(len + 1, 0.5, 1.2), concreteMat);
+    lip.position.set((x1 + x2) / 2, 0.25, (z1 + z2) / 2);
     lip.rotation.y = ang; scene.add(lip);
-    // Metal coping pipe on top
-    const cope = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 8), copingMat);
-    cope.position.set((x1 + x2) / 2, 0.45, (z1 + z2) / 2);
+    // Metal coping pipe
+    const cope = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, len + 0.5, 8), copingMat);
+    cope.position.set((x1 + x2) / 2, 0.55, (z1 + z2) / 2);
     cope.rotation.z = Math.PI / 2; cope.rotation.y = ang + Math.PI / 2;
     scene.add(cope);
   }
 
-  // Pool depth marker tiles (on the inside walls)
+  // "4 FT" depth markers on inside walls
   for (const [tx, tz, rotY] of [
-    [PX - PW / 2 + 0.5, PZ, Math.PI / 2],
-    [PX + PW / 2 - 0.5, PZ, -Math.PI / 2],
+    [PX - PW / 2 + WALL_THICK + 0.01, PZ, Math.PI / 2],
+    [PX + PW / 2 - WALL_THICK - 0.01, PZ, -Math.PI / 2],
   ] as [number, number, number][]) {
     const dCanvas = document.createElement("canvas"); dCanvas.width = 64; dCanvas.height = 64;
     const dctx = dCanvas.getContext("2d")!;
     dctx.fillStyle = "#448899"; dctx.fillRect(0, 0, 64, 64);
     dctx.font = "bold 36px monospace"; dctx.fillStyle = "#fff"; dctx.textAlign = "center";
     dctx.fillText("4ft", 32, 44);
-    const dtex = new THREE.CanvasTexture(dCanvas);
     const dm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2),
-      new THREE.MeshBasicMaterial({ map: dtex, side: THREE.DoubleSide }));
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(dCanvas), side: THREE.DoubleSide }));
     dm.position.set(tx, -POOL_DEPTH / 2, tz); dm.rotation.y = rotY;
     scene.add(dm);
   }
