@@ -58,7 +58,7 @@
 
     const engine = new VibeEngine('game-canvas', 640, 360);
     const music = new MusicEngine();
-    const WORLD = 2400;
+    const WORLD = 7200;
 
     // =============================================
     //  SOUND EFFECTS (procedural, no files needed)
@@ -115,7 +115,7 @@
     const gs = {
         state: 'title',
         discoveries: 0,
-        totalDiscoveries: 10,
+        totalDiscoveries: 18,
         found: {},
         mattAnger: 0,
         mattSecretJoy: 0,
@@ -392,6 +392,60 @@
             "One of them has a t-shirt that says 'I went to the moon and all I got was proven wrong.'",
             "They're serving moon cheese. MOON. CHEESE. This is a psyop.",
         ],
+        starbucks: [
+            "There's a STARBUCKS. On the MOON. Capitalism truly has no limits.",
+            "Venti Moon Latte. Twelve dollars. In SPACE.",
+            "They spelled my name wrong. I'm on the MOON and they still can't spell Matt.",
+            "The WiFi password is 'themoonisreal.' Very subtle.",
+            "...the coffee is actually good though. I hate that.",
+        ],
+        alexjones: [
+            "Is that... ALEX JONES?! Broadcasting from the MOON?!",
+            "He's SCREAMING into a mic. About the moon. ON the moon.",
+            "He looks confused. Like he came here to prove it's fake and now he's just... here.",
+            "He's selling supplements. Moon supplements. Of course.",
+            "His face is so red. Even in space his face is red.",
+        ],
+        tower5g: [
+            "A 5G TOWER. ON THE MOON. I knew it.",
+            "This is how they get you. Moon 5G.",
+            "It's blinking. That's a mind control blink pattern. I've seen the charts.",
+            "If I get service up here I'm filing a complaint.",
+            "...I do have full bars though. That's suspicious AND convenient.",
+        ],
+        mooncows: [
+            "There are COWS up here. SPACE COWS.",
+            "So THAT'S where moon cheese comes from.",
+            "They look content. More content than me.",
+            "The cow jumped over the moon and just... stayed?",
+            "Low gravity milk must hit different.",
+        ],
+        footprint: [
+            "Buzz Aldrin's footprint. Under GLASS. With a GIFT SHOP.",
+            "There's a gift shop next to it. You can buy a t-shirt of the footprint.",
+            "Twenty bucks for a snow globe of a footprint. TWENTY.",
+            "The footprint is real. The gift shop prices are the real crime here.",
+        ],
+        secretlab: [
+            "TOP SECRET. Interesting that the sign SAYS top secret.",
+            "If it was ACTUALLY secret they wouldn't put a sign on it.",
+            "There's a ladder going down. I'm not going down there.",
+            "...okay I peeked. It's just a guy eating lunch. Classified lunch.",
+        ],
+        flatHQ: [
+            "The Flat Earth Society moved to the MOON?!",
+            "The sign says 'If we can't beat em, observe em from above.'",
+            "They're all looking at Earth through telescopes trying to see an edge.",
+            "One guy has a whiteboard that just says 'we'll get em next time.'",
+            "Their motto is 'the truth is out there. We came out here and it wasn't.'",
+        ],
+        spacewhale: [
+            "THERE'S A WHALE. IN SPACE. A SPACE WHALE.",
+            "It's just... floating there. Vibing. No explanation.",
+            "Scientists can't explain this one. For once I agree with them.",
+            "This is the most beautiful and confusing thing I've ever seen.",
+            "Okay if space whales are real then MAYBE. MAYBE. Some of this is real.",
+        ],
         filmcrew: [
             "I KNEW IT! CAMERAS! This is ALL a set!",
             "Kubrick would be proud. Where's the director?",
@@ -457,6 +511,34 @@
             { s: 'MARK', t: "..." },
             { s: 'BRIAN', t: "..." },
             { s: 'MATT', t: "CHECKMATE." },
+        ]},
+        { t: 300, lines: [
+            { s: 'BRIAN', t: "Hey Matt, if the moon isn't real, what are you standing on?" },
+            { s: 'MATT', t: "A very convincing movie set." },
+            { s: 'MARK', t: "In space?" },
+            { s: 'MATT', t: "A movie set. IN A WAREHOUSE. That LOOKS like space." },
+            { s: 'BRIAN', t: "Inside a warehouse on the moon?" },
+            { s: 'MATT', t: "Now you're getting it." },
+        ]},
+        { t: 380, lines: [
+            { s: 'MARK', t: "Fun fact: the moon has moonquakes." },
+            { s: 'MATT', t: "Moonquakes. You just made that word up." },
+            { s: 'MARK', t: "NASA detected them with seismometers left by Apollo astronauts." },
+            { s: 'MATT', t: "So you're telling me the moon shakes AND has dinosaurs?" },
+            { s: 'MATT', t: "That's just earth with less steps." },
+        ]},
+        { t: 450, lines: [
+            { s: 'BRIAN', t: "Matt what's your secret joy meter at?" },
+            { s: 'MATT', t: "NONE OF YOUR BUSINESS." },
+            { s: 'MARK', t: "It's at like 60%." },
+            { s: 'MATT', t: "THAT METER IS RIGGED." },
+        ]},
+        { t: 520, lines: [
+            { s: 'MATT', t: "I just want to say, for the record..." },
+            { s: 'BRIAN', t: "YES?!" },
+            { s: 'MATT', t: "...the golf cart is the only good thing here." },
+            { s: 'MARK', t: "What about the space whale?" },
+            { s: 'MATT', t: "...the golf cart and the whale. That's IT." },
         ]},
     ];
 
@@ -628,9 +710,9 @@
         _enter() {
             super._enter();
             this._t = 0;
-            this._stars = makeStars(300, WORLD+400, WORLD+400);
-            this._craters = []; for (let i=0;i<50;i++) this._craters.push({x:Math.random()*WORLD, y:Math.random()*WORLD, r:10+Math.random()*30});
-            this._rocks = []; for (let i=0;i<35;i++) this._rocks.push({x:Math.random()*WORLD, y:Math.random()*WORLD, s:0.5+Math.random()*1.5});
+            this._stars = makeStars(600, WORLD+400, WORLD+400);
+            this._craters = []; for (let i=0;i<150;i++) this._craters.push({x:Math.random()*WORLD, y:Math.random()*WORLD, r:10+Math.random()*35});
+            this._rocks = []; for (let i=0;i<100;i++) this._rocks.push({x:Math.random()*WORLD, y:Math.random()*WORLD, s:0.5+Math.random()*1.5});
             this._px = 500; this._py = 700; this._pdir = 0; this._pmoving = false;
             this._mkx = 480; this._mky = 720; this._brx = 520; this._bry = 720;
             // NPCs
@@ -659,11 +741,20 @@
                 { id: 'cart', x:620, y:800, r:50, label:'A GOLF CART', found:false },
                 { id: 'filmcrew', x:2100, y:1800, r:50, label:'A NASA FILM CREW?!', found:false },
                 { id: 'support', x:1900, y:1300, r:55, label:'A SUPPORT GROUP?!', found:false },
+                { id: 'starbucks', x:3200, y:800, r:50, label:'A MOON STARBUCKS?!', found:false },
+                { id: 'alexjones', x:4500, y:1500, r:55, label:'ALEX JONES?!', found:false },
+                { id: 'tower5g', x:2800, y:3500, r:50, label:'A 5G TOWER?!', found:false },
+                { id: 'mooncows', x:5500, y:2500, r:60, label:'MOON COWS?!', found:false },
+                { id: 'footprint', x:3800, y:4800, r:45, label:'BUZZ ALDRIN\'S FOOTPRINT', found:false },
+                { id: 'secretlab', x:6000, y:4000, r:50, label:'A SECRET LAB?!', found:false },
+                { id: 'flatHQ', x:5000, y:6000, r:55, label:'FLAT EARTH SOCIETY HQ', found:false },
+                { id: 'spacewhale', x:3500, y:6500, r:70, label:'A SPACE WHALE?!', found:false },
             ];
             // Fauci jab station props
             this._jabCooldown = 0;
             this._holeInOne = false;
             this._interactCooldown = 0;
+            this._inLab = false;
             gs.dialogQueue=[]; gs.dialogActive=false; gs.currentDialog=null; gs.jabCount=0;
             this._introQueued=false;
             try { music.playSong(moonSong); } catch(e){}
@@ -767,6 +858,52 @@
                         queueDialog('MATT', getQuote('support'));
                         queueDialog('BRIAN', "They look happy, Matt. They look FREE.");
                         queueDialog('MATT', "They look BRAINWASHED. By the moon.");
+                    } else if (z.id === 'starbucks') {
+                        queueDialog('BRIAN', "No way. NO WAY.");
+                        queueDialog('MATT', getQuote('starbucks'));
+                        queueDialog('MARK', "They beat us here. They always beat us.");
+                        queueDialog('MATT', getQuote('starbucks'));
+                    } else if (z.id === 'alexjones') {
+                        queueDialog('MARK', "Matt... is that Alex Jones?");
+                        queueDialog('MATT', getQuote('alexjones'));
+                        queueDialog('BRIAN', "He looks like he's having an existential crisis.");
+                        queueDialog('MATT', getQuote('alexjones'));
+                        queueDialog('MATT', "At least someone else up here is asking questions.");
+                    } else if (z.id === 'tower5g') {
+                        queueDialog('MATT', getQuote('tower5g'));
+                        queueDialog('MARK', "That's a communications relay, Matt.");
+                        queueDialog('MATT', getQuote('tower5g'));
+                        queueDialog('BRIAN', "Matt your phone literally works because of these.");
+                        queueDialog('MATT', "My phone works because of FREEDOM.");
+                    } else if (z.id === 'mooncows') {
+                        queueDialog('BRIAN', "ARE THOSE COWS?!");
+                        queueDialog('MATT', getQuote('mooncows'));
+                        queueDialog('MARK', "This actually can't be real.");
+                        queueDialog('MATT', "Oh NOW you're skeptical?! When it's COWS?!");
+                        queueDialog('MATT', getQuote('mooncows'));
+                    } else if (z.id === 'footprint') {
+                        queueDialog('MARK', "Matt. That's Buzz Aldrin's actual footprint.");
+                        queueDialog('MATT', getQuote('footprint'));
+                        queueDialog('BRIAN', "There's a gift shop. We HAVE to get merch.");
+                        queueDialog('MATT', getQuote('footprint'));
+                    } else if (z.id === 'secretlab') {
+                        queueDialog('MATT', getQuote('secretlab'));
+                        queueDialog('MARK', "Matt don't go near that.");
+                        queueDialog('MATT', getQuote('secretlab'));
+                        queueDialog('BRIAN', "The classified lunch is kinda funny though.");
+                    } else if (z.id === 'flatHQ') {
+                        queueDialog('MATT', getQuote('flatHQ'));
+                        queueDialog('BRIAN', "They MOVED here?! The Flat Earth Society is ON THE MOON?!");
+                        queueDialog('MATT', getQuote('flatHQ'));
+                        queueDialog('MARK', "Even they gave up, Matt.");
+                        queueDialog('MATT', "They didn't give up. They're... regrouping. Strategically.");
+                    } else if (z.id === 'spacewhale') {
+                        queueDialog('BRIAN', "WHAT IS THAT.");
+                        queueDialog('MATT', getQuote('spacewhale'));
+                        queueDialog('MARK', "I... actually don't have an explanation for that one.");
+                        queueDialog('MATT', getQuote('spacewhale'));
+                        queueDialog('BRIAN', "SPACE WHALE SPACE WHALE SPACE WHALE");
+                        queueDialog('MATT', "...it's majestic. I'll give it that.");
                     } else if (z.id === 'filmcrew') {
                         queueDialog('MATT', getQuote('filmcrew'));
                         queueDialog('MARK', "Matt, I literally told you we were filming everything.");
@@ -939,6 +1076,76 @@
                     const fcl = fcLines[Math.floor(Math.random()*fcLines.length)];
                     for (const l of fcl) queueDialog(l.s, l.t);
                 }
+                // Starbucks interact
+                const sbDx=this._px-3200, sbDy=this._py-800;
+                if(Math.sqrt(sbDx*sbDx+sbDy*sbDy)<50 && gs.found.starbucks) {
+                    const sbL=[[{s:'MATT',t:"*orders a latte*"},{s:'MATT',t:"Twelve dollars. For coffee. On the moon."},{s:'MATT',t:"...it's actually really good. I hate this place."}],[{s:'MATT',t:"*checks WiFi*"},{s:'MATT',t:"Password is 'themoonisreal.' Of course it is."},{s:'BRIAN',t:"Does it work?"},{s:'MATT',t:"...I have full bars. Don't talk to me."}],[{s:'MATT',t:"*reads menu*"},{s:'MATT',t:"'Crater Cappuccino.' 'Dark Side Espresso.' 'Conspiracy Frappuccino.'"},{s:'MATT',t:"That last one is targeted at me specifically."}]];
+                    const sl=sbL[Math.floor(Math.random()*sbL.length)]; for(const l of sl) queueDialog(l.s,l.t);
+                    gs.mattSecretJoy=Math.min(100,gs.mattSecretJoy+3);
+                }
+                // Alex Jones interact
+                const ajDx=this._px-4500, ajDy=this._py-1500;
+                if(Math.sqrt(ajDx*ajDx+ajDy*ajDy)<55 && gs.found.alexjones) {
+                    const ajL=[[{s:'MATT',t:"*approaches Alex*"},{s:'MATT',t:"He's screaming about gay frogs on the moon."},{s:'MATT',t:"At least SOMEONE up here is asking the hard questions."},{s:'BRIAN',t:"Matt he's selling moon supplements."}],[{s:'MATT',t:"*picks up supplement bottle*"},{s:'MATT',t:"'MOON VITALITY+: Unlock your lunar potential.'"},{s:'MATT',t:"It's just vitamin D and glitter."},{s:'MARK',t:"How do you know what glitter tastes like?"}],[{s:'MATT',t:"Alex, is the moon real?"},{s:'MATT',t:"He grabbed me by the shoulders and just stared."},{s:'MATT',t:"Then he whispered 'I don't know anymore' and went back to screaming."}]];
+                    const al=ajL[Math.floor(Math.random()*ajL.length)]; for(const l of al) queueDialog(l.s,l.t);
+                }
+                // 5G Tower interact
+                const tgDx=this._px-2800, tgDy=this._py-3500;
+                if(Math.sqrt(tgDx*tgDx+tgDy*tgDy)<50 && gs.found.tower5g) {
+                    const tgL=[[{s:'MATT',t:"*checks phone near tower*"},{s:'MATT',t:"Full 5G. On the moon. I feel my thoughts changing."},{s:'BRIAN',t:"What thoughts?"},{s:'MATT',t:"I'm suddenly craving a moon latte. THE 5G IS WORKING."}],[{s:'MATT',t:"*reads the 'definitely not mind control' sign*"},{s:'MATT',t:"Exactly what a mind control device WOULD say."},{s:'MARK',t:"Matt, your phone literally uses this."},{s:'MATT',t:"My phone is COMPROMISED."}]];
+                    const tl=tgL[Math.floor(Math.random()*tgL.length)]; for(const l of tl) queueDialog(l.s,l.t);
+                }
+                // Moon Cows interact
+                const mcDx=this._px-5500, mcDy=this._py-2500;
+                if(Math.sqrt(mcDx*mcDx+mcDy*mcDy)<60 && gs.found.mooncows) {
+                    const mcL=[[{s:'MATT',t:"*pets moon cow*"},{s:'MATT',t:"She's floating. The cow is floating."},{s:'MATT',t:"Low gravity milk production. This explains everything."},{s:'BRIAN',t:"Explains WHAT?!"},{s:'MATT',t:"EVERYTHING."}],[{s:'MATT',t:"*tries to milk moon cow*"},{s:'MATT',t:"The milk is... slightly blue?"},{s:'MARK',t:"That's moon cheese starter culture."},{s:'MATT',t:"I'm taking some home. For research."}]];
+                    const ml=mcL[Math.floor(Math.random()*mcL.length)]; for(const l of ml) queueDialog(l.s,l.t);
+                    gs.mattSecretJoy=Math.min(100,gs.mattSecretJoy+3);
+                }
+                // Footprint interact
+                const foDx=this._px-3800, foDy=this._py-4800;
+                if(Math.sqrt(foDx*foDx+foDy*foDy)<45 && gs.found.footprint) {
+                    const foL=[[{s:'MATT',t:"*buys snow globe*"},{s:'MATT',t:"Twenty dollars for a snow globe of a footprint. In space."},{s:'MATT',t:"...I bought two. One for research. One for my shelf."}],[{s:'MATT',t:"*examines footprint*"},{s:'MATT',t:"The tread pattern is a size 9.5. Aldrin was a 9.5."},{s:'MARK',t:"How do you know Buzz Aldrin's shoe size?"},{s:'MATT',t:"I've done my research."}]];
+                    const fl=foL[Math.floor(Math.random()*foL.length)]; for(const l of fl) queueDialog(l.s,l.t);
+                }
+                // Secret Lab interact — GO DOWN THE LADDER
+                const slDx=this._px-6000, slDy=this._py-4000;
+                if(Math.sqrt(slDx*slDx+slDy*slDy)<50 && gs.found.secretlab) {
+                    if(!this._inLab) {
+                        this._inLab = true;
+                        this._labTimer = 0;
+                        queueDialog('MATT', "*climbs down ladder*");
+                        queueDialog('MATT', "It's... it's a lab. A real lab.");
+                        queueDialog('MATT', "There's beakers everywhere. Something is BUBBLING.");
+                        queueDialog('MATT', "There's a frog. With a tiny rainbow flag.");
+                        queueDialog('BRIAN', "WHAT?!");
+                        queueDialog('MATT', "THEY'RE TURNING THE FROGS GAY. ON THE MOON.");
+                        queueDialog('MARK', "Matt that frog was already—");
+                        queueDialog('MATT', "There's a whiteboard that says 'Project: Fabulous Frog Phase 3.'");
+                        queueDialog('MATT', "There's a scientist eating a sandwich. He waved at me.");
+                        queueDialog('MATT', "He said 'you didn't see anything.' Classic.");
+                        queueDialog('BRIAN', "What kind of sandwich?");
+                        queueDialog('MATT', "Turkey club. Classified turkey club.");
+                        queueDialog('MATT', "*climbs back up* I've seen too much.");
+                        gs.mattSecretJoy=Math.min(100,gs.mattSecretJoy+10);
+                    } else {
+                        const labL=[[{s:'MATT',t:"*peeks down again*"},{s:'MATT',t:"The frog is wearing sunglasses now."},{s:'MATT',t:"He's living his best life honestly."}],[{s:'MATT',t:"*yells down the ladder*"},{s:'MATT',t:"'HOW'S THE FROG?!'"},{s:'MATT',t:"The scientist gave me a thumbs up. This is fine."}],[{s:'MATT',t:"*looks down*"},{s:'MATT',t:"They added a disco ball. The frogs are dancing."},{s:'BRIAN',t:"FrogS? PLURAL?"},{s:'MATT',t:"It's a whole PARTY down there."}]];
+                        const ll=labL[Math.floor(Math.random()*labL.length)]; for(const l of ll) queueDialog(l.s,l.t);
+                    }
+                }
+                // Flat Earth HQ interact
+                const fhDx=this._px-5000, fhDy=this._py-6000;
+                if(Math.sqrt(fhDx*fhDx+fhDy*fhDy)<55 && gs.found.flatHQ) {
+                    const fhL=[[{s:'MATT',t:"*enters HQ*"},{s:'MATT',t:"There's a guy staring at Earth through a telescope."},{s:'MATT',t:"He's been looking for the edge for 6 months."},{s:'MATT',t:"He looks tired. But determined. I respect it."}],[{s:'MATT',t:"*reads the whiteboard*"},{s:'MATT',t:"It just says 'we'll get em next time' in twelve different languages."},{s:'BRIAN',t:"That's dedication."},{s:'MATT',t:"That's PERSEVERANCE. Unlike this so-called 'rover.'"}],[{s:'MATT',t:"*talks to a Flat Earther*"},{s:'MATT',t:"He said he came to prove the earth was flat from up here."},{s:'MATT',t:"Now he just does admin for the office."},{s:'MATT',t:"He makes good coffee though. He's at peace."}]];
+                    const fl=fhL[Math.floor(Math.random()*fhL.length)]; for(const l of fl) queueDialog(l.s,l.t);
+                }
+                // Space Whale interact
+                const swDx=this._px-3500, swDy=this._py-6500;
+                if(Math.sqrt(swDx*swDx+swDy*swDy)<70 && gs.found.spacewhale) {
+                    const swL=[[{s:'MATT',t:"*reaches toward space whale*"},{s:'MATT',t:"It looked at me. It SAW me."},{s:'MATT',t:"I felt... understood. For the first time on this trip."},{s:'BRIAN',t:"The space whale UNDERSTOOD you?!"},{s:'MATT',t:"More than you two ever have."}],[{s:'MATT',t:"*waves at space whale*"},{s:'MATT',t:"It did a little spin. A space whale spin."},{s:'MATT',t:"That's the most beautiful thing I've ever seen."},{s:'MATT',t:"If NOTHING else on this moon is real... the whale is real to me."}],[{s:'MATT',t:"*sits and watches the whale*"},{s:'MATT',t:"It's singing. In space. Where there's no sound."},{s:'MATT',t:"And I can hear it."},{s:'MARK',t:"That's literally impossible—"},{s:'MATT',t:"SHHHH. The whale is singing."}]];
+                    const sl=swL[Math.floor(Math.random()*swL.length)]; for(const l of sl) queueDialog(l.s,l.t);
+                    gs.mattSecretJoy=Math.min(100,gs.mattSecretJoy+5);
+                }
                 // Moon rock interact (any nearby rock)
                 let nearRock = false;
                 for (const r of this._rocks) { const rdx=this._px-r.x, rdy=this._py-r.y; if(Math.sqrt(rdx*rdx+rdy*rdy)<25){nearRock=true; break;} }
@@ -1053,6 +1260,189 @@
                 ctx.fillText('"I KNEW IT" - Matt', fcX, fcY-58);
             }
             { const d=Math.sqrt((this._px-2100)**2+(this._py-1800)**2); if(d<50&&gs.found.filmcrew){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Investigate',fcX,fcY-68);} }
+
+            // === MOON STARBUCKS ===
+            const sbX=3200-cx, sbY=800-cy;
+            ctx.fillStyle = '#1a3c34'; ctx.fillRect(sbX-30,sbY-25,60,35);
+            ctx.fillStyle = '#00704A'; ctx.fillRect(sbX-28,sbY-23,56,31);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('MOON', sbX, sbY-15); ctx.fillText('STARBUCKS', sbX, sbY-8);
+            // Mermaid logo (simplified circle)
+            ctx.fillStyle = '#00704A'; ctx.beginPath(); ctx.arc(sbX, sbY+5, 8, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sbX, sbY+5, 6, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#00704A'; ctx.fillRect(sbX-2, sbY+2, 4, 6);
+            // Coffee cups on counter
+            ctx.fillStyle = '#fff'; for(let i=0;i<3;i++){ctx.fillRect(sbX-18+i*12,sbY+8,5,7); ctx.fillStyle='#8B4513'; ctx.fillRect(sbX-17+i*12,sbY+9,3,4); ctx.fillStyle='#fff';}
+            // Menu board
+            ctx.fillStyle = '#222'; ctx.fillRect(sbX-28,sbY-40,56,14);
+            ctx.fillStyle = '#fff'; ctx.font = '5px monospace';
+            ctx.fillText('VENTI MOON LATTE.....$12', sbX, sbY-34);
+            ctx.fillText('CRATER CAPPUCCINO....$15', sbX, sbY-28);
+            if(gs.found.starbucks){ctx.font='8px monospace'; ctx.fillStyle='#00aa66'; ctx.fillText('"WiFi password: themoonisreal"',sbX,sbY-48);}
+            {const d=Math.sqrt((this._px-3200)**2+(this._py-800)**2); if(d<50&&gs.found.starbucks){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Order Coffee',sbX,sbY-56);}}
+
+            // === ALEX JONES BROADCAST ===
+            const ajX=4500-cx, ajY=1500-cy;
+            // Broadcast desk
+            ctx.fillStyle = '#444'; ctx.fillRect(ajX-20,ajY,40,10);
+            // Monitors behind
+            ctx.fillStyle = '#222'; ctx.fillRect(ajX-25,ajY-20,20,18); ctx.fillRect(ajX+5,ajY-20,20,18);
+            ctx.fillStyle = '#3344ff'; ctx.fillRect(ajX-23,ajY-18,16,14); ctx.fillStyle = '#ff4444'; ctx.fillRect(ajX+7,ajY-18,16,14);
+            // "INFOWARS LUNAR" banner
+            ctx.fillStyle = '#ff0000'; ctx.fillRect(ajX-30,ajY-35,60,12);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('INFOWARS LUNAR', ajX, ajY-27);
+            // Alex Jones (red-faced guy at desk)
+            ctx.fillStyle = '#ff8866'; ctx.fillRect(ajX-3,ajY-10,8,8); // very red face
+            ctx.fillStyle = '#333'; ctx.fillRect(ajX-3,ajY-11,8,2); // hair
+            ctx.fillStyle = '#222'; ctx.fillRect(ajX-1,ajY-7,2,1); ctx.fillRect(ajX+3,ajY-7,2,1); // eyes
+            ctx.fillStyle = '#cc0000'; ctx.fillRect(ajX,ajY-4,4,2); // screaming mouth
+            // Microphone
+            ctx.fillStyle = '#666'; ctx.fillRect(ajX+6,ajY-8,8,2); ctx.fillStyle = '#444'; ctx.beginPath(); ctx.arc(ajX+15,ajY-7,3,0,Math.PI*2); ctx.fill();
+            // Supplement bottles
+            ctx.fillStyle = '#ff8800'; for(let i=0;i<4;i++) ctx.fillRect(ajX-28+i*8,ajY+2,5,8);
+            ctx.font='4px monospace'; ctx.fillStyle='#ff8800'; ctx.fillText('MOON VITALITY+',ajX-12,ajY+14);
+            if(gs.found.alexjones){ctx.font='8px monospace'; ctx.fillStyle='#ff4444'; ctx.fillText('*SCREAMING ABOUT THE MOON*',ajX,ajY-42); const aj2=["THEY'RE TURNING THE MOON FROGS GAY!","THE MOON IS REAL AND I'M FURIOUS!","BUY MY SUPPLEMENTS!","I CAME HERE TO DEBUNK THIS!!"]; ctx.fillStyle='#ff8844'; ctx.font='7px monospace'; ctx.fillText(aj2[Math.floor(this._t/2)%aj2.length],ajX,ajY-52);}
+            {const d=Math.sqrt((this._px-4500)**2+(this._py-1500)**2); if(d<55&&gs.found.alexjones){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Interact',ajX,ajY-60);}}
+
+            // === 5G TOWER ===
+            const tgX=2800-cx, tgY=3500-cy;
+            // Tower structure
+            ctx.fillStyle = '#888'; ctx.fillRect(tgX-3,tgY-60,6,70);
+            ctx.fillStyle = '#666'; ctx.fillRect(tgX-8,tgY-55,16,3); ctx.fillRect(tgX-12,tgY-40,24,3); ctx.fillRect(tgX-6,tgY-25,12,3);
+            // Blinking lights
+            const blink = Math.sin(this._t*6) > 0;
+            ctx.fillStyle = blink ? '#ff0000' : '#660000'; ctx.fillRect(tgX-1,tgY-62,3,3);
+            ctx.fillStyle = !blink ? '#ff0000' : '#660000'; ctx.fillRect(tgX-1,tgY-42,3,3);
+            // "5G" label
+            ctx.fillStyle = '#ff4444'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('5G', tgX, tgY-65);
+            // Signal waves (animated)
+            ctx.strokeStyle = `rgba(255,100,100,${0.3+Math.sin(this._t*3)*0.2})`; ctx.lineWidth = 1;
+            for(let i=1;i<=3;i++){ctx.beginPath(); ctx.arc(tgX,tgY-50,i*12,Math.PI*1.2,Math.PI*1.8); ctx.stroke();}
+            // "DEFINITELY NOT MIND CONTROL" sign
+            ctx.fillStyle = '#fff'; ctx.fillRect(tgX-35,tgY+5,70,12);
+            ctx.fillStyle = '#333'; ctx.font = '5px monospace'; ctx.fillText('DEFINITELY NOT', tgX, tgY+12); ctx.fillText('MIND CONTROL',tgX,tgY+17);
+            if(gs.found.tower5g){ctx.font='8px monospace'; ctx.fillStyle='#ff4444'; ctx.fillText('"Full bars. Suspicious." - Matt',tgX,tgY-72);}
+            {const d=Math.sqrt((this._px-2800)**2+(this._py-3500)**2); if(d<50&&gs.found.tower5g){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Check Signal',tgX,tgY-80);}}
+
+            // === MOON COWS ===
+            const mcX=5500-cx, mcY=2500-cy;
+            for(let i=0;i<4;i++){
+                const cowX=mcX-40+i*25+(Math.sin(this._t+i)*5), cowY=mcY-10+Math.cos(this._t*0.5+i*2)*8;
+                ctx.fillStyle='#fff'; ctx.fillRect(cowX,cowY,14,8); // body
+                ctx.fillStyle='#333'; ctx.fillRect(cowX+2,cowY+1,3,3); ctx.fillRect(cowX+8,cowY+2,4,2); // spots
+                ctx.fillStyle='#fff'; ctx.fillRect(cowX+10,cowY-3,6,5); // head
+                ctx.fillStyle='#ffaacc'; ctx.fillRect(cowX+13,cowY-1,3,2); // nose
+                ctx.fillStyle='#000'; ctx.fillRect(cowX+12,cowY-2,1,1); ctx.fillRect(cowX+14,cowY-2,1,1); // eyes
+                ctx.fillStyle='#fff'; ctx.fillRect(cowX+2,cowY+7,2,4); ctx.fillRect(cowX+10,cowY+7,2,4); // legs
+                // floating slightly (low grav)
+                if(i%2===0){ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(cowX+3,cowY+10,8,2);}
+            }
+            // "MOO-N PASTURE" sign
+            ctx.fillStyle='#8B6914'; ctx.fillRect(mcX-30,mcY-35,4,20);
+            ctx.fillStyle='#ffeecc'; ctx.fillRect(mcX-40,mcY-42,40,12);
+            ctx.fillStyle='#333'; ctx.font='6px monospace'; ctx.textAlign='center'; ctx.fillText('MOO-N PASTURE',mcX-20,mcY-34);
+            if(gs.found.mooncows){ctx.font='8px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('"Low gravity milk hits different" - Matt',mcX,mcY-50);}
+            {const d=Math.sqrt((this._px-5500)**2+(this._py-2500)**2); if(d<60&&gs.found.mooncows){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Pet Cow',mcX,mcY-58);}}
+
+            // === BUZZ ALDRIN'S FOOTPRINT ===
+            const fpX=3800-cx, fpY=4800-cy;
+            // Glass case
+            ctx.fillStyle='rgba(100,200,255,0.15)'; ctx.fillRect(fpX-12,fpY-12,24,24);
+            ctx.strokeStyle='#88ccee'; ctx.lineWidth=1; ctx.strokeRect(fpX-12,fpY-12,24,24);
+            // Footprint inside
+            ctx.fillStyle='#555'; ctx.fillRect(fpX-4,fpY-6,8,14); ctx.fillRect(fpX-5,fpY+4,10,4);
+            // Plaque
+            ctx.fillStyle='#cc9933'; ctx.fillRect(fpX-20,fpY+15,40,10);
+            ctx.fillStyle='#fff'; ctx.font='5px monospace'; ctx.textAlign='center';
+            ctx.fillText('ALDRIN FOOTPRINT',fpX,fpY+21); ctx.fillText('JULY 20, 1969',fpX,fpY+26);
+            // Gift shop (tiny building)
+            ctx.fillStyle='#ddccaa'; ctx.fillRect(fpX+30,fpY-15,35,25);
+            ctx.fillStyle='#aa8866'; ctx.fillRect(fpX+30,fpY-20,35,8);
+            ctx.fillStyle='#fff'; ctx.font='5px monospace'; ctx.fillText('GIFT SHOP',fpX+47,fpY-14);
+            ctx.fillText('FOOTPRINT',fpX+47,fpY-2); ctx.fillText('SNOW GLOBE $20',fpX+47,fpY+4);
+            if(gs.found.footprint){ctx.font='8px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('"The gift shop prices are the real crime" - Matt',fpX+10,fpY-28);}
+            {const d=Math.sqrt((this._px-3800)**2+(this._py-4800)**2); if(d<45&&gs.found.footprint){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Buy Snow Globe',fpX,fpY-36);}}
+
+            // === SECRET LAB ===
+            const slX=6000-cx, slY=4000-cy;
+            // Hole with ladder
+            ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(slX,slY,20,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(slX,slY,15,0,Math.PI*2); ctx.fill();
+            // Ladder
+            ctx.fillStyle='#888'; ctx.fillRect(slX-5,slY-15,2,30); ctx.fillRect(slX+3,slY-15,2,30);
+            for(let i=0;i<6;i++) ctx.fillRect(slX-5,slY-12+i*5,10,1);
+            // TOP SECRET sign
+            ctx.fillStyle='#ff0000'; ctx.fillRect(slX-25,slY-35,50,12);
+            ctx.fillStyle='#fff'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
+            ctx.fillText('TOP SECRET', slX, slY-27);
+            // Caution tape
+            for(let i=0;i<5;i++){ctx.fillStyle=i%2===0?'#ffcc00':'#000'; ctx.fillRect(slX-30+i*12,slY-22,12,3);}
+            // Green glow from below
+            ctx.fillStyle=`rgba(0,255,100,${0.1+Math.sin(this._t*2)*0.08})`; ctx.beginPath(); ctx.arc(slX,slY,25,0,Math.PI*2); ctx.fill();
+            if(gs.found.secretlab){
+                ctx.font='8px monospace'; ctx.fillStyle='#44ff44';
+                ctx.fillText('"Classified lunch" - Matt', slX, slY-42);
+                // Show what's inside (peeking)
+                ctx.fillStyle='#44ff44'; ctx.font='6px monospace';
+                const labThings=["*ribbit* (gay frog noises)","*beaker bubbling*","*scientist eating sandwich*","*frog wearing tiny rainbow flag*"];
+                ctx.fillText(labThings[Math.floor(this._t/2)%labThings.length], slX, slY+25);
+            }
+            {const d=Math.sqrt((this._px-6000)**2+(this._py-4000)**2); if(d<50&&gs.found.secretlab){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Go Down Ladder',slX,slY-50);}}
+
+            // === FLAT EARTH SOCIETY HQ ===
+            const feX=5000-cx, feY=6000-cy;
+            // Building
+            ctx.fillStyle='#667788'; ctx.fillRect(feX-35,feY-25,70,40);
+            ctx.fillStyle='#556677'; ctx.fillRect(feX-35,feY-35,70,12);
+            // Windows
+            ctx.fillStyle='#aaccee'; ctx.fillRect(feX-25,feY-18,12,10); ctx.fillRect(feX+13,feY-18,12,10);
+            // Telescopes in windows (looking at earth)
+            ctx.fillStyle='#444'; ctx.fillRect(feX-22,feY-15,8,2); ctx.fillRect(feX+16,feY-15,8,2);
+            // Sign
+            ctx.fillStyle='#fff'; ctx.fillRect(feX-30,feY-50,60,14);
+            ctx.fillStyle='#333'; ctx.font='6px monospace'; ctx.textAlign='center';
+            ctx.fillText('FLAT EARTH SOCIETY',feX,feY-43); ctx.fillText('LUNAR BRANCH',feX,feY-37);
+            // Whiteboard outside
+            ctx.fillStyle='#fff'; ctx.fillRect(feX+40,feY-20,30,20);
+            ctx.fillStyle='#333'; ctx.font='5px monospace';
+            ctx.fillText("we'll get",feX+55,feY-13); ctx.fillText("em next",feX+55,feY-7); ctx.fillText("time",feX+55,feY-1);
+            // Guys with telescopes
+            for(let i=0;i<2;i++){
+                const px=feX-15+i*30, py=feY+10;
+                ctx.fillStyle='#ffcc99'; ctx.fillRect(px,py-5,5,4);
+                ctx.fillStyle='#4466aa'; ctx.fillRect(px-1,py-1,7,6);
+                ctx.fillStyle='#444'; ctx.fillRect(px+5,py-3,10,2); // telescope
+            }
+            if(gs.found.flatHQ){ctx.font='8px monospace'; ctx.fillStyle='#88aacc'; ctx.fillText('"They\'re regrouping. Strategically." - Matt',feX,feY-58);}
+            {const d=Math.sqrt((this._px-5000)**2+(this._py-6000)**2); if(d<55&&gs.found.flatHQ){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.fillText('[E] Interact',feX,feY-66);}}
+
+            // === SPACE WHALE ===
+            const swX=3500-cx, swY=6500-cy;
+            const swBob=Math.sin(this._t*0.5)*15;
+            // Body (big, majestic)
+            ctx.fillStyle='#3366aa'; ctx.beginPath(); ctx.ellipse(swX,swY+swBob,50,20,0,0,Math.PI*2); ctx.fill();
+            // Belly
+            ctx.fillStyle='#5588cc'; ctx.beginPath(); ctx.ellipse(swX+5,swY+5+swBob,35,12,0,0,Math.PI*2); ctx.fill();
+            // Tail
+            ctx.fillStyle='#3366aa';
+            ctx.beginPath(); ctx.moveTo(swX-48,swY+swBob); ctx.lineTo(swX-70,swY-15+swBob); ctx.lineTo(swX-70,swY+15+swBob); ctx.fill();
+            // Eye
+            ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(swX+35,swY-5+swBob,5,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(swX+36,swY-5+swBob,3,0,Math.PI*2); ctx.fill();
+            // Water spout (in space??)
+            if(Math.floor(this._t)%4<2){
+                ctx.fillStyle='rgba(100,180,255,0.4)';
+                ctx.beginPath(); ctx.moveTo(swX+10,swY-18+swBob); ctx.lineTo(swX+5,swY-35+swBob); ctx.lineTo(swX+15,swY-35+swBob); ctx.fill();
+                ctx.fillStyle='rgba(100,180,255,0.2)';
+                for(let i=0;i<5;i++) ctx.fillRect(swX+3+Math.random()*14,swY-40+swBob-Math.random()*10,2,2);
+            }
+            // Stars around it (magical aura)
+            ctx.fillStyle='rgba(255,255,100,0.3)';
+            for(let i=0;i<8;i++){const sx=swX-60+Math.sin(this._t+i)*70, sy=swY-30+Math.cos(this._t*0.7+i*2)*40+swBob; ctx.fillRect(sx,sy,2,2);}
+            if(gs.found.spacewhale){ctx.font='8px monospace'; ctx.fillStyle='#88ccff'; ctx.textAlign='center'; ctx.fillText('*vibing majestically*',swX,swY-40+swBob);}
+            {const d=Math.sqrt((this._px-3500)**2+(this._py-6500)**2); if(d<70&&gs.found.spacewhale){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Commune',swX,swY-50+swBob);}}
 
             // === FAUCI'S MOON JAB STATION ===
             const fjX=400-cx, fjY=1600-cy;
