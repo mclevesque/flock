@@ -134,9 +134,11 @@ export default function LeaderboardsPage() {
   const [diffTab, setDiffTab] = useState(2);
   const [players, setPlayers] = useState<Player[]>([]);
   const [outbreakEntries, setOutbreakEntries] = useState<OutbreakEntry[]>([]);
+  const [duosEntries, setDuosEntries] = useState<OutbreakEntry[]>([]);
   const [rpsEntries, setRpsEntries] = useState<RpsEntry[]>([]);
   const [gauntletEntries, setGauntletEntries] = useState<GauntletEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [outbreakMode, setOutbreakMode] = useState<"solo" | "duos">("solo");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/signin");
@@ -151,6 +153,7 @@ export default function LeaderboardsPage() {
     ]).then(([users, outbreak, rps, gauntlet]) => {
       setPlayers(users || []);
       if (outbreak?.leaderboard) setOutbreakEntries(outbreak.leaderboard);
+      if (outbreak?.duosLeaderboard) setDuosEntries(outbreak.duosLeaderboard);
       if (Array.isArray(rps)) setRpsEntries(rps);
       if (gauntlet?.leaderboard) setGauntletEntries(gauntlet.leaderboard);
     }).catch(() => {}).finally(() => setLoading(false));
@@ -178,6 +181,12 @@ export default function LeaderboardsPage() {
   };
 
   const filteredOutbreak = outbreakEntries
+    .filter(e => Number(e.difficulty) === diffTab)
+    .sort((a, b) => Number(b.kills) - Number(a.kills))
+    .slice(0, 15)
+    .map(e => ({ ...e, username: e.username === "guest" ? "Mystery Knight" : e.username }));
+
+  const filteredDuos = duosEntries
     .filter(e => Number(e.difficulty) === diffTab)
     .sort((a, b) => Number(b.kills) - Number(a.kills))
     .slice(0, 15)
@@ -286,14 +295,30 @@ export default function LeaderboardsPage() {
       {/* ── OUTBREAK ── */}
       {tab === "outbreak" && (
         <>
+          {/* Solo / Duos mode toggle */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {(["solo", "duos"] as const).map(m => (
+              <button key={m} onClick={() => setOutbreakMode(m)} style={{
+                padding: "8px 20px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+                letterSpacing: "0.1em", cursor: "pointer", flexShrink: 0, minHeight: 36,
+                background: outbreakMode === m ? "var(--accent-purple)" : "var(--bg-surface)",
+                color: outbreakMode === m ? "#fff" : "var(--text-muted)",
+                border: `1px solid ${outbreakMode === m ? "var(--accent-purple)" : "var(--border)"}`,
+                transition: "all 0.15s",
+              }}>
+                {m === "solo" ? "🎮 SOLO" : "⚔️ DUOS"}
+              </button>
+            ))}
+          </div>
+          {/* Difficulty filter */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
             {DIFFICULTIES.map(d => (
               <button key={d.id} onClick={() => setDiffTab(d.id)} style={{
-                padding: "8px 20px", borderRadius: 8, fontSize: 11, fontWeight: 700,
-                letterSpacing: "0.1em", cursor: "pointer", flexShrink: 0, minHeight: 40,
-                background: d.id === diffTab ? "var(--accent-purple)" : "var(--bg-surface)",
+                padding: "7px 16px", borderRadius: 8, fontSize: 10, fontWeight: 700,
+                letterSpacing: "0.1em", cursor: "pointer", flexShrink: 0, minHeight: 36,
+                background: d.id === diffTab ? "rgba(139,92,246,0.3)" : "var(--bg-surface)",
                 color: d.id === diffTab ? "#fff" : "var(--text-muted)",
-                border: `1px solid ${d.id === diffTab ? "var(--accent-purple)" : "var(--border)"}`,
+                border: `1px solid ${d.id === diffTab ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
                 transition: "all 0.15s",
               }}>
                 {d.label}
@@ -301,15 +326,19 @@ export default function LeaderboardsPage() {
             ))}
           </div>
           <Card>
-            <CardTitle>🧟 OUTBREAK — {DIFFICULTIES.find(d => d.id === diffTab)?.label}</CardTitle>
+            <CardTitle>
+              🧟 OUTBREAK — {outbreakMode === "duos" ? "⚔️ DUOS · " : ""}{DIFFICULTIES.find(d => d.id === diffTab)?.label}
+            </CardTitle>
             <ColHeader cols={["DAMAGE", "KILLS"]} />
-            {filteredOutbreak.map((e, i) => (
+            {(outbreakMode === "solo" ? filteredOutbreak : filteredDuos).map((e, i) => (
               <LeaderRowFull key={e.username + i} rank={i + 1} name={e.username}
-                col1={e.damage_dealt != null ? fmtDmg(Number(e.damage_dealt)) : "—"} value={Number(e.kills).toLocaleString()} />
+                col1={e.damage_dealt != null ? fmtDmg(Number(e.damage_dealt)) : "—"}
+                value={Number(e.kills).toLocaleString()} />
             ))}
-            {filteredOutbreak.length === 0 && (
+            {(outbreakMode === "solo" ? filteredOutbreak : filteredDuos).length === 0 && (
               <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
-                No runs on {DIFFICULTIES.find(d => d.id === diffTab)?.label} yet.
+                No {outbreakMode === "duos" ? "duos " : ""}runs on {DIFFICULTIES.find(d => d.id === diffTab)?.label} yet.
+                {outbreakMode === "duos" && <span style={{ display: "block", fontSize: 11, marginTop: 6 }}>Team up in Outbreak to set duos records!</span>}
               </p>
             )}
           </Card>

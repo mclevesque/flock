@@ -10,25 +10,35 @@ interface Props {
   avatarUrl: string;
 }
 
+interface GameSettings {
+  difficulty: number;
+  upgradesEnabled: boolean;
+  playerCount: number;
+}
+
 function OutbreakFrame({ userId, username, avatarUrl }: Props) {
   const searchParams = useSearchParams();
   const initialRoom = searchParams.get("room") ?? undefined;
 
   const [gameRoomCode, setGameRoomCode] = useState<string | null>(null);
-  const [isSolo, setIsSolo] = useState(false);
+  const [isSolo, setIsSolo]             = useState(false);
+  const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
 
-  const handlePlay = useCallback((roomCode: string) => {
+  const handlePlay = useCallback((roomCode: string, settings: GameSettings) => {
+    setGameSettings(settings);
     setGameRoomCode(roomCode);
   }, []);
 
   const handleSolo = useCallback(() => {
     setIsSolo(true);
     setGameRoomCode(null);
+    setGameSettings(null);
   }, []);
 
   const handleBackToLobby = useCallback(() => {
     setGameRoomCode(null);
     setIsSolo(false);
+    setGameSettings(null);
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.searchParams.delete("room");
@@ -36,7 +46,7 @@ function OutbreakFrame({ userId, username, avatarUrl }: Props) {
     }
   }, []);
 
-  // Show lobby if no game started
+  // ── Show lobby ────────────────────────────────────────────────────────────
   if (!gameRoomCode && !isSolo) {
     return (
       <OutbreakLobby
@@ -50,14 +60,25 @@ function OutbreakFrame({ userId, username, avatarUrl }: Props) {
     );
   }
 
-  // Build iframe src
+  // ── Build iframe src ──────────────────────────────────────────────────────
+  // Solo: no extra params → game shows its own title screen as usual
+  // Co-op: pass difficulty/upgrades/playerCount → game auto-starts with host settings
   const params = new URLSearchParams({
     userId,
     username,
     avatar: avatarUrl,
     supermusic: "1",
-    ...(gameRoomCode ? { partyId: gameRoomCode, partyHost: "https://flock.partykit.dev" } : {}),
+    ...(gameRoomCode
+      ? {
+          partyId:     gameRoomCode,
+          partyHost:   "https://flock.partykit.dev",
+          difficulty:  String(gameSettings?.difficulty ?? 2),
+          upgradesEnabled: gameSettings?.upgradesEnabled ? "1" : "0",
+          playerCount: String(gameSettings?.playerCount ?? 1),
+        }
+      : {}),
   });
+
   const src = `/games/outbreak/index.html?${params.toString()}`;
 
   return (
@@ -68,7 +89,6 @@ function OutbreakFrame({ userId, username, avatarUrl }: Props) {
         allow="autoplay"
         title="Outbreak"
       />
-      {/* Back to lobby button */}
       <button
         onClick={handleBackToLobby}
         style={{

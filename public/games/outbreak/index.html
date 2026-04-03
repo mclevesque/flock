@@ -33,6 +33,10 @@ const FLOCK_ORIGIN=params.get('origin')||'';
 const PARTY_ID=params.get('partyId')||'';
 const USER_ID=params.get('userId')||PLAYER_NAME;
 const PARTY_HOST=(params.get('partyHost')||'https://flock.partykit.dev').replace(/\/$/,'');
+// Co-op lobby params — set by the host before game launch
+const LOBBY_DIFFICULTY=params.get('difficulty')?Math.max(1,Math.min(4,parseInt(params.get('difficulty')||'2'))):null;
+const LOBBY_UPGRADES_ENABLED=params.get('upgradesEnabled'); // '1'=on, '0'=off, null=unset
+const PLAYER_COUNT=Math.max(1,parseInt(params.get('playerCount')||'1'));
 
 // Listen for avatar via postMessage (avoids 414 URI Too Long with base64 avatars)
 window.addEventListener('message',function(e){
@@ -708,8 +712,8 @@ const DIFFICULTIES=[
 ];
 const gs={
 state:'title',
-difficulty:parseInt(localStorage.getItem('outbreak_difficulty')||'2'),
-_upgradesDisabled:false,
+difficulty:LOBBY_DIFFICULTY||parseInt(localStorage.getItem('outbreak_difficulty')||'2'),
+_upgradesDisabled:LOBBY_UPGRADES_ENABLED==='0',
 _supermusicAllowed:params.get('supermusic')==='1',
 _supermusic:params.get('supermusic')==='1'&&localStorage.getItem('outbreak_supermusic')!=='0',
 time:0,gameTime:0,frame:0,
@@ -1148,7 +1152,8 @@ const p=gs.gameTime/SURVIVE_TIME;
 const timeScale=p<0.1?0.6+p*6.0:p<0.333?1.2+(p-0.1)*12.0:p<0.667?4.0+(p-0.333)*24.0:12.0+(p-0.667)*72.0;
 const _diff=DIFFICULTIES[(gs.difficulty||2)-1]||DIFFICULTIES[1];
 // Party HP scaling: more players = beefier enemies (+30% HP per extra player)
-const _partyHpMult=1+Object.keys(remotePlayers).length*0.3;
+// Use whichever is larger: lobby player count (from URL param) or connected remote players
+const _partyHpMult=1+Math.max(PLAYER_COUNT-1,Object.keys(remotePlayers).length)*0.3;
 e.hp=def.hp*timeScale*0.7*_diff.hpMult*_partyHpMult;e.maxHp=e.hp;
 e.spd=def.spd*_diff.spdMult*1.05;
 // Damage: compressed for 15min — early game gentler, late game still punishing
@@ -4706,7 +4711,8 @@ function saveRun(){
         weapons:gs.weapons.map(w=>({id:w.id,lvl:w.lvl})),
         passives:gs.passives.map(p=>({id:p.id,lvl:p.lvl})),
         deathCause:gs._deathCause||null,
-        dmgLog:gs._dmgLog||[]
+        dmgLog:gs._dmgLog||[],
+        playerCount:PLAYER_COUNT
       })
     }).then(r=>{
       if(!r.ok)r.json().then(d=>console.warn('[outbreak] score save failed:',d.error||r.status)).catch(()=>{});
@@ -5101,5 +5107,16 @@ while(_loopAccum>=TICK){update();_loopAccum-=TICK;}
 draw();
 }
 requestAnimationFrame(loop);
+
+// ── Co-op lobby auto-start ───────────────────────────────────────────────────
+// When launched from the lobby with a party + host settings, skip the title
+// screen entirely and drop straight into the game for all players.
+if(PARTY_ID&&LOBBY_DIFFICULTY){
+  setTimeout(function(){
+    if(gs.state==='title'){
+      startGame();
+    }
+  },350);
+}
 </script>
 </body></html>
