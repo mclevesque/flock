@@ -2269,209 +2269,231 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
         if (skateModeRef.current) {
           // ── TONY HAWK SKATE PHYSICS ──────────────────────────────────────
+          // Like THPS: W=push forward in facing dir, A/D=turn, momentum-based
           const sk = skateRef.current;
-          const ACCEL = 12;       // push acceleration
-          const MAX_SPEED = 18;   // top speed
-          const FRICTION = 3.5;   // ground friction decel
-          const TURN_SPEED = 3.2; // radians/sec steering
-          const GRAVITY = 24;     // slightly stronger for snappier air
-          const GRIND_SNAP = 2.5; // snap distance to rails
-          const GRIND_SPEED = 8;  // speed along rail
+          const ACCEL = 14;       // push acceleration
+          const MAX_SPEED = 20;   // top speed
+          const FRICTION = 2.8;   // ground friction (low = more coast)
+          const TURN_SPEED = 2.8; // radians/sec — tighter when slow
+          const GRAVITY = 26;     // snappy air
+          const GRIND_SNAP = 3.0; // snap distance to rails
+          const GRIND_SPEED = 10; // speed along rail
 
-          // Steering: A/D rotate heading
-          let turnInput = 0;
-          if (keysRef.current.has("KeyA")) turnInput -= 1;
-          if (keysRef.current.has("KeyD")) turnInput += 1;
-          if (gpLx !== 0) turnInput += gpLx;
-          if (joystickRef.current.active) turnInput += joystickRef.current.dx;
-          sk.heading += turnInput * TURN_SPEED * dt;
+          // Initialize heading from camera on first frame
+          if (sk.speed === 0 && sk.heading === 0) {
+            sk.heading = camOrbitRef.current.theta + Math.PI; // face away from camera
+          }
+
+          // Steering: A/D rotate heading — sharper at low speed (like THPS)
+          const turnMult = sk.speed < 3 ? 1.6 : (sk.speed < 8 ? 1.0 : 0.7);
+          let skateTurnInput = 0;
+          if (keysRef.current.has("KeyA")) skateTurnInput -= 1;
+          if (keysRef.current.has("KeyD")) skateTurnInput += 1;
+          if (gpLx !== 0) skateTurnInput += gpLx;
+          if (joystickRef.current.active) skateTurnInput += joystickRef.current.dx;
+          // Only turn when moving (or very slightly when still, like THPS)
+          if (sk.speed > 0.5 || Math.abs(skateTurnInput) > 0) {
+            sk.heading += skateTurnInput * TURN_SPEED * turnMult * dt;
+          }
 
           // Acceleration: W to push, S to brake
           let pushInput = 0;
           if (keysRef.current.has("KeyW")) pushInput = 1;
-          if (keysRef.current.has("KeyS")) pushInput = -1.8; // braking is stronger
-          if (gpLy < -0.2) pushInput = 1;
-          if (gpLy > 0.2) pushInput = -1.8;
-          if (joystickRef.current.active && joystickRef.current.dy < -0.2) pushInput = 1;
-          if (joystickRef.current.active && joystickRef.current.dy > 0.2) pushInput = -1.8;
+          if (keysRef.current.has("KeyS")) pushInput = -2.0; // braking is stronger
+          if (gpLy < -0.2) pushInput = -gpLy; // stick forward = push
+          if (gpLy > 0.2) pushInput = -gpLy * 2.0; // stick back = brake
+          if (joystickRef.current.active && joystickRef.current.dy < -0.15) pushInput = 1;
+          if (joystickRef.current.active && joystickRef.current.dy > 0.15) pushInput = -1.5;
 
           if (!sk.airborne && !sk.grinding) {
             if (pushInput > 0) {
               sk.speed = Math.min(MAX_SPEED, sk.speed + ACCEL * dt * pushInput);
             } else if (pushInput < 0) {
-              sk.speed = Math.max(0, sk.speed + pushInput * FRICTION * 2 * dt);
+              sk.speed = Math.max(0, sk.speed + pushInput * FRICTION * 2.5 * dt);
             } else {
-              // Coast with friction
+              // Coast with friction — slow decay like real skating
               sk.speed = Math.max(0, sk.speed - FRICTION * dt);
             }
           }
 
-          // Ollie (Space) — hold to charge, release to pop
+          // Ollie (Space) — hold to crouch, release to pop (THPS style)
           if (keysRef.current.has("Space") && !sk.airborne && !sk.grinding) {
             if (!sk.spaceHeld) { sk.spaceHeld = true; sk.spaceHeldTime = 0; }
-            sk.spaceHeldTime = Math.min(0.5, sk.spaceHeldTime + dt); // max 0.5s charge
+            sk.spaceHeldTime = Math.min(0.4, sk.spaceHeldTime + dt);
+            // Crouch animation — squash the board down
+            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = -0.6;
           } else if (sk.spaceHeld && !keysRef.current.has("Space")) {
-            // Release — pop ollie! Height based on charge time
-            const power = 7 + sk.spaceHeldTime * 14; // 7-14 upward velocity
+            // Release — POP! Height based on charge time
+            const power = 8 + sk.spaceHeldTime * 18; // 8-15.2 upward velocity
             sk.vy = power;
             sk.airborne = true;
             sk.spaceHeld = false;
             sk.spaceHeldTime = 0;
-            // Ollie sound
+            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = -0.5;
+            // Ollie pop sound
             try {
               const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
               osc.connect(g); g.connect(ac.destination); osc.type = "square";
-              osc.frequency.setValueAtTime(180, ac.currentTime);
-              osc.frequency.exponentialRampToValueAtTime(400, ac.currentTime + 0.08);
-              osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.15);
-              g.gain.setValueAtTime(0.15, ac.currentTime);
-              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.2);
-              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.2);
+              osc.frequency.setValueAtTime(200, ac.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.06);
+              osc.frequency.exponentialRampToValueAtTime(250, ac.currentTime + 0.12);
+              g.gain.setValueAtTime(0.18, ac.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.18);
+              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.18);
               osc.onended = () => ac.close();
             } catch { /**/ }
           }
           // Gamepad A for ollie too
           if (gpAPressed && !gpAPrev && !sk.airborne && !sk.grinding) {
-            sk.vy = 12; sk.airborne = true;
+            sk.vy = 13; sk.airborne = true;
           }
 
-          // Gravity when airborne
+          // Y-axis physics
           const [, py, ] = playerPosRef.current;
           let newY = py;
-          if (sk.airborne || py > 0.05) {
+
+          // Calculate ground level — normally 0, but could be negative (pool) or positive (ramp)
+          let groundLevel = 0;
+          let onRamp = false;
+          for (const ramp of SKATE_RAMPS) {
+            const rdx = px - ramp.cx, rdz = pz - ramp.cz;
+            const hw = ramp.w / 2 + 0.5, hd = ramp.d / 2 + 0.5;
+            if (Math.abs(rdx) < hw && Math.abs(rdz) < hd) {
+              onRamp = true;
+              if (ramp.type === "pool") {
+                const normX = Math.abs(rdx) / (ramp.w / 2);
+                const normZ = Math.abs(rdz) / (ramp.d / 2);
+                const edgeDist = Math.max(normX, normZ);
+                if (edgeDist < 0.65) {
+                  groundLevel = -ramp.h; // flat bottom
+                } else {
+                  const wallT = (edgeDist - 0.65) / 0.35;
+                  groundLevel = -ramp.h * (1 - wallT * wallT); // curved wall
+                }
+              } else if (ramp.type === "kicker") {
+                const normX = (rdx + ramp.w / 2) / ramp.w;
+                groundLevel = ramp.h * Math.max(0, normX);
+              } else if (ramp.type === "spine") {
+                const normZ2 = 1 - Math.abs(rdz) / (ramp.d / 2);
+                groundLevel = ramp.h * Math.max(0, normZ2);
+              }
+              break; // only one ramp at a time
+            }
+          }
+
+          // Apply gravity when in air or above ground
+          if (sk.airborne || py > groundLevel + 0.1) {
             sk.vy -= GRAVITY * dt;
             newY = py + sk.vy * dt;
 
-            // Ramp launch detection — check if over a ramp area and moving fast
-            for (const ramp of SKATE_RAMPS) {
-              const dx = px - ramp.cx, dz = pz - ramp.cz;
-              if (Math.abs(dx) < ramp.w / 2 + 1 && Math.abs(dz) < ramp.d / 2 + 1) {
-                // On a ramp — if descending and near ground, get launched
-                const rampSurface = ramp.h * Math.max(0, 1 - Math.min(Math.abs(dx), Math.abs(dz)) / (Math.max(ramp.w, ramp.d) / 2));
-                if (newY <= rampSurface + 0.3 && newY >= rampSurface - 0.5) {
-                  newY = rampSurface;
-                  if (sk.vy < 0 && sk.speed > 3) {
-                    // Launch! Speed converts to vertical
-                    const launchPower = Math.min(sk.speed * 0.8, 15);
-                    sk.vy = launchPower;
-                    sk.airborne = true;
-                    newY = rampSurface + 0.1;
-                  } else if (sk.vy < 0) {
-                    sk.vy = 0;
-                    sk.airborne = false;
-                  }
+            // Landing on ramp surface — check for launch or settle
+            if (newY <= groundLevel + 0.15 && sk.vy < 0) {
+              if (onRamp && sk.speed > 3 && groundLevel > -0.5) {
+                // On a ramp lip going down — LAUNCH upward!
+                const launchPower = Math.min(sk.speed * 0.85, 15);
+                sk.vy = launchPower;
+                sk.airborne = true;
+                newY = groundLevel + 0.2;
+                sk.speed = Math.max(sk.speed * 0.75, 4);
+              } else {
+                // Settle on surface
+                newY = groundLevel;
+                sk.vy = 0;
+                // On pool walls going down — gain speed from gravity (like rolling down a bowl!)
+                if (onRamp && groundLevel < -0.5) {
+                  sk.speed = Math.min(sk.speed + 4 * dt, 20);
                 }
               }
             }
 
-            if (newY <= 0) {
-              newY = 0; sk.vy = 0;
-              // Landing — bank combo score or bail
+            // Final ground clamp
+            if (newY <= groundLevel) {
+              newY = groundLevel; sk.vy = 0;
               if (sk.airborne) {
                 sk.airborne = false;
                 if (sk.trickLock) {
-                  // Bail! Was mid-trick when landing
-                  sk.combo = 0; sk.comboTimer = 0;
-                  sk.trickLock = false;
+                  // BAIL! Mid-trick on landing
+                  sk.combo = 0; sk.comboTimer = 0; sk.trickLock = false;
                   setSkateTrickPopup("BAIL! 💀");
-                  sk.speed *= 0.3; // lose speed on bail
+                  sk.speed *= 0.2;
                   if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
                   skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1500);
-                  // Bail sound
                   try {
-                    const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
-                    osc.connect(g); g.connect(ac.destination); osc.type = "sawtooth";
-                    osc.frequency.setValueAtTime(300, ac.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.4);
-                    g.gain.setValueAtTime(0.2, ac.currentTime);
-                    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
-                    osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.4);
-                    osc.onended = () => ac.close();
+                    const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
+                    o.connect(g); g.connect(ac.destination); o.type = "sawtooth";
+                    o.frequency.setValueAtTime(300, ac.currentTime); o.frequency.exponentialRampToValueAtTime(60, ac.currentTime + 0.5);
+                    g.gain.setValueAtTime(0.2, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
+                    o.start(ac.currentTime); o.stop(ac.currentTime + 0.5); o.onended = () => ac.close();
                   } catch { /**/ }
                 } else if (sk.combo > 0) {
-                  // Clean landing — bank the combo!
+                  // CLEAN LANDING! Bank combo
                   const banked = sk.combo;
-                  sk.score += banked;
-                  setSkateScore(sk.score);
+                  sk.score += banked; setSkateScore(sk.score);
                   setSkateTrickPopup(`LANDED! +${banked} 🔥`);
                   if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
                   skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
-                  sk.combo = 0; sk.comboTimer = 0;
-                  setSkateCombo(0);
-                  // Land sound
+                  sk.combo = 0; sk.comboTimer = 0; setSkateCombo(0);
                   try {
-                    const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
-                    osc.connect(g); g.connect(ac.destination); osc.type = "sine";
-                    osc.frequency.setValueAtTime(250, ac.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(150, ac.currentTime + 0.12);
-                    g.gain.setValueAtTime(0.12, ac.currentTime);
-                    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
-                    osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.15);
-                    osc.onended = () => ac.close();
+                    const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
+                    o.connect(g); g.connect(ac.destination); o.type = "sine";
+                    o.frequency.setValueAtTime(300, ac.currentTime); o.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.1);
+                    g.gain.setValueAtTime(0.15, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+                    o.start(ac.currentTime); o.stop(ac.currentTime + 0.15); o.onended = () => ac.close();
                   } catch { /**/ }
                 }
               }
             }
           } else {
-            newY = py; // on ground, keep Y stable
+            // On ground — follow terrain surface (pool slopes, ramp surfaces)
+            newY = groundLevel;
+            sk.airborne = false;
           }
 
-          // Grinding — press E near a rail to lock on
-          if (keysRef.current.has("KeyE") && !sk.airborne && !sk.grinding) {
+          // Grinding — press E or RB/R1 (button 5) near a rail to lock on
+          const gpGrind = navigator.getGamepads()?.[0]?.buttons[5]?.pressed ?? false;
+          if ((keysRef.current.has("KeyE") || gpGrind) && !sk.airborne && !sk.grinding) {
             for (let ri = 0; ri < GRIND_RAILS.length; ri++) {
-              const [sx, sy, sz, ex, ey, ez] = GRIND_RAILS[ri];
-              // Point-to-line-segment distance
-              const rlx = ex - sx, rlz = ez - sz;
-              const rlen = Math.sqrt(rlx * rlx + rlz * rlz);
-              const t = Math.max(0, Math.min(1, ((px - sx) * rlx + (pz - sz) * rlz) / (rlen * rlen)));
-              const cx = sx + t * rlx, cz = sz + t * rlz;
-              const dist = Math.hypot(px - cx, pz - cz);
-              if (dist < GRIND_SNAP && Math.abs(py - sy) < 1.5) {
+              const [rsx, rsy, rsz, rex, , rez] = GRIND_RAILS[ri];
+              const rlx = rex - rsx, rlz = rez - rsz;
+              const rlen2 = rlx * rlx + rlz * rlz;
+              const t = Math.max(0, Math.min(1, ((px - rsx) * rlx + (pz - rsz) * rlz) / rlen2));
+              const cpx2 = rsx + t * rlx, cpz2 = rsz + t * rlz;
+              const dist = Math.hypot(px - cpx2, pz - cpz2);
+              if (dist < GRIND_SNAP && Math.abs(py - rsy) < 2.0) {
                 sk.grinding = true; sk.grindRailIdx = ri; sk.grindT = t;
-                sk.speed = GRIND_SPEED;
-                newY = sy;
-                // Grind sound
+                sk.speed = GRIND_SPEED; newY = rsy;
                 try {
-                  const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
-                  osc.connect(g); g.connect(ac.destination); osc.type = "sawtooth";
-                  osc.frequency.setValueAtTime(120, ac.currentTime);
-                  g.gain.setValueAtTime(0.08, ac.currentTime);
-                  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
-                  osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.3);
-                  osc.onended = () => ac.close();
+                  const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
+                  o.connect(g); g.connect(ac.destination); o.type = "sawtooth";
+                  o.frequency.setValueAtTime(100, ac.currentTime);
+                  g.gain.setValueAtTime(0.1, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
+                  o.start(ac.currentTime); o.stop(ac.currentTime + 0.3); o.onended = () => ac.close();
                 } catch { /**/ }
                 break;
               }
             }
           }
 
-          // Grind movement — slide along rail
+          // Grind movement
           if (sk.grinding && sk.grindRailIdx >= 0) {
-            const [sx, sy, sz, ex, , ez] = GRIND_RAILS[sk.grindRailIdx];
-            const rlen = Math.hypot(ex - sx, ez - sz);
+            const [rsx, rsy, rsz, rex, , rez] = GRIND_RAILS[sk.grindRailIdx];
+            const rlen = Math.hypot(rex - rsx, rez - rsz);
             sk.grindT += (GRIND_SPEED * dt) / rlen;
-            // Grind score: +50 per second
-            sk.combo += Math.round(50 * dt);
-            setSkateCombo(sk.combo);
-            if (sk.grindT >= 1 || sk.grindT <= 0 || !keysRef.current.has("KeyE")) {
-              // End grind
+            sk.combo += Math.round(50 * dt); setSkateCombo(sk.combo);
+            if (sk.grindT >= 1 || sk.grindT <= 0 || (!keysRef.current.has("KeyE") && !gpGrind)) {
               sk.grinding = false;
-              sk.grindT = Math.max(0, Math.min(1, sk.grindT));
               setSkateTrickPopup(`GRIND! +${sk.combo} 🛹`);
               if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
               skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1000);
-              // Bank grind points
-              sk.score += sk.combo;
-              setSkateScore(sk.score);
+              sk.score += sk.combo; setSkateScore(sk.score);
               sk.combo = 0; setSkateCombo(0);
             } else {
-              // Snap position to rail
-              const rx = sx + sk.grindT * (ex - sx);
-              const rz = sz + sk.grindT * (ez - sz);
-              playerPosRef.current = [rx, sy, rz];
+              const grx = rsx + sk.grindT * (rex - rsx);
+              const grz = rsz + sk.grindT * (rez - rsz);
+              playerPosRef.current = [grx, rsy, grz];
               if (playerMeshRef.current) {
-                playerMeshRef.current.position.set(rx, sy, rz);
-                playerMeshRef.current.rotation.y = Math.atan2(ex - sx, ez - sz);
+                playerMeshRef.current.position.set(grx, rsy, grz);
+                playerMeshRef.current.rotation.y = Math.atan2(rex - rsx, rez - rsz);
               }
             }
           }
@@ -2482,16 +2504,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             const vz = Math.cos(sk.heading) * sk.speed;
             let newX = Math.max(-55, Math.min(78, px + vx * dt));
             let newZ = Math.max(-55, Math.min(86, pz + vz * dt));
-            // Building collision
             for (const bld of MOONHAVEN_BUILDINGS) {
-              if (bld.id === "skate_shop") continue; // allow near shop
+              if (bld.id === "skate_shop") continue;
               const [bx, , bz] = bld.position;
-              const hw = bld.size[0] / 2 + 0.5;
-              const hd = bld.size[2] / 2 + 0.5;
+              const hw = bld.size[0] / 2 + 0.5, hd = bld.size[2] / 2 + 0.5;
               if (newX > bx - hw && newX < bx + hw && newZ > bz - hd && newZ < bz + hd) {
-                // Bounce off buildings at reduced speed
-                sk.speed *= 0.4;
-                newX = px; newZ = pz;
+                sk.speed *= 0.3; newX = px; newZ = pz;
               }
             }
             playerPosRef.current = [newX, newY, newZ];
@@ -2501,19 +2519,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             }
           }
 
-          // Board tilt animation
+          // Board animations
           if (skateBoardMeshRef.current) {
-            skateBoardMeshRef.current.rotation.z = turnInput * 0.3; // lean into turns
+            skateBoardMeshRef.current.rotation.z = skateTurnInput * 0.25; // lean into turns
             if (sk.airborne && sk.trickLock) {
-              skateBoardMeshRef.current.rotation.x += dt * 12; // spin during tricks
-            } else {
+              skateBoardMeshRef.current.rotation.x += dt * 14; // flip during tricks
+            } else if (!sk.spaceHeld) {
               skateBoardMeshRef.current.rotation.x = 0;
+              skateBoardMeshRef.current.position.y = -0.5;
             }
-          }
-
-          // Combo timeout — if combo active but no new tricks for 0.5s in air, it's just pending
-          if (sk.combo > 0 && sk.comboTimer > 0) {
-            sk.comboTimer -= dt;
           }
 
         } else {
@@ -4031,7 +4045,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             E — Grind (near any rail/edge!)<br />
             ESC — Return board<br />
             <br />
-            <b style={{ color: "#aa88ff" }}>🎮 Controller:</b> A=Ollie B=Kickflip X=360Flip Y=ChristAir
+            <b style={{ color: "#aa88ff" }}>🎮 Controller:</b> A=Ollie B=Kickflip X=360Flip Y=ChristAir RB=Grind
           </div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
             <button onClick={() => {
@@ -4043,16 +4057,44 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               getThree().then(THREE => {
                 if (!playerMeshRef.current) return;
                 const board = new THREE.Group();
-                const deck = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.06, 0.25), new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
-                deck.position.y = -0.3;
+                // Deck — long along Z (forward), wide on X, thin Y
+                const deckGeo = new THREE.BoxGeometry(0.6, 0.08, 2.2);
+                const deckMat = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.6 });
+                const deck = new THREE.Mesh(deckGeo, deckMat);
+                deck.position.y = 0.12;
                 board.add(deck);
-                // Wheels
-                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-                for (const [wx, wz] of [[-0.28, 0.08], [-0.28, -0.08], [0.28, 0.08], [0.28, -0.08]]) {
-                  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.04, 8), wheelMat);
-                  wheel.position.set(wx, -0.35, wz); wheel.rotation.x = Math.PI / 2;
+                // Nose/tail kick (slight upturn at ends)
+                for (const zOff of [-1.0, 1.0]) {
+                  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.35), deckMat);
+                  kick.position.set(0, 0.2, zOff);
+                  kick.rotation.x = zOff > 0 ? -0.35 : 0.35;
+                  board.add(kick);
+                }
+                // Trucks (metal axles)
+                const truckMat = new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.8, roughness: 0.3 });
+                for (const tz of [-0.65, 0.65]) {
+                  const truck = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.12), truckMat);
+                  truck.position.set(0, 0.04, tz);
+                  board.add(truck);
+                }
+                // Wheels — 4 corners, bigger
+                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+                for (const [wx, wz] of [[-0.32, -0.65], [-0.32, 0.65], [0.32, -0.65], [0.32, 0.65]]) {
+                  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 12), wheelMat);
+                  wheel.position.set(wx, -0.02, wz); wheel.rotation.z = Math.PI / 2;
                   board.add(wheel);
                 }
+                // Graphic on top of deck
+                const gfxCanvas = document.createElement("canvas"); gfxCanvas.width = 64; gfxCanvas.height = 128;
+                const gctx = gfxCanvas.getContext("2d")!;
+                gctx.fillStyle = "#33cc77"; gctx.fillRect(0, 0, 64, 128);
+                gctx.fillStyle = "#fff"; gctx.font = "bold 28px sans-serif"; gctx.textAlign = "center";
+                gctx.fillText("🛹", 32, 50); gctx.fillText("SHRED", 32, 95);
+                const gfxTex = new THREE.CanvasTexture(gfxCanvas);
+                const gfxPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.8), new THREE.MeshBasicMaterial({ map: gfxTex }));
+                gfxPlane.rotation.x = -Math.PI / 2; gfxPlane.position.y = 0.17;
+                board.add(gfxPlane);
+                board.position.y = -0.5; // position under player's feet
                 playerMeshRef.current.add(board);
                 skateBoardMeshRef.current = board;
               });
@@ -4100,11 +4142,39 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               animation: "pulse 0.3s ease-in-out infinite alternate",
             }}>{skateTrickPopup}</div>
           )}
-          {/* Exit hint */}
+          {/* Exit button */}
+          <button onClick={() => {
+            const sk = skateRef.current;
+            skateModeRef.current = false; setSkateMode(false);
+            if (sk.score > 0) {
+              try {
+                const scores: { name: string; score: number }[] = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
+                scores.push({ name: username.slice(0, 16), score: sk.score });
+                scores.sort((a, b) => b.score - a.score);
+                const top10 = scores.slice(0, 10);
+                localStorage.setItem("mh_skate_scores", JSON.stringify(top10));
+                const sbMesh = (window as unknown as Record<string, unknown>).__skateScoreboard as import("three").Mesh | undefined;
+                if (sbMesh?.userData.scoreCanvas) {
+                  const ctx2 = sbMesh.userData.scoreCanvas.getContext("2d");
+                  if (ctx2) { drawScoreboard(ctx2, top10); sbMesh.userData.scoreTex.needsUpdate = true; }
+                }
+              } catch { /**/ }
+            }
+            if (skateBoardMeshRef.current && playerMeshRef.current) {
+              playerMeshRef.current.remove(skateBoardMeshRef.current);
+              skateBoardMeshRef.current = null;
+            }
+            sk.speed = 0; sk.combo = 0; sk.score = 0; sk.airborne = false; sk.grinding = false;
+            setSkateScore(0); setSkateCombo(0);
+          }} style={{
+            marginTop: 16, padding: "8px 18px", borderRadius: 8, border: "2px solid #ff6644",
+            background: "rgba(180,40,20,0.4)", color: "#ffaa88", fontSize: 14,
+            fontWeight: 700, cursor: "pointer", fontFamily: "monospace", pointerEvents: "auto",
+          }}>🛹 Return Board (ESC)</button>
           <div style={{
-            fontSize: 13, color: "#668866", fontFamily: "monospace", marginTop: 16,
+            fontSize: 13, color: "#668866", fontFamily: "monospace", marginTop: 8,
             textShadow: "1px 1px 0 #000",
-          }}>ESC to return board &nbsp; | &nbsp; E to grind edges</div>
+          }}>E to grind rails &amp; edges</div>
         </div>
       )}
 
@@ -5371,11 +5441,18 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene, QL: Qual
 // ── Grindable edges throughout Moonhaven (world-space line segments) ──────
 // Each rail: [startX, startY, startZ, endX, endY, endZ]
 const GRIND_RAILS: [number, number, number, number, number, number][] = [
-  // Skatepark rails
-  [40, 0.9, -22, 60, 0.9, -22],  // long rail north side
-  [44, 0.9, -28, 56, 0.9, -28],  // mid rail
-  [48, 0.9, -34, 52, 0.9, -34],  // short rail south
-  // Fountain edge (plaza center — the rim is grindable!)
+  // Skatepark dedicated rails (flat area)
+  [36, 0.9, -20, 48, 0.9, -20],  // long rail near kickers
+  [36, 0.9, -30, 48, 0.9, -30],  // parallel rail south
+  [40, 0.9, -25, 40, 0.9, -15],  // perpendicular rail
+  // Pool coping (grindable rim of the empty pool!)
+  [49, 0.45, -37, 63, 0.45, -37],  // north rim
+  [49, 0.45, -19, 63, 0.45, -19],  // south rim
+  [49, 0.45, -37, 49, 0.45, -19],  // west rim
+  [63, 0.45, -37, 63, 0.45, -19],  // east rim
+  // Spine coping
+  [40, 2.55, -25, 48, 2.55, -25],
+  // Fountain edge (plaza center — grindable!)
   [-3, 0.7, 0, 3, 0.7, 0],
   [0, 0.7, -3, 0, 0.7, 3],
   // Market stalls front edge
@@ -5389,187 +5466,211 @@ const GRIND_RAILS: [number, number, number, number, number, number][] = [
 ];
 
 // Skatepark ramp definitions: { center, size, type, angle }
+// Ramp zones for physics — simple geometric areas the player rides over
 interface SkateRamp {
   cx: number; cz: number; w: number; d: number; h: number;
-  type: "halfpipe" | "quarter" | "funbox" | "kicker";
-  rotY?: number; // rotation around Y
+  type: "pool" | "kicker" | "spine";
 }
 const SKATE_RAMPS: SkateRamp[] = [
-  // Big half-pipe (east side)
-  { cx: 58, cz: -25, w: 8, d: 18, h: 5, type: "halfpipe" },
-  // Quarter-pipe north
-  { cx: 50, cz: -38, w: 16, d: 5, h: 3.5, type: "quarter" },
-  // Quarter-pipe south
-  { cx: 50, cz: -8, w: 16, d: 5, h: 3.5, type: "quarter", rotY: Math.PI },
-  // Fun box center
-  { cx: 50, cz: -23, w: 6, d: 6, h: 1.8, type: "funbox" },
-  // Kicker ramps
-  { cx: 38, cz: -20, w: 4, d: 3, h: 1.5, type: "kicker" },
-  { cx: 38, cz: -30, w: 4, d: 3, h: 1.5, type: "kicker" },
+  // Empty pool (the star — sunken bowl you ride the walls of)
+  { cx: 56, cz: -28, w: 16, d: 20, h: 4, type: "pool" },
+  // Kicker ramps (launch ramps on the flat area)
+  { cx: 38, cz: -18, w: 5, d: 4, h: 2, type: "kicker" },
+  { cx: 38, cz: -32, w: 5, d: 4, h: 2, type: "kicker" },
+  // Spine (double-sided ramp in center of flat area)
+  { cx: 44, cz: -25, w: 8, d: 3, h: 2.5, type: "spine" },
 ];
 
-const SKATEPARK_CENTER: [number, number, number] = [50, 0, -23];
-const SKATEPARK_RADIUS = 22;
+const SKATEPARK_CENTER: [number, number, number] = [50, 0, -25];
+const SKATEPARK_RADIUS = 24;
 
 function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: QualityLevel = "med") {
-  const CX = 50, CZ = -23;
+  const CX = 50, CZ = -25;
+  const concreteMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.92 });
+  const poolMat = new THREE.MeshStandardMaterial({ color: 0x55bbcc, roughness: 0.75 }); // pool blue!
+  const poolDarkMat = new THREE.MeshStandardMaterial({ color: 0x448899, roughness: 0.8 });
+  const copingMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, roughness: 0.25, metalness: 0.85 });
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xaaaacc, roughness: 0.25, metalness: 0.9 });
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x444450, roughness: 0.7 });
 
-  // ── Concrete pad ─────────────────────────────────────────────────────────
-  const padMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.92 });
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(44, 40), padMat);
+  // ── Concrete deck (the ground around everything) ─────────────────────────
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(52, 48), concreteMat);
   pad.rotation.x = -Math.PI / 2; pad.position.set(CX, 0.01, CZ);
   pad.receiveShadow = true; scene.add(pad);
 
-  // Neon border strips
-  const neonGreen = new THREE.MeshBasicMaterial({ color: 0x33ff88 });
-  const neonPurple = new THREE.MeshBasicMaterial({ color: 0xaa44ff });
-  for (const [bx, bz, bw, bd, mat] of [
-    [CX, CZ - 20, 44, 0.4, neonGreen], [CX, CZ + 20, 44, 0.4, neonGreen],
-    [CX - 22, CZ, 0.4, 40, neonPurple], [CX + 22, CZ, 0.4, 40, neonPurple],
-  ] as [number, number, number, number, import("three").MeshBasicMaterial][]) {
-    const strip = new THREE.Mesh(new THREE.PlaneGeometry(bw, bd), mat);
-    strip.rotation.x = -Math.PI / 2; strip.position.set(bx, 0.02, bz); scene.add(strip);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── EMPTY POOL (classic THPS backyard pool — sunken with curved walls) ──
+  // ═══════════════════════════════════════════════════════════════════════════
+  const PX = 56, PZ = -28; // pool center
+  const PW = 14, PD = 18, POOL_DEPTH = 3.5; // width(X), depth(Z), how deep
+  const WALL_SEGS = 8; // curved wall segments
+
+  // Pool floor (sunken — below ground level)
+  const poolFloor = new THREE.Mesh(new THREE.PlaneGeometry(PW - 4, PD - 4), poolDarkMat);
+  poolFloor.rotation.x = -Math.PI / 2;
+  poolFloor.position.set(PX, -POOL_DEPTH + 0.02, PZ);
+  scene.add(poolFloor);
+
+  // Pool lane lines on floor (like a real empty pool)
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x336677 });
+  for (let li = -2; li <= 2; li++) {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, PD - 5), lineMat);
+    line.rotation.x = -Math.PI / 2;
+    line.position.set(PX + li * 2, -POOL_DEPTH + 0.04, PZ);
+    scene.add(line);
   }
 
-  // ── Half-pipe (the star attraction) ──────────────────────────────────────
-  const hpW = 8, hpD = 18, hpH = 5;
-  const hpX = 58, hpZ = CZ;
-  // Create curved walls using segments
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a4a55, roughness: 0.85 });
-  const wallAccent = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.7, metalness: 0.3 });
-  const segments = 12;
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < segments; i++) {
-      const angle = (i / segments) * Math.PI * 0.5;
-      const nextAngle = ((i + 1) / segments) * Math.PI * 0.5;
-      const x1 = side * (hpW / 2) * Math.cos(angle);
-      const y1 = hpH * (1 - Math.sin(angle));
-      const x2 = side * (hpW / 2) * Math.cos(nextAngle);
-      const y2 = hpH * (1 - Math.sin(nextAngle));
-      // Ramp surface segment
-      const segW = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-      const seg = new THREE.Mesh(new THREE.PlaneGeometry(segW + 0.05, hpD), i === segments - 1 ? wallAccent : wallMat);
-      seg.position.set(hpX + (x1 + x2) / 2, (y1 + y2) / 2, hpZ);
-      seg.rotation.z = Math.atan2(y2 - y1, x2 - x1) * side;
-      if (side === -1) seg.rotation.z = Math.PI - seg.rotation.z;
-      seg.rotation.x = 0;
-      // Simplified rotation — just use lookAt to orient
-      seg.lookAt(seg.position.x + (y2 - y1) * side, seg.position.y - Math.abs(x2 - x1), seg.position.z);
-      seg.rotation.x = 0; seg.rotation.z = 0;
-      // Actually just use box geometry for simpler approach
+  // "NO DIVING" text on pool floor
+  const ndCanvas = document.createElement("canvas"); ndCanvas.width = 256; ndCanvas.height = 64;
+  const ndctx = ndCanvas.getContext("2d")!;
+  ndctx.fillStyle = "rgba(0,0,0,0)"; ndctx.clearRect(0, 0, 256, 64);
+  ndctx.font = "bold 32px monospace"; ndctx.fillStyle = "#2a5566"; ndctx.textAlign = "center";
+  ndctx.fillText("NO DIVING", 128, 42);
+  const ndTex = new THREE.CanvasTexture(ndCanvas);
+  ndTex.premultiplyAlpha = true;
+  const ndSign = new THREE.Mesh(new THREE.PlaneGeometry(4, 1),
+    new THREE.MeshBasicMaterial({ map: ndTex, transparent: true, side: THREE.DoubleSide }));
+  ndSign.rotation.x = -Math.PI / 2; ndSign.position.set(PX, -POOL_DEPTH + 0.05, PZ + 4);
+  scene.add(ndSign);
+
+  // Curved walls — 4 sides of the pool, each a series of tilted planes
+  // North and South walls (along X axis)
+  for (const [wallZ, dir] of [[PZ - PD / 2, -1], [PZ + PD / 2, 1]] as [number, number][]) {
+    for (let i = 0; i < WALL_SEGS; i++) {
+      const t0 = i / WALL_SEGS, t1 = (i + 1) / WALL_SEGS;
+      const angle0 = t0 * Math.PI * 0.5, angle1 = t1 * Math.PI * 0.5;
+      const y0 = -POOL_DEPTH * Math.cos(angle0), y1 = -POOL_DEPTH * Math.cos(angle1);
+      const z0 = dir * (PD / 2 - 2) * (1 - Math.sin(angle0));
+      const z1 = dir * (PD / 2 - 2) * (1 - Math.sin(angle1));
+      const segH = Math.sqrt((y1 - y0) ** 2 + (z1 - z0) ** 2);
+      const seg = new THREE.Mesh(new THREE.PlaneGeometry(PW - 4, segH), poolMat);
+      seg.position.set(PX, (y0 + y1) / 2, wallZ + (z0 + z1) / 2);
+      seg.rotation.x = Math.atan2(y1 - y0, (z1 - z0) * dir) * dir;
+      scene.add(seg);
     }
   }
-  // Simpler half-pipe: two curved walls + flat bottom
-  // Left wall (tilted boxes stacked to approximate curve)
-  for (let i = 0; i < 6; i++) {
-    const t = i / 6;
-    const angle = t * Math.PI * 0.5;
-    const wx = hpX - hpW / 2 + (hpW / 2) * (1 - Math.cos(angle));
-    const wy = hpH * Math.sin(angle);
-    const tilt = angle;
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, hpD), i === 5 ? wallAccent : wallMat);
-    wall.position.set(wx, wy, hpZ);
-    wall.rotation.z = -tilt;
-    wall.receiveShadow = true; scene.add(wall);
-    // Mirror to right side
-    const wall2 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, hpD), i === 5 ? wallAccent : wallMat);
-    wall2.position.set(hpX + hpW / 2 - (hpW / 2) * (1 - Math.cos(angle)), wy, hpZ);
-    wall2.rotation.z = tilt;
-    wall2.receiveShadow = true; scene.add(wall2);
-  }
-  // Flat bottom
-  const hpFloor = new THREE.Mesh(new THREE.BoxGeometry(hpW * 0.4, 0.2, hpD), wallMat);
-  hpFloor.position.set(hpX, 0.1, hpZ); scene.add(hpFloor);
-  // Coping (top edge rails)
-  const copingMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, roughness: 0.3, metalness: 0.8 });
-  for (const sx of [-1, 1]) {
-    const coping = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, hpD, 8), copingMat);
-    coping.position.set(hpX + sx * hpW / 2, hpH, hpZ);
-    coping.rotation.x = Math.PI / 2;
-    scene.add(coping);
-  }
-
-  // ── Quarter pipes (north + south edges) ──────────────────────────────────
-  for (const [qz, qRotY] of [
-    [CZ - 17, 0],      // north
-    [CZ + 17, Math.PI], // south
-  ] as [number, number][]) {
-    const qW = 16, qH = 3.5;
-    for (let i = 0; i < 5; i++) {
-      const t = i / 5;
-      const angle = t * Math.PI * 0.5;
-      const dy = qH * Math.sin(angle);
-      const dz = (qRotY === 0 ? -1 : 1) * 2.5 * (1 - Math.cos(angle));
-      const tilt = angle * (qRotY === 0 ? 1 : -1);
-      const qSeg = new THREE.Mesh(new THREE.BoxGeometry(qW, 0.25, 1.2), i === 4 ? wallAccent : wallMat);
-      qSeg.position.set(CX, dy, qz + dz);
-      qSeg.rotation.x = tilt;
-      scene.add(qSeg);
+  // East and West walls (along Z axis)
+  for (const [wallX, dir] of [[PX - PW / 2, -1], [PX + PW / 2, 1]] as [number, number][]) {
+    for (let i = 0; i < WALL_SEGS; i++) {
+      const t0 = i / WALL_SEGS, t1 = (i + 1) / WALL_SEGS;
+      const angle0 = t0 * Math.PI * 0.5, angle1 = t1 * Math.PI * 0.5;
+      const y0 = -POOL_DEPTH * Math.cos(angle0), y1 = -POOL_DEPTH * Math.cos(angle1);
+      const x0 = dir * (PW / 2 - 2) * (1 - Math.sin(angle0));
+      const x1 = dir * (PW / 2 - 2) * (1 - Math.sin(angle1));
+      const segH = Math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2);
+      const seg = new THREE.Mesh(new THREE.PlaneGeometry(PD - 4, segH), poolMat);
+      seg.position.set(wallX + (x0 + x1) / 2, (y0 + y1) / 2, PZ);
+      seg.rotation.y = Math.PI / 2;
+      seg.rotation.x = Math.atan2(y1 - y0, (x1 - x0) * dir) * dir;
+      scene.add(seg);
     }
-    // Coping
-    const qCoping = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 16, 8), copingMat);
-    qCoping.position.set(CX, qH, qz + (qRotY === 0 ? -2.5 : 2.5));
-    qCoping.rotation.z = Math.PI / 2;
-    scene.add(qCoping);
   }
 
-  // ── Fun box (center) ─────────────────────────────────────────────────────
-  const fbMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.8 });
-  const fb = new THREE.Mesh(new THREE.BoxGeometry(6, 1.8, 6), fbMat);
-  fb.position.set(CX, 0.9, CZ); fb.castShadow = true; scene.add(fb);
-  // Ramp faces on each side
-  for (const [rx, rz, rotY] of [
-    [CX - 4.5, CZ, Math.PI / 2],
-    [CX + 4.5, CZ, -Math.PI / 2],
-    [CX, CZ - 4.5, 0],
-    [CX, CZ + 4.5, Math.PI],
+  // Pool rim / coping — grindable metal edge around top
+  for (const [x1, z1, x2, z2] of [
+    [PX - PW / 2, PZ - PD / 2, PX + PW / 2, PZ - PD / 2], // north
+    [PX - PW / 2, PZ + PD / 2, PX + PW / 2, PZ + PD / 2], // south
+    [PX - PW / 2, PZ - PD / 2, PX - PW / 2, PZ + PD / 2], // west
+    [PX + PW / 2, PZ - PD / 2, PX + PW / 2, PZ + PD / 2], // east
+  ] as [number, number, number, number][]) {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const ang = Math.atan2(z2 - z1, x2 - x1);
+    // Thick concrete lip
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(len, 0.4, 0.6), concreteMat);
+    lip.position.set((x1 + x2) / 2, 0.2, (z1 + z2) / 2);
+    lip.rotation.y = ang; scene.add(lip);
+    // Metal coping pipe on top
+    const cope = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 8), copingMat);
+    cope.position.set((x1 + x2) / 2, 0.45, (z1 + z2) / 2);
+    cope.rotation.z = Math.PI / 2; cope.rotation.y = ang + Math.PI / 2;
+    scene.add(cope);
+  }
+
+  // Pool depth marker tiles (on the inside walls)
+  for (const [tx, tz, rotY] of [
+    [PX - PW / 2 + 0.5, PZ, Math.PI / 2],
+    [PX + PW / 2 - 0.5, PZ, -Math.PI / 2],
   ] as [number, number, number][]) {
-    const ramp = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 3), wallMat);
-    ramp.position.set(rx, 0.9, rz);
-    ramp.rotation.x = -0.35;
-    ramp.rotation.y = rotY;
-    scene.add(ramp);
+    const dCanvas = document.createElement("canvas"); dCanvas.width = 64; dCanvas.height = 64;
+    const dctx = dCanvas.getContext("2d")!;
+    dctx.fillStyle = "#448899"; dctx.fillRect(0, 0, 64, 64);
+    dctx.font = "bold 36px monospace"; dctx.fillStyle = "#fff"; dctx.textAlign = "center";
+    dctx.fillText("4ft", 32, 44);
+    const dtex = new THREE.CanvasTexture(dCanvas);
+    const dm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2),
+      new THREE.MeshBasicMaterial({ map: dtex, side: THREE.DoubleSide }));
+    dm.position.set(tx, -POOL_DEPTH / 2, tz); dm.rotation.y = rotY;
+    scene.add(dm);
   }
 
-  // ── Kicker ramps ─────────────────────────────────────────────────────────
-  const kickerMat = new THREE.MeshStandardMaterial({ color: 0x4a6a4a, roughness: 0.85 });
-  for (const [kx, kz] of [[38, -20], [38, -30]] as [number, number][]) {
-    const kicker = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 3), kickerMat);
-    kicker.position.set(kx, 0.75, kz); kicker.castShadow = true; scene.add(kicker);
-    // Angled top face
-    const kTop = new THREE.Mesh(new THREE.BoxGeometry(4, 0.15, 3.5), kickerMat);
-    kTop.position.set(kx + 0.5, 1.55, kz); kTop.rotation.z = 0.25; scene.add(kTop);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── KICKER RAMPS (wedge shapes — clean triangular profile) ──────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  const rampMat = new THREE.MeshStandardMaterial({ color: 0x606068, roughness: 0.85 });
+  const rampAccent = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.7 });
+  for (const [kx, kz] of [[38, -18], [38, -32]] as [number, number][]) {
+    // Wedge: box base + angled top surface
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 4), rampMat);
+    base.position.set(kx, 1, kz); base.castShadow = true; scene.add(base);
+    // Angled ramp surface (rotated plane on the approach side)
+    const rampFace = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), rampAccent);
+    rampFace.position.set(kx - 1.5, 1.2, kz);
+    rampFace.rotation.z = 0.42; // ~24 degree angle
+    rampFace.rotation.y = Math.PI / 2;
+    scene.add(rampFace);
+    // Flat top
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), rampMat);
+    top.rotation.x = -Math.PI / 2; top.position.set(kx, 2.02, kz);
+    scene.add(top);
   }
 
-  // ── Grind rails (metal cylinders on posts) ───────────────────────────────
-  const railMat = new THREE.MeshStandardMaterial({ color: 0xaaaacc, roughness: 0.25, metalness: 0.9 });
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x444450, roughness: 0.7 });
-  for (const rail of GRIND_RAILS.slice(0, 3)) { // Only skatepark rails get 3D geometry
-    const [sx, sy, sz, ex, ey, ez] = rail;
-    const len = Math.sqrt((ex - sx) ** 2 + (ez - sz) ** 2);
+  // ── Spine ramp (double-sided launch) ─────────────────────────────────────
+  const spineBase = new THREE.Mesh(new THREE.BoxGeometry(8, 2.5, 3), rampMat);
+  spineBase.position.set(44, 1.25, -25); spineBase.castShadow = true; scene.add(spineBase);
+  // Angled faces on both sides
+  for (const sz of [-1, 1]) {
+    const sf = new THREE.Mesh(new THREE.PlaneGeometry(8, 3.2), rampAccent);
+    sf.position.set(44, 1.5, -25 + sz * 1.8);
+    sf.rotation.x = sz * 0.45;
+    scene.add(sf);
+  }
+  // Spine coping on top
+  const spineCope = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8, 8), copingMat);
+  spineCope.position.set(44, 2.55, -25); spineCope.rotation.z = Math.PI / 2;
+  scene.add(spineCope);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── GRIND RAILS (metal cylinders on posts) ──────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  for (const rail of GRIND_RAILS.slice(0, 3)) { // only dedicated park rails get visible geometry (pool coping is built above)
+    const [sx, sy, sz, ex, , ez] = rail;
+    const len = Math.hypot(ex - sx, ez - sz);
     const midX = (sx + ex) / 2, midZ = (sz + ez) / 2;
-    const angle = Math.atan2(ez - sz, ex - sx);
+    const ang = Math.atan2(ex - sx, ez - sz);
     // Rail tube
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, len, 8), railMat);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 8), railMat);
     tube.position.set(midX, sy, midZ);
-    tube.rotation.z = Math.PI / 2;
-    tube.rotation.y = angle;
+    tube.rotation.x = Math.PI / 2;
+    tube.rotation.y = ang;
     scene.add(tube);
-    // Posts
-    for (const t of [0.1, 0.5, 0.9]) {
-      const px = sx + (ex - sx) * t;
-      const pz = sz + (ez - sz) * t;
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, sy, 6), postMat);
-      post.position.set(px, sy / 2, pz); scene.add(post);
+    // Posts at 25%, 50%, 75%
+    for (const t of [0.25, 0.5, 0.75]) {
+      const ppx = sx + (ex - sx) * t;
+      const ppz = sz + (ez - sz) * t;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, sy, 6), postMat);
+      post.position.set(ppx, sy / 2, ppz); scene.add(post);
     }
   }
 
-  // ── Skate shop building ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SKATE SHOP ──────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
   const shopX = 42, shopZ = -14;
   const shopMat = new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.85 });
   const shop = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), shopMat);
   shop.position.set(shopX, 2.5, shopZ); shop.castShadow = true; scene.add(shop);
-  const shopRoof = new THREE.Mesh(new THREE.BoxGeometry(7, 0.3, 6), new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
+  const shopRoof = new THREE.Mesh(new THREE.BoxGeometry(7, 0.3, 6),
+    new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
   shopRoof.position.set(shopX, 5.15, shopZ); scene.add(shopRoof);
   // Shop sign
   const signCanvas = document.createElement("canvas"); signCanvas.width = 300; signCanvas.height = 80;
@@ -5579,11 +5680,9 @@ function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: Qu
   sctx.font = "bold 24px monospace"; sctx.fillStyle = "#33ff88"; sctx.textAlign = "center";
   sctx.fillText("🛹 SKATE SHOP 🛹", 150, 35);
   sctx.font = "16px monospace"; sctx.fillStyle = "#88ffaa";
-  sctx.fillText("RENT A BOARD · 10 coins", 150, 60);
-  const signMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.5, 0.9),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCanvas), side: THREE.DoubleSide })
-  );
+  sctx.fillText("RENT A BOARD", 150, 60);
+  const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 0.9),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCanvas), side: THREE.DoubleSide }));
   signMesh.position.set(shopX + 3.05, 3.5, shopZ); scene.add(signMesh);
 
   // ── Scoreboard billboard ─────────────────────────────────────────────────
@@ -5591,26 +5690,28 @@ function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: Qu
   const bbctx = bbCanvas.getContext("2d")!;
   drawScoreboard(bbctx, []);
   const bbTex = new THREE.CanvasTexture(bbCanvas);
-  const bb = new THREE.Mesh(
-    new THREE.PlaneGeometry(5, 3.75),
-    new THREE.MeshBasicMaterial({ map: bbTex, side: THREE.DoubleSide })
-  );
-  bb.position.set(CX - 22.5, 3, CZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
-  // Billboard post
+  const bb = new THREE.Mesh(new THREE.PlaneGeometry(5, 3.75),
+    new THREE.MeshBasicMaterial({ map: bbTex, side: THREE.DoubleSide }));
+  bb.position.set(CX - 26, 3, CZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
   const bbPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 5, 6), postMat);
-  bbPost.position.set(CX - 22.5, 2.5, CZ); scene.add(bbPost);
-  // Store ref for updates
+  bbPost.position.set(CX - 26, 2.5, CZ); scene.add(bbPost);
   bb.userData.scoreCanvas = bbCanvas;
   bb.userData.scoreTex = bbTex;
 
   // ── Neon lighting ────────────────────────────────────────────────────────
   if (QL !== "low") {
-    const g1 = new THREE.PointLight(0x33ff88, 1.5, 25); g1.position.set(CX - 18, 3, CZ); scene.add(g1);
-    const g2 = new THREE.PointLight(0xaa44ff, 1.5, 25); g2.position.set(CX + 18, 3, CZ); scene.add(g2);
-    const g3 = new THREE.PointLight(0x33ff88, 1.0, 15); g3.position.set(shopX, 5.5, shopZ); scene.add(g3);
+    // Green glow inside pool
+    const poolLight = new THREE.PointLight(0x33ffaa, 2.0, 20);
+    poolLight.position.set(PX, -1, PZ); scene.add(poolLight);
+    // Purple accent on flat area
+    const g1 = new THREE.PointLight(0xaa44ff, 1.5, 20);
+    g1.position.set(40, 3, CZ); scene.add(g1);
+    // Shop glow
+    const g2 = new THREE.PointLight(0x33ff88, 1.0, 12);
+    g2.position.set(shopX, 5.5, shopZ); scene.add(g2);
   }
 
-  // ── Entrance sign ────────────────────────────────────────────────────────
+  // ── Entrance arch with sign ──────────────────────────────────────────────
   const entCanvas = document.createElement("canvas"); entCanvas.width = 400; entCanvas.height = 100;
   const ectx = entCanvas.getContext("2d")!;
   ectx.fillStyle = "#0a0a1a"; ectx.fillRect(0, 0, 400, 100);
@@ -5618,13 +5719,26 @@ function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: Qu
   ectx.fillText("🛹 MOONHAVEN SKATEPARK 🛹", 200, 45);
   ectx.font = "18px monospace"; ectx.fillStyle = "#aa88ff";
   ectx.fillText("GRIND EVERYTHING", 200, 78);
-  const entSign = new THREE.Mesh(
-    new THREE.PlaneGeometry(8, 2),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(entCanvas), side: THREE.DoubleSide })
-  );
-  entSign.position.set(CX, 6, CZ + 20.5); scene.add(entSign);
+  const entSign = new THREE.Mesh(new THREE.PlaneGeometry(8, 2),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(entCanvas), side: THREE.DoubleSide }));
+  entSign.position.set(CX, 6, CZ + 25); scene.add(entSign);
+  // Arch posts
+  for (const sx of [-4, 4]) {
+    const archPost = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 7, 8), postMat);
+    archPost.position.set(CX + sx, 3.5, CZ + 25); scene.add(archPost);
+  }
 
-  return bb; // return scoreboard mesh for updating
+  // Chain link fence around the park (simple posts + wire)
+  for (let fi = 0; fi < 20; fi++) {
+    const angle = (fi / 20) * Math.PI * 2;
+    const fx = CX + Math.cos(angle) * 25;
+    const fz = CZ + Math.sin(angle) * 23;
+    if (fz > CZ + 23) continue; // skip entrance gap
+    const fPost = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3, 6), postMat);
+    fPost.position.set(fx, 1.5, fz); scene.add(fPost);
+  }
+
+  return bb;
 }
 
 function drawScoreboard(ctx: CanvasRenderingContext2D, scores: { name: string; score: number }[]) {
