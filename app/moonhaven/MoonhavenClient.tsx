@@ -2295,8 +2295,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           // For analog, apply aggressive dead zone to prevent drift.
           let skateTurnInput = 0;
           // A = turn LEFT (decrease heading), D = turn RIGHT (increase heading)
-          if (keysRef.current.has("KeyA")) skateTurnInput = -1;
-          else if (keysRef.current.has("KeyD")) skateTurnInput = 1;
+          if (keysRef.current.has("KeyA")) skateTurnInput = 1;
+          else if (keysRef.current.has("KeyD")) skateTurnInput = -1;
           // Analog stick with dead zone
           if (Math.abs(gpLx) > STICK_DEAD_ZONE) skateTurnInput = gpLx;
           if (joystickRef.current.active && Math.abs(joystickRef.current.dx) > 0.2) {
@@ -2519,9 +2519,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             for (const bld of MOONHAVEN_BUILDINGS) {
               if (bld.id === "skate_shop") continue;
               const [bx, , bz] = bld.position;
-              const hw = bld.size[0] / 2 + 0.5, hd = bld.size[2] / 2 + 0.5;
+              const hw = bld.size[0] / 2 + 0.8, hd = bld.size[2] / 2 + 0.8;
               if (newX > bx - hw && newX < bx + hw && newZ > bz - hd && newZ < bz + hd) {
-                sk.speed *= 0.3; newX = px; newZ = pz;
+                // Push player to nearest edge (not just freeze)
+                const pushL = newX - (bx - hw), pushR = (bx + hw) - newX;
+                const pushN = newZ - (bz - hd), pushS = (bz + hd) - newZ;
+                const minPush = Math.min(pushL, pushR, pushN, pushS);
+                if (minPush === pushL) newX = bx - hw;
+                else if (minPush === pushR) newX = bx + hw;
+                else if (minPush === pushN) newZ = bz - hd;
+                else newZ = bz + hd;
+                sk.speed *= 0.3;
               }
             }
             playerPosRef.current = [newX, newY, newZ];
@@ -2601,20 +2609,20 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         if (len > 0) {
           const newX = Math.max(-55, Math.min(78, px + (mx / len) * speed * dt));
           const newZ = Math.max(-55, Math.min(86, pz + (mz / len) * speed * dt));
-          // Building collision — prevent player from walking through buildings
+          // Building collision — push player to nearest edge (prevents getting stuck)
           let colX = newX, colZ = newZ;
           for (const bld of MOONHAVEN_BUILDINGS) {
             const [bx, , bz] = bld.position;
-            const hw = bld.size[0] / 2 + 0.5;
-            const hd = bld.size[2] / 2 + 0.5;
+            const hw = bld.size[0] / 2 + 0.8;
+            const hd = bld.size[2] / 2 + 0.8;
             if (colX > bx - hw && colX < bx + hw && colZ > bz - hd && colZ < bz + hd) {
-              const overlapX = Math.min(Math.abs(colX - (bx - hw)), Math.abs(colX - (bx + hw)));
-              const overlapZ = Math.min(Math.abs(colZ - (bz - hd)), Math.abs(colZ - (bz + hd)));
-              if (overlapX < overlapZ) {
-                colX = px;
-              } else {
-                colZ = pz;
-              }
+              const pushL = colX - (bx - hw), pushR = (bx + hw) - colX;
+              const pushN = colZ - (bz - hd), pushS = (bz + hd) - colZ;
+              const minPush = Math.min(pushL, pushR, pushN, pushS);
+              if (minPush === pushL) colX = bx - hw;
+              else if (minPush === pushR) colX = bx + hw;
+              else if (minPush === pushN) colZ = bz - hd;
+              else colZ = bz + hd;
             }
           }
           playerPosRef.current = [colX, newY, colZ];
@@ -5453,18 +5461,8 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene, QL: Qual
 // ── Grindable edges throughout Moonhaven (world-space line segments) ──────
 // Each rail: [startX, startY, startZ, endX, endY, endZ]
 const GRIND_RAILS: [number, number, number, number, number, number][] = [
-  // Skatepark dedicated rails (flat area)
-  [36, 0.9, -20, 48, 0.9, -20],  // long rail near kickers
-  [36, 0.9, -30, 48, 0.9, -30],  // parallel rail south
-  [40, 0.9, -25, 40, 0.9, -15],  // perpendicular rail
-  // Pool coping (grindable rim of the empty pool!)
-  [49, 0.45, -37, 63, 0.45, -37],  // north rim
-  [49, 0.45, -19, 63, 0.45, -19],  // south rim
-  [49, 0.45, -37, 49, 0.45, -19],  // west rim
-  [63, 0.45, -37, 63, 0.45, -19],  // east rim
-  // Spine coping
-  [40, 2.55, -25, 48, 2.55, -25],
-  // Fountain edge (plaza center — grindable!)
+  // Grindable edges throughout Moonhaven (no skatepark-specific rails for now)
+  // Fountain edge (plaza center)
   [-3, 0.7, 0, 3, 0.7, 0],
   [0, 0.7, -3, 0, 0.7, 3],
   // Market stalls front edge
@@ -5478,210 +5476,17 @@ const GRIND_RAILS: [number, number, number, number, number, number][] = [
 ];
 
 // Skatepark ramp definitions: { center, size, type, angle }
-// Ramp zones for physics — simple geometric areas the player rides over
+// No ramps for now — just flat skating + grind rails around Moonhaven
 interface SkateRamp {
   cx: number; cz: number; w: number; d: number; h: number;
   type: "pool" | "kicker" | "spine";
 }
-const SKATE_RAMPS: SkateRamp[] = [
-  // Empty pool (the star — sunken bowl you ride the walls of)
-  { cx: 56, cz: -28, w: 16, d: 20, h: 4, type: "pool" },
-  // Kicker ramps (launch ramps on the flat area)
-  { cx: 38, cz: -18, w: 5, d: 4, h: 2, type: "kicker" },
-  { cx: 38, cz: -32, w: 5, d: 4, h: 2, type: "kicker" },
-  // Spine (double-sided ramp in center of flat area)
-  { cx: 44, cz: -25, w: 8, d: 3, h: 2.5, type: "spine" },
-];
-
-const SKATEPARK_CENTER: [number, number, number] = [50, 0, -25];
-const SKATEPARK_RADIUS = 24;
+const SKATE_RAMPS: SkateRamp[] = [];
 
 function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: QualityLevel = "med") {
-  const CX = 50, CZ = -25;
-  const concreteMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.92 });
-  const poolMat = new THREE.MeshStandardMaterial({ color: 0x55bbcc, roughness: 0.75 }); // pool blue!
-  const poolDarkMat = new THREE.MeshStandardMaterial({ color: 0x448899, roughness: 0.8 });
-  const copingMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, roughness: 0.25, metalness: 0.85 });
-  const railMat = new THREE.MeshStandardMaterial({ color: 0xaaaacc, roughness: 0.25, metalness: 0.9 });
   const postMat = new THREE.MeshStandardMaterial({ color: 0x444450, roughness: 0.7 });
 
-  // ── Concrete deck (the ground around everything) ─────────────────────────
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(52, 48), concreteMat);
-  pad.rotation.x = -Math.PI / 2; pad.position.set(CX, 0.01, CZ);
-  pad.receiveShadow = true; scene.add(pad);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ── EMPTY POOL (classic THPS — sunken rectangular bowl with thick walls) ─
-  // Built with solid BoxGeometry so it's clearly visible as a hole in ground
-  // ═══════════════════════════════════════════════════════════════════════════
-  const PX = 56, PZ = -28; // pool center
-  const PW = 14, PD = 18, POOL_DEPTH = 3.5;
-  const WALL_THICK = 0.5; // wall thickness
-
-  // Pool floor — flat bottom of the bowl
-  const poolFloor = new THREE.Mesh(
-    new THREE.BoxGeometry(PW - WALL_THICK * 2, 0.3, PD - WALL_THICK * 2), poolDarkMat
-  );
-  poolFloor.position.set(PX, -POOL_DEPTH, PZ);
-  scene.add(poolFloor);
-
-  // Pool lane lines on floor
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0x336677 });
-  for (let li = -2; li <= 2; li++) {
-    const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, PD - 4), lineMat);
-    line.position.set(PX + li * 2, -POOL_DEPTH + 0.17, PZ);
-    scene.add(line);
-  }
-
-  // "NO DIVING" on floor
-  const ndCanvas = document.createElement("canvas"); ndCanvas.width = 256; ndCanvas.height = 64;
-  const ndctx = ndCanvas.getContext("2d")!;
-  ndctx.clearRect(0, 0, 256, 64);
-  ndctx.font = "bold 32px monospace"; ndctx.fillStyle = "#2a5566"; ndctx.textAlign = "center";
-  ndctx.fillText("NO DIVING", 128, 42);
-  const ndSign = new THREE.Mesh(new THREE.PlaneGeometry(4, 1),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(ndCanvas), transparent: true, side: THREE.DoubleSide }));
-  ndSign.rotation.x = -Math.PI / 2; ndSign.position.set(PX, -POOL_DEPTH + 0.2, PZ + 4);
-  scene.add(ndSign);
-
-  // 4 Pool walls — solid boxes forming the inside of the bowl
-  // Each wall is a tall box going from ground level DOWN to pool floor
-  // North wall (front face visible from inside)
-  const northWall = new THREE.Mesh(new THREE.BoxGeometry(PW, POOL_DEPTH, WALL_THICK), poolMat);
-  northWall.position.set(PX, -POOL_DEPTH / 2, PZ - PD / 2 + WALL_THICK / 2);
-  scene.add(northWall);
-  // South wall
-  const southWall = new THREE.Mesh(new THREE.BoxGeometry(PW, POOL_DEPTH, WALL_THICK), poolMat);
-  southWall.position.set(PX, -POOL_DEPTH / 2, PZ + PD / 2 - WALL_THICK / 2);
-  scene.add(southWall);
-  // West wall
-  const westWall = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, POOL_DEPTH, PD), poolMat);
-  westWall.position.set(PX - PW / 2 + WALL_THICK / 2, -POOL_DEPTH / 2, PZ);
-  scene.add(westWall);
-  // East wall
-  const eastWall = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, POOL_DEPTH, PD), poolMat);
-  eastWall.position.set(PX + PW / 2 - WALL_THICK / 2, -POOL_DEPTH / 2, PZ);
-  scene.add(eastWall);
-
-  // Transition ramps — angled boxes at the base of each wall (where wall meets floor)
-  // These create the curved transition a skater rides up
-  const transW = 2.5; // how far the transition extends from wall
-  const transMat = new THREE.MeshStandardMaterial({ color: 0x55bbcc, roughness: 0.7 }); // match pool
-  // North transition
-  const transN = new THREE.Mesh(new THREE.BoxGeometry(PW - 2, 0.3, transW), transMat);
-  transN.position.set(PX, -POOL_DEPTH + 0.8, PZ - PD / 2 + WALL_THICK + transW / 2);
-  transN.rotation.x = 0.5; scene.add(transN);
-  // South transition
-  const transS = new THREE.Mesh(new THREE.BoxGeometry(PW - 2, 0.3, transW), transMat);
-  transS.position.set(PX, -POOL_DEPTH + 0.8, PZ + PD / 2 - WALL_THICK - transW / 2);
-  transS.rotation.x = -0.5; scene.add(transS);
-  // West transition
-  const transWest = new THREE.Mesh(new THREE.BoxGeometry(transW, 0.3, PD - 2), transMat);
-  transWest.position.set(PX - PW / 2 + WALL_THICK + transW / 2, -POOL_DEPTH + 0.8, PZ);
-  transWest.rotation.z = -0.5; scene.add(transWest);
-  // East transition
-  const transEast = new THREE.Mesh(new THREE.BoxGeometry(transW, 0.3, PD - 2), transMat);
-  transEast.position.set(PX + PW / 2 - WALL_THICK - transW / 2, -POOL_DEPTH + 0.8, PZ);
-  transEast.rotation.z = 0.5; scene.add(transEast);
-
-  // Pool rim / coping — thick concrete lip + grindable metal pipe at ground level
-  for (const [x1, z1, x2, z2] of [
-    [PX - PW / 2, PZ - PD / 2, PX + PW / 2, PZ - PD / 2],
-    [PX - PW / 2, PZ + PD / 2, PX + PW / 2, PZ + PD / 2],
-    [PX - PW / 2, PZ - PD / 2, PX - PW / 2, PZ + PD / 2],
-    [PX + PW / 2, PZ - PD / 2, PX + PW / 2, PZ + PD / 2],
-  ] as [number, number, number, number][]) {
-    const len = Math.hypot(x2 - x1, z2 - z1);
-    const ang = Math.atan2(z2 - z1, x2 - x1);
-    // Thick concrete lip
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(len + 1, 0.5, 1.2), concreteMat);
-    lip.position.set((x1 + x2) / 2, 0.25, (z1 + z2) / 2);
-    lip.rotation.y = ang; scene.add(lip);
-    // Metal coping pipe
-    const cope = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, len + 0.5, 8), copingMat);
-    cope.position.set((x1 + x2) / 2, 0.55, (z1 + z2) / 2);
-    cope.rotation.z = Math.PI / 2; cope.rotation.y = ang + Math.PI / 2;
-    scene.add(cope);
-  }
-
-  // "4 FT" depth markers on inside walls
-  for (const [tx, tz, rotY] of [
-    [PX - PW / 2 + WALL_THICK + 0.01, PZ, Math.PI / 2],
-    [PX + PW / 2 - WALL_THICK - 0.01, PZ, -Math.PI / 2],
-  ] as [number, number, number][]) {
-    const dCanvas = document.createElement("canvas"); dCanvas.width = 64; dCanvas.height = 64;
-    const dctx = dCanvas.getContext("2d")!;
-    dctx.fillStyle = "#448899"; dctx.fillRect(0, 0, 64, 64);
-    dctx.font = "bold 36px monospace"; dctx.fillStyle = "#fff"; dctx.textAlign = "center";
-    dctx.fillText("4ft", 32, 44);
-    const dm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(dCanvas), side: THREE.DoubleSide }));
-    dm.position.set(tx, -POOL_DEPTH / 2, tz); dm.rotation.y = rotY;
-    scene.add(dm);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ── KICKER RAMPS (wedge shapes — clean triangular profile) ──────────────
-  // ═══════════════════════════════════════════════════════════════════════════
-  const rampMat = new THREE.MeshStandardMaterial({ color: 0x606068, roughness: 0.85 });
-  const rampAccent = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.7 });
-  for (const [kx, kz] of [[38, -18], [38, -32]] as [number, number][]) {
-    // Wedge: box base + angled top surface
-    const base = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 4), rampMat);
-    base.position.set(kx, 1, kz); base.castShadow = true; scene.add(base);
-    // Angled ramp surface (rotated plane on the approach side)
-    const rampFace = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), rampAccent);
-    rampFace.position.set(kx - 1.5, 1.2, kz);
-    rampFace.rotation.z = 0.42; // ~24 degree angle
-    rampFace.rotation.y = Math.PI / 2;
-    scene.add(rampFace);
-    // Flat top
-    const top = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), rampMat);
-    top.rotation.x = -Math.PI / 2; top.position.set(kx, 2.02, kz);
-    scene.add(top);
-  }
-
-  // ── Spine ramp (double-sided launch) ─────────────────────────────────────
-  const spineBase = new THREE.Mesh(new THREE.BoxGeometry(8, 2.5, 3), rampMat);
-  spineBase.position.set(44, 1.25, -25); spineBase.castShadow = true; scene.add(spineBase);
-  // Angled faces on both sides
-  for (const sz of [-1, 1]) {
-    const sf = new THREE.Mesh(new THREE.PlaneGeometry(8, 3.2), rampAccent);
-    sf.position.set(44, 1.5, -25 + sz * 1.8);
-    sf.rotation.x = sz * 0.45;
-    scene.add(sf);
-  }
-  // Spine coping on top
-  const spineCope = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8, 8), copingMat);
-  spineCope.position.set(44, 2.55, -25); spineCope.rotation.z = Math.PI / 2;
-  scene.add(spineCope);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ── GRIND RAILS (metal cylinders on posts) ──────────────────────────────
-  // ═══════════════════════════════════════════════════════════════════════════
-  for (const rail of GRIND_RAILS.slice(0, 3)) { // only dedicated park rails get visible geometry (pool coping is built above)
-    const [sx, sy, sz, ex, , ez] = rail;
-    const len = Math.hypot(ex - sx, ez - sz);
-    const midX = (sx + ex) / 2, midZ = (sz + ez) / 2;
-    const ang = Math.atan2(ex - sx, ez - sz);
-    // Rail tube
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 8), railMat);
-    tube.position.set(midX, sy, midZ);
-    tube.rotation.x = Math.PI / 2;
-    tube.rotation.y = ang;
-    scene.add(tube);
-    // Posts at 25%, 50%, 75%
-    for (const t of [0.25, 0.5, 0.75]) {
-      const ppx = sx + (ex - sx) * t;
-      const ppz = sz + (ez - sz) * t;
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, sy, 6), postMat);
-      post.position.set(ppx, sy / 2, ppz); scene.add(post);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ── SKATE SHOP ──────────────────────────────────────────────────────────
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SKATE SHOP (only structure for now) ─────────────────────────────────
   const shopX = 42, shopZ = -14;
   const shopMat = new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.85 });
   const shop = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), shopMat);
@@ -5709,50 +5514,16 @@ function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: Qu
   const bbTex = new THREE.CanvasTexture(bbCanvas);
   const bb = new THREE.Mesh(new THREE.PlaneGeometry(5, 3.75),
     new THREE.MeshBasicMaterial({ map: bbTex, side: THREE.DoubleSide }));
-  bb.position.set(CX - 26, 3, CZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
+  bb.position.set(shopX - 4, 3, shopZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
   const bbPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 5, 6), postMat);
-  bbPost.position.set(CX - 26, 2.5, CZ); scene.add(bbPost);
+  bbPost.position.set(shopX - 4, 2.5, shopZ); scene.add(bbPost);
   bb.userData.scoreCanvas = bbCanvas;
   bb.userData.scoreTex = bbTex;
 
-  // ── Neon lighting ────────────────────────────────────────────────────────
+  // Shop glow
   if (QL !== "low") {
-    // Green glow inside pool
-    const poolLight = new THREE.PointLight(0x33ffaa, 2.0, 20);
-    poolLight.position.set(PX, -1, PZ); scene.add(poolLight);
-    // Purple accent on flat area
-    const g1 = new THREE.PointLight(0xaa44ff, 1.5, 20);
-    g1.position.set(40, 3, CZ); scene.add(g1);
-    // Shop glow
-    const g2 = new THREE.PointLight(0x33ff88, 1.0, 12);
-    g2.position.set(shopX, 5.5, shopZ); scene.add(g2);
-  }
-
-  // ── Entrance arch with sign ──────────────────────────────────────────────
-  const entCanvas = document.createElement("canvas"); entCanvas.width = 400; entCanvas.height = 100;
-  const ectx = entCanvas.getContext("2d")!;
-  ectx.fillStyle = "#0a0a1a"; ectx.fillRect(0, 0, 400, 100);
-  ectx.font = "bold 36px monospace"; ectx.fillStyle = "#33ff88"; ectx.textAlign = "center";
-  ectx.fillText("🛹 MOONHAVEN SKATEPARK 🛹", 200, 45);
-  ectx.font = "18px monospace"; ectx.fillStyle = "#aa88ff";
-  ectx.fillText("GRIND EVERYTHING", 200, 78);
-  const entSign = new THREE.Mesh(new THREE.PlaneGeometry(8, 2),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(entCanvas), side: THREE.DoubleSide }));
-  entSign.position.set(CX, 6, CZ + 25); scene.add(entSign);
-  // Arch posts
-  for (const sx of [-4, 4]) {
-    const archPost = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 7, 8), postMat);
-    archPost.position.set(CX + sx, 3.5, CZ + 25); scene.add(archPost);
-  }
-
-  // Chain link fence around the park (simple posts + wire)
-  for (let fi = 0; fi < 20; fi++) {
-    const angle = (fi / 20) * Math.PI * 2;
-    const fx = CX + Math.cos(angle) * 25;
-    const fz = CZ + Math.sin(angle) * 23;
-    if (fz > CZ + 23) continue; // skip entrance gap
-    const fPost = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3, 6), postMat);
-    fPost.position.set(fx, 1.5, fz); scene.add(fPost);
+    const g = new THREE.PointLight(0x33ff88, 1.0, 12);
+    g.position.set(shopX, 5.5, shopZ); scene.add(g);
   }
 
   return bb;
