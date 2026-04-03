@@ -94,8 +94,10 @@ export default function StashPanel({
   const draggingSource = useRef<"stash" | "inventory" | "slot" | null>(null);
 
   useEffect(() => {
-    setLocalStash(prev => pendingMoves.current.size > 0 ? prev : stashItems);
-    setLocalInventory(prev => pendingMoves.current.size > 0 ? prev : inventoryItems);
+    const safeStash = Array.isArray(stashItems) ? stashItems : [];
+    const safeInv = Array.isArray(inventoryItems) ? inventoryItems : [];
+    setLocalStash(prev => pendingMoves.current.size > 0 ? prev : safeStash);
+    setLocalInventory(prev => pendingMoves.current.size > 0 ? prev : safeInv);
   }, [stashItems, inventoryItems]);
 
   const [hovered, setHovered] = useState<AdventureItem | null>(null);

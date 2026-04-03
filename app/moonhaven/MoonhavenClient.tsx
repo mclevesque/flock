@@ -24,12 +24,14 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdventureOverlay, { generateMission } from "@/app/town/AdventureOverlay";
+import MoonhavenLobby from "./MoonhavenLobby";
 // TheaterRoom overlay removed — screen share plays directly on 3D drive-in screen via VideoTexture
 import StashPanel from "@/app/components/StashPanel";
 import VendorPanel from "@/app/components/VendorPanel";
 import HeraldPanel from "@/app/components/HeraldPanel";
 import CharacterPanel from "@/app/components/CharacterPanel";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { useVoice } from "@/app/components/VoiceWidget";
 import {
   MOONHAVEN_NPCS, MOONHAVEN_BUILDINGS, MOONHAVEN_SPAWN,
   MOONHAVEN_ZONES, MOONHAVEN_DIALOGUE, type MoonhavenNPC,
@@ -67,6 +69,7 @@ interface Props {
   avatarConfig?: AvatarConfig | null;
   partyId?: string | null;
   partyLeaderId?: string | null;
+  roomCode?: string | null;
 }
 
 const TAG_GAME_DURATION = 30;
@@ -161,41 +164,134 @@ function makeUsernameCanvas(name: string): HTMLCanvasElement {
 
 // ── Chat bubble canvas ─────────────────────────────────────────────────────────
 function makeChatCanvas(text: string): HTMLCanvasElement {
-  const maxLen = 28;
+  const maxLen = 32;
   const display = text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
   const canvas = document.createElement("canvas");
-  canvas.width = 420; canvas.height = 80;
+  canvas.width = 640; canvas.height = 120;
   const ctx = canvas.getContext("2d")!;
   // Comic-style speech bubble
   ctx.fillStyle = "rgba(255,255,255,0.97)";
   ctx.strokeStyle = "#6644bb";
-  ctx.lineWidth = 3;
-  ctx.shadowColor = "rgba(50,0,100,0.3)";
-  ctx.shadowBlur = 8;
+  ctx.lineWidth = 4;
+  ctx.shadowColor = "rgba(50,0,100,0.35)";
+  ctx.shadowBlur = 10;
   ctx.shadowOffsetX = 2;
-  ctx.shadowOffsetY = 3;
-  ctx.roundRect(6, 6, 408, 62, 16);
+  ctx.shadowOffsetY = 4;
+  ctx.roundRect(8, 8, 624, 96, 20);
   ctx.fill();
   ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
-  ctx.font = "900 24px sans-serif";
+  ctx.font = "900 38px sans-serif";
   ctx.fillStyle = "#1a0033";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(display, 210, 38);
+  ctx.fillText(display, 320, 58);
   return canvas;
 }
 
-export default function MoonhavenClient({ userId, username, avatarUrl, avatarConfig, partyId, partyLeaderId: partyLeaderIdProp }: Props) {
+export default function MoonhavenClient({ userId, username, avatarUrl, avatarConfig, partyId, partyLeaderId: partyLeaderIdProp, roomCode }: Props) {
   const router = useRouter();
+  const { joinRoom: joinVoiceRoom } = useVoice();
   const mountRef = useRef<HTMLDivElement>(null);
   const partyIdRef = useRef<string | null>(partyId ?? null);
+  // wsPartyId drives the WS room — when it changes the WS effect re-runs and reconnects
+  const [wsPartyId, setWsPartyId] = useState<string | null>(partyId ?? null);
   const [partyLeaderId, setPartyLeaderId] = useState<string | null>(partyLeaderIdProp ?? null);
+
+  // ── Moonhaven Lobby ──────────────────────────────────────────────────────────
+  const [moonhavenRoomId, setMoonhavenRoomId] = useState<string | null>(null);
+  const [showLobby, setShowLobby] = useState(true);
 
   // Keep partyLeaderId in sync if prop changes (e.g. hot reload)
   useEffect(() => { setPartyLeaderId(partyLeaderIdProp ?? null); }, [partyLeaderIdProp]);
+
+  // Sync partyId prop → ref + WS reconnect when party is joined while already in Moonhaven
+  useEffect(() => {
+    partyIdRef.current = partyId ?? null;
+    setWsPartyId(partyId ?? null);
+  }, [partyId]);
+
+  // Also listen for party changes dispatched by GlobalPartyWidget (same-page party join)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const newPartyId: string | null = (e as CustomEvent<{ partyId: string | null }>).detail?.partyId ?? null;
+      if (newPartyId !== partyIdRef.current) {
+        partyIdRef.current = newPartyId;
+        setWsPartyId(newPartyId);
+      }
+    };
+    window.addEventListener("gs:party-changed", handler);
+    return () => window.removeEventListener("gs:party-changed", handler);
+  }, []);
+
+  // Skip lobby if roomCode already provided (from URL) — also join matching voice room
+  useEffect(() => {
+    if (roomCode) {
+      setMoonhavenRoomId(roomCode);
+      setShowLobby(false);
+      const voiceRoomId = roomCode === "main" ? "moonhaven-main" : `moonhaven-${roomCode}`;
+      const voiceRoomName = roomCode === "main" ? "🌙 Moonhaven — Public" : `🔐 Moonhaven — ${roomCode}`;
+      joinVoiceRoom(voiceRoomId, voiceRoomName).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  // handleEnterRoom — called from MoonhavenLobby
+  const handleEnterRoom = useCallback(async (roomId: string) => {
+    if (roomId !== "main") {
+      const res = await fetch("/api/moonhaven-rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "enter", roomId, userId, username, avatarUrl }),
+      }).then(r => r.json()).catch(() => ({ ok: false }));
+      if (!res.ok) {
+        alert(res.error ?? "Cannot join that room right now");
+        return;
+      }
+    } else {
+      // Public room — just register
+      fetch("/api/moonhaven-rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "enter", roomId: "main", userId, username, avatarUrl }),
+      }).catch(() => {});
+    }
+    // Update URL so the room is shareable
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (roomId === "main") url.searchParams.delete("room");
+      else url.searchParams.set("room", roomId);
+      window.history.replaceState({}, "", url.toString());
+    }
+    setMoonhavenRoomId(roomId);
+    setShowLobby(false);
+    // Auto-join matching voice room
+    const voiceRoomId = roomId === "main" ? "moonhaven-main" : `moonhaven-${roomId}`;
+    const voiceRoomName = roomId === "main" ? "🌙 Moonhaven — Public" : `🔐 Moonhaven — ${roomId}`;
+    joinVoiceRoom(voiceRoomId, voiceRoomName).catch(() => {});
+  }, [userId, username, avatarUrl, joinVoiceRoom]);
+
+  // Heartbeat + leave on unmount when in a room
+  useEffect(() => {
+    if (!moonhavenRoomId || !userId) return;
+    const timer = setInterval(() => {
+      fetch("/api/moonhaven-rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "heartbeat", roomId: moonhavenRoomId, userId }),
+      }).catch(() => {});
+    }, 60_000);
+    return () => {
+      clearInterval(timer);
+      fetch("/api/moonhaven-rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "leave", userId }),
+      }).catch(() => {});
+    };
+  }, [moonhavenRoomId, userId]);
 
   // ── Quality ───────────────────────────────────────────────────────────────
   const [quality, setQuality] = useState<QualityLevel>(detectQuality);
@@ -221,6 +317,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const [chatInput, setChatInput] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [nearbyPlayers, setNearbyPlayers] = useState<TownPlayer[]>([]);
+  const nearbyPlayersRef = useRef<TownPlayer[]>([]);
   const [playerCount, setPlayerCount] = useState(1);
 
   // ── NPC dialogue ──────────────────────────────────────────────────────────
@@ -240,6 +337,23 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const [myInventory, setMyInventory] = useState<unknown[]>([]);
   const [myEquippedSlots, setMyEquippedSlots] = useState<Record<string, unknown>>({});
   const [myAdventureStats, setMyAdventureStats] = useState<{ class: string|null; level:number; hp:number; max_hp:number; base_attack:number; xp:number; inventory:unknown[]; equipped_item_id:string|null; wins:number; quests_completed:number } | null>(null);
+
+  // ── Room host / Hand of the King ─────────────────────────────────────────
+  // roomHostId: first player in the room — controls jukebox/theater
+  // roomHandId: player crowned by host — also controls jukebox/theater
+  const [roomHostId, setRoomHostId] = useState<string | null>(null);
+  const [roomHandId, setRoomHandId] = useState<string | null>(null);
+  const [showPlayersPanel, setShowPlayersPanel] = useState(false);
+  const seenPlayersRef = useRef<Set<string>>(new Set());
+  const hostClaimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Derived: can this user control jukebox/theater?
+  // (computed inline: roomHostId === userId || roomHandId === userId)
+
+  // ── Jukebox ───────────────────────────────────────────────────────────────
+  const [showJukebox, setShowJukebox] = useState(false);
+  const [jukeboxInput, setJukeboxInput] = useState("");
+  const [activeJukebox, setActiveJukebox] = useState<{ url: string; startedAt: number; byName: string } | null>(null);
+  const [jukeboxPending, setJukeboxPending] = useState<{ url: string; suggesterName: string; suggesterId: string } | null>(null);
 
   // ── Panels ────────────────────────────────────────────────────────────────
   const [showStash, setShowStash] = useState(false);
@@ -601,6 +715,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   // Camera orbit state
   const camOrbitRef = useRef({ theta: 0.8, phi: Math.PI / 5, radius: 16, dragging: false, lastX: 0, lastY: 0 });
   const jumpRef = useRef({ vy: 0, grounded: true });
+  const gpPrevARef = useRef(false); // tracks previous A-button state for edge detection
 
   // ── Drive-In emote particle system ────────────────────────────────────────
   const driveParticlesRef = useRef<DriveParticle[]>([]);
@@ -618,7 +733,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   type RPSChoice = "rock" | "paper" | "scissors";
   type RPSPhase = "idle" | "waiting" | "choosing" | "revealing" | "result";
   const [rpsPhase, setRpsPhase] = useState<RPSPhase>("idle");
-  const [rpsTimeLeft, setRpsTimeLeft] = useState(5);
+  const [rpsTimeLeft, setRpsTimeLeft] = useState(60);
   const [rpsMyChoice, setRpsMyChoice] = useState<RPSChoice | null>(null);
   const [rpsOpponentChoice, setRpsOpponentChoice] = useState<RPSChoice | null>(null);
   const [rpsOpponent, setRpsOpponent] = useState<{ userId: string; username: string } | null>(null);
@@ -902,16 +1017,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
   // ── Drive-in open/close ───────────────────────────────────────────────────
   // Drive-in no longer opens a separate room — screen share plays directly on the 3D screen
-  // Only the party leader can initiate a screen share (solo players can always share)
+  // Room host (or Hand of the King) controls the drive-in screen
   const openDriveIn = useCallback(() => {
     if (ssStatus === "idle" && !theaterState?.screenshareOffer?.active) {
-      const inParty = !!partyIdRef.current;
-      const isLeader = !inParty || partyLeaderId === userId;
-      if (!isLeader) return; // non-leaders can't initiate
+      const canControl = roomHostId === userId || roomHandId === userId || !roomHostId;
+      if (!canControl) return;
       startScreenShare();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ssStatus, theaterState?.screenshareOffer, startScreenShare, partyLeaderId, userId]);
+  }, [ssStatus, theaterState?.screenshareOffer, startScreenShare, roomHostId, roomHandId, userId]);
 
   // ── Drive-In emote: audio synthesis ─────────────────────────────────────
   const getEmoteAudioCtx = useCallback(() => {
@@ -1296,19 +1410,21 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         const matchId = [userId, msg.userId as string].sort().join("-") + "-" + Date.now();
         rpsMatchIdRef.current = matchId;
         setRpsPhaseSync("choosing");
-        setRpsTimeLeft(5);
+        setRpsTimeLeft(60);
         // Countdown
         rpsStopTimer();
-        let t = 5;
+        let t = 60;
         rpsTimerRef.current = setInterval(() => {
           t--;
           setRpsTimeLeft(t);
           if (t <= 0) {
             rpsStopTimer();
-            // Time's up — if no choice made, auto-lose
+            // Time's up — if no choice made, pick randomly
             if (!rpsMyChoiceRef.current) {
-              rpsMyChoiceRef.current = "rock"; // default for timeout
-              rpsMyCommitRef.current = rpsObfuscate("rock");
+              const autoChoice = (["rock", "paper", "scissors"] as RPSChoice[])[Math.floor(Math.random() * 3)];
+              rpsMyChoiceRef.current = autoChoice;
+              setRpsMyChoice(autoChoice);
+              rpsMyCommitRef.current = rpsObfuscate(autoChoice);
               if (townSocketRef.current?.readyState === 1) {
                 townSocketRef.current.send(JSON.stringify({
                   type: "rps_commit", matchId: rpsMatchIdRef.current, userId, commit: rpsMyCommitRef.current, timedOut: true,
@@ -1316,7 +1432,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               }
             }
             // If opp already revealed, finish; else wait for their reveal
-            if (rpsOpponentRevealedRef.current) {
+            if (rpsOpponentRevealedRef.current && rpsPhaseRef.current === "choosing") {
               rpsRevealAndFinish(rpsMyChoiceRef.current!, rpsOpponentRevealedRef.current);
             }
           }
@@ -1336,24 +1452,26 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         setRpsOpponent(opp);
         rpsMatchIdRef.current = msg.matchId as string;
         setRpsPhaseSync("choosing");
-        setRpsTimeLeft(5);
+        setRpsTimeLeft(60);
         rpsStopTimer();
-        let t = 5;
+        let t = 60;
         rpsTimerRef.current = setInterval(() => {
           t--;
           setRpsTimeLeft(t);
           if (t <= 0) {
             rpsStopTimer();
             if (!rpsMyChoiceRef.current) {
-              rpsMyChoiceRef.current = "rock";
-              rpsMyCommitRef.current = rpsObfuscate("rock");
+              const autoChoice = (["rock", "paper", "scissors"] as RPSChoice[])[Math.floor(Math.random() * 3)];
+              rpsMyChoiceRef.current = autoChoice;
+              setRpsMyChoice(autoChoice);
+              rpsMyCommitRef.current = rpsObfuscate(autoChoice);
               if (townSocketRef.current?.readyState === 1) {
                 townSocketRef.current.send(JSON.stringify({
                   type: "rps_commit", matchId: rpsMatchIdRef.current, userId, commit: rpsMyCommitRef.current, timedOut: true,
                 }));
               }
             }
-            if (rpsOpponentRevealedRef.current) {
+            if (rpsOpponentRevealedRef.current && rpsPhaseRef.current === "choosing") {
               rpsRevealAndFinish(rpsMyChoiceRef.current!, rpsOpponentRevealedRef.current);
             }
           }
@@ -1371,8 +1489,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       }
     } else if (msg.type === "rps_reveal" && msg.userId !== userId && msg.matchId === rpsMatchIdRef.current) {
       const oppChoice = msg.choice as RPSChoice;
+      // Guard: ignore if we already started revealing (prevents echo-loop double calls)
+      if (rpsPhaseRef.current === "revealing" || rpsPhaseRef.current === "result") return;
       rpsOpponentRevealedRef.current = oppChoice;
-      // Send our reveal too
+      // Send our reveal (needed when we chose before opponent committed)
       if (rpsMyChoiceRef.current) {
         if (townSocketRef.current?.readyState === 1) {
           townSocketRef.current.send(JSON.stringify({
@@ -1475,7 +1595,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       // strangers never bleed in. MOONHAVEN_WS_ROOM is kept for future public areas.
       ws = new PartySocket({
         host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999",
-        room: partyIdRef.current ? `party-${partyIdRef.current}` : `solo-${userId}`,
+        room: `moonhaven-${moonhavenRoomId ?? "solo-" + userId}`,
       }) as unknown as typeof ws;
       townSocketRef.current = ws;
 
@@ -1484,8 +1604,26 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           const msg = JSON.parse(e.data);
           if (msg.type === "player_update" && msg.player?.user_id !== userId) {
             updateOtherPlayer(msg.player);
+            // If we're the host and this is a new player, re-announce so they know who's host
+            const pid = msg.player?.user_id as string;
+            if (pid && !seenPlayersRef.current.has(pid)) {
+              seenPlayersRef.current.add(pid);
+              // Re-announce host status to the room so the new joiner learns it
+              setTimeout(() => {
+                ws?.send(JSON.stringify({ type: "room_host_announce", hostId: userId }));
+              }, 300);
+            }
           } else if (msg.type === "player_leave") {
             removeOtherPlayer(msg.userId);
+            // If host left, clear host (next eligible player can claim)
+            if (msg.userId === /* roomHostId captured in closure isn't reliable; use event */ undefined) { /* handled below */ }
+            setRoomHostId(prev => {
+              if (prev === msg.userId) return null; // host left — next join will trigger election
+              return prev;
+            });
+            if (msg.userId) {
+              setRoomHandId(prev => prev === msg.userId ? null : prev);
+            }
           } else if (msg.type === "chat" && msg.userId !== userId) {
             showRemoteChat(msg.userId, msg.text);
           } else if (msg.type === "tag_start" && msg.itId && !tagGameActiveRef.current && Date.now() - tagGameEndedAtRef.current > 3000) {
@@ -1501,9 +1639,50 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             triggerRemoteDriveEmote(msg.userId, msg.emoteId as DriveEmoteId);
           } else if (msg.type === "rps_enter" || msg.type === "rps_start" || msg.type === "rps_commit" || msg.type === "rps_reveal" || msg.type === "rps_leave") {
             rpsHandleMessage(msg as Record<string, unknown>);
+          } else if (msg.type === "jukebox_play" && msg.url) {
+            setActiveJukebox({ url: msg.url as string, startedAt: (msg.startedAt as number) ?? Date.now(), byName: (msg.byName as string) ?? "Someone" });
+            setJukeboxPending(null);
+          } else if (msg.type === "jukebox_stop") {
+            setActiveJukebox(null);
+          } else if (msg.type === "jukebox_suggest" && msg.url && msg.suggesterName) {
+            setJukeboxPending({ url: msg.url as string, suggesterName: msg.suggesterName as string, suggesterId: msg.suggesterId as string });
+          } else if (msg.type === "room_host_announce" && msg.hostId) {
+            // Cancel our own election timer — someone else is already host
+            if (hostClaimTimerRef.current) { clearTimeout(hostClaimTimerRef.current); hostClaimTimerRef.current = null; }
+            setRoomHostId(msg.hostId as string);
+          } else if (msg.type === "hand_grant" && msg.handId) {
+            setRoomHandId(msg.handId as string);
+          } else if (msg.type === "hand_revoke") {
+            setRoomHandId(null);
+          } else if (msg.type === "kick" && msg.targetId === userId) {
+            // We were kicked — go back to lobby
+            setShowLobby(true);
+            setMoonhavenRoomId(null);
+            if (typeof window !== "undefined") {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("room");
+              window.history.replaceState({}, "", url.toString());
+            }
           }
         } catch { /* ignore */ }
       };
+
+      // ── Host election — if no one announces within 2s, claim host ────────
+      seenPlayersRef.current.clear();
+      if (hostClaimTimerRef.current) clearTimeout(hostClaimTimerRef.current);
+      setRoomHostId(null);
+      setRoomHandId(null);
+      hostClaimTimerRef.current = setTimeout(() => {
+        hostClaimTimerRef.current = null;
+        setRoomHostId(prev => {
+          if (prev === null) {
+            // No host heard — we claim it
+            ws?.send(JSON.stringify({ type: "room_host_announce", hostId: userId }));
+            return userId;
+          }
+          return prev;
+        });
+      }, 2000);
     };
 
     const sendPosition = () => {
@@ -1535,9 +1714,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     return () => {
       ws?.close();
       clearInterval(pollTimer);
+      if (hostClaimTimerRef.current) { clearTimeout(hostClaimTimerRef.current); hostClaimTimerRef.current = null; }
     };
+  // moonhavenRoomId added so WS reconnects when room changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, username, avatarUrl]);
+  }, [userId, username, avatarUrl, moonhavenRoomId]);
 
   // ── Three.js scene setup ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1834,6 +2015,18 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         if (e.code === "KeyC" && !chatOpenRef.current) { setShowCharacter(c => !c); e.preventDefault(); }
         if (e.code === "KeyB" && !chatOpenRef.current) { setShowStash(s => !s); e.preventDefault(); }
         if (e.code === "KeyE" && !chatOpenRef.current) {
+          // Tag nearest player if you're IT
+          if (tagGameActiveRef.current && tagItIdRef.current === userId) {
+            const [px, , pz] = playerPosRef.current;
+            let nearest: TownPlayer | null = null;
+            let nearestDist = Infinity;
+            for (const p of nearbyPlayersRef.current) {
+              if (p.user_id === userId) continue;
+              const d = Math.hypot(p.x - px, p.y - pz);
+              if (d < nearestDist) { nearestDist = d; nearest = p; }
+            }
+            if (nearest) { tryTag(nearest.user_id, nearest.username); e.preventDefault(); return; }
+          }
           if (nearestNPCRef.current) { handleNPCClickRef.current(nearestNPCRef.current); e.preventDefault(); }
           else if (driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
         }
@@ -1895,6 +2088,35 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         if (keysRef.current.has("ArrowUp"))    camOrbitRef.current.phi = Math.max(0.1, camOrbitRef.current.phi - camRotSpeed * 0.7 * dt);
         if (keysRef.current.has("ArrowDown"))  camOrbitRef.current.phi = Math.min(1.3, camOrbitRef.current.phi + camRotSpeed * 0.7 * dt);
 
+        // Gamepad input — left stick = move, right stick = camera orbit, A = jump
+        const gamepads = navigator.getGamepads?.() ?? [];
+        let gpLx = 0, gpLy = 0, gpRx = 0, gpRy = 0;
+        let gpAPressed = false;
+        for (const gp of gamepads) {
+          if (!gp) continue;
+          const DEAD = 0.20; // raised deadzone to kill drift
+          const lx = Math.abs(gp.axes[0] ?? 0) > DEAD ? (gp.axes[0] ?? 0) : 0;
+          const ly = Math.abs(gp.axes[1] ?? 0) > DEAD ? (gp.axes[1] ?? 0) : 0;
+          const rx = Math.abs(gp.axes[2] ?? 0) > DEAD ? (gp.axes[2] ?? 0) : 0;
+          const ry = Math.abs(gp.axes[3] ?? 0) > DEAD ? (gp.axes[3] ?? 0) : 0;
+          if (Math.abs(lx) > Math.abs(gpLx)) gpLx = lx;
+          if (Math.abs(ly) > Math.abs(gpLy)) gpLy = ly;
+          if (Math.abs(rx) > Math.abs(gpRx)) gpRx = rx;
+          if (Math.abs(ry) > Math.abs(gpRy)) gpRy = ry;
+          // Button 0 = A (Xbox) / Cross (PS) — jump on press, not hold
+          if (gp.buttons[0]?.pressed) gpAPressed = true;
+        }
+        // A button jump — edge-detect so it only fires once per press
+        const gpAPrev = gpPrevARef.current;
+        gpPrevARef.current = gpAPressed;
+        if (gpAPressed && !gpAPrev && jumpRef.current.grounded) {
+          jumpRef.current.vy = 9;
+          jumpRef.current.grounded = false;
+        }
+        // Right stick → camera orbit
+        if (gpRx !== 0) camOrbitRef.current.theta -= gpRx * camRotSpeed * dt;
+        if (gpRy !== 0) camOrbitRef.current.phi = Math.max(0.1, Math.min(1.3, camOrbitRef.current.phi + gpRy * camRotSpeed * 0.7 * dt));
+
         // Player movement — WASD relative to camera
         const speed = 6;
         let mx = 0, mz = 0;
@@ -1920,6 +2142,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         }
         if (keysRef.current.has("KeyD")) {
           mx += camRight.x; mz += camRight.z;
+        }
+        // Gamepad left stick input — Y axis: negative = forward on stick = move forward
+        if (gpLx !== 0 || gpLy !== 0) {
+          mx += camRight.x * gpLx + camFwd.x * gpLy;  // +gpLy because stick-fwd = negative Y
+          mz += camRight.z * gpLx + camFwd.z * gpLy;
+          targetPosRef.current = null; // cancel click-to-move
         }
         // Mobile joystick input
         if (joystickRef.current.active) {
@@ -2248,7 +2476,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
     setNearbyPlayers(prev => {
       const filtered = prev.filter(p => p.user_id !== player.user_id);
-      return [...filtered, player].slice(-20);
+      const next = [...filtered, player].slice(-20);
+      nearbyPlayersRef.current = next;
+      return next;
     });
     setPlayerCount(c => Math.max(c, otherMeshesRef.current.size + 1));
   }, []);
@@ -2259,7 +2489,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       sceneRef.current.remove(mesh);
       otherMeshesRef.current.delete(id);
     }
-    setNearbyPlayers(prev => prev.filter(p => p.user_id !== id));
+    setNearbyPlayers(prev => {
+      const next = prev.filter(p => p.user_id !== id);
+      nearbyPlayersRef.current = next;
+      return next;
+    });
   }, []);
 
   const showRemoteChat = useCallback(async (userId: string, text: string) => {
@@ -2364,6 +2598,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Show lobby before 3D scene loads
+  if (showLobby) {
+    return <MoonhavenLobby onEnter={handleEnterRoom} initialCode={roomCode ?? undefined} />;
+  }
+
   if (showQualityPicker) {
     const auto = detectQuality();
     const labels: Record<QualityLevel, { title: string; desc: string; icon: string }> = {
@@ -2573,9 +2812,83 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, pointerEvents: "all" }}>
           <div style={{ fontSize: 12, color: "#ffd700", fontWeight: 700 }}>🪙 {myCoins}</div>
-          <div style={{ fontSize: 11, color: "rgba(150,170,255,0.5)" }}>👥 {playerCount}</div>
+          <button onClick={() => setShowPlayersPanel(p => !p)} style={{ fontSize: 11, color: "rgba(150,170,255,0.7)", background: showPlayersPanel ? "rgba(100,80,200,0.25)" : "none", border: showPlayersPanel ? "1px solid rgba(100,80,200,0.4)" : "1px solid transparent", borderRadius: 6, padding: "3px 7px", cursor: "pointer" }}>👥 {playerCount}</button>
         </div>
       </div>
+
+      {/* ── Players Panel ─────────────────────────────────────────────────────── */}
+      {showPlayersPanel && (
+        <div style={{
+          position: "absolute", top: 52, right: 14, zIndex: 200,
+          background: "rgba(8,5,30,0.97)", backdropFilter: "blur(14px)",
+          border: "1px solid rgba(100,80,200,0.4)", borderRadius: 14,
+          padding: "14px 16px", minWidth: 240, maxWidth: 300, color: "#fff", fontFamily: "monospace",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#c4b5ff" }}>👥 Players in Room</span>
+            <button onClick={() => setShowPlayersPanel(false)} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 16 }}>✕</button>
+          </div>
+          {/* Self */}
+          {(() => {
+            const roleBadge = roomHostId === userId ? " 👑" : roomHandId === userId ? " ⚔️" : "";
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 8px", background: "rgba(100,80,200,0.12)", borderRadius: 8 }}>
+                <img src={avatarUrl} alt={username} style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: "#c4b5ff", flex: 1 }}>@{username}{roleBadge} <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>(you)</span></span>
+              </div>
+            );
+          })()}
+          {/* Other players */}
+          {nearbyPlayers.filter(p => p.user_id !== userId).map(p => {
+            const isHost = p.user_id === roomHostId;
+            const isHand = p.user_id === roomHandId;
+            const canMod = roomHostId === userId || roomHandId === userId;
+            const isMe = roomHostId === userId;
+            return (
+              <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+                <img src={p.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt={p.username} style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: isHost ? "#ffd700" : isHand ? "#ffaa44" : "rgba(255,255,255,0.75)", flex: 1 }}>
+                  @{p.username}{isHost ? " 👑" : isHand ? " ⚔️" : ""}
+                </span>
+                {/* Mod actions */}
+                {canMod && !isHost && (
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {isMe && (
+                      isHand ? (
+                        <button
+                          onClick={() => { townSocketRef.current?.send(JSON.stringify({ type: "hand_revoke" })); setRoomHandId(null); }}
+                          title="Revoke Hand of the King"
+                          style={{ padding: "2px 6px", fontSize: 10, background: "rgba(255,170,50,0.15)", border: "1px solid rgba(255,170,50,0.4)", borderRadius: 5, color: "#ffaa44", cursor: "pointer" }}
+                        >⚔️✕</button>
+                      ) : (
+                        <button
+                          onClick={() => { townSocketRef.current?.send(JSON.stringify({ type: "hand_grant", handId: p.user_id })); setRoomHandId(p.user_id); }}
+                          title="Crown as Hand of the King"
+                          style={{ padding: "2px 6px", fontSize: 10, background: "rgba(255,200,0,0.1)", border: "1px solid rgba(255,200,0,0.35)", borderRadius: 5, color: "#ffd070", cursor: "pointer" }}
+                        >⚔️</button>
+                      )
+                    )}
+                    <button
+                      onClick={() => { townSocketRef.current?.send(JSON.stringify({ type: "kick", targetId: p.user_id })); }}
+                      title="Kick from room"
+                      style={{ padding: "2px 6px", fontSize: 10, background: "rgba(200,50,50,0.15)", border: "1px solid rgba(200,50,50,0.4)", borderRadius: 5, color: "#f87171", cursor: "pointer" }}
+                    >✕</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {nearbyPlayers.filter(p => p.user_id !== userId).length === 0 && (
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", padding: "8px 0" }}>No other players nearby</div>
+          )}
+          {/* Hand of the King note */}
+          {roomHandId === userId && (
+            <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(255,170,50,0.08)", borderRadius: 7, border: "1px solid rgba(255,170,50,0.25)", fontSize: 10, color: "#ffaa44" }}>
+              ⚔️ You are the Hand of the King — you have mod powers
+            </div>
+          )}
+        </div>
+      )}
 
       {/* [E] Interact prompt — floats above toolbar when near an NPC or the drive-in screen */}
       {!loading && (nearestNPC || (driveInNear && ssStatus === "idle")) && !activeNPC && (
@@ -2689,7 +3002,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               }}>🏷️ @{p.username}</button>
             ))}
             <div style={{ width: 1, height: 28, background: "rgba(100,80,200,0.2)" }} />
-            <Link href="/feed" style={{ padding: "7px 10px", fontSize: 12, color: "rgba(150,130,220,0.5)", textDecoration: "none" }}>Feed</Link>
+            <button onClick={() => setShowJukebox(j => !j)} title="Jukebox" style={{
+              padding: "7px 10px", fontSize: 18,
+              background: activeJukebox ? "rgba(220,50,150,0.3)" : "rgba(80,60,180,0.25)",
+              border: `1px solid ${activeJukebox ? "rgba(255,80,180,0.5)" : "rgba(100,80,200,0.25)"}`,
+              borderRadius: 9, cursor: "pointer", color: activeJukebox ? "#ffaaee" : "#ccbbff",
+              animation: activeJukebox ? "pulse 1s ease-in-out infinite alternate" : "none",
+            }}>🎵</button>
           </div>
         );
       })()}
@@ -2700,17 +3019,164 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           position: "absolute", bottom: 116, right: 14, zIndex: 40,
           fontSize: 9, color: "rgba(100,90,180,0.4)", lineHeight: 1.8, textAlign: "right",
         }}>
-          WASD move · ↑↓←→ look · Space jump<br />
-          C = Character · B = Bag · E = Talk<br />
+          WASD / L-stick move · ↑↓←→ / R-stick look · Space jump<br />
+          C = Character · B = Bag · E = Talk · 🎵 = Jukebox<br />
           Click ground to walk · Enter to chat<br />
           Right-drag to orbit · Scroll to zoom
         </div>
       )}
 
+      {/* ── Jukebox panel ──────────────────────────────────────────────────── */}
+      {showJukebox && (
+        <div style={{
+          position: "absolute", bottom: 120, left: "50%", transform: "translateX(-50%)",
+          zIndex: 200, background: "rgba(8,5,30,0.97)", backdropFilter: "blur(14px)",
+          border: "1px solid rgba(200,80,180,0.4)", borderRadius: 16, padding: "16px 20px",
+          minWidth: 320, maxWidth: 400, color: "#fff", fontFamily: "monospace",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#ffaaee" }}>🎵 Party Jukebox</span>
+            <button onClick={() => setShowJukebox(false)} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 18 }}>✕</button>
+          </div>
+
+          {/* Now playing */}
+          {activeJukebox && (
+            <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(220,80,180,0.1)", borderRadius: 8, border: "1px solid rgba(220,80,180,0.3)" }}>
+              <div style={{ fontSize: 11, color: "#ffaaee", marginBottom: 4 }}>▶ Now Playing — by @{activeJukebox.byName}</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", wordBreak: "break-all" }}>{activeJukebox.url}</div>
+              {(roomHostId === userId || roomHandId === userId || !roomHostId) && (
+                <button onClick={() => {
+                  setActiveJukebox(null);
+                  townSocketRef.current?.send(JSON.stringify({ type: "jukebox_stop", userId }));
+                }} style={{ marginTop: 6, padding: "3px 10px", fontSize: 10, background: "rgba(200,50,50,0.2)", border: "1px solid rgba(200,50,50,0.4)", borderRadius: 6, color: "#f87171", cursor: "pointer" }}>■ Stop</button>
+              )}
+            </div>
+          )}
+
+          {/* Pending suggestion (host/hand sees approve button) */}
+          {jukeboxPending && (roomHostId === userId || roomHandId === userId || !roomHostId) && (
+            <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(255,200,0,0.08)", borderRadius: 8, border: "1px solid rgba(255,200,0,0.3)" }}>
+              <div style={{ fontSize: 11, color: "#ffd070", marginBottom: 4 }}>🎤 @{jukeboxPending.suggesterName} suggests:</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", wordBreak: "break-all", marginBottom: 6 }}>{jukeboxPending.url}</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => {
+                  const payload = { type: "jukebox_play", url: jukeboxPending.url, startedAt: Date.now(), byName: jukeboxPending.suggesterName };
+                  townSocketRef.current?.send(JSON.stringify(payload));
+                  setActiveJukebox({ url: jukeboxPending.url, startedAt: payload.startedAt, byName: jukeboxPending.suggesterName });
+                  setJukeboxPending(null);
+                }} style={{ flex: 1, padding: "4px 0", fontSize: 10, background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.4)", borderRadius: 6, color: "#4ade80", cursor: "pointer" }}>✓ Play it</button>
+                <button onClick={() => setJukeboxPending(null)} style={{ flex: 1, padding: "4px 0", fontSize: 10, background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 6, color: "#f87171", cursor: "pointer" }}>✕ Skip</button>
+              </div>
+            </div>
+          )}
+
+          {/* Input — host/hand plays directly, others suggest */}
+          {(() => {
+            const isController = roomHostId === userId || roomHandId === userId;
+            return (
+              <>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={jukeboxInput}
+                    onChange={e => setJukeboxInput(e.target.value)}
+                    placeholder="YouTube URL…"
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 11, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(200,80,180,0.3)", borderRadius: 7, color: "#fff", outline: "none" }}
+                    onKeyDown={e => e.stopPropagation()}
+                  />
+                  <button onClick={() => {
+                    const url = jukeboxInput.trim();
+                    if (!url) return;
+                    if (isController) {
+                      const payload = { type: "jukebox_play", url, startedAt: Date.now(), byName: username };
+                      townSocketRef.current?.send(JSON.stringify(payload));
+                      setActiveJukebox({ url, startedAt: payload.startedAt, byName: username });
+                    } else {
+                      townSocketRef.current?.send(JSON.stringify({ type: "jukebox_suggest", url, suggesterName: username, suggesterId: userId }));
+                    }
+                    setJukeboxInput("");
+                  }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "rgba(200,80,180,0.25)", border: "1px solid rgba(200,80,180,0.5)", borderRadius: 7, color: "#ffaaee", cursor: "pointer" }}>
+                    {isController ? "▶ Play" : "💡 Suggest"}
+                  </button>
+                </div>
+                {!isController && (
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 6 }}>
+                    {roomHostId ? "Suggestions go to the room host to approve" : "Waiting for a host…"}
+                  </div>
+                )}
+
+                {/* ── Host controls: crown / revoke Hand of the King ── */}
+                {roomHostId === userId && (
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,200,0,0.15)" }}>
+                    <div style={{ fontSize: 9, color: "rgba(255,200,0,0.5)", letterSpacing: 1, fontWeight: 700, marginBottom: 7, textTransform: "uppercase" }}>
+                      👑 Hand of the King
+                    </div>
+                    {roomHandId ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flex: 1, fontSize: 11, color: "#ffd070" }}>
+                          {nearbyPlayers.find(p => p.user_id === roomHandId)?.username ?? roomHandId} is your Hand
+                        </span>
+                        <button
+                          onClick={() => {
+                            townSocketRef.current?.send(JSON.stringify({ type: "hand_revoke" }));
+                            setRoomHandId(null);
+                          }}
+                          style={{ padding: "3px 8px", fontSize: 9, background: "rgba(200,50,50,0.15)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 5, color: "#f87171", cursor: "pointer" }}
+                        >Revoke</button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 6 }}>Crown a player to give them music control:</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {nearbyPlayers.filter(p => p.user_id !== userId).map(p => (
+                            <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <img src={p.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt={p.username} style={{ width: 20, height: 20, borderRadius: "50%" }} />
+                              <span style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.65)" }}>@{p.username}</span>
+                              <button
+                                onClick={() => {
+                                  townSocketRef.current?.send(JSON.stringify({ type: "hand_grant", handId: p.user_id }));
+                                  setRoomHandId(p.user_id);
+                                }}
+                                style={{ padding: "3px 8px", fontSize: 9, background: "rgba(255,200,0,0.15)", border: "1px solid rgba(255,200,0,0.3)", borderRadius: 5, color: "#ffd070", cursor: "pointer" }}
+                              >👑 Crown</button>
+                            </div>
+                          ))}
+                          {nearbyPlayers.filter(p => p.user_id !== userId).length === 0 && (
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>No other players nearby</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {roomHandId === userId && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: "#ffd070" }}>👑 You are the Hand of the King</div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Hidden YouTube iframe — plays jukebox audio */}
+      {activeJukebox && (() => {
+        const ytMatch = activeJukebox.url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+        const videoId = ytMatch?.[1];
+        if (!videoId) return null;
+        const elapsed = Math.floor((Date.now() - activeJukebox.startedAt) / 1000);
+        return (
+          <iframe
+            key={videoId}
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&start=${elapsed}&enablejsapi=0`}
+            allow="autoplay"
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", top: 0, left: 0 }}
+          />
+        );
+      })()}
+
       {/* Panels (same components as town) */}
       {showStash && (
         <StashPanel
-          stashItems={((stashData as { stash_items?: unknown[] } | null)?.stash_items ?? []) as Parameters<typeof StashPanel>[0]["stashItems"]}
+          stashItems={(Array.isArray((stashData as { stash_items?: unknown } | null)?.stash_items) ? (stashData as { stash_items: unknown[] }).stash_items : []) as Parameters<typeof StashPanel>[0]["stashItems"]}
           inventoryItems={myInventory as Parameters<typeof StashPanel>[0]["inventoryItems"]}
           equippedSlots={myEquippedSlots as Parameters<typeof StashPanel>[0]["equippedSlots"]}
           coins={myCoins}
@@ -2998,9 +3464,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           </div>
           <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
             {ssStatus === "idle" && !theaterState?.screenshareOffer?.active && (() => {
-              const inParty = !!partyIdRef.current;
-              const isLeader = !inParty || partyLeaderId === userId;
-              return isLeader ? (<>
+              const canControl = roomHostId === userId || roomHandId === userId || !roomHostId;
+              return canControl ? (<>
                 <button
                   style={{ background: "linear-gradient(135deg,rgba(80,60,200,0.9),rgba(120,80,255,0.8))", border: "1px solid rgba(130,110,255,0.6)", borderRadius: 8, color: "#fff", padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
                   onClick={startScreenShare}
@@ -3138,7 +3603,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               color: rpsMyChoice === choice ? "#e8d4ff" : "rgba(255,255,255,0.6)",
               boxShadow: rpsMyChoice === choice ? "0 0 18px rgba(170,68,255,0.5)" : "none",
               transition: "all 0.15s", opacity: rpsMyChoice && rpsMyChoice !== choice ? 0.4 : 1,
-              userSelect: "none", touchAction: "manipulation",
+              userSelect: "none", touchAction: "manipulation", outline: "none",
               transform: rpsMyChoice === choice ? "scale(1.08)" : "scale(1)",
             }}
             onMouseEnter={e => { if (!rpsMyChoice) (e.currentTarget as HTMLElement).style.transform = "scale(1.06)"; }}
@@ -3178,7 +3643,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               {rpsPhase === "choosing" && (
                 <>
                   <div style={{ fontSize: 18, fontWeight: 900, color: "#ffdd44" }}>vs @{rpsOpponent?.username}</div>
-                  <div style={{ marginTop: 6, fontSize: 13, color: rpsTimeLeft <= 2 ? "#ff5555" : "#aaffaa", fontWeight: 900, letterSpacing: "0.1em" }}>
+                  <div style={{ marginTop: 6, fontSize: 13, color: rpsTimeLeft <= 10 ? "#ff5555" : "#aaffaa", fontWeight: 900, letterSpacing: "0.1em" }}>
                     {rpsMyChoice ? "⏳ Waiting for opponent…" : `⏱ Choose in ${rpsTimeLeft}s`}
                   </div>
                 </>
@@ -3547,11 +4012,11 @@ async function buildBillboard(
 
   // Chat bubble (starts hidden)
   const bubbleTex = new THREE.CanvasTexture(makeChatCanvas(""));
-  const bubbleGeo = new THREE.PlaneGeometry(1.8, 0.38);
+  const bubbleGeo = new THREE.PlaneGeometry(3.2, 0.6);
   const bubbleMat = new THREE.MeshBasicMaterial({ map: bubbleTex, transparent: true, depthWrite: false, depthTest: false });
   const bubbleMesh = new THREE.Mesh(bubbleGeo, bubbleMat);
   bubbleMesh.name = "chat_bubble";
-  bubbleMesh.position.set(0, 2.55, 0);
+  bubbleMesh.position.set(0, 2.65, 0);
   bubbleMesh.renderOrder = 10;
   bubbleMesh.userData.billboard = true;
   bubbleMesh.visible = false;

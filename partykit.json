@@ -7,7 +7,8 @@
     "draw": "party/draw.ts",
     "town": "party/town.ts",
     "presence": "party/presence.ts",
-    "notifications": "party/notifications.ts"
+    "notifications": "party/notifications.ts",
+    "voice": "party/voice.ts"
   },
   "compatibilityDate": "2024-09-23"
 }

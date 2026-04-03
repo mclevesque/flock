@@ -87,11 +87,32 @@ export function useVoice() { return useContext(VoiceContext); }
 
 // ─── ICE Servers ──────────────────────────────────────────────────────────────
 
-const ICE_SERVERS = [
+const FALLBACK_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
 ];
+
+let _cachedIceServers: RTCIceServer[] | null = null;
+let _iceFetchedAt = 0;
+
+async function getIceServers(): Promise<RTCIceServer[]> {
+  // Cache for 23h (creds valid 24h)
+  if (_cachedIceServers && Date.now() - _iceFetchedAt < 23 * 3600 * 1000) {
+    return _cachedIceServers;
+  }
+  try {
+    const res = await fetch("/api/ice-servers");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.iceServers)) {
+        _cachedIceServers = data.iceServers as RTCIceServer[];
+        _iceFetchedAt = Date.now();
+        return _cachedIceServers;
+      }
+    }
+  } catch { /* fall through */ }
+  return FALLBACK_ICE_SERVERS;
+}
 
 // ─── Kokoro TTS singleton ─────────────────────────────────────────────────────
 // Bot → preferred kokoro voice ID
@@ -290,8 +311,6 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<Map<string, PeerState>>(new Map());
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const signalPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const signalAfterRef = useRef<number>(Date.now() - 5000);
   const currentRoomRef = useRef<string | null>(null);
   const voiceWsRef = useRef<{ send: (d: string) => void; close: () => void } | null>(null);
   const pendingIce = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
@@ -373,8 +392,11 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   }
 
   // ── Create RTCPeerConnection ──────────────────────────────────────────────────
-  function createPC(peerId: string, roomId: string): RTCPeerConnection {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  function createPC(peerId: string, roomId: string, iceServers: RTCIceServer[] = FALLBACK_ICE_SERVERS): RTCPeerConnection {
+    // Use relay-only when TURN is available — hides real IPs from peers entirely.
+    // Without TURN, fall back to all candidates (STUN only — IPs visible, but it's the only option).
+    const hasTurn = iceServers.some(s => (Array.isArray(s.urls) ? s.urls : [s.urls]).some(u => u.startsWith("turn:")));
+    const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: hasTurn ? "relay" : "all" });
     const audioEl = new Audio();
     audioEl.autoplay = true;
 
@@ -382,12 +404,11 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     peersRef.current.set(peerId, peerState);
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && currentRoomRef.current) {
-        fetch("/api/voice/signals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomId, toUserId: peerId, type: "ice", payload: e.candidate.toJSON() }),
-        }).catch(() => {});
+      if (e.candidate) {
+        voiceWsRef.current?.send(JSON.stringify({
+          type: "rtc-signal", toUserId: peerId, fromUserId: userId,
+          signalType: "ice", payload: e.candidate.toJSON(),
+        }));
       }
     };
 
@@ -407,6 +428,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       }
       // Audio track
       audioEl.srcObject = e.streams[0];
+      audioEl.play().catch(() => {/* autoplay blocked — user must interact first */});
       try {
         const ctx = new AudioContext();
         const src = ctx.createMediaStreamSource(e.streams[0]);
@@ -447,24 +469,72 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        await fetch("/api/voice/signals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomId: currentRoomRef.current, toUserId: peerId, type: "offer",
-            payload: { sdp: offer.sdp, type: offer.type },
-          }),
-        });
+        wsSendSignal(peerId, "offer", { sdp: offer.sdp, type: offer.type });
       } catch { /* ignore */ }
     };
 
     return pc;
   }
 
+  // ── WS signal helper — sends a targeted WebRTC signal via voice party WS ────────
+  const wsSendSignal = useCallback((toUserId: string, type: string, payload: unknown) => {
+    voiceWsRef.current?.send(JSON.stringify({
+      type: "rtc-signal", toUserId, fromUserId: userId, signalType: type, payload,
+    }));
+  }, [userId]);
+
+  // ── Handle an incoming WebRTC signal (offer / answer / ICE) ──────────────────
+  const handleRtcSignal = useCallback(async (fromUserId: string, signalType: string, payload: Record<string, unknown>) => {
+    const roomId = currentRoomRef.current;
+    if (!roomId) return;
+    const stream = localStreamRef.current;
+
+    if (signalType === "offer") {
+      let peerState = peersRef.current.get(fromUserId);
+      if (!peerState) {
+        const pc = createPC(fromUserId, roomId, _cachedIceServers ?? FALLBACK_ICE_SERVERS);
+        if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
+        peerState = peersRef.current.get(fromUserId)!;
+      }
+      const { pc } = peerState;
+      if (pc.signalingState === "stable" || pc.signalingState === "have-remote-offer") {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload as unknown as RTCSessionDescriptionInit));
+          const buffered = pendingIce.current.get(fromUserId) ?? [];
+          for (const c of buffered) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          pendingIce.current.delete(fromUserId);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          wsSendSignal(fromUserId, "answer", { sdp: answer.sdp, type: answer.type });
+        } catch (e) { console.error("Answer error", e); }
+      }
+    } else if (signalType === "answer") {
+      const peerState = peersRef.current.get(fromUserId);
+      if (peerState && peerState.pc.signalingState === "have-local-offer") {
+        try {
+          await peerState.pc.setRemoteDescription(new RTCSessionDescription(payload as unknown as RTCSessionDescriptionInit));
+          const buffered = pendingIce.current.get(fromUserId) ?? [];
+          for (const c of buffered) await peerState.pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          pendingIce.current.delete(fromUserId);
+        } catch (e) { console.error("setRemoteDescription error", e); }
+      }
+    } else if (signalType === "ice") {
+      const peerState = peersRef.current.get(fromUserId);
+      if (peerState) {
+        if (peerState.pc.remoteDescription !== null) {
+          peerState.pc.addIceCandidate(new RTCIceCandidate(payload as RTCIceCandidateInit)).catch(() => {});
+        } else {
+          const buf = pendingIce.current.get(fromUserId) ?? [];
+          buf.push(payload as RTCIceCandidateInit);
+          pendingIce.current.set(fromUserId, buf);
+        }
+      }
+    }
+  }, [wsSendSignal]); // eslint-disable-line
+
   // ── Join room ─────────────────────────────────────────────────────────────────
   const joinRoom = useCallback(async (roomId: string, roomName: string) => {
     if (!userId) return;
-    // Guard: already in this room — don't double-join
     if (currentRoomRef.current === roomId) return;
     if (currentRoomRef.current) await doLeave();
     setIsConnecting(true);
@@ -474,66 +544,125 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     currentRoomRef.current = roomId;
 
     try {
-      const stream = await getLocalStream();
-      await fetch(`/api/voice/${roomId}`, {
+      const [stream, iceServers] = await Promise.all([
+        getLocalStream(),
+        getIceServers(),
+      ]);
+
+      // Register in DB so room listing / browse page knows this room is active
+      fetch(`/api/voice/${roomId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "join" }),
-      });
+      }).catch(() => {});
 
-      const res = await fetch(`/api/voice/${roomId}`);
-      const data = await res.json();
-      const existing: Array<{ user_id: string }> = Array.isArray(data.participants) ? data.participants : [];
+      const myUsername = (session?.user as { name?: string })?.name ?? "User";
+      const myAvatar = `/api/avatar/${userId}`;
 
-      for (const p of existing) {
-        if (p.user_id === userId) continue;
-        const pc = createPC(p.user_id, roomId);
-        stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      // Add self immediately
+      setParticipants([{
+        user_id: userId, username: myUsername, avatar_url: myAvatar,
+        is_muted: false, last_heartbeat: Date.now(),
+      }]);
 
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await fetch("/api/voice/signals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomId, toUserId: p.user_id, type: "offer",
-            payload: { sdp: offer.sdp, type: offer.type },
-          }),
-        });
-      }
-
-      signalAfterRef.current = Date.now();
-      fetchRoomMessages(roomId);
       setIsConnecting(false);
 
-      // Connect voice presence WS for instant participant updates
+      // Connect to voice party server — it sends a snapshot of existing participants
       const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
-      if (host && host !== "DISABLED") {
-        import("partysocket").then(({ default: PartySocket }) => {
-          voiceWsRef.current?.close();
-          const vws = new PartySocket({ host, room: `voice-${roomId}` }) as unknown as
-            { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
-          voiceWsRef.current = vws;
-          // Announce join
-          vws.send(JSON.stringify({ type: "voice-join", userId, username: (session?.user as { name?: string })?.name ?? "User", avatarUrl: (session?.user as { image?: string })?.image ?? null, isMuted: false }));
-          // Listen for participant updates
-          vws.addEventListener("message", (evt: Event) => {
-            try {
-              const msg = JSON.parse((evt as MessageEvent).data as string);
-              if (msg.type === "voice-join" && msg.userId !== userId) {
-                setParticipants(prev => {
-                  if (prev.find(p => p.user_id === msg.userId)) return prev;
-                  return [...prev, { user_id: msg.userId, username: msg.username, avatar_url: msg.avatarUrl, is_muted: msg.isMuted ?? false, last_heartbeat: Date.now() }];
-                });
-              } else if (msg.type === "voice-leave") {
-                setParticipants(prev => prev.filter(p => p.user_id !== msg.userId));
-              } else if (msg.type === "voice-mute") {
-                setParticipants(prev => prev.map(p => p.user_id === msg.userId ? { ...p, is_muted: msg.isMuted } : p));
-              }
-            } catch { /* ignore */ }
-          });
-        }).catch(() => {});
-      }
+      if (!host || host === "DISABLED") return;
+
+      import("partysocket").then(({ default: PartySocket }) => {
+        voiceWsRef.current?.close();
+        const vws = new PartySocket({ host, room: roomId, party: "voice" }) as unknown as
+          { send: (d: string) => void; close: () => void; addEventListener: (t: string, cb: (e: Event) => void) => void };
+        voiceWsRef.current = vws;
+
+        vws.addEventListener("open", () => {
+          // Announce ourselves — party server broadcasts to existing members
+          vws.send(JSON.stringify({ type: "voice-join", userId, username: myUsername, avatarUrl: myAvatar, isMuted: false }));
+        });
+
+        vws.addEventListener("message", (evt: Event) => {
+          try {
+            const msg = JSON.parse((evt as MessageEvent).data as string) as Record<string, unknown>;
+
+            // ── Roster snapshot (sent by party server on connect) ──────────────
+            if (msg.type === "voice-snapshot" && Array.isArray(msg.participants)) {
+              const others = (msg.participants as Array<{ userId: string; username: string; avatarUrl: string | null; isMuted: boolean }>)
+                .filter(p => p.userId !== userId);
+              // Update display list
+              setParticipants(prev => {
+                const self = prev.find(p => p.user_id === userId)!;
+                const next = [self, ...others.map(p => ({
+                  user_id: p.userId, username: p.username,
+                  avatar_url: p.avatarUrl ?? `/api/avatar/${p.userId}`,
+                  is_muted: p.isMuted, last_heartbeat: Date.now(),
+                }))];
+                return next;
+              });
+              // Send offers to everyone already in the room
+              others.forEach(async p => {
+                if (peersRef.current.has(p.userId)) return; // already connected
+                const pc = createPC(p.userId, roomId, iceServers);
+                stream.getTracks().forEach(t => pc.addTrack(t, stream));
+                try {
+                  const offer = await pc.createOffer();
+                  await pc.setLocalDescription(offer);
+                  wsSendSignal(p.userId, "offer", { sdp: offer.sdp, type: offer.type });
+                } catch { /* ignore */ }
+              });
+            }
+
+            // ── New participant joined ──────────────────────────────────────────
+            else if (msg.type === "voice-join" && msg.userId !== userId) {
+              setParticipants(prev => {
+                if (prev.find(p => p.user_id === msg.userId)) return prev;
+                return [...prev, {
+                  user_id: msg.userId as string, username: msg.username as string,
+                  avatar_url: (msg.avatarUrl as string | null) ?? `/api/avatar/${msg.userId}`,
+                  is_muted: (msg.isMuted as boolean) ?? false, last_heartbeat: Date.now(),
+                }];
+              });
+              // They'll send us an offer — we just need to be ready (no action needed here)
+            }
+
+            // ── Participant left ───────────────────────────────────────────────
+            else if (msg.type === "voice-leave" && msg.userId) {
+              setParticipants(prev => prev.filter(p => p.user_id !== msg.userId));
+              const peer = peersRef.current.get(msg.userId as string);
+              if (peer) { peer.pc.close(); peer.audioEl.srcObject = null; }
+              peersRef.current.delete(msg.userId as string);
+              setSpeakingUsers(prev => { const n = new Set(prev); n.delete(msg.userId as string); return n; });
+            }
+
+            // ── Mute state ─────────────────────────────────────────────────────
+            else if (msg.type === "voice-mute" && msg.userId) {
+              setParticipants(prev => prev.map(p => p.user_id === msg.userId ? { ...p, is_muted: msg.isMuted as boolean } : p));
+            }
+
+            // ── Targeted WebRTC signal ─────────────────────────────────────────
+            else if (msg.type === "rtc-signal" && msg.fromUserId && msg.signalType) {
+              handleRtcSignal(msg.fromUserId as string, msg.signalType as string, msg.payload as Record<string, unknown>);
+            }
+
+            // ── In-room chat ───────────────────────────────────────────────────
+            else if (msg.type === "voice-chat" && msg.content) {
+              const chatMsg: RoomMessage = {
+                id: Date.now(),
+                room_id: roomId,
+                user_id: (msg.userId as string) ?? null,
+                username: (msg.username as string) ?? "User",
+                avatar_url: (msg.avatarUrl as string | null) ?? null,
+                content: msg.content as string,
+                is_ai: false,
+                created_at: new Date().toISOString(),
+              };
+              setRoomMessages(prev => [...prev.slice(-99), chatMsg]);
+            }
+          } catch { /* ignore malformed */ }
+        });
+      }).catch(() => {});
+
     } catch (e) {
       setIsConnecting(false);
       setCurrentRoomId(null);
@@ -548,80 +677,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         alert("Could not join voice call. Please check your microphone and try again.");
       }
     }
-  }, [userId, noiseSuppression, selectedDevice]); // eslint-disable-line
-
-  // ── Process signals ───────────────────────────────────────────────────────────
-  const processSignals = useCallback(async () => {
-    const roomId = currentRoomRef.current;
-    if (!roomId || !userId) return;
-
-    const after = signalAfterRef.current;
-    const res = await fetch(`/api/voice/signals?roomId=${roomId}&after=${after}`);
-    if (!res.ok) return;
-    const signals = await res.json();
-    if (!Array.isArray(signals) || signals.length === 0) return;
-
-    signalAfterRef.current = Date.now();
-    const stream = localStreamRef.current;
-
-    for (const sig of signals) {
-      const from = sig.from_user_id as string;
-      const type = sig.type as string;
-      let payload: Record<string, unknown>;
-      try { payload = JSON.parse(sig.payload as string); } catch { continue; }
-
-      if (type === "offer") {
-        let peerState = peersRef.current.get(from);
-        if (!peerState) {
-          const pc = createPC(from, roomId);
-          if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
-          peerState = peersRef.current.get(from)!;
-        }
-        const { pc } = peerState;
-        if (pc.signalingState === "stable" || pc.signalingState === "have-remote-offer") {
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload as unknown as RTCSessionDescriptionInit));
-            const buffered = pendingIce.current.get(from) ?? [];
-            for (const c of buffered) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-            pendingIce.current.delete(from);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await fetch("/api/voice/signals", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                roomId, toUserId: from, type: "answer",
-                payload: { sdp: answer.sdp, type: answer.type },
-              }),
-            });
-          } catch (e) { console.error("Answer error", e); }
-        }
-      } else if (type === "answer") {
-        const peerState = peersRef.current.get(from);
-        if (peerState && peerState.pc.signalingState === "have-local-offer") {
-          try {
-            await peerState.pc.setRemoteDescription(
-              new RTCSessionDescription(payload as unknown as RTCSessionDescriptionInit)
-            );
-            const buffered = pendingIce.current.get(from) ?? [];
-            for (const c of buffered) await peerState.pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-            pendingIce.current.delete(from);
-          } catch (e) { console.error("setRemoteDescription error", e); }
-        }
-      } else if (type === "ice") {
-        const peerState = peersRef.current.get(from);
-        if (peerState) {
-          if (peerState.pc.remoteDescription !== null) {
-            peerState.pc.addIceCandidate(new RTCIceCandidate(payload as RTCIceCandidateInit)).catch(() => {});
-          } else {
-            const buf = pendingIce.current.get(from) ?? [];
-            buf.push(payload as RTCIceCandidateInit);
-            pendingIce.current.set(from, buf);
-          }
-        }
-      }
-    }
-  }, [userId]); // eslint-disable-line
+  }, [userId, noiseSuppression, selectedDevice, wsSendSignal, handleRtcSignal]); // eslint-disable-line
 
   // ── Leave / cleanup ───────────────────────────────────────────────────────────
   const doLeave = useCallback(async () => {
@@ -836,22 +892,30 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // ── Room chat send ────────────────────────────────────────────────────────────
-  async function sendRoomMessage() {
+  // ── Room chat send — goes through PartyKit WS, no DB ─────────────────────────
+  function sendRoomMessage() {
     const text = roomInput.trim();
-    if (!text || !currentRoomRef.current) return;
-    setSendingMsg(true);
+    if (!text || !currentRoomRef.current || !voiceWsRef.current) return;
     setRoomInput("");
-    try {
-      await fetch(`/api/voice/${currentRoomRef.current}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sendMessage", content: text }),
-      });
-      fetchRoomMessages(currentRoomRef.current);
-    } catch { /* ignore */ } finally {
-      setSendingMsg(false);
-    }
+    const myUsername = (session?.user as { name?: string })?.name ?? "User";
+    voiceWsRef.current.send(JSON.stringify({
+      type: "voice-chat",
+      userId,
+      username: myUsername,
+      avatarUrl: `/api/avatar/${userId}`,
+      content: text,
+    }));
+    // Add own message to local state immediately (we don't receive our own broadcasts)
+    setRoomMessages(prev => [...prev.slice(-99), {
+      id: Date.now(),
+      room_id: currentRoomRef.current!,
+      user_id: userId,
+      username: myUsername,
+      avatar_url: `/api/avatar/${userId}`,
+      content: text,
+      is_ai: false,
+      created_at: new Date().toISOString(),
+    }]);
   }
 
   // Online presence handled by usePresence (PartyKit) — no heartbeat needed
@@ -1010,15 +1074,10 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         }).catch(() => {});
         return;
       }
-      fetch(`/api/voice/${roomId}`).then(r => r.json()).then(({ participants: pp }) => {
-        if (Array.isArray(pp)) setParticipants(pp);
-      }).catch(() => {});
-      fetchRoomMessages(roomId);
-    }, 60000); // 60s fallback — PartyKit voice WS handles real-time participant updates
+      // no-op: party server handles participant updates in real-time
+    }, 60000); // 60s — only used for open rooms list refresh now
 
-    signalPollRef.current = setInterval(() => { if (!document.hidden) processSignals(); }, 45000); // 45s fallback — PartyKit push delivers signals instantly
-
-    // Dedicated heartbeat — keeps us visible in "IN VOICE" list between polls
+    // Heartbeat keeps room visible in browse list
     const heartbeatTimer = setInterval(() => {
       const roomId = currentRoomRef.current;
       if (!roomId || document.hidden) return;
@@ -1027,7 +1086,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "heartbeat" }),
       }).catch(() => {});
-    }, 45000); // 45s — DB heartbeat for staleness cleanup, WS handles liveness
+    }, 45000);
 
     fetch("/api/voice").then(r => r.json()).then(d => {
       if (Array.isArray(d)) setOpenRooms(d);
@@ -1035,10 +1094,9 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
     return () => {
       clearInterval(pollRef.current);
-      clearInterval(signalPollRef.current);
       clearInterval(heartbeatTimer);
     };
-  }, [processSignals, userId, fetchRoomMessages]);
+  }, [userId]); // eslint-disable-line
 
   // ── Close voice room ──────────────────────────────────────────────────────────
   async function handleCloseRoom(roomId: string) {

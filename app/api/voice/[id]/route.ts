@@ -47,7 +47,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   try {
     if (action === "join") {
-      await joinVoiceRoom(id, userId, session.user.name ?? "User", session.user.image ?? null);
+      const avatarUrl = `/api/avatar/${userId}`;
+      await joinVoiceRoom(id, userId, session.user.name ?? "User", avatarUrl);
       return NextResponse.json({ ok: true });
     }
     if (action === "leave") {
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (action === "sendMessage") {
       if (!content) return NextResponse.json({ error: "content required" }, { status: 400 });
       const msg = await addVoiceRoomMessage(
-        id, userId, session.user.name ?? "User", session.user.image ?? null, String(content)
+        id, userId, session.user.name ?? "User", `/api/avatar/${userId}`, String(content)
       );
       return NextResponse.json(msg);
     }

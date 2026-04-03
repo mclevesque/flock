@@ -1,14 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { auth } from "@/auth";
-import { getUserByUsername, getUserById, getPartyForUser } from "@/lib/db";
+import { getUserByUsername, getUserById } from "@/lib/db";
+import { getMyParty } from "@/lib/party";
 import { redirect } from "next/navigation";
-import { pushNotification } from "@/lib/pushNotification";
 import MoonhavenClient from "./MoonhavenClient";
 
 export const metadata = { title: "Moonhaven — Ryft" };
 
-export default async function MoonhavenPage() {
+export default async function MoonhavenPage({ searchParams }: { searchParams: Promise<{ room?: string }> }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/signin");
 
@@ -27,23 +27,12 @@ export default async function MoonhavenPage() {
   } catch { /* use session data */ }
 
   // Look up party membership server-side
-  const party = await getPartyForUser(session.user.id).catch(() => null);
+  const party = await getMyParty(session.user.id).catch(() => null);
   const partyId = party?.id ?? null;
   const partyLeaderId = party?.leaderId ?? null;
-  const isLeader = party?.leaderId === session.user.id;
 
-  // If the party leader is entering Moonhaven, pull all members in
-  if (party && isLeader) {
-    party.members
-      .filter(m => m.userId !== session.user!.id)
-      .forEach(m => {
-        pushNotification(m.userId, {
-          type: "moonhaven-pull",
-          partyId: party.id,
-          leaderName: username,
-        });
-      });
-  }
+  const params = await searchParams;
+  const roomCode = params.room ?? null;
 
   return (
     <MoonhavenClient
@@ -53,6 +42,7 @@ export default async function MoonhavenPage() {
       avatarConfig={avatarConfig as import("./MoonhavenClient").AvatarConfig | null}
       partyId={partyId}
       partyLeaderId={partyLeaderId}
+      roomCode={roomCode}
     />
   );
 }

@@ -380,6 +380,156 @@
             animations: { idle: { frames: [0, 1], speed: 0.5, loop: true } }
         });
 
+        // ---- TRUCK (top-down, driving UP — cab at TOP, bed at BOTTOM trailing) ----
+        const trkc = document.createElement('canvas');
+        trkc.width = 24; trkc.height = 40;
+        const trk = trkc.getContext('2d');
+        trk.imageSmoothingEnabled = false;
+        // === CAB at TOP (front — driving forward/up) ===
+        // Cab roof (very top)
+        trk.fillStyle = '#aa2222';
+        trk.fillRect(4, 0, 16, 6);
+        // Cab body
+        trk.fillStyle = '#cc3333';
+        trk.fillRect(3, 2, 18, 16);
+        // Headlights at top edge
+        trk.fillStyle = '#ffff88';
+        trk.fillRect(4, 0, 3, 2);
+        trk.fillRect(17, 0, 3, 2);
+        // Windshield (bottom of cab section = rear window from above)
+        trk.fillStyle = '#88bbdd';
+        trk.fillRect(5, 13, 14, 5);
+        // Matt driving (top of head visible)
+        trk.fillStyle = '#8B6914'; // hair
+        trk.fillRect(9, 14, 6, 3);
+        trk.fillStyle = '#ffcc99'; // face
+        trk.fillRect(10, 16, 4, 2);
+        // === BED at BOTTOM (back — trailing behind) ===
+        trk.fillStyle = '#334455';
+        trk.fillRect(2, 18, 20, 20);
+        trk.fillStyle = '#2a3a4a';
+        trk.fillRect(4, 20, 16, 16);
+        // Bed rails
+        trk.fillStyle = '#556677';
+        trk.fillRect(2, 18, 2, 20);
+        trk.fillRect(20, 18, 2, 20);
+        trk.fillRect(2, 36, 20, 2);
+        // Tail lights at bottom
+        trk.fillStyle = '#ff4444';
+        trk.fillRect(3, 37, 3, 2);
+        trk.fillRect(18, 37, 3, 2);
+        // Mark (left — green shirt, facing forward/up)
+        trk.fillStyle = '#33aa55';
+        trk.fillRect(5, 24, 5, 7);
+        trk.fillStyle = '#ffcc88'; // head
+        trk.fillRect(6, 21, 3, 4);
+        trk.fillStyle = '#cc5500'; // orange hair
+        trk.fillRect(6, 20, 3, 2);
+        // Brian (right — blue shirt)
+        trk.fillStyle = '#3366cc';
+        trk.fillRect(14, 24, 5, 7);
+        trk.fillStyle = '#ffcc88'; // head
+        trk.fillRect(15, 21, 3, 4);
+        trk.fillStyle = '#333333'; // dark hair
+        trk.fillRect(15, 20, 3, 2);
+        // Wheels
+        trk.fillStyle = '#222222';
+        trk.fillRect(0, 4, 3, 6);   // front-left
+        trk.fillRect(21, 4, 3, 6);  // front-right
+        trk.fillRect(0, 30, 3, 6);  // back-left
+        trk.fillRect(21, 30, 3, 6); // back-right
+        // Wheel rims
+        trk.fillStyle = '#888888';
+        trk.fillRect(1, 6, 1, 2);
+        trk.fillRect(22, 6, 1, 2);
+        trk.fillRect(1, 32, 1, 2);
+        trk.fillRect(22, 32, 1, 2);
+
+        a.images['truck'] = trkc;
+
+        // ---- COW (top-down view) ----
+        const cowc = document.createElement('canvas');
+        cowc.width = 56; cowc.height = 16;
+        const cow = cowc.getContext('2d');
+        cow.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 4; f++) {
+            const ox = f * 14;
+            const legKick = [1, -1, 1, -1][f];
+            // Body (white)
+            cow.fillStyle = '#eeeeee';
+            cow.fillRect(ox + 2, 3, 10, 8);
+            // Black spots
+            cow.fillStyle = '#333333';
+            cow.fillRect(ox + 3, 4, 3, 3);
+            cow.fillRect(ox + 8, 6, 3, 2);
+            cow.fillRect(ox + 5, 8, 2, 2);
+            // Head
+            cow.fillStyle = '#eeeeee';
+            cow.fillRect(ox + 4, 0, 6, 4);
+            // Eyes
+            cow.fillStyle = '#000000';
+            cow.fillRect(ox + 5, 1, 1, 1);
+            cow.fillRect(ox + 8, 1, 1, 1);
+            // Horns
+            cow.fillStyle = '#ccaa66';
+            cow.fillRect(ox + 3, 0, 1, 2);
+            cow.fillRect(ox + 10, 0, 1, 2);
+            // Legs (walking)
+            cow.fillStyle = '#cccccc';
+            cow.fillRect(ox + 3, 11 + legKick, 2, 3);
+            cow.fillRect(ox + 9, 11 - legKick, 2, 3);
+            // Udder (pink)
+            cow.fillStyle = '#ffaaaa';
+            cow.fillRect(ox + 6, 10, 2, 2);
+            // Tail
+            cow.fillStyle = '#333333';
+            cow.fillRect(ox + 6, 11, 1, 3);
+        }
+
+        a.images['cow_topdown'] = cowc;
+        a.defineSpritesheet('cow_topdown_sheet', 'cow_topdown', {
+            frameWidth: 14, frameHeight: 16,
+            animations: { walk: { frames: [0,1,2,3], speed: 0.15, loop: true } }
+        });
+
+        // ---- ROBOT (top-down view) ----
+        const rbtc = document.createElement('canvas');
+        rbtc.width = 48; rbtc.height = 16;
+        const rbt = rbtc.getContext('2d');
+        rbt.imageSmoothingEnabled = false;
+
+        for (let f = 0; f < 4; f++) {
+            const ox = f * 12;
+            const bob = [0, -1, 0, -1][f];
+            // Body
+            rbt.fillStyle = '#778899';
+            rbt.fillRect(ox + 2, 3 + bob, 8, 10);
+            // Head
+            rbt.fillStyle = '#8899aa';
+            rbt.fillRect(ox + 3, 1 + bob, 6, 4);
+            // Eyes (RED)
+            rbt.fillStyle = '#ff0000';
+            rbt.fillRect(ox + 4, 2 + bob, 2, 2);
+            rbt.fillRect(ox + 7, 2 + bob, 2, 2);
+            // Glow
+            rbt.fillStyle = 'rgba(255,0,0,0.3)';
+            rbt.fillRect(ox + 3, 1 + bob, 6, 4);
+            // Antenna
+            rbt.fillStyle = '#ff4444';
+            rbt.fillRect(ox + 5, 0 + bob, 2, 2);
+            // Treads/feet
+            rbt.fillStyle = '#556677';
+            rbt.fillRect(ox + 1, 12 + bob, 3, 3);
+            rbt.fillRect(ox + 8, 12 + bob, 3, 3);
+        }
+
+        a.images['robot_topdown'] = rbtc;
+        a.defineSpritesheet('robot_topdown_sheet', 'robot_topdown', {
+            frameWidth: 12, frameHeight: 16,
+            animations: { walk: { frames: [0,1,2,3], speed: 0.12, loop: true } }
+        });
+
         // ---- TILESET (post-apocalyptic city) ----
         const tc = document.createElement('canvas');
         tc.width = 64; tc.height = 16;
@@ -1073,16 +1223,16 @@
             if (p && p._invincible <= 0) {
                 const pb = p.getWorldBounds(), eb = this.getWorldBounds();
                 if (pb.x < eb.right && pb.right > eb.x && pb.y < eb.bottom && pb.bottom > eb.y) {
-                    // CLAIRVOYANCE: Very forgiving stomp — if player is falling AND feet are above enemy's middle, it's a stomp
-                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.65;
-                    if (p.velocity.y > 0 && pb.bottom < enemyMidY) {
+                    // ULTRA forgiving stomp — feet anywhere above 85% of enemy, or moving downward at all
+                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.85;
+                    if (p.velocity.y >= -30 && pb.bottom < enemyMidY) {
                         p.velocity.y = -280;
                         gs.score += 100;
                         engine.shake(4); engine.hitFreeze = { active: true, timer: 0.05 };
                         engine.audio.sfxHit();
                         showQuip(scene, this.position.x, this.position.y - 10);
                         this.destroy();
-                    } else if (p.velocity.y <= 0 || pb.bottom >= enemyMidY) {
+                    } else if (p.velocity.y < -30 || pb.bottom >= enemyMidY) {
                         p._hurt();
                     }
                 }
@@ -1128,15 +1278,15 @@
             if (p && p._invincible <= 0) {
                 const pb = p.getWorldBounds(), eb = this.getWorldBounds();
                 if (pb.x < eb.right && pb.right > eb.x && pb.y < eb.bottom && pb.bottom > eb.y) {
-                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.65;
-                    if (p.velocity.y > 0 && pb.bottom < enemyMidY) {
-                        // STOMP drone! very forgiving
+                    const enemyMidY = eb.y + (eb.bottom - eb.y) * 0.85;
+                    if (p.velocity.y >= -30 && pb.bottom < enemyMidY) {
+                        // STOMP drone! ultra forgiving
                         p.velocity.y = -300; gs.score += 200;
                         engine.shake(4); engine.hitFreeze = { active: true, timer: 0.05 };
                         engine.audio.sfxHit();
                         showQuip(scene, this.position.x, this.position.y - 10);
                         this.destroy();
-                    } else if (p.velocity.y <= 0 || pb.bottom >= enemyMidY) {
+                    } else if (p.velocity.y < -30 || pb.bottom >= enemyMidY) {
                         p._hurt();
                     }
                 }
@@ -1288,7 +1438,7 @@
     // =============================================
     function buildLevel(num) {
         const scene = new Scene(`Level${num}`);
-        const isLast = num === 2;
+        const isLast = false; // Level 3 (driving) is now the final level
 
         // BG
         const bg1 = new ParallaxLayer('BG', 'bg', 0.1);
@@ -1412,10 +1562,16 @@
             };
             exit.signals.on('body_entered', (body) => {
                 if (body.tags.has('player')) {
-                    gs.level = 2;
-                    engine.switchScene('level2', 'fade');
-                    music.stopSong();
-                    music.playSong(MusicEngine.SONGS.battle);
+                    if (num === 1) {
+                        gs.level = 2;
+                        engine.switchScene('level2', 'fade');
+                        music.stopSong();
+                        music.playSong(MusicEngine.SONGS.battle);
+                    } else if (num === 2) {
+                        gs.level = 3;
+                        engine.switchScene('level3_cutscene', 'fade');
+                        music.stopSong();
+                    }
                 }
             });
             scene.addChild(exit);
@@ -1519,6 +1675,691 @@
         };
 
         engine.addScene(`level${num}`, scene);
+    }
+
+    // =============================================
+    //  LEVEL 3 CUTSCENE — The boys reunite
+    // =============================================
+    function buildLevel3Cutscene() {
+        const scene = new Scene('Level3Cutscene');
+        scene.backgroundColor = '#0a0a12';
+        const bgFill = new Node('BGFill');
+        bgFill.drawUI = function(ctx) {
+            ctx.fillStyle = '#0a0a12';
+            ctx.fillRect(0, 0, engine.width, engine.height);
+        };
+        scene.addChild(bgFill);
+
+        const slides = [
+            { text: "",                                                     color: '#000000', delay: 1.0 },
+            { text: "Mark and Brian dust themselves off.",                  color: '#aaaaaa', delay: 2.5 },
+            { text: "",                                                     color: '#000000', delay: 0.8 },
+            { text: "\"Matt... you actually came for us.\"",                color: '#3366cc', delay: 2.5 },
+            { text: "\"Through ALL those robots.\"",                        color: '#33aa55', delay: 2.5 },
+            { text: "",                                                     color: '#000000', delay: 0.8 },
+            { text: "\"Don't mention it.\"",                                color: '#cc3333', delay: 2.5 },
+            { text: "",                                                     color: '#000000', delay: 1.0 },
+            { text: "\"Hey Matt... wanna grab some milk at the park?\"",    color: '#33aa55', delay: 3.0 },
+            { text: "",                                                     color: '#000000', delay: 0.8 },
+            { text: "\"Say less. Let's roll.\"",                            color: '#cc3333', delay: 2.5 },
+            { text: "",                                                     color: '#000000', delay: 1.5 },
+        ];
+
+        let slideIndex = 0;
+        let slideTimer = 0;
+
+        // Character sprites at the bottom
+        const charNode = new Node('Chars');
+        charNode._time = 0;
+        charNode.drawUI = function(ctx) {
+            this._time += 0.016;
+            const baseY = engine.height * 0.65;
+            const bob1 = Math.sin(this._time * 2) * 2;
+            const bob2 = Math.sin(this._time * 2 + 1) * 2;
+            const bob3 = Math.sin(this._time * 2 + 2) * 2;
+
+            // Matt (center, red flannel)
+            ctx.fillStyle = '#cc3333';
+            ctx.fillRect(310, baseY + bob1, 12, 16);
+            ctx.fillStyle = '#ffcc99';
+            ctx.fillRect(312, baseY - 8 + bob1, 8, 8);
+            ctx.fillStyle = '#8B6914';
+            ctx.fillRect(312, baseY - 10 + bob1, 8, 4);
+            ctx.fillStyle = '#7a5c12'; // beard
+            ctx.fillRect(313, baseY - 2 + bob1, 6, 3);
+
+            // Mark (right, green)
+            ctx.fillStyle = '#33aa55';
+            ctx.fillRect(350, baseY + bob2, 12, 16);
+            ctx.fillStyle = '#ffcc99';
+            ctx.fillRect(352, baseY - 8 + bob2, 8, 8);
+            ctx.fillStyle = '#cc5500';
+            ctx.fillRect(352, baseY - 10 + bob2, 8, 4);
+
+            // Brian (left, blue)
+            ctx.fillStyle = '#3366cc';
+            ctx.fillRect(270, baseY + bob3, 12, 16);
+            ctx.fillStyle = '#ffcc99';
+            ctx.fillRect(272, baseY - 8 + bob3, 8, 8);
+            ctx.fillStyle = '#333333';
+            ctx.fillRect(272, baseY - 10 + bob3, 8, 4);
+
+            // Speaker highlight
+            if (slideIndex >= 0 && slideIndex < slides.length) {
+                const slide = slides[slideIndex];
+                let speakerX = 0;
+                if (slide.color === '#cc3333') speakerX = 316; // Matt
+                else if (slide.color === '#33aa55') speakerX = 356; // Mark
+                else if (slide.color === '#3366cc') speakerX = 276; // Brian
+                if (speakerX > 0) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+                    ctx.beginPath();
+                    ctx.arc(speakerX, baseY + 5, 20, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        };
+        scene.addChild(charNode);
+
+        const textNode = new TextNode('SlideText', '');
+        textNode.position = { x: 320, y: 100 };
+        textNode.font = '14px monospace';
+        textNode.color = '#ffffff';
+        textNode.align = 'center';
+        textNode.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+        scene.addChild(textNode);
+
+        const skipText = new TextNode('Skip', 'SPACE / A to skip');
+        skipText.position = { x: 320, y: 320 };
+        skipText.font = '11px monospace';
+        skipText.color = '#333344';
+        skipText.align = 'center';
+        scene.addChild(skipText);
+
+        function goToLevel3() {
+            engine.switchScene('level3', 'fade');
+            music.stopSong();
+            music.playSong(MusicEngine.SONGS.driving);
+        }
+
+        scene.update = function(dt) {
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a') || engine.input.isKeyDown('gamepad_start')) {
+                goToLevel3();
+                return;
+            }
+            if (slideIndex >= slides.length) {
+                goToLevel3();
+                return;
+            }
+            const slide = slides[slideIndex];
+            slideTimer += dt;
+            textNode.text = slide.text;
+            textNode.color = slide.color;
+            textNode.opacity = Math.min(1, slideTimer * 3);
+            if (slideTimer >= slide.delay) { slideTimer = 0; slideIndex++; }
+        };
+
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: 320, y: 180 };
+            engine.camera.setZoom(1, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+            slideIndex = 0;
+            slideTimer = 0;
+        });
+
+        engine.addScene('level3_cutscene', scene);
+    }
+
+    // =============================================
+    //  LEVEL 3 — THE DRIVE HOME (top-down driving)
+    // =============================================
+    function buildLevel3() {
+        const scene = new Scene('Level3');
+        const ROAD_LEFT = 120;
+        const ROAD_RIGHT = 520;
+        const ROAD_WIDTH = ROAD_RIGHT - ROAD_LEFT;
+        const TRUCK_Y = 280; // Fixed vertical position (75% down)
+        const LEVEL_DURATION = 75; // seconds
+
+        // Road lines state (scrolling dashed lines)
+        let roadLineOffset = 0;
+        let driveTimer = 0;
+        let scrollSpeed = 120; // pixels/sec, ramps up
+        let spawnTimer = 0;
+        let engineHumOsc = null;
+        let obstaclesSpawned = 0;
+        let almostHomeShown = false;
+
+        // Truck player
+        const truck = new Node('Truck');
+        truck.position = { x: 320, y: TRUCK_Y };
+        truck._invincible = 0;
+
+        truck.draw = function(ctx) {
+            // Draw truck sprite (24x40, centered)
+            const img = engine.assets.images['truck'];
+            if (img) ctx.drawImage(img, -12, -20);
+
+            // Invincible flash
+            if (this._invincible > 0) {
+                if (Math.floor(this._invincible * 10) % 2 === 0) {
+                    ctx.fillStyle = 'rgba(255,0,0,0.3)';
+                    ctx.fillRect(-12, -18, 24, 36);
+                }
+            }
+        };
+
+        truck.update = function(dt) {
+            if (gs.state !== 'playing') return;
+            const input = engine.input;
+
+            if (this._invincible > 0) this._invincible -= dt;
+
+            // Left/right steering
+            let moveX = 0;
+            if (input.isKey('ArrowLeft') || input.isKey('KeyA')) moveX = -1;
+            if (input.isKey('ArrowRight') || input.isKey('KeyD')) moveX = 1;
+            const gp = input.getAxis('left');
+            if (Math.abs(gp.x) > 0.2) moveX = gp.x;
+
+            const steerSpeed = 200;
+            this.position.x += moveX * steerSpeed * dt;
+            // Clamp to road
+            this.position.x = Math.max(ROAD_LEFT + 16, Math.min(ROAD_RIGHT - 16, this.position.x));
+        };
+
+        scene.addChild(truck);
+
+        // === ROAD BACKGROUND (world space, camera-aware) ===
+        const road = new Node('Road');
+        road.zIndex = -100;
+        road.draw = function(ctx) {
+            // Draw in world space — camera transform is already applied
+            const camY = engine.camera.position.y;
+            const viewH = engine.height / (engine.camera.zoom || 1);
+            const viewW = engine.width / (engine.camera.zoom || 1);
+            const camX = engine.camera.position.x;
+            const top = camY - viewH;
+            const bot = camY + viewH;
+            const left = camX - viewW;
+            const right = camX + viewW;
+
+            // Grass (covers visible area + margin)
+            ctx.fillStyle = '#2a5a1a';
+            ctx.fillRect(left, top, viewW * 2, viewH * 2);
+
+            // Road
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fillRect(ROAD_LEFT, top, ROAD_WIDTH, viewH * 2);
+
+            // Road edge lines
+            ctx.fillStyle = '#cccc44';
+            ctx.fillRect(ROAD_LEFT, top, 3, viewH * 2);
+            ctx.fillRect(ROAD_RIGHT - 3, top, 3, viewH * 2);
+
+            // Dashed center line
+            roadLineOffset = (roadLineOffset + scrollSpeed * 0.016) % 40;
+            ctx.fillStyle = '#ffffff';
+            const roadCenterX = ROAD_LEFT + ROAD_WIDTH / 2 - 1;
+            for (let y = top - 40 + (roadLineOffset % 40); y < bot; y += 40) {
+                ctx.fillRect(roadCenterX, y, 3, 20);
+            }
+
+            // Roadside details (fence posts)
+            for (let y = top - 60 + ((roadLineOffset * 0.5) % 60); y < bot; y += 60) {
+                ctx.fillStyle = '#664422';
+                ctx.fillRect(ROAD_LEFT - 12, y, 4, 10);
+                ctx.fillRect(ROAD_RIGHT + 8, y, 4, 10);
+            }
+
+            // Grass tufts
+            ctx.fillStyle = '#3a7a2a';
+            for (let y = top - 50 + ((roadLineOffset * 0.3) % 50); y < bot; y += 50) {
+                ctx.fillRect(ROAD_LEFT - 60, y, 6, 4);
+                ctx.fillRect(ROAD_LEFT - 30, y + 20, 5, 3);
+                ctx.fillRect(ROAD_RIGHT + 30, y + 10, 6, 4);
+                ctx.fillRect(ROAD_RIGHT + 55, y + 35, 5, 3);
+            }
+        };
+        scene.addChild(road);
+
+        // === SFX HELPERS ===
+        function explodeRobot(x, y) {
+            // Big explosion SFX
+            engine.audio.synth('sawtooth', { frequency: 300, frequencyEnd: 30, duration: 0.2, volume: 0.35 });
+            engine.audio.synth('square', { frequency: 150, frequencyEnd: 20, duration: 0.15, volume: 0.2 });
+            engine.audio.synth('sawtooth', { frequency: 500, frequencyEnd: 80, duration: 0.1, volume: 0.15 });
+            engine.shake(6);
+
+            // Big explosion particles
+            const colors = ['#ff4444','#ff8800','#ffcc00','#ffffff','#ff6600'];
+            for (let p = 0; p < 15; p++) {
+                engine.particles.emit(x, y, {
+                    count: 1, color: colors[Math.floor(Math.random() * colors.length)],
+                    speed: 40 + Math.random() * 80, life: 0.3 + Math.random() * 0.4,
+                    size: 2 + Math.random() * 4,
+                });
+            }
+
+            // Metal debris particles
+            for (let p = 0; p < 6; p++) {
+                engine.particles.emit(x, y, {
+                    count: 1, color: '#778899',
+                    speed: 20 + Math.random() * 50, life: 0.4 + Math.random() * 0.3,
+                    size: 1 + Math.random() * 2,
+                });
+            }
+
+            // Explosion flash node
+            const flash = new Node('Explosion');
+            flash.position = { x, y };
+            flash._life = 0.25;
+            flash._maxLife = 0.25;
+            flash.draw = function(ctx) {
+                const t = this._life / this._maxLife;
+                const r = (1 - t) * 20 + 5;
+                ctx.fillStyle = 'rgba(255,200,50,' + (t * 0.8) + ')';
+                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = 'rgba(255,100,0,' + (t * 0.5) + ')';
+                ctx.beginPath(); ctx.arc(0, 0, r * 1.5, 0, Math.PI * 2); ctx.fill();
+            };
+            flash.update = function(dt) { this._life -= dt; if (this._life <= 0) this.destroy(); };
+            scene.addChild(flash);
+        }
+
+        function mooCow() {
+            // MOoooOoo — low wavering sine
+            engine.audio.synth('sine', { frequency: 180, frequencyEnd: 100, duration: 0.5, volume: 0.3 });
+            setTimeout(() => {
+                engine.audio.synth('sine', { frequency: 140, frequencyEnd: 170, duration: 0.3, volume: 0.25 });
+            }, 150);
+            setTimeout(() => {
+                engine.audio.synth('sine', { frequency: 160, frequencyEnd: 80, duration: 0.4, volume: 0.2 });
+            }, 350);
+        }
+
+        // === OBSTACLE SPAWNER ===
+        function spawnObstacle() {
+            const progress = driveTimer / LEVEL_DURATION;
+            const isCow = Math.random() < 0.6;
+            const x = ROAD_LEFT + 20 + Math.random() * (ROAD_WIDTH - 40);
+
+            const obs = new Node(isCow ? 'Cow' : 'RobotObs');
+            const camTop = engine.camera.position.y - engine.height / (engine.camera.zoom || 1);
+            obs.position = { x, y: camTop - 20 };
+            obs._isCow = isCow;
+            obs._speed = scrollSpeed + (isCow ? -20 : 10) + Math.random() * 30;
+            obs._drift = isCow ? (Math.random() - 0.5) * 30 : (Math.random() - 0.5) * 60;
+            obs._time = Math.random() * 6;
+            obs._hit = false;
+            obs.tags = new Set([isCow ? 'cow' : 'robot_obs']);
+
+            if (isCow) {
+                const sprite = new AnimatedSprite('CS');
+                sprite.setSpritesheet('cow_topdown_sheet');
+                sprite.addAnimation('walk', { frames: [0,1,2,3], speed: 0.15, loop: true });
+                sprite.play('walk');
+                obs.addChild(sprite);
+            } else {
+                const sprite = new AnimatedSprite('RS');
+                sprite.setSpritesheet('robot_topdown_sheet');
+                sprite.addAnimation('walk', { frames: [0,1,2,3], speed: 0.12, loop: true });
+                sprite.play('walk');
+                obs.addChild(sprite);
+            }
+
+            obs.update = function(dt) {
+                if (this._hit) {
+                    // Still moving after hit (cow bounce) — but hidden for robots
+                    if (this._isCow && this._bouncing) {
+                        this.position.y += this._speed * dt;
+                        this.position.x += this._drift * dt;
+                        this._bounceLife -= dt;
+                        if (this._bounceLife <= 0) { this.visible = false; this.children = []; this.draw = function(){}; this.update = function(){}; this.destroy(); }
+                    }
+                    return;
+                }
+                this._time += dt;
+                this.position.y += this._speed * dt;
+                this.position.x += this._drift * dt;
+                // Clamp to road
+                this.position.x = Math.max(ROAD_LEFT + 8, Math.min(ROAD_RIGHT - 8, this.position.x));
+
+                // Off screen — destroy (camera-relative)
+                const camBot = engine.camera.position.y + engine.height / (engine.camera.zoom || 1);
+                if (this.position.y > camBot + 30) { this.destroy(); return; }
+
+                // Collision with truck
+                const dx = Math.abs(this.position.x - truck.position.x);
+                const dy = Math.abs(this.position.y - truck.position.y);
+                if (dx < 16 && dy < 22) {
+                    this._hit = true;
+                    if (this._isCow) {
+                        // Hit cow — take damage!
+                        if (truck._invincible <= 0) {
+                            gs.lives--;
+                            truck._invincible = 2.0;
+                            engine.shake(8);
+                            // MOoooOoo SFX
+                            mooCow();
+
+                            // Cow damage quip
+                            const cowQuips = ["MOoooOoo!", "WATCH THE ROAD MATT!", "That's organic damage!", "THE COW WINS THIS ROUND!"];
+                            const cq = new TextNode('CQ', cowQuips[Math.floor(Math.random() * cowQuips.length)]);
+                            cq.position = { x: this.position.x, y: this.position.y - 20 };
+                            cq.font = 'bold 10px monospace'; cq.color = '#ff4444'; cq.align = 'center';
+                            cq.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                            cq._life = 1.5; cq._startY = this.position.y - 20;
+                            cq.drawUI = function(ctx) {
+                                ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                                ctx.globalAlpha = Math.min(1, this._life);
+                                ctx.fillStyle = '#000'; ctx.fillText(this.text, this.position.x + 1, this.position.y + 1);
+                                ctx.fillStyle = this.color; ctx.fillText(this.text, this.position.x, this.position.y);
+                                ctx.restore();
+                            };
+                            cq.update = function(d) { this._life -= d; this.position.y = this._startY - (1.5 - this._life) * 15; if (this._life <= 0) this.destroy(); };
+                            cq.draw = function() {};
+                            scene.addChild(cq);
+
+                            if (gs.lives <= 0) {
+                                gs.state = 'gameover';
+                                engine.switchScene('gameover', 'fade');
+                                music.stopSong();
+                            }
+                        }
+                        // Cow bounces off to the side
+                        this._drift = (this.position.x > truck.position.x ? 1 : -1) * 200;
+                        this._speed *= 1.5;
+                        this._bouncing = true;
+                        this._bounceLife = 0.5;
+                    } else {
+                        // Hit robot — SQUASH! Points!
+                        gs.score += 150;
+                        const ex = this.position.x, ey = this.position.y;
+                        explodeRobot(ex, ey);
+
+                        const squashQuips = ["ROAD KILL!", "FLAT ROBOT!", "BUMPER BONUS!", "SQUISH!"];
+                        const sq = new TextNode('SQ', squashQuips[Math.floor(Math.random() * squashQuips.length)]);
+                        sq.position = { x: ex, y: ey - 15 };
+                        sq.font = 'bold 10px monospace'; sq.color = '#ffdd44'; sq.align = 'center';
+                        sq.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                        sq._life = 1.0;
+                        sq.drawUI = function(ctx) {
+                            ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                            ctx.globalAlpha = Math.min(1, this._life * 2);
+                            const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                            ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x + 1, sp.y + 1);
+                            ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                            ctx.restore();
+                        };
+                        sq.update = function(d) { this._life -= d; this.position.y -= d * 20; if (this._life <= 0) this.destroy(); };
+                        sq.draw = function() {};
+                        scene.addChild(sq);
+
+                        // Fully remove — hide, detach children, destroy
+                        this.visible = false;
+                        this.children = [];
+                        this.draw = function() {};
+                        this.update = function() {};
+                        this.destroy();
+                    }
+                }
+            };
+
+            scene.addChild(obs);
+            obstaclesSpawned++;
+
+            // Cows moo randomly when spawning (~40% chance)
+            if (isCow && Math.random() < 0.4) {
+                engine.audio.synth('sine', { frequency: 140 + Math.random() * 40, frequencyEnd: 80 + Math.random() * 30, duration: 0.3, volume: 0.12 });
+            }
+        }
+
+        // === MILK CARTONS ON ROAD ===
+        let milkSpawnTimer = 0;
+        let driveSpeedBoost = 0;
+        let driveSpeedBoostTimer = 0;
+
+        function spawnMilkCarton() {
+            const x = ROAD_LEFT + 20 + Math.random() * (ROAD_WIDTH - 40);
+            const camTop = engine.camera.position.y - engine.height / (engine.camera.zoom || 1);
+            const milk = new Node('MilkCarton');
+            milk.position = { x, y: camTop - 20 };
+            milk._speed = scrollSpeed * 0.9;
+            milk._time = Math.random() * 6;
+            milk.tags = new Set(['milk_carton']);
+
+            milk.draw = function(ctx) {
+                this._time += 0.016;
+                const bob = Math.sin(this._time * 4) * 1;
+                // Milk bottle
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(-3, -5 + bob, 6, 10);
+                // Cap
+                ctx.fillStyle = '#44aa44';
+                ctx.fillRect(-2, -6 + bob, 4, 2);
+                // Milk inside
+                ctx.fillStyle = '#ffffee';
+                ctx.fillRect(-2, -1 + bob, 4, 5);
+                // Label
+                ctx.fillStyle = '#44aa44';
+                ctx.fillRect(-3, 0 + bob, 6, 3);
+                // Glow
+                ctx.fillStyle = 'rgba(255,255,200,0.2)';
+                ctx.beginPath(); ctx.arc(0, 0 + bob, 8, 0, Math.PI * 2); ctx.fill();
+            };
+
+            milk.update = function(dt) {
+                this.position.y += this._speed * dt;
+                // Off screen
+                const camBot = engine.camera.position.y + engine.height / (engine.camera.zoom || 1);
+                if (this.position.y > camBot + 30) { this.destroy(); return; }
+
+                // Collision with truck
+                const dx = Math.abs(this.position.x - truck.position.x);
+                const dy = Math.abs(this.position.y - truck.position.y);
+                if (dx < 16 && dy < 20) {
+                    gs.milkCollected++;
+                    gs.score += 100;
+                    driveSpeedBoost = 0.3; // 30% speed boost
+                    driveSpeedBoostTimer = 3.0; // lasts 3 seconds
+                    engine.shake(2);
+                    // Milk collect SFX — satisfying glug
+                    engine.audio.sfxPowerUp();
+                    engine.audio.synth('sine', { frequency: 600, frequencyEnd: 900, duration: 0.1, volume: 0.2 });
+
+                    // "GOT MILK!" text
+                    const mt = new TextNode('GM', 'GOT MILK!');
+                    mt.position = { x: this.position.x, y: this.position.y - 15 };
+                    mt.font = 'bold 10px monospace'; mt.color = '#44ff88'; mt.align = 'center';
+                    mt.shadow = { color: '#000', offsetX: 1, offsetY: 1 };
+                    mt._life = 1.0;
+                    mt.drawUI = function(ctx) {
+                        ctx.save(); ctx.font = this.font; ctx.textAlign = 'center';
+                        ctx.globalAlpha = Math.min(1, this._life * 2);
+                        const sp = engine.camera.worldToScreen(this.position.x, this.position.y);
+                        ctx.fillStyle = '#000'; ctx.fillText(this.text, sp.x + 1, sp.y + 1);
+                        ctx.fillStyle = this.color; ctx.fillText(this.text, sp.x, sp.y);
+                        ctx.restore();
+                    };
+                    mt.update = function(d) { this._life -= d; this.position.y -= d * 20; if (this._life <= 0) this.destroy(); };
+                    mt.draw = function() {};
+                    scene.addChild(mt);
+
+                    // Sparkle particles
+                    for (let p = 0; p < 8; p++) {
+                        engine.particles.emit(this.position.x, this.position.y, {
+                            count: 1, color: ['#ffffff','#44ff88','#ffff88'][Math.floor(Math.random()*3)],
+                            speed: 20 + Math.random() * 40, life: 0.3, size: 2 + Math.random() * 2,
+                        });
+                    }
+
+                    this.destroy();
+                }
+            };
+
+            scene.addChild(milk);
+        }
+
+        // === HUD ===
+        const hud = new Node('HUD');
+        hud.drawUI = function(ctx) {
+            ctx.save();
+
+            // Progress bar at top
+            const progress = Math.min(1, driveTimer / LEVEL_DURATION);
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(100, 8, 440, 16);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(102, 10, 436 * progress, 12);
+            ctx.fillStyle = '#66cc66';
+            ctx.fillRect(102, 10, 436 * progress, 4);
+            // Progress label
+            ctx.font = 'bold 10px monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'left';
+            ctx.fillText('HOME', 542, 20);
+            ctx.textAlign = 'right';
+            ctx.fillText('DRIVE', 98, 20);
+
+            // Home icon at end
+            ctx.fillStyle = '#ffcc44';
+            ctx.fillRect(536 + 436 * 0, 6, 8, 8);
+
+            // Left panel
+            ctx.textAlign = 'left';
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(4, 30, 180, 30);
+            ctx.font = 'bold 14px monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('LIVES:', 10, 46);
+            ctx.fillStyle = '#ff4444';
+            ctx.fillText(' ' + '\u2665'.repeat(Math.max(0, gs.lives)), 76, 46);
+
+            // Right panel
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(engine.width - 184, 30, 180, 30);
+            ctx.fillStyle = '#ffdd44';
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('SCORE: ' + gs.score, engine.width - 10, 46);
+
+            // Milk speed boost indicator
+            if (driveSpeedBoostTimer > 0) {
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#44ff88';
+                ctx.font = 'bold 14px monospace';
+                ctx.fillText('MILK BOOST! +' + Math.round(driveSpeedBoost * 100) + '% SPEED', engine.width / 2, 56);
+            }
+
+            // ALMOST HOME text
+            if (almostHomeShown) {
+                const flash = Math.sin(performance.now() * 0.006) * 0.3 + 0.7;
+                ctx.globalAlpha = flash;
+                ctx.font = 'bold 18px monospace';
+                ctx.fillStyle = '#44ff88';
+                ctx.textAlign = 'center';
+                ctx.fillText('ALMOST HOME!', engine.width / 2, engine.height / 2 - 40);
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.restore();
+        };
+        scene.addChild(hud);
+
+        // === MAIN UPDATE ===
+        scene.update = function(dt) {
+            if (gs.state !== 'playing') return;
+
+            // Camera follows truck X, fixed Y
+            engine.camera.position.x += (truck.position.x - engine.camera.position.x) * 0.1;
+            engine.camera.position.y = TRUCK_Y - 40;
+
+            driveTimer += dt;
+
+            // Difficulty ramp
+            const progress = driveTimer / LEVEL_DURATION;
+            const baseSpeed = 120 + progress * 180; // 120 → 300 px/s
+            scrollSpeed = baseSpeed * (1 + (driveSpeedBoostTimer > 0 ? driveSpeedBoost : 0));
+
+            // Spawn obstacles
+            const spawnInterval = Math.max(0.4, 1.5 - progress * 1.2); // 1.5s → 0.4s
+            spawnTimer += dt;
+            if (spawnTimer >= spawnInterval) {
+                spawnTimer = 0;
+                spawnObstacle();
+            }
+
+            // Milk carton spawning (every ~4-6 seconds)
+            milkSpawnTimer += dt;
+            if (milkSpawnTimer >= 4 + Math.random() * 2) {
+                milkSpawnTimer = 0;
+                spawnMilkCarton();
+            }
+
+            // Speed boost decay
+            if (driveSpeedBoostTimer > 0) {
+                driveSpeedBoostTimer -= dt;
+                if (driveSpeedBoostTimer <= 0) driveSpeedBoost = 0;
+            }
+
+            // "Almost home!" at 80%
+            if (progress >= 0.8 && !almostHomeShown) {
+                almostHomeShown = true;
+                engine.audio.synth('square', { frequency: 400, frequencyEnd: 600, duration: 0.15, volume: 0.2 });
+                engine.audio.synth('square', { frequency: 600, frequencyEnd: 800, duration: 0.15, volume: 0.15 });
+            }
+
+            // Level complete!
+            if (driveTimer >= LEVEL_DURATION) {
+                gs.state = 'victory';
+                engine.shake(6);
+                // Victory honk
+                engine.audio.synth('square', { frequency: 400, frequencyEnd: 600, duration: 0.15, volume: 0.25 });
+                setTimeout(() => {
+                    engine.audio.synth('square', { frequency: 600, frequencyEnd: 400, duration: 0.2, volume: 0.2 });
+                }, 200);
+                music.stopSong();
+                setTimeout(() => engine.switchScene('victory', 'fade'), 1500);
+            }
+        };
+
+        // Camera setup — follow truck X, fixed Y, zoomed in
+        scene.signals.on('entered', () => {
+            engine.camera.position = { x: truck.position.x, y: TRUCK_Y - 40 };
+            engine.camera.setZoom(1.5, true);
+            engine.camera.target = null;
+            engine.camera.bounds = null;
+            // Reset state
+            driveTimer = 0;
+            scrollSpeed = 120;
+            spawnTimer = 0;
+            milkSpawnTimer = 0;
+            driveSpeedBoost = 0;
+            driveSpeedBoostTimer = 0;
+            obstaclesSpawned = 0;
+            almostHomeShown = false;
+            gs.state = 'playing';
+
+            // Hide extra mobile buttons for L3 (only left/right needed)
+            const hideIds = ['mm-jump', 'mm-atk', 'mm-shield', 'mm-rant'];
+            hideIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+        });
+
+        // Show buttons again when leaving L3
+        scene.signals.on('exited', () => {
+            const showIds = ['mm-jump', 'mm-atk', 'mm-shield', 'mm-rant'];
+            showIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = '';
+            });
+        });
+
+        engine.addScene('level3', scene);
     }
 
     // =============================================
@@ -1698,6 +2539,8 @@
                 setTimeout(() => {
                     buildLevel(1);
                     buildLevel(2);
+                    buildLevel3Cutscene();
+                    buildLevel3();
                     engine.switchScene('level1', 'fade');
                     music.playSong(MusicEngine.SONGS.adventure);
                 }, 50);
@@ -1857,7 +2700,7 @@
             // Title
             ctx.font = 'bold 24px monospace';
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('MATT GOT THE MILK!', 320, 40);
+            ctx.fillText('MATT MADE IT HOME!', 320, 40);
 
             // Friends status
             ctx.font = '14px monospace';
@@ -2599,6 +3442,8 @@
     buildTitle();
     buildLevel(1);
     buildLevel(2);
+    buildLevel3Cutscene();
+    buildLevel3();
     buildGameOver();
     buildVictory();
     buildRFKCutscene();

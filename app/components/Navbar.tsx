@@ -5,7 +5,7 @@ import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { useNotifications } from "@/lib/useNotifications";
 
-const TOP_LEVEL = ["/", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope"];
+const TOP_LEVEL = ["/", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim"];
 
 const gameSections = [
   { label: "⚔️ BATTLE ARENA", items: [
@@ -14,6 +14,9 @@ const gameSections = [
     { href: "/tightrope",         label: "🎪 Tightrope Terror",  desc: "Balance or fall" },
     { href: "/games/matty-milkers", label: "🥛 Matty Milkers",   desc: "Raw milk platformer" },
     { href: "/games/wingman",     label: "💘 Wingman",           desc: "Dating platformer" },
+  ]},
+  { label: "🎉 PARTY GAMES", items: [
+    { href: "/games/moon-sim", label: "🌙 Moon Sim", desc: "Take Matt to the moon" },
   ]},
   { label: "🎲 TABLE GAMES", items: [
     { href: "/chess", label: "♟️ Chess",  desc: "1v1 with ELO rating" },

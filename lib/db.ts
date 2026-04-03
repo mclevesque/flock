@@ -4150,7 +4150,9 @@ export async function createParty(leaderId: string, leaderName: string, leaderAv
 
 export async function joinParty(partyId: string, userId: string, username: string, avatarUrl: string): Promise<{ ok: boolean; error?: string }> {
   await ensureExpansionTables();
-  const rows = await sql`SELECT * FROM town_parties WHERE id = ${partyId}`.catch(() => []);
+  // Retry SELECT — Neon free tier can silently timeout on first call
+  let rows = await sql`SELECT * FROM town_parties WHERE id = ${partyId}`.catch(() => []);
+  if (!rows[0]) rows = await sql`SELECT * FROM town_parties WHERE id = ${partyId}`.catch(() => []);
   if (!rows[0]) return { ok: false, error: "Party not found" };
   const party = rows[0];
   let members: PartyMember[] = (party.members as PartyMember[]) ?? [];
@@ -4165,7 +4167,7 @@ export async function joinParty(partyId: string, userId: string, username: strin
   if (members.length >= Number(party.max_size)) return { ok: false, error: "Party is full" };
   await leaveParty(userId);
   const newMembers = [...members, { userId, username, avatarUrl, isLeader: false }];
-  await sql`UPDATE town_parties SET members = ${JSON.stringify(newMembers)}::jsonb WHERE id = ${partyId}`;
+  await sql`UPDATE town_parties SET members = ${JSON.stringify(newMembers)}::jsonb WHERE id = ${partyId}`.catch(() => {});
   return { ok: true };
 }
 
@@ -4247,17 +4249,23 @@ export async function getPartyForUser(userId: string): Promise<Party | null> {
 }
 
 /**
- * Lightweight party lookup — only queries by leader_id, no avatar refresh,
- * no JSONB containment scan. Use this when you need a fast auth check
- * (e.g. invite handler) and the caller is always the leader.
+ * Lightweight party lookup — skips avatar refresh and ensureExpansionTables.
+ * Tries leader_id first (fast primary key), then member JSONB scan as fallback.
+ * Use instead of getPartyForUser when Neon is timing out.
  */
-export async function getPartyByLeader(leaderId: string): Promise<Party | null> {
-  const rows = await sql`
+export async function getPartyQuick(userId: string): Promise<Party | null> {
+  // 1. Try leader lookup first (cheapest — index on leader_id)
+  let rows = await sql`
     SELECT id, leader_id, leader_name, leader_avatar, members, max_size, created_at
-    FROM town_parties
-    WHERE leader_id = ${leaderId}
-    LIMIT 1
+    FROM town_parties WHERE leader_id = ${userId} LIMIT 1
   `.catch(() => []);
+  // 2. Fall back to member JSONB scan (covers non-leaders)
+  if (!rows[0]) {
+    rows = await sql`
+      SELECT id, leader_id, leader_name, leader_avatar, members, max_size, created_at
+      FROM town_parties WHERE members @> ${JSON.stringify([{ userId }])}::jsonb LIMIT 1
+    `.catch(() => []);
+  }
   if (!rows[0]) return null;
   const members: PartyMember[] = Array.isArray(rows[0].members) ? (rows[0].members as PartyMember[]) : [];
   return {
@@ -4270,6 +4278,8 @@ export async function getPartyByLeader(leaderId: string): Promise<Party | null> 
     createdAt: Number(rows[0].created_at),
   };
 }
+/** @deprecated use getPartyQuick */
+export const getPartyByLeader = getPartyQuick;
 
 export async function getFriendParties(userId: string): Promise<Party[]> {
   await ensureExpansionTables();
