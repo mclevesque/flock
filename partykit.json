@@ -8,7 +8,8 @@
     "town": "party/town.ts",
     "presence": "party/presence.ts",
     "notifications": "party/notifications.ts",
-    "voice": "party/voice.ts"
+    "voice": "party/voice.ts",
+    "netplay": "party/netplay.ts"
   },
   "compatibilityDate": "2024-09-23"
 }
