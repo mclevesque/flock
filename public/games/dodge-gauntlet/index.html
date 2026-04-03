@@ -148,6 +148,15 @@ canvas.addEventListener('touchstart', e => {
   ensureAudio();
   for (const t of e.changedTouches) {
     const p = screenToGame(t.clientX, t.clientY);
+    // Music toggle tap
+    const mb = musicBtnPos;
+    if (p.x >= mb.x - 4 && p.x <= mb.x + 50 && p.y >= mb.y && p.y <= mb.y + mb.h + 8) {
+      toggleMusic(); continue;
+    }
+    // In menu or gameover, treat tap as click for buttons
+    if (state === 'menu' || state === 'gameover') {
+      mouseClick = p; continue;
+    }
     // Check dash button
     const dx = p.x - dashBtnPos.x, dy = p.y - dashBtnPos.y;
     if (dx * dx + dy * dy < 48 * 48) { touchDash = true; continue; }
