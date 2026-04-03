@@ -4,6 +4,7 @@ import { useSession } from "@/lib/use-session";
 import { useRouter, usePathname } from "next/navigation";
 import { useVoice } from "./VoiceWidget";
 import { useNotifications, type PushNotification } from "@/lib/useNotifications";
+import { PARTY_GAMES, type CatalogGame } from "@/lib/game-catalog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,7 +31,10 @@ export default function GlobalPartyWidget() {
   // ── State ──────────────────────────────────────────────────────────────────
   const [party, setParty] = useState<Party | null>(null);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"roster" | "chat">("roster");
+  const [tab, setTab] = useState<"roster" | "chat" | "play">("roster");
+  const [selectedGame, setSelectedGame] = useState<CatalogGame | null>(null);
+  const [readySet, setReadySet] = useState<Set<string>>(new Set());
+  const [launching, setLaunching] = useState(false);
   const [chatLog, setChatLog] = useState<PartyChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [unread, setUnread] = useState(0);
@@ -138,6 +142,22 @@ export default function GlobalPartyWidget() {
             setParty(null);
             setOpen(false);
             break;
+          case "game_selected":
+            setSelectedGame(msg.game as CatalogGame);
+            setReadySet(new Set([msg.leaderId as string]));
+            setTab("play");
+            setOpen(true);
+            break;
+          case "member_ready":
+            setReadySet(prev => new Set([...prev, msg.userId as string]));
+            break;
+          case "game_deselected":
+            setSelectedGame(null);
+            setReadySet(new Set());
+            break;
+          case "game_launch":
+            router.push(msg.url as string);
+            break;
           case "party_chat": {
             const entry: PartyChatMsg = {
               userId: msg.userId as string,
@@ -218,6 +238,60 @@ export default function GlobalPartyWidget() {
   const promoteMember = async (targetId: string) => {
     await api({ action: "promote", targetId });
   };
+
+  const bcastGame = useCallback((msg: Record<string, unknown>) => {
+    wsRef.current?.send(JSON.stringify(msg));
+  }, []);
+
+  const selectGameForParty = useCallback((game: CatalogGame) => {
+    setSelectedGame(game);
+    setReadySet(new Set([userId]));
+    bcastGame({ type: "game_selected", game, leaderId: userId });
+  }, [userId, bcastGame]);
+
+  const markReady = useCallback(() => {
+    setReadySet(prev => new Set([...prev, userId]));
+    bcastGame({ type: "member_ready", userId });
+  }, [userId, bcastGame]);
+
+  const launchGame = useCallback(async () => {
+    if (!selectedGame || !party) return;
+    setLaunching(true);
+    let url = "";
+    try {
+      if (selectedGame.launchType === "emulator") {
+        const d = await fetch("/api/emulator-room", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", gameName: "Street Fighter II Turbo" }),
+        }).then(r => r.json()).catch(() => ({}));
+        url = d.id ? `/emulator?room=${d.id}` : "/emulator";
+      } else if (selectedGame.id === "outbreak") {
+        url = `/outbreak?partyId=${party.id}`;
+      } else {
+        url = selectedGame.href ?? "/";
+      }
+      bcastGame({ type: "game_launch", url, gameId: selectedGame.id });
+      router.push(url);
+    } finally {
+      setLaunching(false);
+    }
+  }, [selectedGame, party, bcastGame, router]);
+
+  // "Play with Friends" CTA — other components fire this event to open/create party
+  useEffect(() => {
+    const handler = async () => {
+      if (!party) {
+        const d = await api({ action: "create" });
+        if (d.party) { setParty(d.party); setOpen(true); setTab("play"); }
+      } else {
+        setOpen(true);
+        setTab("play");
+      }
+    };
+    window.addEventListener("gs:openParty", handler);
+    return () => window.removeEventListener("gs:openParty", handler);
+  }, [party, api]);
 
   // Load friends when picker opens
   useEffect(() => {
@@ -357,15 +431,17 @@ export default function GlobalPartyWidget() {
             <>
               {/* Tabs */}
               <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-                {(["roster", "chat"] as const).map(t => (
-                  <button key={t} onClick={() => { setTab(t); if (t === "chat") setUnread(0); }} style={{
+                {([
+                  { key: "roster", label: "⚔️ Party" },
+                  { key: "play",   label: selectedGame ? `🎮 ${selectedGame.emoji}` : "🎮 Play" },
+                  { key: "chat",   label: unread > 0 ? `💬 (${unread})` : "💬 Chat" },
+                ] as { key: "roster" | "play" | "chat"; label: string }[]).map(({ key, label }) => (
+                  <button key={key} onClick={() => { setTab(key); if (key === "chat") setUnread(0); }} style={{
                     flex: 1, padding: "5px 0", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1,
-                    background: tab === t ? "rgba(100,200,100,0.15)" : "transparent",
-                    border: `1px solid ${tab === t ? "rgba(100,200,100,0.35)" : "rgba(255,255,255,0.08)"}`,
-                    borderRadius: 7, color: tab === t ? "#66dd88" : "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "monospace",
-                  }}>
-                    {t === "chat" && unread > 0 ? `Chat (${unread})` : t === "roster" ? "⚔️ Roster" : "💬 Chat"}
-                  </button>
+                    background: tab === key ? "rgba(100,200,100,0.15)" : "transparent",
+                    border: `1px solid ${tab === key ? "rgba(100,200,100,0.35)" : "rgba(255,255,255,0.08)"}`,
+                    borderRadius: 7, color: tab === key ? "#66dd88" : "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "monospace",
+                  }}>{label}</button>
                 ))}
               </div>
 
@@ -463,6 +539,97 @@ export default function GlobalPartyWidget() {
                   }}>{amLeader ? "✕ Disband Party" : "🚪 Leave Party"}</button>
                 </>
               )}
+
+              {/* ── PLAY TAB ── */}
+              {tab === "play" && (() => {
+                const readyCount = party.members.filter(m => readySet.has(m.userId)).length;
+                const allReady = readyCount >= party.members.length;
+                return (
+                  <>
+                    {!selectedGame ? (
+                      amLeader ? (
+                        <div>
+                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 7, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Pick a game</div>
+                          <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+                            {PARTY_GAMES.map(g => (
+                              <button key={g.id} onClick={() => selectGameForParty(g)} style={{
+                                display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", textAlign: "left", width: "100%",
+                                background: "rgba(100,200,100,0.06)", border: "1px solid rgba(100,200,100,0.15)",
+                                borderRadius: 8, color: "rgba(255,255,255,0.8)", cursor: "pointer", fontFamily: "monospace",
+                              }}>
+                                <span style={{ fontSize: 20 }}>{g.emoji}</span>
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 700 }}>{g.title}</div>
+                                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{g.desc}</div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 12, padding: "24px 0" }}>
+                          ⏳ Waiting for leader to pick a game…
+                        </div>
+                      )
+                    ) : (
+                      <div>
+                        {/* Selected game header */}
+                        <div style={{ textAlign: "center", padding: "10px 0 10px", marginBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          <span style={{ fontSize: 30 }}>{selectedGame.emoji}</span>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginTop: 4 }}>{selectedGame.title}</div>
+                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{selectedGame.desc}</div>
+                        </div>
+
+                        {/* Ready status per member */}
+                        <div style={{ marginBottom: 10 }}>
+                          {party.members.map(m => (
+                            <div key={m.userId} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <span style={{ fontSize: 13 }}>{readySet.has(m.userId) ? "✅" : "⏳"}</span>
+                              <span style={{ fontSize: 11, color: readySet.has(m.userId) ? "#4ade80" : "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
+                                @{m.username}{m.isLeader ? " 👑" : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Non-leader ready button */}
+                        {!amLeader && (
+                          <button onClick={markReady} disabled={readySet.has(userId)} style={{
+                            width: "100%", padding: "7px 0", marginBottom: 6,
+                            background: readySet.has(userId) ? "rgba(74,222,128,0.2)" : "rgba(100,200,100,0.1)",
+                            border: `1px solid ${readySet.has(userId) ? "rgba(74,222,128,0.5)" : "rgba(100,200,100,0.25)"}`,
+                            borderRadius: 8, color: readySet.has(userId) ? "#4ade80" : "#66dd88",
+                            fontSize: 12, fontWeight: 700, cursor: readySet.has(userId) ? "default" : "pointer", fontFamily: "monospace",
+                          }}>
+                            {readySet.has(userId) ? "✅ Ready!" : "✓ Mark Ready"}
+                          </button>
+                        )}
+
+                        {/* Leader: launch */}
+                        {amLeader && (
+                          <>
+                            <button onClick={launchGame} disabled={launching} style={{
+                              width: "100%", padding: "8px 0", marginBottom: 5,
+                              background: allReady ? "rgba(74,222,128,0.22)" : "rgba(100,200,100,0.08)",
+                              border: `1px solid ${allReady ? "rgba(74,222,128,0.55)" : "rgba(100,200,100,0.2)"}`,
+                              borderRadius: 8, color: allReady ? "#4ade80" : "#88cc99",
+                              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
+                              opacity: launching ? 0.6 : 1,
+                            }}>
+                              {launching ? "Launching…" : allReady ? "🚀 Launch!" : `⏳ ${readyCount}/${party.members.length} Ready — Launch anyway`}
+                            </button>
+                            <button onClick={() => { setSelectedGame(null); setReadySet(new Set()); bcastGame({ type: "game_deselected" }); }} style={{
+                              width: "100%", padding: "4px 0", background: "transparent",
+                              border: "1px solid rgba(255,255,255,0.07)", borderRadius: 7,
+                              color: "rgba(255,255,255,0.2)", fontSize: 10, cursor: "pointer", fontFamily: "monospace",
+                            }}>← Change game</button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {/* ── CHAT TAB ── */}
               {tab === "chat" && (

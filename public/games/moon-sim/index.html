@@ -1111,27 +1111,7 @@
                 // Secret Lab interact — GO DOWN THE LADDER
                 const slDx=this._px-6000, slDy=this._py-4000;
                 if(Math.sqrt(slDx*slDx+slDy*slDy)<50 && gs.found.secretlab) {
-                    if(!this._inLab) {
-                        this._inLab = true;
-                        this._labTimer = 0;
-                        queueDialog('MATT', "*climbs down ladder*");
-                        queueDialog('MATT', "It's... it's a lab. A real lab.");
-                        queueDialog('MATT', "There's beakers everywhere. Something is BUBBLING.");
-                        queueDialog('MATT', "There's a frog. With a tiny rainbow flag.");
-                        queueDialog('BRIAN', "WHAT?!");
-                        queueDialog('MATT', "THEY'RE TURNING THE FROGS GAY. ON THE MOON.");
-                        queueDialog('MARK', "Matt that frog was already—");
-                        queueDialog('MATT', "There's a whiteboard that says 'Project: Fabulous Frog Phase 3.'");
-                        queueDialog('MATT', "There's a scientist eating a sandwich. He waved at me.");
-                        queueDialog('MATT', "He said 'you didn't see anything.' Classic.");
-                        queueDialog('BRIAN', "What kind of sandwich?");
-                        queueDialog('MATT', "Turkey club. Classified turkey club.");
-                        queueDialog('MATT', "*climbs back up* I've seen too much.");
-                        gs.mattSecretJoy=Math.min(100,gs.mattSecretJoy+10);
-                    } else {
-                        const labL=[[{s:'MATT',t:"*peeks down again*"},{s:'MATT',t:"The frog is wearing sunglasses now."},{s:'MATT',t:"He's living his best life honestly."}],[{s:'MATT',t:"*yells down the ladder*"},{s:'MATT',t:"'HOW'S THE FROG?!'"},{s:'MATT',t:"The scientist gave me a thumbs up. This is fine."}],[{s:'MATT',t:"*looks down*"},{s:'MATT',t:"They added a disco ball. The frogs are dancing."},{s:'BRIAN',t:"FrogS? PLURAL?"},{s:'MATT',t:"It's a whole PARTY down there."}]];
-                        const ll=labL[Math.floor(Math.random()*labL.length)]; for(const l of ll) queueDialog(l.s,l.t);
-                    }
+                    engine.switchScene('lab', 'fade');
                 }
                 // Flat Earth HQ interact
                 const fhDx=this._px-5000, fhDy=this._py-6000;
@@ -1580,6 +1560,373 @@
     }
 
     // =============================================
+    //  LAB SCENE — Underground Secret Lab
+    // =============================================
+    class LabScene extends Scene {
+        constructor() { super('Lab'); }
+
+        _enter() {
+            super._enter();
+            this._t = 0;
+            this._phase = 'descent'; // descent → explore → standoff → combat → victory → escape
+            this._phaseTimer = 0;
+            this._dq = false; // dialog queued for this phase
+
+            // Player (Matt) position inside lab
+            this._px = 320; this._py = 248;
+            this._vx = 0; this._vy = 0;
+            this._facingRight = true;
+            this._attackTimer = 0; // cooldown
+            this._attackAnim = 0; // visual flash
+
+            // Scientists
+            this._scientists = [
+                { x:120, y:248, hp:3, maxHp:3, head:false, alive:true, vx:0, alert:false, hitFlash:0 },
+                { x:200, y:248, hp:3, maxHp:3, head:false, alive:true, vx:0, alert:false, hitFlash:0 },
+                { x:400, y:248, hp:3, maxHp:3, head:false, alive:true, vx:0, alert:false, hitFlash:0 },
+                { x:480, y:248, hp:3, maxHp:3, head:false, alive:true, vx:0, alert:false, hitFlash:0 },
+                { x:320, y:248, hp:5, maxHp:5, head:true,  alive:true, vx:0, alert:false, hitFlash:0 }, // HEAD SCIENTIST
+            ];
+            this._headSci = this._scientists[4];
+
+            // Bullets/attacks
+            this._projectiles = []; // { x, y, vx, fromPlayer, r }
+
+            // Frog (decorative, beloved)
+            this._frogAnim = 0;
+
+            // Descent text overlay
+            this._descentAlpha = 1.0;
+
+            gs.dialogQueue = []; gs.dialogActive = false; gs.currentDialog = null;
+            this._queueDescentDialog();
+        }
+
+        _queueDescentDialog() {
+            queueDialog('MATT', "*descends ladder*");
+            queueDialog('MATT', "Okay. I'm in. It's... real.");
+            queueDialog('MATT', "Fluorescent lights. Grey floor. Smells like government.");
+            queueDialog('MARK', "What do you see?");
+            queueDialog('MATT', "Beakers. Chemicals. A whiteboard that says 'DO NOT ENTER.'");
+            queueDialog('MATT', "A frog wearing a tiny lab coat.");
+            queueDialog('BRIAN', "Is the frog okay?");
+            queueDialog('MATT', "The frog looks GREAT, Brian.");
+            queueDialog('MATT', "The whiteboard — 'PROJECT: FABULOUS FROG PHASE 3 — ON SCHEDULE'");
+            queueDialog('MATT', "Phase THREE. There were TWO before this.");
+            queueDialog('MARK', "Matt... the scientists.");
+            queueDialog('MATT', "Four of them. In lab coats. One has a name tag: 'Dr. Henderson — HEAD SCIENTIST.'");
+            queueDialog('MATT', "He just turned around.");
+            queueDialog('MATT', "He sees me.");
+            queueDialog('MATT', "...");
+        }
+
+        _queueStandoffDialog() {
+            queueDialog('DR. HENDERSON', "Unauthorized personnel.");
+            queueDialog('DR. HENDERSON', "You've seen Project Fabulous Frog.");
+            queueDialog('MATT', "The frog is FINE, I'm not—");
+            queueDialog('DR. HENDERSON', "Doesn't matter what you think of the frog.");
+            queueDialog('DR. HENDERSON', "What matters is what you KNOW.");
+            queueDialog('MATT', "I know Phase 3 is on schedule—");
+            queueDialog('DR. HENDERSON', "GET THEM.");
+            queueDialog('MATT', "OH NO.");
+        }
+
+        _queueVictoryDialog() {
+            queueDialog('MATT', "We... we did it.");
+            queueDialog('DR. HENDERSON', "*breathing heavily* You haven't seen the last of Phase 3.");
+            queueDialog('MATT', "The frog is SAFE!");
+            queueDialog('BRIAN', "The frog was never in danger, Matt.");
+            queueDialog('MATT', "THE FROG IS SAFE.");
+            queueDialog('MARK', "We need to get out of here before backup arrives.");
+            queueDialog('MATT', "*looks at frog* You deserve to be free, little guy.");
+            queueDialog('MATT', "...*pockets the frog*");
+            queueDialog('BRIAN', "DID YOU JUST—");
+            queueDialog('MATT', "He came with me. Willingly. Let's go.");
+        }
+
+        update(dt) {
+            this._t += dt;
+            this._phaseTimer += dt;
+            tickDialog(dt);
+            this._frogAnim += dt;
+
+            if (this._attackTimer > 0) this._attackTimer -= dt;
+            if (this._attackAnim > 0) this._attackAnim -= dt;
+
+            // Advance phase based on dialog completion
+            if (this._phase === 'descent' && !gs.dialogActive && gs.dialogQueue.length === 0 && this._phaseTimer > 2) {
+                this._phase = 'explore';
+                this._phaseTimer = 0;
+            }
+
+            if (this._phase === 'explore' && !this._dq) {
+                this._dq = true;
+                // Give player a moment to explore before standoff
+            }
+
+            // Auto-trigger standoff after some exploration time
+            if (this._phase === 'explore' && this._phaseTimer > 4 && !gs.dialogActive) {
+                this._phase = 'standoff';
+                this._phaseTimer = 0;
+                this._dq = false;
+                this._queueStandoffDialog();
+            }
+
+            if (this._phase === 'standoff' && !gs.dialogActive && gs.dialogQueue.length === 0 && this._phaseTimer > 1) {
+                this._phase = 'combat';
+                this._phaseTimer = 0;
+                this._scientists.forEach(s => s.alert = true);
+            }
+
+            if (this._phase === 'combat') {
+                this._updateCombat(dt);
+                const allDead = this._scientists.every(s => !s.alive);
+                if (allDead && !this._dq) {
+                    this._dq = true;
+                    this._phase = 'victory';
+                    this._phaseTimer = 0;
+                    this._queueVictoryDialog();
+                }
+            }
+
+            if (this._phase === 'victory' && !gs.dialogActive && gs.dialogQueue.length === 0 && this._phaseTimer > 2) {
+                gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 20);
+                engine.switchScene('moon', 'fade');
+            }
+
+            // Player movement (all phases except descent)
+            if (this._phase !== 'descent') this._updatePlayer(dt);
+
+            // Projectile movement
+            for (const p of this._projectiles) {
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.life -= dt;
+            }
+            this._projectiles = this._projectiles.filter(p => p.life > 0 && p.x > 0 && p.x < 640 && p.y > 0 && p.y < 360);
+        }
+
+        _updatePlayer(dt) {
+            const spd = 120;
+            let mx = 0;
+            const left  = engine.input.isKey('ArrowLeft')  || engine.input.isKey('KeyA') || engine.input._gamepadButton('gamepad_left','held');
+            const right = engine.input.isKey('ArrowRight') || engine.input.isKey('KeyD') || engine.input._gamepadButton('gamepad_right','held');
+            const attack = engine.input.isKeyDown('KeyZ') || engine.input.isKeyDown('KeyX') ||
+                           engine.input.isKeyDown('Space') || engine.input._gamepadButton('gamepad_a','held') || engine.input._gamepadButton('gamepad_x','held');
+
+            if (left)  { mx = -1; this._facingRight = false; }
+            if (right) { mx =  1; this._facingRight = true; }
+            this._px = Math.max(20, Math.min(620, this._px + mx * spd * dt));
+
+            // Attack
+            if (attack && this._attackTimer <= 0 && this._phase === 'combat') {
+                this._attackTimer = 0.35;
+                this._attackAnim = 0.15;
+                // Spawn attack projectile
+                this._projectiles.push({ x: this._px + (this._facingRight ? 18 : -18), y: this._py, vx: this._facingRight ? 280 : -280, vy: 0, life: 0.5, fromPlayer: true, r: 5 });
+            }
+        }
+
+        _updateCombat(dt) {
+            // Scientists AI
+            for (const sci of this._scientists) {
+                if (!sci.alive) continue;
+                if (sci.hitFlash > 0) sci.hitFlash -= dt;
+
+                // Move toward player
+                const dx = this._px - sci.x;
+                sci.vx = Math.sign(dx) * 40;
+                sci.x = Math.max(20, Math.min(620, sci.x + sci.vx * dt));
+
+                // Shoot at player periodically
+                sci._shootTimer = (sci._shootTimer || 0) - dt;
+                if (sci._shootTimer <= 0) {
+                    sci._shootTimer = sci.head ? 1.8 : 2.5 + Math.random() * 1.5;
+                    const angle = Math.atan2(this._py - sci.y, this._px - sci.x);
+                    this._projectiles.push({ x: sci.x, y: sci.y, vx: Math.cos(angle) * 130, vy: Math.sin(angle) * 130, life: 1.2, fromPlayer: false, r: 4 });
+                }
+            }
+
+            // Collide player projectiles with scientists
+            for (const proj of this._projectiles) {
+                if (!proj.fromPlayer) continue;
+                for (const sci of this._scientists) {
+                    if (!sci.alive) continue;
+                    const dx = proj.x - sci.x, dy = proj.y - sci.y;
+                    if (Math.sqrt(dx*dx+dy*dy) < 14) {
+                        sci.hp--;
+                        sci.hitFlash = 0.2;
+                        proj.life = 0; // consume
+                        if (sci.hp <= 0) sci.alive = false;
+                        break;
+                    }
+                }
+            }
+
+            // Collide enemy projectiles with player
+            for (const proj of this._projectiles) {
+                if (proj.fromPlayer) continue;
+                const dx = proj.x - this._px, dy = proj.y - this._py;
+                if (Math.sqrt(dx*dx+dy*dy) < 12) {
+                    proj.life = 0;
+                    engine.shake(4, 0.8);
+                    // Mild punishment — just visual shake, Matt is brave
+                }
+            }
+        }
+
+        drawUI(ctx) {
+            // Background — underground lab
+            ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, 640, 360);
+
+            // Floor / ceiling
+            ctx.fillStyle = '#2a2a3e'; ctx.fillRect(0, 280, 640, 80); // floor
+            ctx.fillStyle = '#111122'; ctx.fillRect(0, 0, 640, 60);   // ceiling
+
+            // Fluorescent lights on ceiling
+            for (let i = 0; i < 4; i++) {
+                const lx = 80 + i * 160;
+                const flicker = Math.sin(this._t * 30 + i) > 0.98; // rare flicker
+                ctx.fillStyle = flicker ? '#333355' : '#ffffcc';
+                ctx.fillRect(lx - 20, 10, 40, 6);
+                if (!flicker) {
+                    ctx.fillStyle = 'rgba(255,255,200,0.08)';
+                    ctx.fillRect(lx - 40, 10, 80, 270);
+                }
+            }
+
+            // Lab tables
+            const tables = [60, 200, 380, 520];
+            for (const tx of tables) {
+                ctx.fillStyle = '#888'; ctx.fillRect(tx-30, 230, 60, 8);
+                ctx.fillStyle = '#666'; ctx.fillRect(tx-28, 238, 4, 40); ctx.fillRect(tx+24, 238, 4, 40);
+                // Beakers on table
+                ctx.fillStyle = '#44aaff88'; ctx.fillRect(tx-18, 220, 8, 12);
+                ctx.fillStyle = '#ff449988'; ctx.fillRect(tx+10, 220, 8, 12);
+                // Bubbles in beakers
+                if (Math.floor(this._t * 3 + tx) % 3 < 2) {
+                    ctx.fillStyle = '#fff'; ctx.fillRect(tx - 14, 218 - Math.floor(this._t * 4 + tx) % 8, 2, 2);
+                    ctx.fillRect(tx + 14, 218 - Math.floor(this._t * 3 + tx) % 6, 2, 2);
+                }
+            }
+
+            // Frog tank (center back — beloved)
+            const ftx = 320, fty = 195;
+            ctx.fillStyle = '#225533'; ctx.fillRect(ftx - 25, fty - 25, 50, 30);
+            ctx.fillStyle = 'rgba(100,200,100,0.2)'; ctx.fillRect(ftx - 22, fty - 22, 44, 24);
+            // Frog inside
+            const frogBob = Math.sin(this._frogAnim * 2) * 2;
+            ctx.fillStyle = '#44dd44'; ctx.fillRect(ftx - 7, fty - 12 + frogBob, 14, 10); // body
+            ctx.fillStyle = '#33bb33'; ctx.fillRect(ftx - 9, fty - 6 + frogBob, 4, 6); ctx.fillRect(ftx + 5, fty - 6 + frogBob, 4, 6); // legs
+            ctx.fillStyle = '#ff5555'; // tiny rainbow flag
+            ctx.fillRect(ftx + 5, fty - 20 + frogBob, 1, 10);
+            for (let i = 0; i < 6; i++) {
+                const fc = ['#ff0000','#ff8800','#ffff00','#00cc00','#0066ff','#9900ff'][i];
+                ctx.fillStyle = fc; ctx.fillRect(ftx + 6, fty - 20 + frogBob + i * 1.6, 8, 1.4);
+            }
+            // Tank label
+            ctx.font = '7px monospace'; ctx.fillStyle = '#88ff88'; ctx.textAlign = 'center';
+            ctx.fillText('PROJECT FF-3', ftx, fty + 12);
+
+            // Whiteboard
+            ctx.fillStyle = '#eee'; ctx.fillRect(500, 80, 110, 70);
+            ctx.fillStyle = '#ddd'; ctx.fillRect(500, 80, 110, 10);
+            ctx.font = '6px monospace'; ctx.fillStyle = '#222'; ctx.textAlign = 'left';
+            ctx.fillText('PROJECT:', 506, 100);
+            ctx.fillStyle = '#8800cc';
+            ctx.fillText('FABULOUS FROG', 506, 110);
+            ctx.fillStyle = '#ff00aa';
+            ctx.fillText('PHASE 3', 506, 120);
+            ctx.fillStyle = '#00aa44';
+            ctx.fillText('✓ ON SCHEDULE', 506, 130);
+            ctx.fillStyle = '#333';
+            ctx.fillText('DO NOT ENTER', 506, 143);
+
+            // "EXIT: LADDER" sign
+            ctx.fillStyle = '#44ff44'; ctx.fillRect(15, 70, 50, 14);
+            ctx.font = '6px monospace'; ctx.fillStyle = '#000'; ctx.textAlign = 'center';
+            ctx.fillText('EXIT: LADDER', 40, 80);
+
+            // Draw scientists
+            for (let i = 0; i < this._scientists.length; i++) {
+                const sci = this._scientists[i];
+                if (!sci.alive) continue;
+                const isHead = i === 4;
+                const sy = sci.y; // y=248, feet at sy, head at sy-30
+
+                const bodyColor = sci.hitFlash > 0 ? '#fff' : (isHead ? '#ffaa44' : '#6688aa');
+                ctx.fillStyle = bodyColor;
+                ctx.fillRect(sci.x - 6, sy - 18, 12, 16);
+                ctx.fillStyle = sci.hitFlash > 0 ? '#fff' : '#ffcc99';
+                ctx.fillRect(sci.x - 5, sy - 30, 10, 12);
+                // Lab coat
+                ctx.fillStyle = sci.hitFlash > 0 ? '#fff' : '#e8e8ff';
+                ctx.fillRect(sci.x - 7, sy - 17, 14, 16);
+                // Head scientist hat
+                if (isHead) {
+                    ctx.fillStyle = sci.hitFlash > 0 ? '#fff' : '#222244';
+                    ctx.fillRect(sci.x - 6, sy - 36, 12, 6);
+                }
+                // HP bar
+                if (sci.hp < sci.maxHp) {
+                    ctx.fillStyle = '#550000'; ctx.fillRect(sci.x - 12, sy - 44, 24, 4);
+                    ctx.fillStyle = '#ff4444'; ctx.fillRect(sci.x - 12, sy - 44, 24 * (sci.hp / sci.maxHp), 4);
+                }
+            }
+
+            // Draw player (Matt + friends)
+            const py = this._py;
+            // Attack flash
+            if (this._attackAnim > 0) {
+                ctx.fillStyle = 'rgba(255,255,100,0.3)';
+                const ax = this._facingRight ? this._px + 15 : this._px - 35;
+                ctx.fillRect(ax, py - 25, 30, 20);
+            }
+            try {
+                const frame = Math.floor(this._t * 6) % 4;
+                ctx.drawImage(engine.assets.images['matt'], frame*16, 0, 16, 24, this._px - 8, py - 24, 16, 24);
+                ctx.drawImage(engine.assets.images['mark'], frame*16, 0, 16, 24, this._px - 30, py - 24, 16, 24);
+                ctx.drawImage(engine.assets.images['brian'], frame*16, 0, 16, 24, this._px + 14, py - 24, 16, 24);
+            } catch(e) {
+                ctx.fillStyle = '#ffcc99'; ctx.fillRect(this._px - 8, py - 24, 10, 20);
+            }
+
+            // Draw projectiles
+            for (const proj of this._projectiles) {
+                ctx.fillStyle = proj.fromPlayer ? '#ffff44' : '#ff4444';
+                ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2); ctx.fill();
+            }
+
+            // Phase overlays
+            if (this._phase === 'descent') {
+                const a = Math.max(0, 1 - this._phaseTimer * 0.5);
+                if (a > 0) {
+                    ctx.fillStyle = `rgba(0,0,0,${a * 0.7})`;
+                    ctx.fillRect(0, 0, 640, 360);
+                }
+            }
+
+            // Combat phase — attack hint (first few seconds)
+            if (this._phase === 'combat' && this._phaseTimer < 5) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(180, 320, 280, 22);
+                ctx.font = '9px monospace'; ctx.fillStyle = '#ffff44'; ctx.textAlign = 'center';
+                ctx.fillText('[Z/X/SPACE/A] ATTACK — Move with Arrow Keys', 320, 335);
+            }
+
+            // Victory overlay
+            if (this._phase === 'victory' && this._phaseTimer > 0.5) {
+                ctx.fillStyle = 'rgba(0,80,0,0.3)';
+                ctx.fillRect(0, 0, 640, 360);
+                ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#88ff88'; ctx.textAlign = 'center';
+                ctx.fillText('LAB CLEARED', 320, 160);
+            }
+
+            // Dialog
+            if (gs.dialogActive && gs.currentDialog) drawDialog(ctx, gs.currentDialog);
+        }
+    }
+
+    // =============================================
     //  ENDING
     // =============================================
     class EndingScene extends Scene {
@@ -1643,6 +1990,7 @@
     engine.addScene('title', new TitleScene());
     engine.addScene('launch', new LaunchScene());
     engine.addScene('moon', new MoonScene());
+    engine.addScene('lab', new LabScene());
     engine.addScene('ending', new EndingScene());
     engine.start('title');
 

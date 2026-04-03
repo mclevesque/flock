@@ -12,8 +12,14 @@ class VibeEngine {
             document.body.appendChild(this.canvas);
         }
         this.ctx = this.canvas.getContext('2d');
-        this.canvas.width = width;
-        this.canvas.height = height;
+        const dpr = window.devicePixelRatio || 1;
+        // Match backing buffer to actual display pixels so text is never upscaled
+        const displayW = Math.round(window.innerWidth  * dpr);
+        const displayH = Math.round(window.innerHeight * dpr);
+        this.canvas.width  = displayW;
+        this.canvas.height = displayH;
+        // Scale context so all game coordinates still work in logical width x height space
+        this.ctx.scale(displayW / width, displayH / height);
         this.width = width;
         this.height = height;
 
@@ -42,7 +48,7 @@ class VibeEngine {
         this._accumulator = 0;
         this._fixedStep = 1 / 60;
 
-        // Pixel-perfect rendering
+        // Pixel-perfect rendering — DPI-aware backing buffer
         this.ctx.imageSmoothingEnabled = false;
         this.canvas.style.imageRendering = 'pixelated';
     }

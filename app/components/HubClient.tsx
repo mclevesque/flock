@@ -1,52 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-
-interface GameCard {
-  id: string;
-  title: string;
-  desc: string;
-  emoji: string;
-  href?: string;
-  iframeUrl?: string;
-  multiplayer?: boolean;
-  comingSoon?: boolean;
-}
-
-const GAME_SECTIONS: { label: string; icon: string; games: GameCard[] }[] = [
-  {
-    label: "BATTLE ARENA", icon: "⚔️",
-    games: [
-      { id: "outbreak",  title: "Outbreak",        desc: "Co-op zombie survival roguelike",     emoji: "🧟", multiplayer: true,
-        iframeUrl: `/games/outbreak/index.html` },
-{ id: "tightrope", title: "Tightrope Terror", desc: "Balance your way across the void",   emoji: "🎪",
-        iframeUrl: "/games/tightrope/index.html" },
-      { id: "matty",     title: "Matty Milkers",    desc: "Raw milk platformer adventure",       emoji: "🥛",
-        iframeUrl: "/games/matty-milkers/index.html" },
-      { id: "wingman",   title: "Wingman",           desc: "Dating platformer — charm your way", emoji: "💘",
-        iframeUrl: "/games/wingman/index.html" },
-    ],
-  },
-  {
-    label: "TABLE GAMES", icon: "🎲",
-    games: [
-      { id: "chess",  title: "Chess",  desc: "Classic 1v1 with ELO rating", emoji: "♟️", multiplayer: true, href: "/chess" },
-      { id: "pong",   title: "Paddle", desc: "Classic back-and-forth pong",  emoji: "🏓", multiplayer: true, href: "/pong" },
-    ],
-  },
-  {
-    label: "RETRO", icon: "🕹️",
-    games: [
-      { id: "emulator", title: "SNES", desc: "Classic retro games + netplay", emoji: "🕹️", multiplayer: true, href: "/emulator" },
-    ],
-  },
-  {
-    label: "COMING SOON", icon: "🚀",
-    games: [
-      { id: "reakt", title: "REAKT", desc: "Co-op 3D FPS with fracture chains", emoji: "💥", comingSoon: true },
-    ],
-  },
-];
+import { GAME_SECTIONS, type CatalogGame as GameCard } from "@/lib/game-catalog";
 
 export default function HubClient({ username, userId }: { username: string; userId: string }) {
   const [activeGame, setActiveGame] = useState<GameCard | null>(null);
@@ -222,6 +177,29 @@ export default function HubClient({ username, userId }: { username: string; user
           )}
 
           <main style={{ maxWidth: 1100, margin: "0 auto", padding: "0 16px 80px" }}>
+            {/* Play with Friends CTA */}
+            <div style={{ margin: "20px 0 28px", textAlign: "center" }}>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("gs:openParty"))}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 10,
+                  padding: "13px 28px", borderRadius: 50,
+                  background: "linear-gradient(135deg, rgba(100,200,100,0.18), rgba(74,222,128,0.1))",
+                  border: "1px solid rgba(74,222,128,0.45)",
+                  color: "#4ade80", fontSize: 15, fontWeight: 800, fontFamily: "monospace",
+                  cursor: "pointer", letterSpacing: "0.04em",
+                  boxShadow: "0 0 24px rgba(74,222,128,0.12)",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 32px rgba(74,222,128,0.25)")}
+                onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 24px rgba(74,222,128,0.12)")}
+              >
+                <span style={{ fontSize: 20 }}>⚔️</span>
+                Play with Friends
+                <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}>party up + voice</span>
+              </button>
+            </div>
+
             {GAME_SECTIONS.map(({ label, icon, games }) => (
               <div key={label}>
                 <div className="section-header"><span>{icon} {label}</span></div>
