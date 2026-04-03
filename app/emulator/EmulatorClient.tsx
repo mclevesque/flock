@@ -580,37 +580,6 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     }
   }
 
-  // ── Netplay auto-join ────────────────────────────────────────────────────────
-  // Uses refs (not stale searchParams) so it works after pollLobby/startLobbyGame
-  // trigger replaceState — searchParams doesn't update on replaceState in Next.js.
-  const autoJoinNetplay = useCallback(() => {
-    const roomId = netplayRoomRef.current; // always current
-    const role   = netplayRoleRef.current;
-    if (!roomId) return;
-    const w = window as unknown as Record<string, unknown>;
-    const gm = w.EJS_gameManager as Record<string, unknown> | undefined;
-    if (gm) {
-      const netplayApi = gm.netplay as Record<string, (a: string) => void> | undefined;
-      if (netplayApi) {
-        if (role === "host") {
-          // P1: create/host the room so the guest can join as P2
-          if (typeof netplayApi.createRoom === "function") { netplayApi.createRoom(roomId); return; }
-          if (typeof netplayApi.create    === "function") { netplayApi.create(roomId);     return; }
-          if (typeof netplayApi.host      === "function") { netplayApi.host(roomId);       return; }
-        }
-        // P2 (guest) or fallback: join existing room
-        if (typeof netplayApi.join    === "function") { netplayApi.join(roomId);    return; }
-        if (typeof netplayApi.connect === "function") { netplayApi.connect(roomId); return; }
-      }
-    }
-    // Fallback: click the Netplay button in the emulator UI
-    const selectors = ['[title="Netplay"]', '[title="netplay"]', 'button[data-id="netplay"]', '.netplay-btn', '[data-type="netplay"]'];
-    for (const sel of selectors) {
-      const btn = document.querySelector(sel) as HTMLElement | null;
-      if (btn) { btn.click(); return; }
-    }
-  }, []); // no deps — reads from refs, always stable
-
   // ── Track B helpers ──────────────────────────────────────────────────────────
   // SNES button order matches EmulatorJS setInput names
   const SNES_BTNS = ["b","y","select","start","up","down","left","right","a","x","l","r"];
@@ -829,6 +798,9 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       // P1 = host, P2 = guest — tells EmulatorJS which controller slot to assign
       w.EJS_netplayPlayer = activeNetplayRole === "host" ? 1 : 2;
     }
+
+    const autoJoinNetplay = () => { /* stub — netplay auto-join handled by EJS */ };
+    const initCustomNetplay = () => { /* stub — custom netplay layer */ };
 
     w.EJS_onGameStart = () => {
       setEmuLoading(false);

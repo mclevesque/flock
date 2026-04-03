@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 
-type Tab = "overview" | "chess" | "outbreak" | "quiz" | "rps";
+type Tab = "overview" | "chess" | "outbreak" | "quiz" | "rps" | "gauntlet";
 
 const DIFFICULTIES = [
   { id: 1, label: "CASUAL" },
@@ -35,6 +35,12 @@ interface RpsEntry {
   rps_wins: number;
   rps_losses: number;
   rps_draws: number;
+}
+
+interface GauntletEntry {
+  username: string;
+  survival_time: number;
+  wave_reached: number;
 }
 
 interface OutbreakEntry {
@@ -129,6 +135,7 @@ export default function LeaderboardsPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [outbreakEntries, setOutbreakEntries] = useState<OutbreakEntry[]>([]);
   const [rpsEntries, setRpsEntries] = useState<RpsEntry[]>([]);
+  const [gauntletEntries, setGauntletEntries] = useState<GauntletEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -140,10 +147,12 @@ export default function LeaderboardsPage() {
       fetch("/api/users/all").then(r => r.ok ? r.json() : []).catch(() => []),
       fetch("/api/outbreak?dev=1").then(r => r.ok ? r.json() : null).catch(() => null),
       fetch("/api/rps").then(r => r.ok ? r.json() : []).catch(() => []),
-    ]).then(([users, outbreak, rps]) => {
+      fetch("/api/dodge-gauntlet").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([users, outbreak, rps, gauntlet]) => {
       setPlayers(users || []);
       if (outbreak?.leaderboard) setOutbreakEntries(outbreak.leaderboard);
       if (Array.isArray(rps)) setRpsEntries(rps);
+      if (gauntlet?.leaderboard) setGauntletEntries(gauntlet.leaderboard);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -161,6 +170,12 @@ export default function LeaderboardsPage() {
     .sort((a, b) => b.kills - a.kills);
 
   const fmtDmg = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
+  const fmtTime = (ms: number) => {
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    const centis = Math.floor((ms % 1000) / 10);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`;
+  };
 
   const filteredOutbreak = outbreakEntries
     .filter(e => Number(e.difficulty) === diffTab)
@@ -174,6 +189,7 @@ export default function LeaderboardsPage() {
     { id: "outbreak", label: "OUTBREAK", emoji: "🧟" },
     { id: "quiz",     label: "QUIZ",     emoji: "🧠" },
     { id: "rps",      label: "RPS",      emoji: "✂️" },
+    { id: "gauntlet", label: "GAUNTLET", emoji: "💠" },
   ];
 
   if (loading || status === "loading") {
@@ -240,6 +256,15 @@ export default function LeaderboardsPage() {
             ))}
             {byQuiz.length === 0 && <p style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: "12px 0" }}>No games yet</p>}
             <ViewAll onClick={() => setTab("quiz")} />
+          </Card>
+
+          <Card>
+            <CardTitle>💠 GAUNTLET SURVIVAL</CardTitle>
+            {gauntletEntries.slice(0, 3).map((e, i) => (
+              <LeaderRow key={e.username} rank={i + 1} name={e.username} value={fmtTime(e.survival_time)} />
+            ))}
+            {gauntletEntries.length === 0 && <p style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: "12px 0" }}>No runs yet</p>}
+            <ViewAll onClick={() => setTab("gauntlet")} />
           </Card>
 
         </div>
@@ -327,6 +352,23 @@ export default function LeaderboardsPage() {
           {rpsEntries.length === 0 && (
             <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
               No matches yet — head to 🌙 Moonhaven to fight in the arena!
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* ── GAUNTLET ── */}
+      {tab === "gauntlet" && (
+        <Card>
+          <CardTitle>💠 DODGE GAUNTLET — SURVIVAL TIME</CardTitle>
+          <ColHeader cols={["WAVE", "TIME"]} />
+          {gauntletEntries.map((e, i) => (
+            <LeaderRowFull key={e.username} rank={i + 1} name={e.username}
+              col1={e.wave_reached} value={fmtTime(e.survival_time)} />
+          ))}
+          {gauntletEntries.length === 0 && (
+            <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
+              No runs yet — head to 💠 Dodge Gauntlet and survive the storm!
             </p>
           )}
         </Card>

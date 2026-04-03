@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dodge Gauntlet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100%;height:100%;image-rendering:auto}
+</style>
+</head>
+<body>
+<canvas id="g"></canvas>
+<script>
+// ============================================================
+// DODGE GAUNTLET — Bullet-Hell Survival Arena
+// Built with Vibe Engine patterns for Great Souls
+// ============================================================
+
+// --- URL PARAMS ---
+const params = new URLSearchParams(location.search);
+const USER_ID = params.get('userId') || '';
+const USERNAME = params.get('username') || 'Player';
+const AVATAR_URL = params.get('avatar') || '';
+
+// --- CANVAS SETUP ---
+const canvas = document.getElementById('g');
+const ctx = canvas.getContext('2d');
+
+const BASE_W = 1280, BASE_H = 720;
+let scale = 1, offsetX = 0, offsetY = 0;
+
+function resize() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  const sw = canvas.width / BASE_W, sh = canvas.height / BASE_H;
+  scale = Math.min(sw, sh);
+  offsetX = (canvas.width - BASE_W * scale) / 2;
+  offsetY = (canvas.height - BASE_H * scale) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- ARENA ---
+const ARENA = { x: 40, y: 40, w: 1200, h: 640 };
+
+// --- MOBILE DETECTION ---
+const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const MOBILE_SPEED_MULT = IS_TOUCH ? 0.9 : 1.0;
+
+// --- COLORS ---
+const COL = {
+  purple: '#a855f7', purpleLight: '#c084fc', purpleDark: '#7c3aed',
+  cyan: '#00e5ff', white: '#ffffff', red: '#ff4444', orange: '#ff8800',
+  yellow: '#ffdd00', magenta: '#ff00ff', bg: '#0a0020',
+};
+
+// ============================================================
+// AUDIO ENGINE (Web Audio synth)
+// ============================================================
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function synth(type, opts = {}) {
+  if (!audioCtx) return;
+  const { frequency: f = 440, frequencyEnd: fe, duration: d = 0.1, volume: v = 0.15, delay: dl = 0 } = opts;
+  const now = audioCtx.currentTime + dl;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(f, now);
+  if (fe) osc.frequency.linearRampToValueAtTime(fe, now + d);
+  gain.gain.setValueAtTime(v, now);
+  gain.gain.linearRampToValueAtTime(0, now + d);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + d + 0.01);
+}
+
+function sfxDash() { synth('sine', { frequency: 600, frequencyEnd: 1200, duration: 0.12, volume: 0.2 }); }
+function sfxNearMiss() { synth('sine', { frequency: 1200, frequencyEnd: 800, duration: 0.05, volume: 0.1 }); }
+function sfxDeath() { synth('square', { frequency: 400, frequencyEnd: 80, duration: 0.5, volume: 0.25 }); synth('sawtooth', { frequency: 200, frequencyEnd: 30, duration: 0.6, volume: 0.15 }); }
+function sfxWave() { synth('square', { frequency: 523, frequencyEnd: 700, duration: 0.08, volume: 0.12 }); }
+function sfxHoming() { synth('triangle', { frequency: 200, frequencyEnd: 400, duration: 0.3, volume: 0.12 }); }
+function sfxBounce() { synth('square', { frequency: 800, frequencyEnd: 400, duration: 0.06, volume: 0.08 }); }
+function sfxDashReady() { synth('sine', { frequency: 800, frequencyEnd: 1000, duration: 0.06, volume: 0.08 }); }
+function sfxSubmit() {
+  [523, 659, 784, 1047].forEach((f, i) => synth('sine', { frequency: f, duration: 0.08, volume: 0.1, delay: i * 0.08 }));
+}
+
+// Simple background drone
+let droneOsc = null, droneGain = null;
+function startDrone() {
+  if (!audioCtx || droneOsc) return;
+  droneOsc = audioCtx.createOscillator();
+  droneGain = audioCtx.createGain();
+  droneOsc.type = 'sine';
+  droneOsc.frequency.value = 55;
+  droneGain.gain.value = 0.04;
+  droneOsc.connect(droneGain).connect(audioCtx.destination);
+  droneOsc.start();
+}
+function stopDrone() {
+  if (droneOsc) { try { droneOsc.stop(); } catch {} droneOsc = null; }
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+let touchPos = null, touchDash = false;
+const dashBtnPos = { x: BASE_W - 70, y: BASE_H - 70, r: 32 };
+
+function screenToGame(sx, sy) {
+  const rect = canvas.getBoundingClientRect();
+  const px = (sx - rect.left) * devicePixelRatio;
+  const py = (sy - rect.top) * devicePixelRatio;
+  return { x: (px - offsetX) / scale, y: (py - offsetY) / scale };
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  ensureAudio();
+  for (const t of e.changedTouches) {
+    const p = screenToGame(t.clientX, t.clientY);
+    // Check dash button
+    const dx = p.x - dashBtnPos.x, dy = p.y - dashBtnPos.y;
+    if (dx * dx + dy * dy < 48 * 48) { touchDash = true; continue; }
+    touchPos = p;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const p = screenToGame(t.clientX, t.clientY);
+    const dx = p.x - dashBtnPos.x, dy = p.y - dashBtnPos.y;
+    if (dx * dx + dy * dy < 48 * 48) continue;
+    touchPos = p;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (e.touches.length === 0) touchPos = null;
+}, { passive: false });
+
+// Mouse click for menu
+let mouseClick = null;
+canvas.addEventListener('click', e => {
+  ensureAudio();
+  mouseClick = screenToGame(e.clientX, e.clientY);
+});
+
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+class Particle {
+  constructor() { this.active = false; }
+  init(x, y, vx, vy, life, size, endSize, color, endColor, grav = 0) {
+    this.active = true;
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.life = life; this.maxLife = life;
+    this.size = size; this.endSize = endSize;
+    this.color = color; this.endColor = endColor || color;
+    this.grav = grav;
+  }
+}
+
+const MAX_PARTICLES = IS_TOUCH ? 400 : 800;
+const particles = [];
+for (let i = 0; i < MAX_PARTICLES; i++) particles.push(new Particle());
+
+function spawnParticle(x, y, vx, vy, life, size, endSize, color, endColor, grav) {
+  for (const p of particles) {
+    if (!p.active) { p.init(x, y, vx, vy, life, size, endSize, color, endColor, grav); return p; }
+  }
+  return null;
+}
+
+function burstParticles(x, y, count, speed, life, size, endSize, color, endColor, grav = 0) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = speed * (0.5 + Math.random() * 0.5);
+    spawnParticle(x, y, Math.cos(a) * s, Math.sin(a) * s, life * (0.6 + Math.random() * 0.4), size, endSize, color, endColor, grav);
+  }
+}
+
+function updateParticles(dt) {
+  for (const p of particles) {
+    if (!p.active) continue;
+    p.life -= dt;
+    if (p.life <= 0) { p.active = false; continue; }
+    p.vy += p.grav * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+}
+
+function lerpColor(c1, c2, t) {
+  // Simple hex lerp
+  const r1 = parseInt(c1.slice(1, 3), 16), g1 = parseInt(c1.slice(3, 5), 16), b1 = parseInt(c1.slice(5, 7), 16);
+  const r2 = parseInt(c2.slice(1, 3), 16), g2 = parseInt(c2.slice(3, 5), 16), b2 = parseInt(c2.slice(5, 7), 16);
+  const r = Math.round(r1 + (r2 - r1) * t), g = Math.round(g1 + (g2 - g1) * t), b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+function renderParticles() {
+  for (const p of particles) {
+    if (!p.active) continue;
+    const t = 1 - p.life / p.maxLife;
+    const sz = p.size + (p.endSize - p.size) * t;
+    const alpha = p.life / p.maxLife;
+    const col = lerpColor(p.color, p.endColor, t);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.5, sz), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// PROJECTILE POOL
+// ============================================================
+const MAX_PROJ = IS_TOUCH ? 300 : 500;
+const projs = [];
+for (let i = 0; i < MAX_PROJ; i++) {
+  projs.push({ active: false, x: 0, y: 0, vx: 0, vy: 0, r: 4, color: COL.cyan, life: 0, maxLife: 10, type: 'normal', bounces: 0, maxBounces: 0 });
+}
+
+function spawnProj(x, y, vx, vy, r, color, life, type = 'normal', maxBounces = 0) {
+  for (const p of projs) {
+    if (!p.active) {
+      p.active = true; p.x = x; p.y = y; p.vx = vx; p.vy = vy;
+      p.r = r; p.color = color; p.life = life; p.maxLife = life;
+      p.type = type; p.bounces = 0; p.maxBounces = maxBounces;
+      return p;
+    }
+  }
+  return null;
+}
+
+// ============================================================
+// PLAYER STATE
+// ============================================================
+const player = {
+  x: BASE_W / 2, y: BASE_H / 2,
+  r: 24, hitR: 10,
+  speed: 280,
+  dashSpeed: 800, dashDur: 0.15, dashCooldown: 1.2,
+  dashTimer: 0, dashCdTimer: 0,
+  dashing: false, invincible: false,
+  dashDirX: 0, dashDirY: 1,
+  facingX: 0, facingY: 0,
+  alive: true,
+  pulseT: 0,
+};
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let state = 'menu'; // menu, playing, dead, gameover
+let elapsed = 0;
+let wave = 1;
+let deathTimer = 0;
+let submitted = false;
+let submitStatus = ''; // '', 'sending', 'sent', 'error'
+let bestTime = 0;
+
+// Screen effects
+let shakeIntensity = 0, shakeDampen = 0.9;
+let chromaOffset = 0, chromaDecay = 0;
+let freezeTimer = 0;
+let dimAlpha = 0;
+
+// Near miss tracking
+let nearMissCooldown = 0;
+
+// Wave pattern timers
+const patternTimers = {};
+
+function resetGame() {
+  player.x = BASE_W / 2; player.y = BASE_H / 2;
+  player.dashTimer = 0; player.dashCdTimer = 0;
+  player.dashing = false; player.invincible = false;
+  player.alive = true; player.pulseT = 0;
+  elapsed = 0; wave = 1; deathTimer = 0;
+  submitted = false; submitStatus = '';
+  shakeIntensity = 0; chromaOffset = 0; dimAlpha = 0; freezeTimer = 0;
+  nearMissCooldown = 0;
+  for (const p of projs) p.active = false;
+  for (const p of particles) p.active = false;
+  for (const k in patternTimers) delete patternTimers[k];
+  startDrone();
+}
+
+// ============================================================
+// PROJECTILE PATTERNS
+// ============================================================
+function speedMult() { return (1 + elapsed * 0.002) * MOBILE_SPEED_MULT; }
+
+function patternRingBurst() {
+  const n = Math.min(8 + Math.floor(elapsed / 15) * 2, 28);
+  // Spawn from random edge point
+  const side = Math.floor(Math.random() * 4);
+  let ox, oy;
+  if (side === 0) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y; }
+  else if (side === 1) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y + ARENA.h; }
+  else if (side === 2) { ox = ARENA.x; oy = ARENA.y + Math.random() * ARENA.h; }
+  else { ox = ARENA.x + ARENA.w; oy = ARENA.y + Math.random() * ARENA.h; }
+  const spd = (120 + Math.random() * 80) * speedMult();
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI * 2 / n) * i;
+    spawnProj(ox, oy, Math.cos(a) * spd, Math.sin(a) * spd, 4, COL.cyan, 8);
+  }
+}
+
+let spiralAngle = 0;
+function patternSpiral() {
+  const arms = Math.min(2 + Math.floor((elapsed - 15) / 40), 6);
+  const spd = (140 + elapsed * 0.3) * speedMult();
+  for (let a = 0; a < arms; a++) {
+    const angle = spiralAngle + (Math.PI * 2 / arms) * a;
+    const cx = ARENA.x + ARENA.w / 2, cy = ARENA.y + ARENA.h / 2;
+    spawnProj(cx, cy, Math.cos(angle) * spd, Math.sin(angle) * spd, 3.5, COL.magenta, 6);
+  }
+  spiralAngle += 0.18;
+}
+
+function patternWallSweep() {
+  const side = Math.floor(Math.random() * 4);
+  const count = Math.min(15 + Math.floor(elapsed / 30) * 2, 28);
+  const gaps = Math.max(3 - Math.floor(elapsed / 60), 1);
+  const gapSize = Math.max(80 - Math.floor(elapsed / 30) * 5, 45);
+  const spd = (100 + elapsed * 0.3) * speedMult();
+
+  // Pick gap positions
+  const gapPositions = [];
+  for (let g = 0; g < gaps; g++) {
+    gapPositions.push(Math.random() * 0.7 + 0.15); // 15%-85% range
+  }
+
+  const isH = side < 2;
+  const len = isH ? ARENA.w : ARENA.h;
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    // Check if this position is in a gap
+    let inGap = false;
+    for (const gp of gapPositions) {
+      if (Math.abs(t - gp) * len < gapSize / 2) { inGap = true; break; }
+    }
+    if (inGap) continue;
+
+    let x, y, vx, vy;
+    if (side === 0) { x = ARENA.x + t * ARENA.w; y = ARENA.y; vx = 0; vy = spd; }
+    else if (side === 1) { x = ARENA.x + t * ARENA.w; y = ARENA.y + ARENA.h; vx = 0; vy = -spd; }
+    else if (side === 2) { x = ARENA.x; y = ARENA.y + t * ARENA.h; vx = spd; vy = 0; }
+    else { x = ARENA.x + ARENA.w; y = ARENA.y + t * ARENA.h; vx = -spd; vy = 0; }
+    spawnProj(x, y, vx, vy, 4, COL.magenta, 10);
+  }
+}
+
+function patternAimedBurst() {
+  const n = Math.min(5 + Math.floor(elapsed / 30), 14);
+  const side = Math.floor(Math.random() * 4);
+  let ox, oy;
+  if (side === 0) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y; }
+  else if (side === 1) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y + ARENA.h; }
+  else if (side === 2) { ox = ARENA.x; oy = ARENA.y + Math.random() * ARENA.h; }
+  else { ox = ARENA.x + ARENA.w; oy = ARENA.y + Math.random() * ARENA.h; }
+
+  const baseAngle = Math.atan2(player.y - oy, player.x - ox);
+  const spread = 0.26; // ~15 degrees
+  const spd = (150 + elapsed * 0.4) * speedMult();
+  for (let i = 0; i < n; i++) {
+    const a = baseAngle + (i - (n - 1) / 2) * (spread / n);
+    const s = spd * (0.8 + Math.random() * 0.4);
+    spawnProj(ox, oy, Math.cos(a) * s, Math.sin(a) * s, 4, COL.orange, 8);
+  }
+}
+
+function patternCross() {
+  const spd = 140 * speedMult();
+  const spacing = Math.max(60 - Math.floor(elapsed / 30) * 3, 35);
+  const cx = ARENA.x + ARENA.w / 2, cy = ARENA.y + ARENA.h / 2;
+  // Top
+  for (let i = 0; i < Math.ceil(ARENA.w / spacing); i++) {
+    spawnProj(ARENA.x + i * spacing + Math.random() * 10, ARENA.y, 0, spd, 3.5, COL.cyan, 8);
+  }
+  // Left
+  for (let i = 0; i < Math.ceil(ARENA.h / spacing); i++) {
+    spawnProj(ARENA.x, ARENA.y + i * spacing + Math.random() * 10, spd, 0, 3.5, COL.cyan, 8);
+  }
+}
+
+function patternHoming() {
+  sfxHoming();
+  const n = Math.min(1 + Math.floor((elapsed - 70) / 40), 3);
+  for (let i = 0; i < n; i++) {
+    const side = Math.floor(Math.random() * 4);
+    let x, y;
+    if (side === 0) { x = ARENA.x + Math.random() * ARENA.w; y = ARENA.y; }
+    else if (side === 1) { x = ARENA.x + Math.random() * ARENA.w; y = ARENA.y + ARENA.h; }
+    else if (side === 2) { x = ARENA.x; y = ARENA.y + Math.random() * ARENA.h; }
+    else { x = ARENA.x + ARENA.w; y = ARENA.y + Math.random() * ARENA.h; }
+    const a = Math.atan2(player.y - y, player.x - x);
+    const spd = 80 * speedMult();
+    spawnProj(x, y, Math.cos(a) * spd, Math.sin(a) * spd, 10, COL.red, 5, 'homing');
+  }
+}
+
+function patternShotgun() {
+  const n = Math.min(15 + Math.floor(elapsed / 30) * 3, 32);
+  const side = Math.floor(Math.random() * 4);
+  let ox, oy;
+  if (side === 0) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y; }
+  else if (side === 1) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y + ARENA.h; }
+  else if (side === 2) { ox = ARENA.x; oy = ARENA.y + Math.random() * ARENA.h; }
+  else { ox = ARENA.x + ARENA.w; oy = ARENA.y + Math.random() * ARENA.h; }
+  const baseAngle = Math.atan2(player.y - oy, player.x - ox);
+  const arc = Math.PI / 2;
+  for (let i = 0; i < n; i++) {
+    const a = baseAngle + (i - (n - 1) / 2) * (arc / n);
+    const spd = (100 + Math.random() * 200) * speedMult();
+    spawnProj(ox, oy, Math.cos(a) * spd, Math.sin(a) * spd, 3.5, COL.orange, 6);
+  }
+}
+
+function patternBouncing() {
+  const n = Math.min(5 + Math.floor(elapsed / 40), 12);
+  for (let i = 0; i < n; i++) {
+    const side = Math.floor(Math.random() * 4);
+    let x, y;
+    if (side === 0) { x = ARENA.x + Math.random() * ARENA.w; y = ARENA.y; }
+    else if (side === 1) { x = ARENA.x + Math.random() * ARENA.w; y = ARENA.y + ARENA.h; }
+    else if (side === 2) { x = ARENA.x; y = ARENA.y + Math.random() * ARENA.h; }
+    else { x = ARENA.x + ARENA.w; y = ARENA.y + Math.random() * ARENA.h; }
+    const a = Math.atan2(ARENA.y + ARENA.h / 2 - y, ARENA.x + ARENA.w / 2 - x) + (Math.random() - 0.5) * 0.8;
+    const spd = 100 * speedMult();
+    spawnProj(x, y, Math.cos(a) * spd, Math.sin(a) * spd, 5, COL.yellow, 12, 'bounce', 3);
+  }
+}
+
+function patternClosingRing() {
+  const n = Math.min(40 + Math.floor(elapsed / 20) * 4, 64);
+  const spd = 60 * speedMult();
+  const cx = ARENA.x + ARENA.w / 2, cy = ARENA.y + ARENA.h / 2;
+  const gapAngle = Math.random() * Math.PI * 2;
+  const gapSize = Math.max(0.5 - elapsed * 0.001, 0.2); // radians of gap
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI * 2 / n) * i;
+    // Check gap
+    let diff = Math.abs(a - gapAngle);
+    if (diff > Math.PI) diff = Math.PI * 2 - diff;
+    if (diff < gapSize) continue;
+    // Spawn on a large circle
+    const dist = 500;
+    const x = cx + Math.cos(a) * dist, y = cy + Math.sin(a) * dist;
+    spawnProj(x, y, -Math.cos(a) * spd, -Math.sin(a) * spd, 4, COL.purpleLight, 15);
+  }
+}
+
+function patternChaosRain() {
+  const count = Math.min(3 + Math.floor((elapsed - 150) / 20), 8);
+  for (let i = 0; i < count; i++) {
+    const x = ARENA.x + Math.random() * ARENA.w;
+    const spd = (200 + Math.random() * 200) * speedMult();
+    const drift = (Math.random() - 0.5) * 60;
+    spawnProj(x, ARENA.y - 10, drift, spd, 3.5, COL.cyan, 6);
+  }
+}
+
+// ============================================================
+// WAVE SCHEDULER
+// ============================================================
+function schedulePattern(name, fn, interval) {
+  if (!patternTimers[name]) patternTimers[name] = 0;
+  patternTimers[name] -= 1 / 60;
+  if (patternTimers[name] <= 0) {
+    fn();
+    patternTimers[name] = interval;
+  }
+}
+
+function updateWaves() {
+  const t = elapsed;
+  const newWave = Math.floor(t / 15) + 1;
+  if (newWave > wave) { wave = newWave; sfxWave(); }
+
+  // Ring Burst: always active, frequency increases
+  schedulePattern('ring', patternRingBurst, Math.max(3 - t * 0.008, 1.0));
+
+  // Spiral: 15s+
+  if (t >= 15) schedulePattern('spiral', patternSpiral, 0.12);
+
+  // Wall Sweep: 25s+
+  if (t >= 25) schedulePattern('wall', patternWallSweep, Math.max(5 - t * 0.01, 2.0));
+
+  // Aimed Burst: 40s+
+  if (t >= 40) schedulePattern('aimed', patternAimedBurst, Math.max(4 - t * 0.008, 1.5));
+
+  // Cross: 55s+
+  if (t >= 55) schedulePattern('cross', patternCross, Math.max(6 - t * 0.01, 2.5));
+
+  // Homing: 70s+
+  if (t >= 70) schedulePattern('homing', patternHoming, Math.max(5 - t * 0.005, 2.5));
+
+  // Shotgun: 90s+
+  if (t >= 90) schedulePattern('shotgun', patternShotgun, Math.max(4 - t * 0.005, 2.0));
+
+  // Bouncing: 90s+ (less frequent)
+  if (t >= 90) schedulePattern('bounce', patternBouncing, Math.max(6 - t * 0.008, 2.5));
+
+  // Closing Ring: 130s+
+  if (t >= 130) schedulePattern('closing', patternClosingRing, Math.max(6 - t * 0.005, 3.0));
+
+  // Chaos Rain: 150s+ (continuous)
+  if (t >= 150) schedulePattern('rain', patternChaosRain, 0.15);
+}
+
+// ============================================================
+// UPDATE
+// ============================================================
+function updatePlayer(dt) {
+  if (!player.alive) return;
+
+  // Movement input
+  let mx = 0, my = 0;
+  if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
+  if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
+  if (keys['KeyW'] || keys['ArrowUp']) my -= 1;
+  if (keys['KeyS'] || keys['ArrowDown']) my += 1;
+
+  // Touch movement
+  if (touchPos && !player.dashing) {
+    const dx = touchPos.x - player.x, dy = touchPos.y - player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 20) {
+      mx = dx / dist; my = dy / dist;
+    }
+  }
+
+  // Normalize
+  const len = Math.sqrt(mx * mx + my * my);
+  if (len > 0) {
+    mx /= len; my /= len;
+    player.facingX = mx; player.facingY = my;
+  }
+
+  // Dash input
+  const dashInput = keys['Space'] || keys['ShiftRight'] || touchDash;
+  touchDash = false;
+
+  if (dashInput && player.dashCdTimer <= 0 && !player.dashing) {
+    player.dashing = true;
+    player.invincible = true;
+    player.dashTimer = player.dashDur;
+    player.dashCdTimer = player.dashCooldown;
+    player.dashDirX = player.facingX || 0;
+    player.dashDirY = player.facingY || 1;
+    sfxDash();
+    // Dash burst particles at origin
+    burstParticles(player.x, player.y, 15, 150, 0.4, 4, 0, COL.purpleLight, COL.cyan);
+  }
+
+  // Movement
+  if (player.dashing) {
+    player.x += player.dashDirX * player.dashSpeed * dt;
+    player.y += player.dashDirY * player.dashSpeed * dt;
+    player.dashTimer -= dt;
+    // Dash trail
+    if (Math.random() < 0.7) {
+      spawnParticle(player.x + (Math.random() - 0.5) * 10, player.y + (Math.random() - 0.5) * 10,
+        -player.dashDirX * 50 + (Math.random() - 0.5) * 30, -player.dashDirY * 50 + (Math.random() - 0.5) * 30,
+        0.3, 5, 0, COL.cyan, COL.white);
+    }
+    if (player.dashTimer <= 0) {
+      player.dashing = false;
+      player.invincible = false;
+    }
+  } else {
+    player.x += mx * player.speed * dt;
+    player.y += my * player.speed * dt;
+  }
+
+  player.dashCdTimer -= dt;
+  if (player.dashCdTimer <= 0 && player.dashCdTimer > -dt) {
+    sfxDashReady();
+  }
+
+  // Clamp to arena
+  player.x = Math.max(ARENA.x + player.r, Math.min(ARENA.x + ARENA.w - player.r, player.x));
+  player.y = Math.max(ARENA.y + player.r, Math.min(ARENA.y + ARENA.h - player.r, player.y));
+
+  // Trail particles
+  player.pulseT += dt;
+  if (len > 0 && !player.dashing && Math.random() < 0.4) {
+    spawnParticle(player.x + (Math.random() - 0.5) * 8, player.y + (Math.random() - 0.5) * 8,
+      -mx * 20 + (Math.random() - 0.5) * 20, -my * 20 + (Math.random() - 0.5) * 20,
+      0.4, 3, 0, COL.purpleLight, COL.purpleDark);
+  }
+}
+
+function updateProjectiles(dt) {
+  nearMissCooldown -= dt;
+  for (const p of projs) {
+    if (!p.active) continue;
+    p.life -= dt;
+
+    // Homing steering
+    if (p.type === 'homing' && player.alive) {
+      const dx = player.x - p.x, dy = player.y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 0) {
+        const targetAngle = Math.atan2(dy, dx);
+        const currentAngle = Math.atan2(p.vy, p.vx);
+        let diff = targetAngle - currentAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const turnRate = 1.5 * dt;
+        const turn = Math.max(-turnRate, Math.min(turnRate, diff));
+        const newAngle = currentAngle + turn;
+        const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        p.vx = Math.cos(newAngle) * spd;
+        p.vy = Math.sin(newAngle) * spd;
+      }
+      // Homing trail
+      if (Math.random() < 0.5) {
+        spawnParticle(p.x, p.y, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20,
+          0.3, 4, 0, COL.red, COL.orange);
+      }
+    }
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // Bouncing
+    if (p.type === 'bounce') {
+      let bounced = false;
+      if (p.x - p.r < ARENA.x) { p.x = ARENA.x + p.r; p.vx = -p.vx; bounced = true; }
+      if (p.x + p.r > ARENA.x + ARENA.w) { p.x = ARENA.x + ARENA.w - p.r; p.vx = -p.vx; bounced = true; }
+      if (p.y - p.r < ARENA.y) { p.y = ARENA.y + p.r; p.vy = -p.vy; bounced = true; }
+      if (p.y + p.r > ARENA.y + ARENA.h) { p.y = ARENA.y + ARENA.h - p.r; p.vy = -p.vy; bounced = true; }
+      if (bounced) {
+        p.bounces++;
+        sfxBounce();
+        burstParticles(p.x, p.y, 4, 60, 0.2, 2, 0, COL.yellow, COL.white);
+        if (p.bounces > p.maxBounces) { p.active = false; continue; }
+      }
+    }
+
+    // Off-screen check (non-bouncing)
+    if (p.type !== 'bounce') {
+      const margin = 60;
+      if (p.x < ARENA.x - margin || p.x > ARENA.x + ARENA.w + margin ||
+          p.y < ARENA.y - margin || p.y > ARENA.y + ARENA.h + margin) {
+        p.active = false; continue;
+      }
+    }
+
+    if (p.life <= 0) { p.active = false; continue; }
+
+    // Collision with player
+    if (player.alive && !player.invincible) {
+      const dx = p.x - player.x, dy = p.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < player.hitR + p.r) {
+        killPlayer();
+        p.active = false;
+        continue;
+      }
+      // Near miss
+      if (dist < 30 + p.r && nearMissCooldown <= 0) {
+        nearMissCooldown = 0.15;
+        shakeIntensity = Math.max(shakeIntensity, 2);
+        sfxNearMiss();
+        burstParticles((player.x + p.x) / 2, (player.y + p.y) / 2, 3, 80, 0.15, 2, 0, COL.white, COL.cyan);
+      }
+    }
+  }
+}
+
+function killPlayer() {
+  player.alive = false;
+  state = 'dead';
+  deathTimer = 0;
+  sfxDeath();
+  shakeIntensity = 12;
+  chromaOffset = 5; chromaDecay = 0.5;
+  freezeTimer = 0.1;
+  stopDrone();
+  // Death burst
+  burstParticles(player.x, player.y, 40, 250, 1.2, 5, 0, COL.purpleLight, COL.cyan, 150);
+  burstParticles(player.x, player.y, 20, 100, 0.8, 3, 0, COL.white, COL.purple, 100);
+  if (elapsed > bestTime) bestTime = elapsed;
+}
+
+function fixedUpdate() {
+  if (state !== 'playing') return;
+  if (freezeTimer > 0) return; // hit freeze
+  elapsed += 1 / 60;
+  updatePlayer(1 / 60);
+  updateProjectiles(1 / 60);
+  updateWaves();
+}
+
+function variableUpdate(dt) {
+  // Effects decay
+  shakeIntensity *= shakeDampen;
+  if (shakeIntensity < 0.1) shakeIntensity = 0;
+  chromaOffset -= chromaDecay * dt * 10;
+  if (chromaOffset < 0) chromaOffset = 0;
+  freezeTimer -= dt;
+  if (freezeTimer < 0) freezeTimer = 0;
+
+  updateParticles(dt);
+
+  if (state === 'dead') {
+    deathTimer += dt;
+    dimAlpha = Math.min(deathTimer / 0.8, 0.6);
+    if (deathTimer >= 1.5) state = 'gameover';
+  }
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function drawBackground() {
+  // Dark gradient
+  const grd = ctx.createRadialGradient(BASE_W / 2, BASE_H / 2, 0, BASE_W / 2, BASE_H / 2, 600);
+  grd.addColorStop(0, '#0a0020');
+  grd.addColorStop(1, '#000008');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Animated grid
+  const gridSize = 80;
+  const gridAlpha = 0.02 + Math.sin(elapsed * 1.5) * 0.015;
+  ctx.strokeStyle = `rgba(139,60,247,${gridAlpha})`;
+  ctx.lineWidth = 0.5;
+  for (let x = ARENA.x; x <= ARENA.x + ARENA.w; x += gridSize) {
+    const wobble = Math.sin(elapsed * 0.5 + x * 0.01) * 2;
+    ctx.beginPath();
+    ctx.moveTo(x + wobble, ARENA.y);
+    ctx.lineTo(x - wobble, ARENA.y + ARENA.h);
+    ctx.stroke();
+  }
+  for (let y = ARENA.y; y <= ARENA.y + ARENA.h; y += gridSize) {
+    const wobble = Math.sin(elapsed * 0.5 + y * 0.01) * 2;
+    ctx.beginPath();
+    ctx.moveTo(ARENA.x, y + wobble);
+    ctx.lineTo(ARENA.x + ARENA.w, y - wobble);
+    ctx.stroke();
+  }
+
+  // Arena border glow
+  ctx.strokeStyle = `rgba(168,85,247,${0.15 + Math.sin(elapsed * 2) * 0.05})`;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
+}
+
+function drawPlayer() {
+  if (!player.alive && deathTimer > 0.2) return;
+
+  const pulse = 1 + Math.sin(player.pulseT * 8) * 0.06;
+  const r = player.r * pulse;
+
+  ctx.save();
+  ctx.translate(player.x, player.y);
+
+  // Squash/stretch during dash
+  if (player.dashing) {
+    const angle = Math.atan2(player.dashDirY, player.dashDirX);
+    ctx.rotate(angle);
+    ctx.scale(1.35, 0.7);
+    ctx.rotate(-angle);
+  }
+
+  // Outer glow
+  ctx.shadowBlur = 30;
+  ctx.shadowColor = COL.purpleLight;
+
+  // Core orb gradient
+  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  grd.addColorStop(0, COL.white);
+  grd.addColorStop(0.3, COL.purpleLight);
+  grd.addColorStop(0.7, COL.purple);
+  grd.addColorStop(1, COL.purpleDark);
+
+  ctx.globalAlpha = player.invincible ? 0.4 : 1;
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner bright core
+  ctx.shadowBlur = 0;
+  const innerGrd = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.4);
+  innerGrd.addColorStop(0, 'rgba(255,255,255,0.9)');
+  innerGrd.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = innerGrd;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dash cooldown arc
+  if (player.dashCdTimer > 0) {
+    const pct = 1 - player.dashCdTimer / player.dashCooldown;
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = COL.cyan;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 6, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Ready indicator pulse
+    const readyPulse = 0.3 + Math.sin(elapsed * 6) * 0.15;
+    ctx.globalAlpha = readyPulse;
+    ctx.strokeStyle = COL.cyan;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawProjectiles() {
+  for (const p of projs) {
+    if (!p.active) continue;
+
+    // Motion blur trail
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = p.color;
+    const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (spd > 0) {
+      const nx = -p.vx / spd, ny = -p.vy / spd;
+      const trailLen = Math.min(spd * 0.03, 12);
+      ctx.beginPath();
+      ctx.arc(p.x + nx * trailLen, p.y + ny * trailLen, p.r * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Main projectile
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = p.type === 'homing' ? 15 : 8;
+    ctx.shadowColor = p.color;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // White core
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Homing pulsate
+    if (p.type === 'homing') {
+      const hp = 0.3 + Math.sin(elapsed * 10) * 0.15;
+      ctx.globalAlpha = hp;
+      ctx.fillStyle = COL.red;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawHUD() {
+  // Timer (top center)
+  const totalMs = Math.floor(elapsed * 1000);
+  const mins = Math.floor(totalMs / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const ms = Math.floor((totalMs % 1000) / 10);
+  const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+
+  const fontSize = BASE_W < 600 ? 22 : 28;
+  ctx.font = `bold ${fontSize}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = COL.purple;
+  ctx.fillStyle = COL.white;
+  ctx.fillText(timeStr, BASE_W / 2, 12);
+
+  // Wave
+  ctx.font = `bold ${fontSize < 24 ? 11 : 14}px 'Courier New', monospace`;
+  ctx.fillStyle = COL.purpleLight;
+  ctx.shadowBlur = 0;
+  ctx.fillText(`WAVE ${wave}`, BASE_W / 2, 12 + fontSize + 4);
+
+  ctx.textAlign = 'left';
+
+  // Mobile dash button
+  if (IS_TOUCH) {
+    const bx = dashBtnPos.x, by = dashBtnPos.y, br = dashBtnPos.r;
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = player.dashCdTimer > 0 ? '#555' : COL.cyan;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.stroke();
+    if (player.dashCdTimer > 0) {
+      const pct = 1 - player.dashCdTimer / player.dashCooldown;
+      ctx.strokeStyle = COL.cyan;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = player.dashCdTimer > 0 ? '#555' : COL.cyan;
+    ctx.fillText('DASH', bx, by);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawGameOver() {
+  // Dim overlay
+  ctx.fillStyle = `rgba(0,0,0,${dimAlpha})`;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  if (state !== 'gameover') return;
+
+  // Layout: shift left only when leaderboard is visible (after submit)
+  const leftCX = (submitted && lbData.length > 0) ? BASE_W * 0.35 : BASE_W / 2;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // GAME OVER text
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = COL.red;
+  ctx.font = 'bold 48px monospace';
+  ctx.fillStyle = COL.white;
+  ctx.fillText('GAME OVER', leftCX, BASE_H / 2 - 80);
+
+  // Survival time
+  const totalMs = Math.floor(elapsed * 1000);
+  const mins = Math.floor(totalMs / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const ms = Math.floor((totalMs % 1000) / 10);
+  const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = COL.purple;
+  ctx.font = 'bold 36px monospace';
+  ctx.fillStyle = COL.purpleLight;
+  ctx.fillText(timeStr, leftCX, BASE_H / 2 - 20);
+
+  // Wave reached
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText(`WAVE ${wave}`, leftCX, BASE_H / 2 + 15);
+
+  // Buttons
+  const btnW = 220, btnH = 48, btnY1 = BASE_H / 2 + 55, btnY2 = BASE_H / 2 + 115;
+  const btnX = leftCX - btnW / 2;
+
+  // Submit button
+  if (!submitted) {
+    ctx.fillStyle = submitStatus === 'sending' ? '#555' : COL.purple;
+    roundRect(ctx, btnX, btnY1, btnW, btnH, 8, true, false);
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = COL.white;
+    ctx.fillText(submitStatus === 'sending' ? 'SUBMITTING...' : 'SUBMIT SCORE', leftCX, btnY1 + btnH / 2);
+  } else {
+    ctx.fillStyle = submitStatus === 'sent' ? '#22c55e' : COL.red;
+    roundRect(ctx, btnX, btnY1, btnW, btnH, 8, true, false);
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = COL.white;
+    ctx.fillText(submitStatus === 'sent' ? 'SUBMITTED!' : 'ERROR - RETRY', leftCX, btnY1 + btnH / 2);
+  }
+
+  // Play again
+  ctx.strokeStyle = COL.purpleLight;
+  ctx.lineWidth = 2;
+  roundRect(ctx, btnX, btnY2, btnW, btnH, 8, false, true);
+  ctx.font = 'bold 16px monospace';
+  ctx.fillStyle = COL.purpleLight;
+  ctx.fillText('PLAY AGAIN', leftCX, btnY2 + btnH / 2);
+
+  // Leaderboard panel (right side) — only after submitting
+  if (submitted && (lbLoaded || lbLoading)) {
+    const lbW = 280;
+    const lbX = BASE_W * 0.62;
+    const lbY = BASE_H / 2 - 120;
+    drawLeaderboard(lbX, lbY, lbW, 8, USERNAME);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  // Handle clicks
+  if (mouseClick) {
+    const mx = mouseClick.x, my = mouseClick.y;
+    mouseClick = null;
+    // Submit
+    if (mx >= btnX && mx <= btnX + btnW && my >= btnY1 && my <= btnY1 + btnH) {
+      if (!submitted || submitStatus === 'error') {
+        submitScore();
+      }
+    }
+    // Play again
+    if (mx >= btnX && mx <= btnX + btnW && my >= btnY2 && my <= btnY2 + btnH) {
+      resetGame();
+      state = 'playing';
+    }
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
+function drawMenu() {
+  drawBackground();
+
+  // Ambient particles
+  if (Math.random() < 0.05) {
+    spawnParticle(Math.random() * BASE_W, BASE_H + 10,
+      (Math.random() - 0.5) * 10, -20 - Math.random() * 30,
+      3, 3, 0, COL.purpleDark, COL.purpleLight);
+  }
+  renderParticles();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Title
+  ctx.shadowBlur = 30;
+  ctx.shadowColor = COL.purple;
+  ctx.font = 'bold 52px monospace';
+  ctx.fillStyle = COL.white;
+  ctx.fillText('DODGE GAUNTLET', BASE_W / 2, BASE_H / 2 - 80);
+
+  // Subtitle
+  ctx.shadowBlur = 0;
+  ctx.font = '18px monospace';
+  ctx.fillStyle = COL.purpleLight;
+  ctx.fillText('Survive the bullet storm', BASE_W / 2, BASE_H / 2 - 30);
+
+  // Controls info
+  ctx.font = '14px monospace';
+  ctx.fillStyle = '#888';
+  if (IS_TOUCH) {
+    ctx.fillText('Touch to move | DASH button to dodge', BASE_W / 2, BASE_H / 2 + 20);
+  } else {
+    ctx.fillText('WASD to move | SPACE to dash', BASE_W / 2, BASE_H / 2 + 20);
+  }
+
+  // Best time
+  if (bestTime > 0) {
+    const totalMs = Math.floor(bestTime * 1000);
+    const mins = Math.floor(totalMs / 60000);
+    const secs = Math.floor((totalMs % 60000) / 1000);
+    const ms = Math.floor((totalMs % 1000) / 10);
+    ctx.font = '14px monospace';
+    ctx.fillStyle = COL.yellow;
+    ctx.fillText(`BEST: ${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`, BASE_W / 2, BASE_H / 2 + 50);
+  }
+
+  // Start prompt
+  const blink = Math.sin(Date.now() * 0.005) > 0;
+  if (blink) {
+    ctx.font = 'bold 20px monospace';
+    ctx.fillStyle = COL.cyan;
+    ctx.fillText(IS_TOUCH ? 'TAP TO START' : 'PRESS SPACE TO START', BASE_W / 2, BASE_H / 2 + 100);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  // Start input
+  if (keys['Space'] || mouseClick || touchPos) {
+    mouseClick = null;
+    resetGame();
+    state = 'playing';
+  }
+}
+
+function drawPostProcess() {
+  // Vignette
+  const vgrd = ctx.createRadialGradient(BASE_W / 2, BASE_H / 2, BASE_W * 0.3, BASE_W / 2, BASE_H / 2, BASE_W * 0.7);
+  vgrd.addColorStop(0, 'rgba(0,0,0,0)');
+  vgrd.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = vgrd;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Subtle scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (let y = 0; y < BASE_H; y += 3) {
+    ctx.fillRect(0, y, BASE_W, 1);
+  }
+}
+
+// ============================================================
+// LEADERBOARD (cached — fetch once on load, refresh after submit)
+// ============================================================
+let lbData = []; // { username, survival_time, wave_reached }
+let lbLoading = false;
+let lbLoaded = false;
+
+async function fetchLeaderboard() {
+  if (lbLoading) return;
+  lbLoading = true;
+  try {
+    const res = await fetch('/api/dodge-gauntlet');
+    if (res.ok) {
+      const json = await res.json();
+      lbData = (json.leaderboard || []).slice(0, 10);
+      lbLoaded = true;
+    }
+  } catch { /* silent */ }
+  lbLoading = false;
+}
+
+// No fetch on load — only fetched after score submit to avoid DB hammering
+
+function fmtTimeMs(ms) {
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  const centis = Math.floor((ms % 1000) / 10);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`;
+}
+
+function drawLeaderboard(x, y, w, maxRows, highlight) {
+  const rowH = 26;
+  const padX = 14, padY = 12;
+  const totalH = padY * 2 + 22 + Math.min(lbData.length || 1, maxRows) * rowH + 4;
+
+  // Panel background
+  ctx.fillStyle = 'rgba(10, 0, 32, 0.85)';
+  ctx.strokeStyle = 'rgba(168, 85, 247, 0.3)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, x, y, w, totalH, 10, true, true);
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillStyle = COL.purpleLight;
+  ctx.shadowBlur = 0;
+  ctx.fillText('LEADERBOARD', x + w / 2, y + padY);
+
+  if (!lbLoaded && lbLoading) {
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#666';
+    ctx.fillText('Loading...', x + w / 2, y + padY + 22);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  if (lbData.length === 0) {
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#555';
+    ctx.fillText('No runs yet', x + w / 2, y + padY + 22);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  ctx.textBaseline = 'middle';
+  const rows = lbData.slice(0, maxRows);
+  for (let i = 0; i < rows.length; i++) {
+    const e = rows[i];
+    const ry = y + padY + 24 + i * rowH;
+    const isMe = e.username === USERNAME;
+
+    // Highlight row if it's the current player
+    if (isMe) {
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.12)';
+      roundRect(ctx, x + 6, ry - rowH / 2 + 2, w - 12, rowH - 2, 4, true, false);
+    }
+
+    // Rank
+    const rankCol = i === 0 ? COL.purpleLight : i === 1 ? '#9ca3af' : i === 2 ? '#e8764a' : '#666';
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = rankCol;
+    ctx.fillText(`${i + 1}.`, x + padX, ry);
+
+    // Name
+    ctx.font = `${isMe ? 'bold ' : ''}12px monospace`;
+    ctx.fillStyle = isMe ? COL.white : '#bbb';
+    const name = e.username.length > 12 ? e.username.slice(0, 11) + '..' : e.username;
+    ctx.fillText(name, x + padX + 24, ry);
+
+    // Time
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = isMe ? COL.cyan : COL.purpleLight;
+    ctx.fillText(fmtTimeMs(e.survival_time), x + w - padX, ry);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+}
+
+// ============================================================
+// SCORE SUBMISSION
+// ============================================================
+async function submitScore() {
+  if (!USER_ID) {
+    submitStatus = 'error';
+    return;
+  }
+  submitStatus = 'sending';
+  try {
+    const res = await fetch('/api/dodge-gauntlet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: USER_ID,
+        username: USERNAME,
+        survivalTime: Math.floor(elapsed * 1000),
+        waveReached: wave,
+      }),
+    });
+    if (res.ok) {
+      submitted = true;
+      submitStatus = 'sent';
+      sfxSubmit();
+      fetchLeaderboard(); // Refresh after submit (single fetch, not hammering)
+    } else {
+      submitStatus = 'error';
+    }
+  } catch {
+    submitStatus = 'error';
+  }
+}
+
+// ============================================================
+// MAIN LOOP (Fixed timestep)
+// ============================================================
+const FIXED_DT = 1 / 60;
+let lastTime = 0, accumulator = 0;
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  if (state === 'menu') {
+    // Menu has its own render
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+    variableUpdate(dt);
+    drawMenu();
+    ctx.restore();
+    return;
+  }
+
+  // Fixed timestep physics
+  accumulator += dt;
+  while (accumulator >= FIXED_DT) {
+    fixedUpdate();
+    accumulator -= FIXED_DT;
+  }
+
+  variableUpdate(dt);
+
+  // --- RENDER ---
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+
+  // Screen shake
+  if (shakeIntensity > 0.1) {
+    ctx.translate(
+      (Math.random() - 0.5) * shakeIntensity * 2,
+      (Math.random() - 0.5) * shakeIntensity * 2
+    );
+  }
+
+  drawBackground();
+  drawProjectiles();
+  renderParticles();
+  drawPlayer();
+  drawPostProcess();
+  drawHUD();
+
+  if (state === 'dead' || state === 'gameover') {
+    drawGameOver();
+  }
+
+  ctx.restore();
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

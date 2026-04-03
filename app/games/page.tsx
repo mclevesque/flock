@@ -23,6 +23,7 @@ const GAMES: Record<string, GameCard[]> = {
     { id: "tightrope", title: "Tightrope Terror", desc: "Balance your way across the void", emoji: "🎪", href: "/tightrope" },
     { id: "matty", title: "Matty Milkers", desc: "Raw milk platformer adventure", emoji: "🥛", href: "/games/matty-milkers" },
     { id: "wingman", title: "Wingman", desc: "Dating platformer — charm your way to victory", emoji: "💘", href: "/games/wingman" },
+    { id: "dodge-gauntlet", title: "Dodge Gauntlet", desc: "Bullet-hell survival arena", emoji: "💠", href: "/dodge-gauntlet" },
   ],
   "TABLE GAMES": [
     { id: "chess", title: "Chess", desc: "Classic 1v1 with ELO rating", emoji: "♟️", href: "/chess", multiplayer: true },
