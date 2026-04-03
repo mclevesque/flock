@@ -33,6 +33,7 @@ const GAMES: Record<string, GameCard[]> = {
     { id: "waddabi", title: "Wadabbi?!", desc: "Draw it. Guess it. Win.", emoji: "🎨", href: "/waddabi", multiplayer: true },
     { id: "quiz", title: "Quiz", desc: "Trivia with friends", emoji: "🧠", href: "/quiz", multiplayer: true },
     { id: "draw", title: "Draw", desc: "Free canvas drawing", emoji: "🖌️", href: "/draw" },
+    { id: "moon-sim", title: "Moon Sim", desc: "Take Matt to the moon. He hates it.", emoji: "🌙", href: "/games/moon-sim" },
   ],
   "ADVENTURE": [
     { id: "moonhaven", title: "Moonhaven", desc: "RPG adventure world", emoji: "🌙", href: "/moonhaven", multiplayer: true },

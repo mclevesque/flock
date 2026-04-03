@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WE'RE GOING TO DA MOON, MATT!</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        canvas { image-rendering: pixelated; width: 100vw; height: 100vh; object-fit: contain; }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+
+    <script>
+    window._gamepadState = { buttons: new Array(16).fill(false), prevButtons: new Array(16).fill(false), justPressed: new Array(16).fill(false), justReleased: new Array(16).fill(false), axes: [0,0,0,0] };
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'gamepad') {
+            const gs = window._gamepadState, nb = e.data.buttons;
+            for (let i = 0; i < 16; i++) { if (nb[i] && !gs.buttons[i]) gs.justPressed[i] = true; if (!nb[i] && gs.buttons[i]) gs.justReleased[i] = true; }
+            gs.buttons = nb; gs.axes = e.data.axes;
+        }
+    });
+    window._gamepadPoll = function() { try { const gps = navigator.getGamepads(); for (let i = 0; i < gps.length; i++) { const gp = gps[i]; if (!gp) continue; const gs = window._gamepadState; gs.prevButtons = [...gs.buttons]; gs.buttons = Array.from(gp.buttons).map(b => b.pressed); gs.axes = Array.from(gp.axes); return; } } catch(e) {} };
+    </script>
+    <script src="src/engine.js"></script>
+    <script src="src/scene.js"></script>
+    <script src="src/assets.js"></script>
+    <script src="src/sprite.js"></script>
+    <script src="src/physics.js"></script>
+    <script src="src/tilemap.js"></script>
+    <script src="src/camera.js"></script>
+    <script src="src/input.js"></script>
+    <script src="src/audio.js"></script>
+    <script src="src/particles.js"></script>
+    <script src="src/animator.js"></script>
+    <script src="src/ui.js"></script>
+    <script src="src/music.js"></script>
+    <script src="src/pathfinding.js"></script>
+    <script src="src/lighting.js"></script>
+    <script src="src/saveload.js"></script>
+    <script src="src/effects.js"></script>
+    <script src="src/levelgen.js"></script>
+    <script src="src/isometric.js"></script>
+    <script src="src/network.js"></script>
+    <script src="src/export.js"></script>
+    <script src="src/clairvoyance.js"></script>
+    <script src="src/lorecraft.js"></script>
+    <script src="src/gamegen.js"></script>
+
+    <script>
+    /* ============================================
+       WE'RE GOING TO DA MOON, MATT!
+       Mark & Brian take Matt to space.
+       He hates it. (He secretly loves it.)
+       ============================================ */
+
+    const engine = new VibeEngine('game-canvas', 640, 360);
+    const WORLD = 2400; // bigger world for more stuff
+
+    const gs = {
+        state: 'title',
+        discoveries: 0,
+        totalDiscoveries: 10,
+        found: {},
+        mattAnger: 0,
+        mattSecretJoy: 0,
+        dialogQueue: [],
+        dialogActive: false,
+        dialogTimer: 0,
+        currentDialog: null,
+        inCart: false,
+        jabCount: 0, // how many moon jabs Fauci gave
+    };
+
+    // =============================================
+    //  PIXEL ART
+    // =============================================
+    function drawPerson(ctx, ox, oy, f, opts) {
+        const bob = [0, -1, 0, -1][f % 4];
+        const legOff = [2, -1, -2, 1][f % 4];
+        const armOff = [0, 1, 0, -1][f % 4];
+        if (opts.helmet) {
+            ctx.fillStyle = '#6699bb'; ctx.fillRect(ox + 2, oy + bob, 12, 9);
+            ctx.fillStyle = '#99ccee'; ctx.fillRect(ox + 3, oy + 1 + bob, 10, 7);
+        }
+        ctx.fillStyle = opts.skin; ctx.fillRect(ox + 4, oy + 2 + bob, 8, 6);
+        ctx.fillStyle = opts.hair; ctx.fillRect(ox + 4, oy + 1 + bob, 8, 3);
+        ctx.fillStyle = opts.eyes || '#000';
+        ctx.fillRect(ox + 5, oy + 4 + bob, 2, 1); ctx.fillRect(ox + 9, oy + 4 + bob, 2, 1);
+        if (opts.beard) { ctx.fillStyle = opts.beard; ctx.fillRect(ox + 4, oy + 6 + bob, 8, 3); ctx.fillRect(ox + 5, oy + 8 + bob, 6, 1); }
+        if (opts.mouth) { ctx.fillStyle = opts.mouth; ctx.fillRect(ox + 6, oy + 6 + bob, 4, 1); }
+        if (opts.glasses) { ctx.fillStyle = '#4488cc'; ctx.fillRect(ox + 4, oy + 3 + bob, 4, 2); ctx.fillRect(ox + 8, oy + 3 + bob, 4, 2); ctx.fillStyle = '#333'; ctx.fillRect(ox + 8, oy + 4 + bob, 1, 1); }
+        if (opts.bowtie) { ctx.fillStyle = opts.bowtie; ctx.fillRect(ox + 5, oy + 8 + bob, 2, 2); ctx.fillRect(ox + 9, oy + 8 + bob, 2, 2); ctx.fillRect(ox + 7, oy + 9 + bob, 2, 1); }
+        if (opts.mustache) { ctx.fillStyle = opts.mustache; ctx.fillRect(ox + 5, oy + 5 + bob, 6, 2); }
+        ctx.fillStyle = opts.shirt; ctx.fillRect(ox + 3, oy + 9 + bob, 10, 7);
+        if (opts.stripe) { ctx.fillStyle = opts.stripe; ctx.fillRect(ox + 6, oy + 9 + bob, 4, 7); }
+        ctx.fillStyle = opts.shirt;
+        ctx.fillRect(ox + 0, oy + 10 + bob + armOff, 4, 5); ctx.fillRect(ox + 12, oy + 10 + bob - armOff, 4, 5);
+        ctx.fillStyle = opts.helmet ? '#777788' : opts.skin;
+        ctx.fillRect(ox + 0, oy + 14 + bob + armOff, 4, 2); ctx.fillRect(ox + 12, oy + 14 + bob - armOff, 4, 2);
+        ctx.fillStyle = opts.pants;
+        ctx.fillRect(ox + 4, oy + 16 + bob + legOff, 3, 5); ctx.fillRect(ox + 9, oy + 16 + bob - legOff, 3, 5);
+        ctx.fillStyle = opts.boots;
+        ctx.fillRect(ox + 3, oy + 20 + bob + legOff, 5, 3); ctx.fillRect(ox + 8, oy + 20 + bob - legOff, 5, 3);
+    }
+
+    function generateSprites() {
+        const a = engine.assets;
+
+        // MARK (blonde hair, blue stripe)
+        const markC = document.createElement('canvas'); markC.width = 64; markC.height = 24;
+        const mkCtx = markC.getContext('2d'); mkCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) drawPerson(mkCtx, f*16, 0, f, { helmet: true, skin: '#ffcc99', hair: '#c4a24a', eyes: '#2244aa', mouth: '#cc6644', shirt: '#ddddee', stripe: '#4488ff', pants: '#ccccdd', boots: '#888899' });
+        a.images['mark'] = markC;
+
+        // BRIAN (dark hair)
+        const brianC = document.createElement('canvas'); brianC.width = 64; brianC.height = 24;
+        const brCtx = brianC.getContext('2d'); brCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) drawPerson(brCtx, f*16, 0, f, { helmet: true, skin: '#ffcc99', hair: '#6B4226', eyes: '#44aa44', mouth: '#cc6644', shirt: '#ddddee', pants: '#ccccdd', boots: '#888899' });
+        a.images['brian'] = brianC;
+
+        // MATT (no helmet, beard, orange suit, skeptical)
+        const mattC = document.createElement('canvas'); mattC.width = 64; mattC.height = 24;
+        const mtCtx = mattC.getContext('2d'); mtCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            drawPerson(mtCtx, f*16, 0, f, { helmet: false, skin: '#ffcc99', hair: '#333333', eyes: '#000', beard: '#444444', shirt: '#ee8833', stripe: '#cc6622', pants: '#dd7722', boots: '#554433' });
+            mtCtx.fillStyle = '#333'; const bob = [0,-1,0,-1][f]; mtCtx.fillRect(f*16+5, bob+3, 2, 1); mtCtx.fillRect(f*16+10, bob+3, 2, 1);
+        }
+        a.images['matt'] = mattC;
+
+        // T-REX (party hat, vibing)
+        const rexC = document.createElement('canvas'); rexC.width = 128; rexC.height = 32;
+        const rx = rexC.getContext('2d'); rx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            const ox = f*32, bob = [0,-1,0,1][f], legOff = [2,-1,-2,1][f];
+            rx.fillStyle = '#44aa44'; rx.fillRect(ox+6, 8+bob, 18, 14);
+            rx.fillStyle = '#55bb55'; rx.fillRect(ox+20, 2+bob, 12, 10);
+            rx.fillStyle = '#44aa44'; rx.fillRect(ox+22, 10+bob, 10, 4);
+            rx.fillStyle = '#fff'; for (let t=0;t<3;t++) rx.fillRect(ox+23+t*3, 10+bob, 2, 2);
+            rx.fillStyle = '#ff4444'; rx.fillRect(ox+24, 4+bob, 3, 3);
+            rx.fillStyle = '#000'; rx.fillRect(ox+25, 5+bob, 2, 2);
+            rx.fillStyle = '#55bb55'; rx.fillRect(ox+20, 12+bob, 3, 4);
+            rx.fillStyle = '#44aa44'; rx.fillRect(ox+2, 10+bob, 6, 6); rx.fillRect(ox, 12+bob, 4, 4);
+            rx.fillStyle = '#44aa44'; rx.fillRect(ox+8, 22+bob+legOff, 5, 8); rx.fillRect(ox+16, 22+bob-legOff, 5, 8);
+            rx.fillStyle = '#338833'; rx.fillRect(ox+7, 28+bob+legOff, 7, 4); rx.fillRect(ox+15, 28+bob-legOff, 7, 4);
+            rx.fillStyle = '#ff44ff'; rx.fillRect(ox+24, bob, 4, 3);
+            rx.fillStyle = '#ffff00'; rx.fillRect(ox+25, bob-1, 2, 2);
+        }
+        a.images['trex'] = rexC;
+
+        // NEIL DEGRASSE TYSON (vest, mustache, pointing)
+        const ndtC = document.createElement('canvas'); ndtC.width = 64; ndtC.height = 24;
+        const ndCtx = ndtC.getContext('2d'); ndCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            const ox = f*16, bob = [0,-1,0,-1][f], armOff = [0,-1,-2,-1][f];
+            ndCtx.fillStyle = '#6699bb'; ndCtx.fillRect(ox+2, bob, 12, 9);
+            ndCtx.fillStyle = '#99ccee'; ndCtx.fillRect(ox+3, 1+bob, 10, 7);
+            ndCtx.fillStyle = '#8B6914'; ndCtx.fillRect(ox+4, 2+bob, 8, 6);
+            ndCtx.fillStyle = '#222'; ndCtx.fillRect(ox+5, 5+bob, 6, 2);
+            ndCtx.fillStyle = '#000'; ndCtx.fillRect(ox+5, 3+bob, 2, 1); ndCtx.fillRect(ox+9, 3+bob, 2, 1);
+            ndCtx.fillStyle = '#222233'; ndCtx.fillRect(ox+3, 9+bob, 10, 7);
+            ndCtx.fillStyle = '#6633aa'; ndCtx.fillRect(ox+4, 9+bob, 8, 6);
+            ndCtx.fillStyle = '#222233'; ndCtx.fillRect(ox+12, 6+bob+armOff, 4, 3); ndCtx.fillRect(ox+14, 3+bob+armOff, 3, 4);
+            ndCtx.fillRect(ox, 10+bob, 4, 5);
+            ndCtx.fillRect(ox+4, 16+bob, 3, 5); ndCtx.fillRect(ox+9, 16+bob, 3, 5);
+            ndCtx.fillStyle = '#111'; ndCtx.fillRect(ox+3, 20+bob, 5, 3); ndCtx.fillRect(ox+8, 20+bob, 5, 3);
+        }
+        a.images['ndt'] = ndtC;
+
+        // BILL NYE (blue bowtie, lab coat, holding beaker)
+        const nyeC = document.createElement('canvas'); nyeC.width = 64; nyeC.height = 24;
+        const nyCtx = nyeC.getContext('2d'); nyCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            drawPerson(nyCtx, f*16, 0, f, { helmet: true, skin: '#ffcc99', hair: '#666666', eyes: '#000', bowtie: '#4488ff', shirt: '#ffffff', pants: '#333355', boots: '#333333' });
+            // Beaker in right hand
+            const bob = [0,-1,0,-1][f], armOff = [0,1,0,-1][f];
+            nyCtx.fillStyle = '#88ccff'; nyCtx.fillRect(f*16+13, 12+bob-armOff, 3, 4);
+            nyCtx.fillStyle = '#44ff88'; nyCtx.fillRect(f*16+13, 13+bob-armOff, 3, 2); // green bubbling liquid
+        }
+        a.images['nye'] = nyeC;
+
+        // DR. FAUCI (small, glasses, white coat, syringe)
+        const fauciC = document.createElement('canvas'); fauciC.width = 64; fauciC.height = 24;
+        const faCtx = fauciC.getContext('2d'); faCtx.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            drawPerson(faCtx, f*16, 0, f, { helmet: true, skin: '#ffcc99', hair: '#cccccc', eyes: '#000', glasses: true, shirt: '#ffffff', pants: '#334455', boots: '#222233' });
+            // Syringe in hand
+            const bob = [0,-1,0,-1][f], armOff = [0,1,0,-1][f];
+            faCtx.fillStyle = '#cccccc'; faCtx.fillRect(f*16+13, 10+bob-armOff, 2, 6);
+            faCtx.fillStyle = '#44ccff'; faCtx.fillRect(f*16+13, 12+bob-armOff, 2, 3);
+            faCtx.fillStyle = '#ff4444'; faCtx.fillRect(f*16+14, 9+bob-armOff, 1, 2); // needle
+        }
+        a.images['fauci'] = fauciC;
+
+        // ELON'S RED ROADSTER
+        const elonC = document.createElement('canvas'); elonC.width = 128; elonC.height = 24;
+        const el = elonC.getContext('2d'); el.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            const ox = f*32, bob = [0,-1,0,1][f];
+            el.fillStyle = '#cc2222'; el.fillRect(ox+3, 8+bob, 26, 8);
+            el.fillStyle = '#aa1111'; el.fillRect(ox+3, 6+bob, 14, 4); el.fillRect(ox+24, 6+bob, 5, 4);
+            el.fillStyle = '#4488cc'; el.fillRect(ox+16, 4+bob, 8, 6);
+            el.fillStyle = '#222'; el.fillRect(ox+5, 15+bob, 5, 5); el.fillRect(ox+22, 15+bob, 5, 5);
+            el.fillStyle = '#666'; el.fillRect(ox+6, 16+bob, 3, 3); el.fillRect(ox+23, 16+bob, 3, 3);
+            el.fillStyle = '#ffcc99'; el.fillRect(ox+18, 3+bob, 4, 4);
+            el.fillStyle = '#554433'; el.fillRect(ox+18, 2+bob, 4, 2);
+            el.fillStyle = '#000'; el.fillRect(ox+19, 4+bob, 3, 1);
+            el.fillStyle = '#999'; el.fillRect(ox+26, 5+bob, 3, 3);
+            el.fillStyle = '#ff88aa'; el.fillRect(ox+28, 4+bob, 2, 2);
+            el.fillStyle = '#ffaacc'; el.fillRect(ox+25, 7+bob, 4, 1);
+        }
+        a.images['elon'] = elonC;
+
+        // GOLF CART
+        const cartC = document.createElement('canvas'); cartC.width = 128; cartC.height = 24;
+        const ct = cartC.getContext('2d'); ct.imageSmoothingEnabled = false;
+        for (let f = 0; f < 4; f++) {
+            const ox = f*32, wb = [0,1,0,-1][f];
+            ct.fillStyle = '#eee'; ct.fillRect(ox+2, 6, 28, 12);
+            ct.fillStyle = '#44cc44'; ct.fillRect(ox+2, 8, 28, 3);
+            ct.fillStyle = '#ccc'; ct.fillRect(ox+4, 1, 20, 6);
+            ct.fillStyle = '#999'; ct.fillRect(ox+5, 4, 2, 4); ct.fillRect(ox+25, 4, 2, 4);
+            ct.fillStyle = '#333'; ct.fillRect(ox+3, 17+wb, 6, 6); ct.fillRect(ox+23, 17-wb, 6, 6);
+            ct.fillStyle = '#888'; ct.fillRect(ox+5, 19+wb, 2, 2); ct.fillRect(ox+25, 19-wb, 2, 2);
+            ct.fillStyle = '#ffff88'; ct.fillRect(ox+28, 10, 2, 3);
+        }
+        a.images['cart'] = cartC;
+
+        // Static sprites
+        const flagC = document.createElement('canvas'); flagC.width = 16; flagC.height = 24;
+        const fl = flagC.getContext('2d'); fl.imageSmoothingEnabled = false;
+        fl.fillStyle = '#ccc'; fl.fillRect(7, 0, 2, 24);
+        fl.fillStyle = '#ff3333'; fl.fillRect(9, 1, 7, 5);
+        fl.fillStyle = '#ffff00'; fl.fillRect(11, 2, 3, 3);
+        fl.fillStyle = '#111'; fl.beginPath(); fl.arc(8, 22, 4, 0, Math.PI*2); fl.fill();
+        a.images['flag'] = flagC;
+
+        const ballC = document.createElement('canvas'); ballC.width = 8; ballC.height = 8;
+        const bl = ballC.getContext('2d'); bl.fillStyle = '#fff'; bl.fillRect(2,1,4,6); bl.fillRect(1,2,6,4); bl.fillStyle = '#ddd'; bl.fillRect(3,3,2,2);
+        a.images['golfball'] = ballC;
+
+        const clubC = document.createElement('canvas'); clubC.width = 12; clubC.height = 24;
+        const cl = clubC.getContext('2d'); cl.fillStyle = '#ccc'; cl.fillRect(5,0,2,20); cl.fillStyle = '#888'; cl.fillRect(2,18,8,5); cl.fillStyle = '#443322'; cl.fillRect(4,0,4,5);
+        a.images['club'] = clubC;
+
+        const rockC = document.createElement('canvas'); rockC.width = 16; rockC.height = 12;
+        const rk = rockC.getContext('2d'); rk.fillStyle = '#888'; rk.fillRect(2,3,12,8); rk.fillRect(4,1,8,3); rk.fillStyle = '#777'; rk.fillRect(4,5,4,3); rk.fillStyle = '#999'; rk.fillRect(8,3,5,4);
+        a.images['rock'] = rockC;
+
+        const usfC = document.createElement('canvas'); usfC.width = 20; usfC.height = 24;
+        const us = usfC.getContext('2d'); us.fillStyle = '#ccc'; us.fillRect(2,0,2,24);
+        us.fillStyle = '#cc2222'; us.fillRect(4,1,14,10);
+        us.fillStyle = '#fff'; for (let i=0;i<4;i++) us.fillRect(4, 3+i*2, 14, 1);
+        us.fillStyle = '#2244aa'; us.fillRect(4,1,6,5);
+        us.fillStyle = '#fff'; us.fillRect(5,2,1,1); us.fillRect(7,2,1,1); us.fillRect(9,2,1,1); us.fillRect(6,4,1,1); us.fillRect(8,4,1,1);
+        a.images['usflag'] = usfC;
+
+        // SYRINGE (for Fauci station)
+        const syC = document.createElement('canvas'); syC.width = 16; syC.height = 16;
+        const sy = syC.getContext('2d'); sy.imageSmoothingEnabled = false;
+        sy.fillStyle = '#ccc'; sy.fillRect(6, 2, 4, 10);
+        sy.fillStyle = '#44ccff'; sy.fillRect(7, 4, 2, 6);
+        sy.fillStyle = '#ff4444'; sy.fillRect(7, 1, 2, 2); // needle
+        sy.fillStyle = '#888'; sy.fillRect(5, 11, 6, 2); // plunger
+        a.images['syringe'] = syC;
+    }
+
+    // =============================================
+    //  QUOTES — The comedy gold
+    // =============================================
+    const mattQuotes = {
+        trex: [
+            "Oh so NOW dinosaurs are on the moon. Real creative.",
+            "It's got a party hat. Government-funded party hat.",
+            "Scientists said these were extinct. Now they're up here vibing. Pick a lane.",
+            "...okay he's kinda cool though. The hat is a nice touch.",
+        ],
+        golf: [
+            "Of COURSE there's golf. Rich people colonized the moon AND brought country clubs.",
+            "Low gravity golf is actually... no. No. I won't say it.",
+            "Alan Shepard hit a golf ball on the moon. 'Allegedly.'",
+            "...okay the ball physics go kinda hard",
+        ],
+        elon: [
+            "There's a whole car up here and nobody thinks that's suspicious?",
+            "Is that a RAT on the car?? A space rat??",
+            "Cherry red roadster orbiting the sun. Normal stuff.",
+            "The rat is living its best life honestly",
+        ],
+        ndt: [
+            "Oh great, Mr. Actually is here",
+            "He's pointing. At space. While IN space. Groundbreaking.",
+            "That mustache has its own gravitational pull",
+            "He's gonna explain the moon to me while I'M STANDING ON IT",
+        ],
+        flag: [
+            "The flag that waved in a vacuum. Classic.",
+            "Fifty years on a windless rock and not a wrinkle. Suspicious.",
+            "I'm touching the pole. It's real. I'm not saying anything else.",
+        ],
+        cart: [
+            "We have GOLF CARTS on the MOON? What's the budget here?",
+            "MOON CART. It literally says MOON CART. I can't.",
+            "Okay the cart is tight but I'm riding it IRONICALLY.",
+        ],
+        nye: [
+            "Bill Nye?! The SCIENCE GUY?! On the MOON?!",
+            "He's doing a science experiment. On the moon. With a bowtie.",
+            "Bro your show got cancelled and you're up HERE?",
+            "The bowtie is blue. The liquid is green. Nothing adds up.",
+            "...his volcano IS kinda sick though. For the record.",
+        ],
+        fauci: [
+            "NAH. Nah nah nah. MOON JABS?!",
+            "He followed us to SPACE?! There's no escape!",
+            "FREE MOON JABS. Of course. Of COURSE.",
+            "'Side effects may include believing in gravity.' I KNEW IT.",
+            "The 5G towers weren't enough, now it's moon needles",
+        ],
+        flatearth: [
+            "THERE IT IS. The edge! I TOLD you guys!",
+            "Wait... that's just a crater. BUT IT COULD BE THE EDGE.",
+            "The government put a crater here to HIDE the edge.",
+            "I'm not saying it's the edge. I'm asking questions.",
+        ],
+        roundearth: [
+            "That's CGI. Next.",
+            "The earth is looking 'round' because of the helmet glass curvature.",
+            "Fish eye lens in the helmet. Classic NASA trick.",
+            "Once you go flat, you never go back.",
+            "I've seen rounder pizzas. Not impressed.",
+        ],
+        support: [
+            "There's a SUPPORT GROUP for moon landing deniers. ON THE MOON.",
+            "Wait... they all came up here to prove it was fake and then just... stayed?",
+            "The sign says 'Step 1: Admit the moon is real.' I'm not doing Step 1.",
+            "One of them has a t-shirt that says 'I went to the moon and all I got was proven wrong.'",
+            "They're serving moon cheese. MOON. CHEESE. This is a psyop.",
+        ],
+        filmcrew: [
+            "I KNEW IT! CAMERAS! This is ALL a set!",
+            "Kubrick would be proud. Where's the director?",
+            "Mark you LITERALLY set up cameras and said 'every step filmed'",
+            "The lighting rigs... where are the lighting rigs... AH HA!",
+        ],
+        secretJoy: [
+            "...don't tell anyone but this kinda goes",
+            "I'm not SAYING it's real. I'm saying the vibes are immaculate.",
+            "If this IS fake it's the greatest fake ever made and I respect it",
+            "okay fine. FINE. It's a little cool.",
+            "My anger meter is going down. I blame the golf cart.",
+            "I would come back. Hypothetically. For research.",
+        ],
+        markReacts: [
+            "Called it. He likes it.",
+            "That's the closest to a compliment we'll ever get.",
+            "Progress! He hasn't called it fake in 30 seconds!",
+            "The secret joy meter doesn't lie, Matt.",
+            "One small step for Matt, one giant leap for admitting things are cool.",
+        ],
+        brianReacts: [
+            "WE'RE GOING TO DA MOON BAYBEEE",
+            "4K LASER FOOTAGE BABY",
+            "Matt's smiling! He's SMILING! I saw it!",
+            "This is the greatest day of my life",
+            "AGAIN!!",
+        ],
+    };
+
+    // Ambient banter that triggers at time intervals
+    const ambientBanter = [
+        { t: 30, lines: [
+            { s: 'BRIAN', t: "Hey Matt... the Earth is looking pretty ROUND from up here." },
+            { s: 'MATT', t: "Fish eye lens. Next question." },
+        ]},
+        { t: 60, lines: [
+            { s: 'MARK', t: "Fun fact: we're 238,900 miles from Earth right now." },
+            { s: 'MATT', t: "According to WHO? NASA? The people selling the tickets?" },
+        ]},
+        { t: 90, lines: [
+            { s: 'BRIAN', t: "Matt you've been walking on the moon for like 2 minutes without a helmet and you're fine" },
+            { s: 'MATT', t: "...yeah well the air up here tastes weird" },
+            { s: 'MARK', t: "There IS no air up here, Matt." },
+            { s: 'MATT', t: "EXACTLY. Suspicious." },
+        ]},
+        { t: 130, lines: [
+            { s: 'BRIAN', t: "How come Matt can breathe without a helmet on the moon?" },
+            { s: 'MARK', t: "Plot armor." },
+            { s: 'MATT', t: "Because it's a STUDIO SET, Brian. There's HVAC." },
+        ]},
+        { t: 180, lines: [
+            { s: 'MATT', t: "Why is there no footage of the dark side of the moon?" },
+            { s: 'MARK', t: "There literally is. Chang'e 4 landed there." },
+            { s: 'MATT', t: "Chang'e? That sounds made up." },
+            { s: 'BRIAN', t: "It's Chinese, Matt." },
+            { s: 'MATT', t: "...I'll allow it." },
+        ]},
+        { t: 240, lines: [
+            { s: 'MATT', t: "Have either of you noticed there's no SOUND on the moon?" },
+            { s: 'MARK', t: "That's... because there's no atmosphere. Sound needs air." },
+            { s: 'MATT', t: "So how am I hearing you talk right now?" },
+            { s: 'MARK', t: "..." },
+            { s: 'BRIAN', t: "..." },
+            { s: 'MATT', t: "CHECKMATE." },
+        ]},
+    ];
+
+    let usedQuotes = {};
+    function getQuote(cat) {
+        if (!mattQuotes[cat]) return "...";
+        if (!usedQuotes[cat]) usedQuotes[cat] = [];
+        const pool = mattQuotes[cat].filter((_, i) => !usedQuotes[cat].includes(i));
+        if (pool.length === 0) { usedQuotes[cat] = []; return getQuote(cat); }
+        const idx = mattQuotes[cat].indexOf(pool[Math.floor(Math.random() * pool.length)]);
+        usedQuotes[cat].push(idx);
+        return mattQuotes[cat][idx];
+    }
+
+    // =============================================
+    //  DIALOG & HELPERS
+    // =============================================
+    function queueDialog(speaker, text, duration) {
+        duration = duration || Math.max(2.5, text.length * 0.055);
+        gs.dialogQueue.push({ speaker, text, duration });
+        if (!gs.dialogActive) showNextDialog();
+    }
+    function showNextDialog() {
+        if (gs.dialogQueue.length === 0) { gs.dialogActive = false; gs.currentDialog = null; return; }
+        gs.dialogActive = true;
+        gs.currentDialog = gs.dialogQueue.shift();
+        gs.dialogTimer = gs.currentDialog.duration;
+    }
+    function drawDialog(ctx, d) {
+        const bw = 500, bh = 55, bx = 70, by = 285;
+        ctx.fillStyle = 'rgba(0,0,0,0.88)'; ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+        ctx.font = 'bold 12px monospace'; ctx.textAlign = 'left';
+        const colors = { MARK: '#88ccff', BRIAN: '#88ff88', MATT: '#ff8833', 'BILL NYE': '#4488ff', 'FAUCI': '#ff4444' };
+        ctx.fillStyle = colors[d.speaker] || '#fff';
+        ctx.fillText(d.speaker, bx + 10, by + 16);
+        ctx.font = '11px monospace'; ctx.fillStyle = '#fff';
+        const words = d.text.split(' '); let line = '', y = by + 33;
+        for (const w of words) { const test = line + w + ' '; if (ctx.measureText(test).width > bw-20) { ctx.fillText(line, bx+10, y); line = w+' '; y += 14; } else line = test; }
+        ctx.fillText(line, bx + 10, y);
+    }
+    function tickDialog(dt) { if (gs.dialogActive && gs.currentDialog) { gs.dialogTimer -= dt; if (gs.dialogTimer <= 0) showNextDialog(); } }
+    function makeStars(n, w, h) { const s = []; for (let i=0;i<n;i++) s.push({x:Math.random()*w, y:Math.random()*h, s:Math.random()*1.5+0.3, t:Math.random()*Math.PI*2, sp:Math.random()*0.5+0.2}); return s; }
+    function drawStars(ctx, stars, dt, alpha) { for (const s of stars) { s.t += s.sp*(dt||0); const a = (alpha||1)*(0.3+Math.sin(s.t)*0.35); ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fillRect(s.x, s.y, s.s, s.s); } }
+
+    // =============================================
+    //  TITLE SCENE
+    // =============================================
+    class TitleScene extends Scene {
+        constructor() { super('Title'); }
+        _enter() { super._enter(); this._t = 0; this._stars = makeStars(200, 640, 360); }
+        update(dt) {
+            this._t += dt;
+            if (engine.input.isKeyDown('Space') || engine.input.isKeyDown('Enter') || engine.input.isKeyDown('gamepad_a')) engine.switchScene('launch', 'fade');
+        }
+        drawUI(ctx) {
+            ctx.fillStyle = '#080810'; ctx.fillRect(0, 0, 640, 360);
+            drawStars(ctx, this._stars, 1/60, 1);
+            ctx.fillStyle = '#ccccaa'; ctx.beginPath(); ctx.arc(320, 140, 60, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#aaaaaa88'; ctx.beginPath(); ctx.arc(300, 125, 12, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(340, 150, 8, 0, Math.PI*2); ctx.fill();
+            const b = Math.sin(this._t * 3) * 4;
+            ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
+            ctx.fillStyle = '#000'; ctx.fillText("WE'RE GOING TO DA MOON, MATT!", 322, 52+b);
+            ctx.fillStyle = '#ffcc00'; ctx.fillText("WE'RE GOING TO DA MOON, MATT!", 320, 50+b);
+            ctx.font = '13px monospace'; ctx.fillStyle = '#88aacc'; ctx.fillText("Mark & Brian take Matt to space. He hates it.", 320, 78);
+            ctx.fillStyle = '#ff8844'; ctx.fillText("(He secretly loves it.)", 320, 96);
+            const cb = Math.sin(this._t*2)*3;
+            ctx.drawImage(engine.assets.images['mark'], 0,0,16,24, 222, 220+cb, 32, 48);
+            ctx.font = '10px monospace'; ctx.fillStyle = '#88ccff'; ctx.fillText('MARK', 238, 275+cb);
+            ctx.drawImage(engine.assets.images['brian'], 0,0,16,24, 302, 218+cb, 32, 48);
+            ctx.fillStyle = '#88ff88'; ctx.fillText('BRIAN', 318, 273+cb);
+            ctx.drawImage(engine.assets.images['matt'], 0,0,16,24, 382, 222-cb, 32, 48);
+            ctx.fillStyle = '#ff8833'; ctx.fillText('MATT', 398, 277-cb);
+            ctx.fillStyle = '#ff4444'; ctx.font = '8px monospace'; ctx.fillText('(skeptical)', 398, 216-cb);
+            if (Math.sin(this._t*4) > 0) { ctx.font = '16px monospace'; ctx.fillStyle = '#fff'; ctx.fillText('PRESS SPACE TO LAUNCH', 320, 320); }
+            ctx.font = '10px monospace'; ctx.fillStyle = '#444'; ctx.fillText('A Vibe Engine Production', 320, 352);
+        }
+    }
+
+    // =============================================
+    //  LAUNCH CUTSCENE
+    // =============================================
+    class LaunchScene extends Scene {
+        constructor() { super('Launch'); }
+        _enter() { super._enter(); this._t=0; this._phase=0; this._rocketY=280; this._shake=0; this._stars=makeStars(100,640,360); this._dq=false; }
+        update(dt) {
+            this._t += dt; tickDialog(dt);
+            if (!this._dq && this._t > 0.3) {
+                this._dq = true;
+                queueDialog('BRIAN', "Buckle up boys. We're going to the MOON.");
+                queueDialog('MATT', "I packed snacks for the studio set we're obviously going to.");
+                queueDialog('MARK', "Every step documented. Every angle covered. 4K laser comms.");
+                queueDialog('MATT', "If I see a green screen I'm walking home.");
+                queueDialog('BRIAN', "Walking home from SPACE? Bold strategy.");
+                queueDialog('MATT', "Watch me.");
+            }
+            if (this._t > 2 && this._phase === 0) { this._phase=1; this._shake=3; }
+            if (this._t > 4 && this._phase === 1) { this._phase=2; this._shake=8; }
+            if (this._phase === 2) { this._rocketY -= 80*dt; this._shake = Math.max(2, this._shake-dt); }
+            if (this._t > 7 && this._phase === 2) {
+                this._phase = 3; this._shake = 0;
+                queueDialog('MARK', "That's called bitrate, Matt. YouTube-from-space issue.");
+                queueDialog('MATT', "Looks like a scrambled cable channel from 1997.");
+                queueDialog('BRIAN', "The 4K laser kicks in near the moon. Trust the process.");
+                queueDialog('MATT', "I trust nothing and no one.");
+            }
+            if (this._t > 15 && this._phase === 3) { this._phase = 4; engine.switchScene('moon', 'fade'); }
+        }
+        drawUI(ctx) {
+            const sx = this._shake > 0 ? (Math.random()-0.5)*this._shake*2 : 0;
+            const sy = this._shake > 0 ? (Math.random()-0.5)*this._shake*2 : 0;
+            ctx.save(); ctx.translate(sx, sy);
+            const sp = Math.min(1, Math.max(0, (this._t-4)/3));
+            ctx.fillStyle = `rgb(${Math.floor(30*(1-sp))},${Math.floor(50*(1-sp))},${Math.floor(120*(1-sp))})`; ctx.fillRect(0,0,640,360);
+            if (sp > 0) drawStars(ctx, this._stars, 1/60, sp);
+            if (sp > 0.5) {
+                const ey = 400+(sp-0.5)*100;
+                ctx.fillStyle = '#2244aa'; ctx.beginPath(); ctx.arc(320,ey,120,0,Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#44aa44'; ctx.beginPath(); ctx.arc(300,ey-30,40,0,Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(360,ey+10,30,0,Math.PI*2); ctx.fill();
+            }
+            const ry = this._rocketY;
+            ctx.fillStyle = '#ddddee'; ctx.fillRect(300,ry-40,40,60);
+            ctx.fillStyle = '#ff4444'; ctx.beginPath(); ctx.moveTo(320,ry-60); ctx.lineTo(340,ry-40); ctx.lineTo(300,ry-40); ctx.fill();
+            ctx.fillStyle = '#4488cc'; ctx.beginPath(); ctx.arc(320,ry-20,8,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#ff4444'; ctx.beginPath(); ctx.moveTo(295,ry+20); ctx.lineTo(300,ry); ctx.lineTo(300,ry+20); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(345,ry+20); ctx.lineTo(340,ry); ctx.lineTo(340,ry+20); ctx.fill();
+            ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#4488ff'; ctx.textAlign = 'center'; ctx.fillText('NASA', 320, ry);
+            if (this._phase >= 1) {
+                const fh = 20+Math.random()*30;
+                ctx.fillStyle = '#ff8800'; ctx.beginPath(); ctx.moveTo(305,ry+20); ctx.lineTo(320,ry+20+fh); ctx.lineTo(335,ry+20); ctx.fill();
+                ctx.fillStyle = '#ffcc00'; ctx.beginPath(); ctx.moveTo(310,ry+20); ctx.lineTo(320,ry+20+fh*0.6); ctx.lineTo(330,ry+20); ctx.fill();
+            }
+            ctx.fillStyle = '#ffcc99'; ctx.fillRect(316,ry-24,8,6);
+            ctx.fillStyle = '#333'; ctx.fillRect(316,ry-25,8,2);
+            ctx.fillStyle = '#444'; ctx.fillRect(316,ry-20,8,2);
+            ctx.restore();
+            ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center';
+            if (this._phase===1) { ctx.fillStyle='#ff4444'; ctx.fillText('ENGINES IGNITE',320,40); }
+            if (this._phase===2) { ctx.fillStyle='#ffcc00'; ctx.fillText('LIFTOFF!',320,40); }
+            if (gs.dialogActive && gs.currentDialog) drawDialog(ctx, gs.currentDialog);
+        }
+    }
+
+    // =============================================
+    //  MOON SCENE — The main game
+    // =============================================
+    class MoonScene extends Scene {
+        constructor() { super('Moon'); }
+        _enter() {
+            super._enter();
+            this._t = 0;
+            this._stars = makeStars(300, WORLD+400, WORLD+400);
+            this._craters = []; for (let i=0;i<50;i++) this._craters.push({x:Math.random()*WORLD, y:Math.random()*WORLD, r:10+Math.random()*30});
+            this._rocks = []; for (let i=0;i<35;i++) this._rocks.push({x:Math.random()*WORLD, y:Math.random()*WORLD, s:0.5+Math.random()*1.5});
+            this._px = 500; this._py = 700; this._pdir = 0; this._pmoving = false;
+            this._mkx = 480; this._mky = 720; this._brx = 520; this._bry = 720;
+            // NPCs
+            this._trexX=300; this._trexY=300; this._trexVx=20; this._trexVy=10; this._trexT=0;
+            this._ndtX=800; this._ndtY=1400; this._ndtT=0;
+            this._nyeX=1600; this._nyeY=900; this._nyeT=0; this._nyeBubbleT=0;
+            this._fauciX=400; this._fauciY=1600; this._fauciT=0;
+            this._elonX=1800; this._elonY=300; this._elonA=0;
+            this._cartX=620; this._cartY=800; this._inCart=false;
+            // Golf
+            this._balls=[{x:1120,y:510,vx:0,vy:0,on:false},{x:1150,y:490,vx:0,vy:0,on:false}];
+            this._clubX=1080; this._clubY=530; this._clubGot=false; this._hasClub=false;
+            // Footprints
+            this._fp=[]; this._fpT=0;
+            // Ambient banter
+            this._banterIdx = 0;
+            // Discoveries (10 total!)
+            this._zones = [
+                { id: 'trex', x:300, y:300, r:60, label:'A T-REX?!', found:false },
+                { id: 'golf', x:1100, y:500, r:50, label:'MOON GOLF', found:false },
+                { id: 'elon', x:1800, y:300, r:70, label:'THE RED ROADSTER', found:false },
+                { id: 'ndt', x:800, y:1400, r:50, label:'NEIL DEGRASSE TYSON', found:false },
+                { id: 'nye', x:1600, y:900, r:50, label:'BILL NYE THE SCIENCE GUY', found:false },
+                { id: 'fauci', x:400, y:1600, r:50, label:'DR. FAUCI\'S MOON JAB STATION', found:false },
+                { id: 'flag', x:1400, y:1200, r:40, label:'THE FLAG', found:false },
+                { id: 'cart', x:620, y:800, r:50, label:'A GOLF CART', found:false },
+                { id: 'filmcrew', x:2100, y:1800, r:50, label:'A NASA FILM CREW?!', found:false },
+                { id: 'support', x:1900, y:1300, r:55, label:'A SUPPORT GROUP?!', found:false },
+            ];
+            // Fauci jab station props
+            this._jabCooldown = 0;
+            this._holeInOne = false;
+            this._interactCooldown = 0;
+            gs.dialogQueue=[]; gs.dialogActive=false; gs.currentDialog=null; gs.jabCount=0;
+            this._introQueued=false;
+        }
+
+        update(dt) {
+            this._t += dt; tickDialog(dt);
+            if (!this._introQueued && this._t > 1) {
+                this._introQueued = true;
+                queueDialog('MARK', "Welcome to the moon, Matt. There's a LOT to see.");
+                queueDialog('MATT', "Where's the studio lights? The boom mic? The craft services?");
+                queueDialog('BRIAN', "WASD to walk! Explore! There's like 10 things out here!");
+                queueDialog('MATT', "I'll play along. For now. But I'm keeping notes.");
+            }
+
+            // Ambient banter
+            if (this._banterIdx < ambientBanter.length && this._t > ambientBanter[this._banterIdx].t && !gs.dialogActive) {
+                const b = ambientBanter[this._banterIdx];
+                for (const l of b.lines) queueDialog(l.s, l.t);
+                this._banterIdx++;
+            }
+
+            // Movement
+            const inp = engine.input;
+            let mx=0, my=0;
+            const spd = this._inCart ? 200 : 80;
+            if (inp.isKey('ArrowLeft')||inp.isKey('KeyA')) { mx=-1; this._pdir=1; }
+            if (inp.isKey('ArrowRight')||inp.isKey('KeyD')) { mx=1; this._pdir=2; }
+            if (inp.isKey('ArrowUp')||inp.isKey('KeyW')) { my=-1; this._pdir=3; }
+            if (inp.isKey('ArrowDown')||inp.isKey('KeyS')) { my=1; this._pdir=0; }
+            try { const gp=inp.getAxis('left'); if(Math.abs(gp.x)>0.2)mx=gp.x; if(Math.abs(gp.y)>0.2)my=gp.y; } catch(e){}
+            if (mx!==0&&my!==0) { mx*=0.707; my*=0.707; }
+            this._pmoving = mx!==0||my!==0;
+            this._px = Math.max(0, Math.min(WORLD, this._px+mx*spd*dt));
+            this._py = Math.max(0, Math.min(WORLD, this._py+my*spd*dt));
+
+            // Footprints
+            this._fpT += dt;
+            if (this._pmoving && this._fpT > 0.3 && !this._inCart) { this._fpT=0; this._fp.push({x:this._px+8,y:this._py+18,life:12}); if(this._fp.length>80) this._fp.shift(); }
+            for (const fp of this._fp) fp.life -= dt;
+            this._fp = this._fp.filter(fp => fp.life > 0);
+
+            // Companions
+            const fd = this._inCart ? 5 : 30;
+            const mdx=(this._px-20)-this._mkx, mdy=(this._py+10)-this._mky;
+            if(Math.abs(mdx)>fd||Math.abs(mdy)>fd){this._mkx+=mdx*2*dt; this._mky+=mdy*2*dt;}
+            const bdx=(this._px+20)-this._brx, bdy=(this._py+10)-this._bry;
+            if(Math.abs(bdx)>fd||Math.abs(bdy)>fd){this._brx+=bdx*2*dt; this._bry+=bdy*2*dt;}
+
+            // T-Rex
+            this._trexT+=dt; if(this._trexT>3){this._trexT=0; this._trexVx=(Math.random()-0.5)*40; this._trexVy=(Math.random()-0.5)*40;}
+            this._trexX=Math.max(100,Math.min(500,this._trexX+this._trexVx*dt));
+            this._trexY=Math.max(100,Math.min(500,this._trexY+this._trexVy*dt));
+
+            // NDT
+            this._ndtT+=dt; if(this._ndtT>5){this._ndtT=0; this._ndtX+=(Math.random()-0.5)*60; this._ndtY+=(Math.random()-0.5)*60;}
+
+            // Bill Nye (pacing near his experiment)
+            this._nyeT+=dt; this._nyeBubbleT+=dt;
+            this._nyeX = 1600 + Math.sin(this._nyeT*0.5)*30;
+
+            // Fauci (stands at his booth)
+            this._fauciT+=dt;
+
+            // Elon circles
+            this._elonA += 0.3*dt;
+            this._elonX = 1800+Math.cos(this._elonA)*120;
+            this._elonY = 300+Math.sin(this._elonA)*80;
+
+            // Discoveries
+            for (const z of this._zones) {
+                if (z.found) continue;
+                const dx=this._px-z.x, dy=this._py-z.y;
+                if (Math.sqrt(dx*dx+dy*dy) < z.r) {
+                    z.found = true; gs.discoveries++; gs.found[z.id] = true;
+                    gs.mattAnger = Math.min(100, gs.mattAnger + 10);
+                    gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 12);
+                    engine.shake(6, 0.9);
+
+                    // Special intros for new NPCs
+                    if (z.id === 'nye') {
+                        queueDialog('BRIAN', "Is that... BILL NYE?!");
+                        queueDialog('MATT', getQuote('nye'));
+                        queueDialog('BILL NYE', "SCIENCE RULES! Even on the moon!");
+                        queueDialog('MATT', getQuote('nye'));
+                    } else if (z.id === 'fauci') {
+                        queueDialog('MARK', "Matt... is that Dr. Fauci?");
+                        queueDialog('MATT', getQuote('fauci'));
+                        queueDialog('FAUCI', "Free moon jabs! Builds immunity to lunar radiation!");
+                        queueDialog('MATT', getQuote('fauci'));
+                        queueDialog('FAUCI', "Side effects may include: believing in gravity.");
+                        queueDialog('MATT', "I KNEW IT.");
+                    } else if (z.id === 'roundearth') {
+                        queueDialog('BRIAN', "Hey Matt, the Earth is looking pretty ROUND from up here.");
+                        queueDialog('MATT', getQuote('roundearth'));
+                    } else if (z.id === 'support') {
+                        queueDialog('BRIAN', "Matt... is that a support group?");
+                        queueDialog('MATT', getQuote('support'));
+                        queueDialog('MARK', "They're all former deniers who came up here to prove it was fake.");
+                        queueDialog('MATT', getQuote('support'));
+                        queueDialog('BRIAN', "They look happy, Matt. They look FREE.");
+                        queueDialog('MATT', "They look BRAINWASHED. By the moon.");
+                    } else if (z.id === 'filmcrew') {
+                        queueDialog('MATT', getQuote('filmcrew'));
+                        queueDialog('MARK', "Matt, I literally told you we were filming everything.");
+                        queueDialog('MATT', "SO YOU ADMIT IT'S A PRODUCTION?!");
+                        queueDialog('MARK', "Documenting reality IS a production, yes.");
+                        queueDialog('MATT', "Interesting word choice. 'Reality.' Sure.");
+                    } else {
+                        queueDialog('MARK', `Matt. Look. ${z.label}.`);
+                        queueDialog('MATT', getQuote(z.id));
+                        if (z.id === 'cart') queueDialog('BRIAN', "Get in it! Press E! It's faster!");
+                        if (z.id === 'golf') queueDialog('MARK', "Grab the club near the flag and press SPACE near a ball!");
+                    }
+
+                    if (gs.mattSecretJoy > 40) queueDialog('MATT', getQuote('secretJoy'));
+                    if (gs.discoveries > 3) queueDialog('BRIAN', getQuote('brianReacts'));
+                    if (gs.discoveries > 5) queueDialog('MARK', getQuote('markReacts'));
+
+                    if (gs.discoveries >= gs.totalDiscoveries) {
+                        queueDialog('MATT', "...aight. I've seen EVERYTHING.");
+                        queueDialog('MARK', "AND?!");
+                        queueDialog('MATT', getQuote('secretJoy'));
+                        this._endTimer = 8;
+                    }
+                }
+            }
+
+            // End timer
+            if (this._endTimer !== undefined) { this._endTimer -= dt; if (this._endTimer <= 0 && !gs.dialogActive) { this._endTimer = undefined; engine.switchScene('ending', 'fade'); } }
+
+            // E key state + interact cooldown
+            if (this._interactCooldown === undefined) this._interactCooldown = 0;
+            if (this._interactCooldown > 0) this._interactCooldown -= dt;
+            const eDown = inp.isKeyDown('KeyE') || inp.isKeyDown('gamepad_y');
+
+            // Cart (separate from interact - checks if near cart or already in cart)
+            if (eDown) {
+                const cdx=this._px-this._cartX, cdy=this._py-this._cartY;
+                if (this._inCart) { this._inCart = false; }
+                else if (Math.sqrt(cdx*cdx+cdy*cdy)<40) { this._inCart = true; this._interactCooldown = 1; }
+            }
+            if (this._inCart) { this._cartX=this._px; this._cartY=this._py; }
+
+            // Club
+            if (!this._clubGot) { const cdx=this._px-this._clubX, cdy=this._py-this._clubY; if(Math.sqrt(cdx*cdx+cdy*cdy)<20){this._clubGot=true; this._hasClub=true; queueDialog('MATT',"A golf club. On the moon. Sure. Why not.");} }
+
+            // Golf swing
+            if (this._hasClub && inp.isKeyDown('Space')) {
+                for (const b of this._balls) { const dx=this._px-b.x, dy=this._py-b.y; if(Math.sqrt(dx*dx+dy*dy)<30){const a=Math.atan2(dy,dx)+Math.PI; b.vx=Math.cos(a)*300; b.vy=Math.sin(a)*300; b.on=true; engine.shake(4,0.9);} }
+            }
+            for (const b of this._balls) { if(!b.on)continue; b.x+=b.vx*dt; b.y+=b.vy*dt; b.vx*=0.985; b.vy*=0.985; if(Math.abs(b.vx)<1&&Math.abs(b.vy)<1){b.vx=0;b.vy=0;b.on=false;} }
+
+            // Fauci jab interaction (walk close and press E)
+            if (gs.found.fauci && this._jabCooldown <= 0) {
+                const fdx=this._px-this._fauciX, fdy=this._py-this._fauciY;
+                if (Math.sqrt(fdx*fdx+fdy*fdy)<40 && (inp.isKeyDown('KeyF')||inp.isKeyDown('gamepad_b'))) {
+                    gs.jabCount++;
+                    this._jabCooldown = 3;
+                    engine.shake(3, 0.9);
+                    if (gs.jabCount === 1) { queueDialog('FAUCI', "First dose! You might feel a slight urge to believe in science."); queueDialog('MATT', "I feel NOTHING. Nice try."); }
+                    else if (gs.jabCount === 2) { queueDialog('FAUCI', "Second dose! Full lunar immunity!"); queueDialog('MATT', "My arm is... is the moon getting rounder?"); queueDialog('BRIAN', "THE JAB IS WORKING"); queueDialog('MATT', "SHUT UP"); }
+                    else { queueDialog('FAUCI', "Booster shot! Side effect: sudden appreciation for peer review."); queueDialog('MATT', "I appreciate NOTHING."); }
+                    gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 5);
+                }
+            }
+            if (this._jabCooldown > 0) this._jabCooldown -= dt;
+
+            // Golf ball in hole detection
+            const holeX = 1138, holeY = 502; // flag hole location
+            for (const b of this._balls) {
+                if (b.on) {
+                    const hdx = b.x - holeX, hdy = b.y - holeY;
+                    if (Math.sqrt(hdx*hdx + hdy*hdy) < 12) {
+                        b.vx = 0; b.vy = 0; b.on = false;
+                        b.x = holeX; b.y = holeY;
+                        if (!this._holeInOne) {
+                            this._holeInOne = true;
+                            engine.shake(10, 0.85);
+                            gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 15);
+                            queueDialog('BRIAN', "HOLE IN ONE! ON THE MOON!");
+                            queueDialog('MATT', "...that was kinda sick. Low gravity assist though.");
+                            queueDialog('MARK', "MOON GOLF CHAMPION! Someone call the PGA!");
+                            queueDialog('MATT', "The PGA isn't real either probably.");
+                        } else {
+                            engine.shake(6, 0.9);
+                            queueDialog('MATT', "Okay I'm actually getting good at this.");
+                        }
+                    }
+                }
+            }
+
+            // E interact with nearby NPCs/objects
+            if (eDown && !this._inCart && this._interactCooldown <= 0 && !gs.dialogActive) {
+                this._interactCooldown = 2; // prevent spam
+                // T-Rex interact
+                const trDx = this._px - this._trexX, trDy = this._py - this._trexY;
+                if (Math.sqrt(trDx*trDx+trDy*trDy) < 50 && gs.found.trex) {
+                    const trexLines = [
+                        ["*pets T-Rex*", "He's... purring? Do dinosaurs purr?", "That's a government dinosaur. Trained."],
+                        ["*high-fives tiny arm*", "His arms are too short. Relatable honestly.", "The party hat stays ON."],
+                        ["*feeds moon rock to T-Rex*", "He ate it. He ate the moon rock.", "Government nutrition program."],
+                    ];
+                    const tl = trexLines[Math.floor(Math.random()*trexLines.length)];
+                    queueDialog('MATT', tl[0]); queueDialog('MATT', tl[1]); if(tl[2]) queueDialog('MATT', tl[2]);
+                    gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 3);
+                }
+                // NDT interact
+                const ndDx = this._px - this._ndtX, ndDy = this._py - this._ndtY;
+                if (Math.sqrt(ndDx*ndDx+ndDy*ndDy) < 40 && gs.found.ndt) {
+                    const ndtLines = [
+                        [{ s:'MATT', t:"So Neil, explain how we're breathing on the moon." }, { s:'MATT', t:"He just pointed at a star and walked away." }],
+                        [{ s:'MATT', t:"What's your opinion on flat earth?" }, { s:'MATT', t:"He started laughing and hasn't stopped." }, { s:'MATT', t:"Rude." }],
+                        [{ s:'MATT', t:"Is the mustache regulation?" }, { s:'MATT', t:"He stroked it and winked. I feel uncomfortable." }],
+                    ];
+                    const nl = ndtLines[Math.floor(Math.random()*ndtLines.length)];
+                    for (const l of nl) queueDialog(l.s, l.t);
+                }
+                // Bill Nye interact
+                const nyDx = this._px - this._nyeX, nyDy = this._py - this._nyeY;
+                if (Math.sqrt(nyDx*nyDx+nyDy*nyDy) < 50 && gs.found.nye) {
+                    const nyeLines = [
+                        [{ s:'BILL NYE', t:"CONSIDER THE FOLLOWING: moon volcanoes!" }, { s:'MATT', t:"That volcano is made of baking soda, Bill." }, { s:'BILL NYE', t:"SCIENCE!" }],
+                        [{ s:'MATT', t:"How'd you get up here, Bill?" }, { s:'BILL NYE', t:"PBS budget cuts. I live here now." }, { s:'MATT', t:"Respect honestly." }],
+                        [{ s:'MATT', t:"Is that a real bowtie?" }, { s:'BILL NYE', t:"It's a SCIENTIFIC bowtie. It measures barometric pressure." }, { s:'MATT', t:"There's no barometric pressure on the moon." }, { s:'BILL NYE', t:"Exactly! That's why it spins!" }],
+                    ];
+                    const yl = nyeLines[Math.floor(Math.random()*nyeLines.length)];
+                    for (const l of yl) queueDialog(l.s, l.t);
+                    gs.mattSecretJoy = Math.min(100, gs.mattSecretJoy + 3);
+                }
+                // Elon roadster interact
+                const elDx = this._px - this._elonX, elDy = this._py - this._elonY;
+                if (Math.sqrt(elDx*elDx+elDy*elDy) < 50 && gs.found.elon) {
+                    const elonLines = [
+                        [{ s:'MATT', t:"*tries to pet space rat*" }, { s:'MATT', t:"The rat bit me. Based." }],
+                        [{ s:'MATT', t:"Elon, can I drive?" }, { s:'MATT', t:"He just revved the engine and did donuts. On the moon." }, { s:'BRIAN', t:"ELON DOING MOON DONUTS" }],
+                        [{ s:'MATT', t:"How much did this car cost to launch?" }, { s:'MARK', t:"About 90 million dollars." }, { s:'MATT', t:"For a used car. In space. Peak capitalism." }],
+                    ];
+                    const ell = elonLines[Math.floor(Math.random()*elonLines.length)];
+                    for (const l of ell) queueDialog(l.s, l.t);
+                }
+                // Flag interact
+                const flDx = this._px - 1400, flDy = this._py - 1200;
+                if (Math.sqrt(flDx*flDx+flDy*flDy) < 40 && gs.found.flag) {
+                    const flagLines = [
+                        [{ s:'MATT', t:"*shakes flag pole*" }, { s:'MATT', t:"It's... actually stuck in there pretty good." }, { s:'MARK', t:"Almost like someone really put it there 50+ years ago." }, { s:'MATT', t:"Or YESTERDAY. As a PROP." }],
+                        [{ s:'MATT', t:"*touches flag fabric*" }, { s:'MATT', t:"This is nice material. Government budget thread count." }],
+                    ];
+                    const fll = flagLines[Math.floor(Math.random()*flagLines.length)];
+                    for (const l of fll) queueDialog(l.s, l.t);
+                }
+                // Support group interact
+                const sgDx = this._px - 1900, sgDy = this._py - 1300;
+                if (Math.sqrt(sgDx*sgDx+sgDy*sgDy) < 55 && gs.found.support) {
+                    const sgLines = [
+                        [{ s:'MATT', t:"*sits in empty chair*" }, { s:'MATT', t:"So... how long have you guys been up here?" }, { s:'MATT', t:"They said 'since we stopped fighting it.' CHILLING." }],
+                        [{ s:'MATT', t:"*tries the moon cheese*" }, { s:'MATT', t:"It's just regular brie. ON THE MOON. This proves nothing." }, { s:'BRIAN', t:"You're eating cheese on the moon and calling it nothing??" }],
+                        [{ s:'MATT', t:"*reads the pamphlet*" }, { s:'MATT', t:"'12 Steps to Accepting Lunar Reality.' Step 1 is touching the ground." }, { s:'MATT', t:"I've been touching the ground this whole time. DOESN'T COUNT." }],
+                    ];
+                    const sgl = sgLines[Math.floor(Math.random()*sgLines.length)];
+                    for (const l of sgl) queueDialog(l.s, l.t);
+                }
+                // Film crew interact
+                const fcDx = this._px - 2100, fcDy = this._py - 1800;
+                if (Math.sqrt(fcDx*fcDx+fcDy*fcDy) < 50 && gs.found.filmcrew) {
+                    const fcLines = [
+                        [{ s:'MATT', t:"*inspects camera*" }, { s:'MATT', t:"This is a real RED camera. 8K." }, { s:'MARK', t:"Yeah, NASA uses good equipment." }, { s:'MATT', t:"OR it's a Hollywood production." }, { s:'MARK', t:"Same cameras, Matt. That's how cameras work." }],
+                        [{ s:'MATT', t:"*picks up clapperboard*" }, { s:'MATT', t:"'Moon Mission Take 47.' TAKE 47?!" }, { s:'MARK', t:"That's not what it says." }, { s:'MATT', t:"I KNOW WHAT I READ." }],
+                    ];
+                    const fcl = fcLines[Math.floor(Math.random()*fcLines.length)];
+                    for (const l of fcl) queueDialog(l.s, l.t);
+                }
+                // Moon rock interact (any nearby rock)
+                let nearRock = false;
+                for (const r of this._rocks) { const rdx=this._px-r.x, rdy=this._py-r.y; if(Math.sqrt(rdx*rdx+rdy*rdy)<25){nearRock=true; break;} }
+                if (nearRock && !gs.dialogActive) {
+                    const rockLines = [
+                        "It's a rock. On the moon. Revolutionary.",
+                        "This looks exactly like a rock from my backyard. Suspicious.",
+                        "*picks up rock* This is going on eBay.",
+                        "If this is real moon rock it's worth like $50k per gram. I'm taking it.",
+                        "Feels like styrofoam. CONFIRMED PROP.",
+                    ];
+                    queueDialog('MATT', rockLines[Math.floor(Math.random()*rockLines.length)]);
+                }
+            }
+
+            // Camera
+            engine.camera.x = this._px - 320;
+            engine.camera.y = this._py - 180;
+        }
+
+        drawUI(ctx) {
+            const cx=engine.camera.x, cy=engine.camera.y;
+            ctx.fillStyle = '#050508'; ctx.fillRect(0,0,640,360);
+
+            // Stars
+            for (const s of this._stars) { const sx=s.x-cx*0.3, sy=s.y-cy*0.3; if(sx<-10||sx>650||sy<-10||sy>370)continue; s.t+=0.008; ctx.fillStyle=`rgba(255,255,255,${0.3+Math.sin(s.t)*0.3})`; ctx.fillRect(sx,sy,s.s,s.s); }
+
+            // Earth (rotates slightly, very round - triggers Matt)
+            const earthX = 560, earthY = 50;
+            ctx.fillStyle = '#2244aa'; ctx.beginPath(); ctx.arc(earthX,earthY,25,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#44aa44'; ctx.beginPath(); ctx.arc(earthX-5+Math.sin(this._t*0.1)*3,earthY-10,10,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#ffffff44'; ctx.beginPath(); ctx.arc(earthX+5,earthY+5,8,0,Math.PI*2); ctx.fill();
+            // Label when found round earth stuff
+            if (gs.found.roundearth || this._t > 45) {
+                ctx.font = '7px monospace'; ctx.fillStyle = '#ffcc0088'; ctx.textAlign = 'center';
+                ctx.fillText('(very round)', earthX, earthY + 35);
+            }
+
+            // Moon surface (fills entire world)
+            ctx.fillStyle = '#b8b8a0'; ctx.fillRect(0, 0, 640, 360);
+
+            // Craters
+            for (const c of this._craters) { const x=c.x-cx, y=c.y-cy; if(x<-50||x>690||y<-50||y>410)continue; ctx.fillStyle='#a0a088'; ctx.beginPath(); ctx.arc(x,y,c.r,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#908878'; ctx.beginPath(); ctx.arc(x+2,y+2,c.r-3,0,Math.PI*2); ctx.fill(); }
+
+            // Footprints
+            for (const fp of this._fp) { ctx.fillStyle=`rgba(100,100,80,${fp.life/12*0.4})`; ctx.fillRect(fp.x-cx,fp.y-cy,4,6); }
+
+            // Rocks
+            for (const r of this._rocks) { const rx=r.x-cx, ry=r.y-cy; if(rx<-20||rx>660||ry<-20||ry>380)continue; ctx.save(); ctx.translate(rx,ry); ctx.scale(r.s,r.s); ctx.drawImage(engine.assets.images['rock'],0,0); ctx.restore(); }
+
+
+            // === MOON LANDING DENIER SUPPORT GROUP ===
+            const sgX=1900-cx, sgY=1300-cy;
+            // Circle of folding chairs
+            for (let i=0;i<6;i++) {
+                const angle = (i/6)*Math.PI*2;
+                const chX = sgX + Math.cos(angle)*25;
+                const chY = sgY + Math.sin(angle)*20;
+                ctx.fillStyle = '#777'; ctx.fillRect(chX-3, chY-2, 6, 5);
+                ctx.fillStyle = '#666'; ctx.fillRect(chX-2, chY+2, 4, 4);
+                // Tiny person sitting (silhouette)
+                ctx.fillStyle = '#aa8866'; ctx.fillRect(chX-2, chY-6, 4, 5);
+                ctx.fillStyle = '#ffcc99'; ctx.fillRect(chX-1, chY-8, 3, 3);
+            }
+            // Sign on a post
+            ctx.fillStyle = '#888'; ctx.fillRect(sgX-2, sgY-45, 4, 25);
+            ctx.fillStyle = '#fff'; ctx.fillRect(sgX-35, sgY-55, 70, 14);
+            ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.strokeRect(sgX-35, sgY-55, 70, 14);
+            ctx.font = '6px monospace'; ctx.fillStyle = '#333'; ctx.textAlign = 'center';
+            ctx.fillText('MOON LANDING DENIERS', sgX, sgY-47);
+            ctx.fillText('SUPPORT GROUP', sgX, sgY-41);
+            // Step 1 sign
+            ctx.fillStyle = '#ffffcc'; ctx.fillRect(sgX+30, sgY-35, 40, 20);
+            ctx.font = '5px monospace'; ctx.fillStyle = '#333';
+            ctx.fillText('Step 1:', sgX+50, sgY-28);
+            ctx.fillText('Admit the', sgX+50, sgY-22);
+            ctx.fillText('moon is real', sgX+50, sgY-16);
+            // Coffee/refreshments table
+            ctx.fillStyle = '#aa8855'; ctx.fillRect(sgX-40, sgY+10, 20, 8);
+            ctx.fillStyle = '#ffeecc'; ctx.fillRect(sgX-38, sgY+8, 6, 4); // cheese
+            ctx.fillStyle = '#fff'; ctx.fillRect(sgX-30, sgY+8, 4, 4); // cup
+            ctx.font = '5px monospace'; ctx.fillStyle = '#888';
+            ctx.fillText('moon cheese', sgX-30, sgY+22);
+            if (gs.found.support) {
+                ctx.font = '8px monospace'; ctx.fillStyle = '#ffaa44'; ctx.textAlign = 'center';
+                ctx.fillText('"They look BRAINWASHED" - Matt', sgX, sgY-62);
+            }
+            { const d=Math.sqrt((this._px-1900)**2+(this._py-1300)**2); if(d<55&&gs.found.support){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',sgX,sgY-72);} }
+
+            // === NASA FILM CREW (cameras, tripods, lights) ===
+            const fcX=2100-cx, fcY=1800-cy;
+            // Camera tripod 1
+            ctx.fillStyle = '#555'; ctx.fillRect(fcX-20,fcY-10,4,20); ctx.fillRect(fcX-25,fcY+8,14,3);
+            ctx.fillStyle = '#333'; ctx.fillRect(fcX-24,fcY-15,12,8);
+            ctx.fillStyle = '#ff0000'; ctx.fillRect(fcX-22,fcY-13,3,3); // red light
+            // Camera tripod 2
+            ctx.fillStyle = '#555'; ctx.fillRect(fcX+15,fcY-5,4,20); ctx.fillRect(fcX+10,fcY+13,14,3);
+            ctx.fillStyle = '#333'; ctx.fillRect(fcX+11,fcY-10,12,8);
+            ctx.fillStyle = '#ff0000'; ctx.fillRect(fcX+13,fcY-8,3,3);
+            // Boom mic
+            ctx.fillStyle = '#666'; ctx.fillRect(fcX-5,fcY-30,3,35);
+            ctx.fillStyle = '#888'; ctx.fillRect(fcX-10,fcY-35,13,6);
+            // "SET" sign
+            ctx.fillStyle = '#ff4444'; ctx.fillRect(fcX-15,fcY-50,30,12);
+            ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+            ctx.fillText('QUIET ON SET', fcX, fcY-42);
+            // Clapperboard
+            ctx.fillStyle = '#222'; ctx.fillRect(fcX+25,fcY-20,15,12);
+            ctx.fillStyle = '#fff'; ctx.fillRect(fcX+27,fcY-18,11,3);
+            if (gs.found.filmcrew) {
+                ctx.font = '8px monospace'; ctx.fillStyle = '#ff8833';
+                ctx.fillText('"I KNEW IT" - Matt', fcX, fcY-58);
+            }
+            { const d=Math.sqrt((this._px-2100)**2+(this._py-1800)**2); if(d<50&&gs.found.filmcrew){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Investigate',fcX,fcY-68);} }
+
+            // === FAUCI'S MOON JAB STATION ===
+            const fjX=400-cx, fjY=1600-cy;
+            // Booth
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(fjX-30,fjY-20,60,30);
+            ctx.fillStyle = '#dddddd'; ctx.fillRect(fjX-30,fjY-30,60,12);
+            ctx.fillStyle = '#ff4444'; ctx.fillRect(fjX-28,fjY-28,56,8);
+            ctx.font = 'bold 7px monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+            ctx.fillText('FREE MOON JABS', fjX, fjY-22);
+            ctx.font = '6px monospace'; ctx.fillStyle = '#333';
+            ctx.fillText('Now with 5G!', fjX, fjY-2);
+            ctx.fillText(`Doses given: ${gs.jabCount}`, fjX, fjY+6);
+            // Syringes on table
+            for (let i=0;i<3;i++) { ctx.drawImage(engine.assets.images['syringe'], fjX-20+i*14-cx+cx, fjY-15-cy+cy, 10, 10); }
+            // Fauci
+            const faf = Math.floor(this._t*3)%4;
+            ctx.drawImage(engine.assets.images['fauci'], faf*16,0,16,24, this._fauciX-cx-8, this._fauciY-cy-12, 16, 24);
+            if (gs.found.fauci) {
+                ctx.font = '8px monospace'; ctx.fillStyle = '#ff4444'; ctx.textAlign = 'center';
+                ctx.fillText('*preparing moon jab*', this._fauciX-cx, this._fauciY-cy-16);
+                // Prompt
+                const fdx=this._px-this._fauciX, fdy=this._py-this._fauciY;
+                if (Math.sqrt(fdx*fdx+fdy*fdy)<50) {
+                    ctx.fillStyle = '#ffcc00'; ctx.font = '10px monospace';
+                    ctx.fillText('Press F for moon jab', this._fauciX-cx, this._fauciY-cy-28);
+                }
+            }
+
+            // === BILL NYE's EXPERIMENT ===
+            const bnX=1600-cx, bnY=900-cy;
+            // Lab table
+            ctx.fillStyle = '#888'; ctx.fillRect(bnX-25,bnY+5,50,8);
+            ctx.fillStyle = '#666'; ctx.fillRect(bnX-23,bnY+12,4,12); ctx.fillRect(bnX+19,bnY+12,4,12);
+            // Volcano (moon volcano experiment)
+            ctx.fillStyle = '#886644'; ctx.beginPath(); ctx.moveTo(bnX-15,bnY+5); ctx.lineTo(bnX,bnY-15); ctx.lineTo(bnX+15,bnY+5); ctx.fill();
+            ctx.fillStyle = '#664422'; ctx.beginPath(); ctx.moveTo(bnX-10,bnY+5); ctx.lineTo(bnX,bnY-8); ctx.lineTo(bnX+10,bnY+5); ctx.fill();
+            // Lava eruption (animated!)
+            if (Math.floor(this._t*2) % 3 < 2) {
+                const lavaH = 5 + Math.sin(this._t*4)*8;
+                ctx.fillStyle = '#ff4400'; ctx.beginPath(); ctx.moveTo(bnX-4,bnY-15); ctx.lineTo(bnX,bnY-15-lavaH); ctx.lineTo(bnX+4,bnY-15); ctx.fill();
+                ctx.fillStyle = '#ffcc00'; ctx.beginPath(); ctx.moveTo(bnX-2,bnY-15); ctx.lineTo(bnX,bnY-15-lavaH*0.6); ctx.lineTo(bnX+2,bnY-15); ctx.fill();
+                // Sparks
+                for (let i=0;i<3;i++) { ctx.fillStyle='#ffaa00'; ctx.fillRect(bnX+(Math.random()-0.5)*20, bnY-20-Math.random()*lavaH, 2, 2); }
+            }
+            // Beakers on table
+            ctx.fillStyle = '#88ccff'; ctx.fillRect(bnX-20,bnY,4,6);
+            ctx.fillStyle = '#44ff88'; ctx.fillRect(bnX+16,bnY,4,6);
+            // Sign
+            ctx.fillStyle = '#4488ff'; ctx.fillRect(bnX-25,bnY-35,50,12);
+            ctx.font = '7px monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+            ctx.fillText('BILL NYE\'S', bnX, bnY-28);
+            ctx.fillText('MOON LAB', bnX, bnY-22);
+            // Bill Nye
+            const nyf = Math.floor(this._t*3)%4;
+            ctx.drawImage(engine.assets.images['nye'], nyf*16,0,16,24, this._nyeX-cx-8, this._nyeY-cy-12, 16, 24);
+            if (gs.found.nye) {
+                ctx.font = '8px monospace'; ctx.fillStyle = '#4488ff'; ctx.textAlign = 'center';
+                const sayings = ['SCIENCE RULES!', 'Consider the following...', 'INERTIA IS A PROPERTY OF MATTER!', 'The moon is NOT made of cheese!'];
+                ctx.fillText(sayings[Math.floor(this._t/3)%sayings.length], this._nyeX-cx, this._nyeY-cy-16);
+            }
+            { const d=Math.sqrt((this._px-this._nyeX)**2+(this._py-this._nyeY)**2); if(d<50&&gs.found.nye){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',this._nyeX-cx,this._nyeY-cy-28);} }
+
+            // US Flag
+            ctx.drawImage(engine.assets.images['usflag'], 1400-cx, 1180-cy);
+            if (gs.found.flag) { ctx.font='8px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('"Suspiciously crisp" - Matt', 1410-cx, 1175-cy); }
+            { const d=Math.sqrt((this._px-1400)**2+(this._py-1200)**2); if(d<40&&gs.found.flag){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',1400-cx,1165-cy);} }
+
+            // Golf area
+            ctx.drawImage(engine.assets.images['flag'], 1130-cx, 480-cy);
+            ctx.font='8px monospace'; ctx.fillStyle='#44ff44'; ctx.textAlign='center'; ctx.fillText('MOON LINKS', 1138-cx, 472-cy); ctx.fillText('Par 3', 1138-cx, 480-cy);
+            if (!this._clubGot) { ctx.drawImage(engine.assets.images['club'], this._clubX-cx, this._clubY-cy); ctx.fillStyle=`rgba(255,255,0,${0.2+Math.sin(this._t*3)*0.15})`; ctx.fillRect(this._clubX-cx-4,this._clubY-cy-4,20,32); }
+            for (const b of this._balls) { ctx.drawImage(engine.assets.images['golfball'],b.x-cx-4,b.y-cy-4); if(b.on){ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.fillRect(b.x-cx-b.vx*0.02,b.y-cy-b.vy*0.02,3,3);} }
+
+            // T-Rex
+            const rf=Math.floor(this._t*4)%4;
+            ctx.drawImage(engine.assets.images['trex'], rf*32,0,32,32, this._trexX-cx-16,this._trexY-cy-16,32,32);
+            if(gs.found.trex){ctx.font='8px monospace'; ctx.fillStyle='#ff44ff'; ctx.textAlign='center'; ctx.fillText('*vibing with party hat*',this._trexX-cx,this._trexY-cy-20);}
+            { const d=Math.sqrt((this._px-this._trexX)**2+(this._py-this._trexY)**2); if(d<50&&gs.found.trex){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',this._trexX-cx,this._trexY-cy-30);} }
+
+            // NDT
+            const nf=Math.floor(this._t*3)%4;
+            ctx.drawImage(engine.assets.images['ndt'], nf*16,0,16,24, this._ndtX-cx-8,this._ndtY-cy-12,16,24);
+            if(gs.found.ndt){ctx.font='8px monospace'; ctx.fillStyle='#bb88ff'; ctx.textAlign='center'; ctx.fillText('*pointing at everything*',this._ndtX-cx,this._ndtY-cy-16); if(Math.floor(this._t)%4<2){ctx.fillStyle='#fff'; ctx.fillText('"Well, ACTUALLY..."',this._ndtX-cx,this._ndtY-cy-26);}}
+            { const d=Math.sqrt((this._px-this._ndtX)**2+(this._py-this._ndtY)**2); if(d<40&&gs.found.ndt){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',this._ndtX-cx,this._ndtY-cy-36);} }
+
+            // Elon's Roadster
+            const ef=Math.floor(this._t*4)%4;
+            ctx.drawImage(engine.assets.images['elon'], ef*32,0,32,24, this._elonX-cx-16,this._elonY-cy-12,32,24);
+            if(gs.found.elon){ctx.font='8px monospace'; ctx.fillStyle='#ff4444'; ctx.textAlign='center'; ctx.fillText('CHERRY RED ROADSTER',this._elonX-cx,this._elonY-cy-16); ctx.fillStyle='#999'; ctx.fillText('feat. Based Space Rat',this._elonX-cx,this._elonY-cy-8);}
+            { const d=Math.sqrt((this._px-this._elonX)**2+(this._py-this._elonY)**2); if(d<50&&gs.found.elon){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('[E] Interact',this._elonX-cx,this._elonY-cy-26);} }
+
+            // Golf cart
+            if(!this._inCart){ctx.drawImage(engine.assets.images['cart'],0,0,32,24,this._cartX-cx-16,this._cartY-cy-12,32,24); const cdx=this._px-this._cartX,cdy=this._py-this._cartY; if(Math.sqrt(cdx*cdx+cdy*cdy)<50){ctx.font='10px monospace'; ctx.fillStyle='#ffcc00'; ctx.textAlign='center'; ctx.fillText('Press E to ride',this._cartX-cx,this._cartY-cy-18);}}
+
+            // Mark
+            const mkf=this._pmoving?Math.floor(this._t*5)%4:0;
+            ctx.drawImage(engine.assets.images['mark'],mkf*16,0,16,24,this._mkx-cx-8,this._mky-cy-12,16,24);
+            // Brian
+            const brf=this._pmoving?Math.floor(this._t*5+2)%4:0;
+            ctx.drawImage(engine.assets.images['brian'],brf*16,0,16,24,this._brx-cx-8,this._bry-cy-12,16,24);
+            // Cart if riding
+            if(this._inCart){const cf=Math.floor(this._t*6)%4; ctx.drawImage(engine.assets.images['cart'],cf*32,0,32,24,this._px-cx-16,this._py-cy-12,32,24);}
+            // Matt
+            const mf=this._pmoving?Math.floor(this._t*5)%4:0;
+            ctx.drawImage(engine.assets.images['matt'],mf*16,0,16,24,this._px-cx-8,this._py-cy-12,16,24);
+            if(this._hasClub) ctx.drawImage(engine.assets.images['club'],this._px-cx+8,this._py-cy-8,8,16);
+
+            // Labels
+            ctx.font='8px monospace'; ctx.textAlign='center';
+            ctx.fillStyle='#ff8833'; ctx.fillText('MATT',this._px-cx,this._py-cy-16);
+            ctx.fillStyle='#88ccff'; ctx.fillText('MARK',this._mkx-cx,this._mky-cy-16);
+            ctx.fillStyle='#88ff88'; ctx.fillText('BRIAN',this._brx-cx,this._bry-cy-16);
+
+            // HUD
+            ctx.font='bold 14px monospace'; ctx.textAlign='left';
+            ctx.fillStyle='#ffcc00'; ctx.fillText(`Discoveries: ${gs.discoveries}/${gs.totalDiscoveries}`,10,25);
+            ctx.font='10px monospace';
+            ctx.fillStyle='#ff4444'; ctx.fillText('Anger:',10,42); ctx.fillStyle='#333'; ctx.fillRect(70,34,100,10); ctx.fillStyle='#ff4444'; ctx.fillRect(70,34,gs.mattAnger,10);
+            ctx.fillStyle='#44ff44'; ctx.fillText('Secret Joy:',10,57); ctx.fillStyle='#333'; ctx.fillRect(100,49,100,10); ctx.fillStyle='#44ff44'; ctx.fillRect(100,49,gs.mattSecretJoy,10);
+            if(gs.jabCount>0){ctx.fillStyle='#44ccff'; ctx.fillText(`Moon Jabs: ${gs.jabCount}`,10,72);}
+            ctx.textAlign='right'; ctx.fillStyle='#666'; ctx.fillText('WASD: Move',630,20); ctx.fillText('E: Interact/Cart',630,33);
+            if(this._hasClub) ctx.fillText('SPACE: Swing',630,46);
+            if(gs.found.fauci) ctx.fillText('F: Moon Jab',630,59);
+
+            // Minimap
+            const mmX=540,mmY=270,mmW=90,mmH=80;
+            ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(mmX,mmY,mmW,mmH);
+            ctx.strokeStyle='#555'; ctx.strokeRect(mmX,mmY,mmW,mmH);
+            const sc=mmW/WORLD;
+            ctx.fillStyle='#ff8833'; ctx.fillRect(mmX+this._px*sc-2,mmY+this._py*sc-2,4,4);
+            for(const z of this._zones){ctx.fillStyle=z.found?'#44ff4488':'#ff444488'; ctx.fillRect(mmX+z.x*sc-2,mmY+z.y*sc-2,4,4);}
+
+            if(gs.dialogActive&&gs.currentDialog) drawDialog(ctx,gs.currentDialog);
+        }
+    }
+
+    // =============================================
+    //  ENDING
+    // =============================================
+    class EndingScene extends Scene {
+        constructor() { super('Ending'); }
+        _enter() { super._enter(); this._t=0; this._stars=makeStars(200,640,360); gs.dialogQueue=[]; gs.dialogActive=false; gs.currentDialog=null; this._dq=false; }
+        update(dt) {
+            this._t+=dt; tickDialog(dt);
+            if(!this._dq && this._t>1){
+                this._dq=true;
+                queueDialog('MATT', "...");
+                queueDialog('MARK', "Well?");
+                queueDialog('MATT', "I'm not gonna say what you want me to say.");
+                queueDialog('BRIAN', "You're smiling. YOUR FACE is saying it.");
+                queueDialog('MATT', "That's just... low gravity. It lifts the cheeks.");
+                queueDialog('MARK', "That's not how gravity works, Matt.");
+                queueDialog('MATT', "Oh so NOW you're a scientist. You sound like Bill Nye.");
+                queueDialog('BRIAN', "JUST SAY IT WAS COOL");
+                queueDialog('MATT', "...the golf cart was aight.");
+                if (gs.jabCount > 0) { queueDialog('MATT', "And tell Fauci I want my antibodies back."); queueDialog('BRIAN', "MOON ANTIBODIES LMAOOO"); }
+                queueDialog('MARK', "THAT'S ALL WE NEEDED");
+                queueDialog('BRIAN', "WE'RE GOING TO DA MOON AGAIN!!!");
+                queueDialog('MATT', "I'm keeping the golf club. For research.");
+                queueDialog('MATT', "...and the space rat. The rat comes with me.");
+            }
+            if(this._t>30 && (engine.input.isKeyDown('Space')||engine.input.isKeyDown('Enter'))){
+                gs.discoveries=0; gs.found={}; gs.mattAnger=0; gs.mattSecretJoy=0; gs.jabCount=0;
+                gs.dialogQueue=[]; gs.dialogActive=false; usedQuotes={};
+                engine.switchScene('title','fade');
+            }
+        }
+        drawUI(ctx) {
+            ctx.fillStyle='#080810'; ctx.fillRect(0,0,640,360);
+            drawStars(ctx,this._stars,1/60,1);
+            ctx.fillStyle='#ccccaa'; ctx.beginPath(); ctx.arc(320,300,180,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle='#aaaaaa88'; ctx.beginPath(); ctx.arc(280,280,20,0,Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(360,310,15,0,Math.PI*2); ctx.fill();
+            const b=Math.sin(this._t*2)*3;
+            ctx.drawImage(engine.assets.images['mark'],0,0,16,24,234,195+b,32,48);
+            ctx.drawImage(engine.assets.images['brian'],0,0,16,24,298,193+b,32,48);
+            ctx.drawImage(engine.assets.images['matt'],0,0,16,24,362,197-b*0.5,32,48);
+            ctx.font='bold 24px monospace'; ctx.textAlign='center'; ctx.fillStyle='#ffcc00'; ctx.fillText('MISSION COMPLETE',320,55);
+            ctx.font='14px monospace'; ctx.fillStyle='#88aacc'; ctx.fillText(`Discoveries: ${gs.discoveries}/${gs.totalDiscoveries}`,320,85);
+            ctx.fillStyle='#ff4444'; ctx.fillText(`Matt's Anger: ${gs.mattAnger}%`,320,105);
+            ctx.fillStyle='#44ff44'; ctx.fillText(`Secret Joy: ${gs.mattSecretJoy}%`,320,125);
+            if(gs.jabCount>0){ctx.fillStyle='#44ccff'; ctx.fillText(`Moon Jabs Received: ${gs.jabCount}`,320,145);}
+            ctx.font='bold 14px monospace';
+            const vY = gs.jabCount > 0 ? 170 : 155;
+            if(gs.mattSecretJoy>gs.mattAnger){ctx.fillStyle='#44ff44'; ctx.fillText('"...the golf cart was aight." — Matt',320,vY);}
+            else {ctx.fillStyle='#ff8844'; ctx.fillText('"Low gravity lifts the cheeks." — Matt',320,vY);}
+            if(this._t>30&&Math.sin(this._t*4)>0){ctx.font='14px monospace'; ctx.fillStyle='#fff'; ctx.fillText('PRESS SPACE TO GO AGAIN',320,260);}
+            ctx.font='10px monospace'; ctx.fillStyle='#444'; ctx.fillText('A Vibe Engine Production',320,340);
+            ctx.fillText('"Inspired by real events" (according to Mark)',320,352);
+            if(gs.dialogActive&&gs.currentDialog) drawDialog(ctx,gs.currentDialog);
+        }
+    }
+
+    // =============================================
+    //  BOOT
+    // =============================================
+    generateSprites();
+    engine.addScene('title', new TitleScene());
+    engine.addScene('launch', new LaunchScene());
+    engine.addScene('moon', new MoonScene());
+    engine.addScene('ending', new EndingScene());
+    engine.start('title');
+
+    </script>
+</body>
+</html>
