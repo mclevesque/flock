@@ -1020,8 +1020,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   // Room host (or Hand of the King) controls the drive-in screen
   const openDriveIn = useCallback(() => {
     if (ssStatus === "idle" && !theaterState?.screenshareOffer?.active) {
-      const canControl = roomHostId === userId || roomHandId === userId || !roomHostId;
-      if (!canControl) return;
       startScreenShare();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3044,35 +3042,16 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(220,80,180,0.1)", borderRadius: 8, border: "1px solid rgba(220,80,180,0.3)" }}>
               <div style={{ fontSize: 11, color: "#ffaaee", marginBottom: 4 }}>▶ Now Playing — by @{activeJukebox.byName}</div>
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", wordBreak: "break-all" }}>{activeJukebox.url}</div>
-              {(roomHostId === userId || roomHandId === userId || !roomHostId) && (
-                <button onClick={() => {
+              <button onClick={() => {
                   setActiveJukebox(null);
                   townSocketRef.current?.send(JSON.stringify({ type: "jukebox_stop", userId }));
                 }} style={{ marginTop: 6, padding: "3px 10px", fontSize: 10, background: "rgba(200,50,50,0.2)", border: "1px solid rgba(200,50,50,0.4)", borderRadius: 6, color: "#f87171", cursor: "pointer" }}>■ Stop</button>
-              )}
             </div>
           )}
 
-          {/* Pending suggestion (host/hand sees approve button) */}
-          {jukeboxPending && (roomHostId === userId || roomHandId === userId || !roomHostId) && (
-            <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(255,200,0,0.08)", borderRadius: 8, border: "1px solid rgba(255,200,0,0.3)" }}>
-              <div style={{ fontSize: 11, color: "#ffd070", marginBottom: 4 }}>🎤 @{jukeboxPending.suggesterName} suggests:</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", wordBreak: "break-all", marginBottom: 6 }}>{jukeboxPending.url}</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => {
-                  const payload = { type: "jukebox_play", url: jukeboxPending.url, startedAt: Date.now(), byName: jukeboxPending.suggesterName };
-                  townSocketRef.current?.send(JSON.stringify(payload));
-                  setActiveJukebox({ url: jukeboxPending.url, startedAt: payload.startedAt, byName: jukeboxPending.suggesterName });
-                  setJukeboxPending(null);
-                }} style={{ flex: 1, padding: "4px 0", fontSize: 10, background: "rgba(100,200,100,0.15)", border: "1px solid rgba(100,200,100,0.4)", borderRadius: 6, color: "#4ade80", cursor: "pointer" }}>✓ Play it</button>
-                <button onClick={() => setJukeboxPending(null)} style={{ flex: 1, padding: "4px 0", fontSize: 10, background: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.3)", borderRadius: 6, color: "#f87171", cursor: "pointer" }}>✕ Skip</button>
-              </div>
-            </div>
-          )}
 
-          {/* Input — host/hand plays directly, others suggest */}
+          {/* Input — anyone plays directly */}
           {(() => {
-            const isController = roomHostId === userId || roomHandId === userId;
             return (
               <>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -3086,16 +3065,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
                   <button onClick={() => {
                     const url = jukeboxInput.trim();
                     if (!url) return;
-                    if (isController) {
-                      const payload = { type: "jukebox_play", url, startedAt: Date.now(), byName: username };
-                      townSocketRef.current?.send(JSON.stringify(payload));
-                      setActiveJukebox({ url, startedAt: payload.startedAt, byName: username });
-                    } else {
-                      townSocketRef.current?.send(JSON.stringify({ type: "jukebox_suggest", url, suggesterName: username, suggesterId: userId }));
-                    }
+                    const payload = { type: "jukebox_play", url, startedAt: Date.now(), byName: username };
+                    townSocketRef.current?.send(JSON.stringify(payload));
+                    setActiveJukebox({ url, startedAt: payload.startedAt, byName: username });
                     setJukeboxInput("");
                   }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 700, background: "rgba(200,80,180,0.25)", border: "1px solid rgba(200,80,180,0.5)", borderRadius: 7, color: "#ffaaee", cursor: "pointer" }}>
-                    {isController ? "▶ Play" : "💡 Suggest"}
+                    ▶ Play
                   </button>
                 </div>
                 {!isController && (
