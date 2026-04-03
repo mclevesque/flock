@@ -706,6 +706,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const playerMeshRef = useRef<import("three").Group | null>(null);
   const playerPosRef = useRef<[number, number, number]>([...MOONHAVEN_SPAWN]);
   const otherMeshesRef = useRef<Map<string, import("three").Group>>(new Map());
+  const targetPositionsRef = useRef<Map<string, { x: number; z: number }>>(new Map());
   const npcMeshesRef = useRef<Map<string, import("three").Group>>(new Map());
   const deadNpcsRef = useRef<Set<string>>(new Set());
   const clockRef = useRef<import("three").Clock | null>(null);
@@ -2403,6 +2404,21 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         // Fountain glow pulse
         if (fountainGlow) fountainGlow.intensity = 2 + Math.sin(clock.elapsedTime * 1.5) * 0.5;
 
+        // Smooth remote player interpolation — move toward target at constant speed
+        const REMOTE_SPEED = 7; // units/sec — matches a brisk walking pace
+        for (const [uid, mesh] of otherMeshesRef.current) {
+          const target = targetPositionsRef.current.get(uid);
+          if (!target) continue;
+          const dx = target.x - mesh.position.x;
+          const dz = target.z - mesh.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist > 0.05) {
+            const step = Math.min(dist, REMOTE_SPEED * dt);
+            mesh.position.x += (dx / dist) * step;
+            mesh.position.z += (dz / dist) * step;
+          }
+        }
+
         renderer.render(scene, camera);
       };
 
@@ -2466,12 +2482,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (!scene) return;
 
     let group = otherMeshesRef.current.get(player.user_id);
+    const isNew = !group;
     if (!group) {
       group = await buildBillboard(THREE, player.avatar_url, player.username, 0x88ffaa, player.avatar_config ?? undefined);
       scene.add(group);
       otherMeshesRef.current.set(player.user_id, group);
     }
-    group.position.set(player.x, 0, player.y);
+    // First time: snap to position. After that: set target for smooth interpolation.
+    if (isNew) {
+      group.position.set(player.x, 0, player.y);
+    }
+    targetPositionsRef.current.set(player.user_id, { x: player.x, z: player.y });
 
     // Update chat bubble if present
     const bubbleMesh = group.getObjectByName("chat_bubble") as import("three").Mesh | undefined;
@@ -3322,10 +3343,17 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           missionData={activeMission as Parameters<typeof AdventureOverlay>[0]["missionData"]}
           teamMembers={nearbyPlayers.map(p => ({ userId: p.user_id, username: p.username, avatarUrl: p.avatar_url, hp: 100, maxHp: 100, playerClass: null, isDowned: false }))}
           onClose={() => { setShowAdventure(false); setActiveMission(null); }}
-          onStatsUpdate={(patch) => setMyAdventureStats(prev => {
-            const base = prev ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 };
-            return { ...base, ...(patch as object) };
-          })}
+          onStatsUpdate={(patch) => {
+            setMyAdventureStats(prev => {
+              const base = prev ?? { class: null, level: 1, hp: 100, max_hp: 100, base_attack: 10, xp: 0, inventory: [], equipped_item_id: null, wins: 0, quests_completed: 0 };
+              return { ...base, ...(patch as object) };
+            });
+            // Persist important stats — skip HP which changes every hit during combat
+            const p = patch as Record<string, unknown>;
+            if ('inventory' in p || 'level' in p || 'xp' in p || 'wins' in p || 'quests_completed' in p || 'equipped_item_id' in p) {
+              fetch("/api/adventure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-stats", patch: p }) }).catch(() => {});
+            }
+          }}
           onMinimize={() => {}}
           onCoinsEarned={(amount) => setMyCoins(c => c + amount)}
         />
@@ -4473,7 +4501,7 @@ function buildHorseAndCart(THREE: ThreeModule, scene: import("three").Scene) {
     box.position.set(-0.4 + (bi % 2) * 0.55, 1.55, -2.0 - Math.floor(bi / 2) * 0.6);
     group.add(box);
   }
-  group.position.set(5, 0, 18);
+  group.position.set(16, 0, 14);
   group.rotation.y = -0.5;
   scene.add(group);
 }
