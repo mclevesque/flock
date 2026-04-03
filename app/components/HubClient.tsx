@@ -180,7 +180,7 @@ export default function HubClient({ username, userId }: { username: string; user
             {/* Play with Friends CTA */}
             <div style={{ margin: "20px 0 28px", textAlign: "center" }}>
               <button
-                onClick={() => window.dispatchEvent(new CustomEvent("gs:openParty"))}
+                onClick={() => window.location.href = "/lobby"}
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 10,
                   padding: "13px 28px", borderRadius: 50,

@@ -7,7 +7,6 @@ import ChallengePopup from "./components/ChallengePopup";
 import { VoiceProvider } from "./components/VoiceWidget";
 import { VibeProvider } from "./components/VibePlayer";
 import GlobalNotifications from "./components/GlobalNotifications";
-import GlobalPartyWidget from "./components/GlobalPartyWidget";
 import { PortalProvider } from "./components/PortalContext";
 import PWAInstall from "./components/PWAInstall";
 import IdleLogout from "./components/IdleLogout";
@@ -55,7 +54,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <main className="min-h-screen">{children}</main>
               <ChallengePopup />
               <GlobalNotifications />
-              <GlobalPartyWidget />
             </VibeProvider>
           </VoiceProvider>
           </PortalProvider>

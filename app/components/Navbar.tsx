@@ -5,7 +5,7 @@ import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { useNotifications } from "@/lib/useNotifications";
 
-const TOP_LEVEL = ["/", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim"];
+const TOP_LEVEL = ["/", "/lobby", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim"];
 
 const gameSections = [
   { label: "⚔️ BATTLE ARENA", items: [
@@ -163,6 +163,7 @@ export default function Navbar() {
             💬 Messages
             <Badge n={unreadMessages} />
           </Link>
+          <Link href="/lobby" style={activeStyle(path.startsWith("/lobby")) as React.CSSProperties}>⚔️ Lobby</Link>
           <Link href="/moonhaven" style={activeStyle(path.startsWith("/moonhaven")) as React.CSSProperties}>🌙 Moonhaven</Link>
           <Link href="/leaderboards" style={activeStyle(path.startsWith("/leaderboards")) as React.CSSProperties}>🏆 Leaderboards</Link>
         </nav>
@@ -213,8 +214,8 @@ export default function Navbar() {
         zIndex: 200, alignItems: "stretch", paddingBottom: "env(safe-area-inset-bottom)",
       }}>
         <BottomTab href="/" icon="🏠" label="Games" />
+        <BottomTab href="/lobby" icon="⚔️" label="Lobby" />
         <BottomTab href="/messages" icon="💬" label="Messages" badge={unreadMessages} onClick={() => setUnreadMessages(0)} />
-        <BottomTab href="/moonhaven" icon="🌙" label="Moonhaven" />
         <BottomTab href="/friends" icon="👥" label="Friends" badge={pendingCount} />
         {/* Profile tab */}
         <Link href={session ? `/profile/${session.user?.name}` : "/signin"} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "7px 4px 6px", textDecoration: "none", position: "relative", gap: 3, minHeight: 56, color: path.startsWith("/profile") ? "#d4a942" : "#555" }}>
