@@ -718,6 +718,24 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const jumpRef = useRef({ vy: 0, grounded: true });
   const gpPrevARef = useRef(false); // tracks previous A-button state for edge detection
 
+  // ── Skatepark state ──────────────────────────────────────────────────────
+  const [skateMode, setSkateMode] = useState(false);
+  const skateModeRef = useRef(false);
+  const skateRef = useRef({
+    speed: 0, heading: 0, vy: 0, airborne: false,
+    grinding: false, grindRailIdx: -1, grindT: 0,
+    combo: 0, comboTimer: 0, score: 0, trickLock: false,
+    spaceHeld: false, spaceHeldTime: 0,
+  });
+  const [skateScore, setSkateScore] = useState(0);
+  const [skateCombo, setSkateCombo] = useState(0);
+  const [skateTrickPopup, setSkateTrickPopup] = useState<string | null>(null);
+  const skateTrickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [skateNear, setSkateNear] = useState(false);
+  const skateNearRef = useRef(false);
+  const skateBoardMeshRef = useRef<import("three").Group | null>(null);
+  const [showSkateRental, setShowSkateRental] = useState(false);
+
   // ── Drive-In emote particle system ────────────────────────────────────────
   const driveParticlesRef = useRef<DriveParticle[]>([]);
   const driveTomatoRef = useRef<DriveTomato | null>(null);
@@ -987,7 +1005,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     setActiveNPC({ npc, line });
     playNPCVoice(npc.id, idx);
 
-    if (npc.interaction === "vendor") {
+    if (npc.id === "ollie_mcshred") {
+      // Skate shop — rent a board
+      setShowSkateRental(true);
+      return;
+    } else if (npc.interaction === "vendor") {
       setTimeout(() => setShowVendor(true), 800);
     } else if (npc.interaction === "herald") {
       setTimeout(() => setShowHerald(true), 800);
@@ -1869,6 +1891,19 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       setLoadMsg("Setting up Drive-In…");
       screenMeshRef.current = buildDriveIn(THREE, scene, QL);
 
+      // ── Skatepark ──────────────────────────────────────────────────────────
+      setLoadMsg("Building skatepark…");
+      const scoreboardMesh = buildSkatepark(THREE, scene, QL);
+      // Load leaderboard from localStorage
+      try {
+        const saved = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
+        if (Array.isArray(saved) && saved.length > 0) {
+          const ctx2 = scoreboardMesh.userData.scoreCanvas?.getContext("2d");
+          if (ctx2) { drawScoreboard(ctx2, saved); scoreboardMesh.userData.scoreTex.needsUpdate = true; }
+        }
+      } catch { /**/ }
+      (window as unknown as Record<string, unknown>).__skateScoreboard = scoreboardMesh;
+
       // ── RPS Arena ─────────────────────────────────────────────────────────
       setLoadMsg("Forging the arena…");
       (() => {
@@ -2043,24 +2078,89 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           if (nearestNPCRef.current) { handleNPCClickRef.current(nearestNPCRef.current); e.preventDefault(); }
           else if (driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
         }
-        if (e.code === "Space" && jumpRef.current.grounded && !chatOpenRef.current) {
-          jumpRef.current.vy = 9;
-          jumpRef.current.grounded = false;
-          e.preventDefault();
-          // Hop sound
-          try {
-            const ac = new AudioContext();
-            const osc = ac.createOscillator();
-            const g = ac.createGain();
-            osc.connect(g); g.connect(ac.destination);
-            osc.type = "sine";
-            osc.frequency.setValueAtTime(320, ac.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.18);
-            g.gain.setValueAtTime(0.22, ac.currentTime);
-            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22);
-            osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.22);
-            osc.onended = () => ac.close();
-          } catch { /* silent */ }
+        if (e.code === "Space" && !chatOpenRef.current) {
+          if (skateModeRef.current) {
+            // Space handled in animation loop for ollie charge
+            e.preventDefault();
+          } else if (jumpRef.current.grounded) {
+            jumpRef.current.vy = 9;
+            jumpRef.current.grounded = false;
+            e.preventDefault();
+            // Hop sound
+            try {
+              const ac = new AudioContext();
+              const osc = ac.createOscillator();
+              const g = ac.createGain();
+              osc.connect(g); g.connect(ac.destination);
+              osc.type = "sine";
+              osc.frequency.setValueAtTime(320, ac.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.18);
+              g.gain.setValueAtTime(0.22, ac.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22);
+              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.22);
+              osc.onended = () => ac.close();
+            } catch { /* silent */ }
+          }
+        }
+        // ── Skate trick keys (1-4) + Escape to exit ──────────────────────
+        if (skateModeRef.current && !chatOpenRef.current) {
+          const sk = skateRef.current;
+          const doTrick = (name: string, pts: number, dur: number) => {
+            if (!sk.airborne || sk.trickLock || sk.grinding) return;
+            sk.trickLock = true;
+            const multiplier = Math.max(1, Math.floor(sk.combo / 200) + 1);
+            const earned = pts * multiplier;
+            sk.combo += earned;
+            setSkateCombo(sk.combo);
+            setSkateTrickPopup(`${name} +${earned}${multiplier > 1 ? ` (${multiplier}x!)` : ""}`);
+            if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
+            skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
+            // Trick completes after duration, allowing landing
+            setTimeout(() => { sk.trickLock = false; }, dur);
+            // Trick sound
+            try {
+              const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
+              osc.connect(g); g.connect(ac.destination); osc.type = "square";
+              osc.frequency.setValueAtTime(300 + pts, ac.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(500 + pts, ac.currentTime + 0.1);
+              g.gain.setValueAtTime(0.12, ac.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.15);
+              osc.onended = () => ac.close();
+            } catch { /**/ }
+          };
+          if (e.code === "Digit1") doTrick("KICKFLIP 🛹", 100, 300);
+          if (e.code === "Digit2") doTrick("HEELFLIP 🛹", 100, 300);
+          if (e.code === "Digit3") doTrick("360 FLIP 🔄", 250, 450);
+          if (e.code === "Digit4") doTrick("CHRIST AIR ✝️", 300, 500);
+          if (e.code === "Escape") {
+            // Exit skate mode
+            skateModeRef.current = false; setSkateMode(false);
+            // Save score to localStorage
+            if (sk.score > 0) {
+              try {
+                const scores: { name: string; score: number }[] = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
+                scores.push({ name: username.slice(0, 16), score: sk.score });
+                scores.sort((a, b) => b.score - a.score);
+                const top10 = scores.slice(0, 10);
+                localStorage.setItem("mh_skate_scores", JSON.stringify(top10));
+                // Update scoreboard
+                const sbMesh = (window as unknown as Record<string, unknown>).__skateScoreboard as import("three").Mesh | undefined;
+                if (sbMesh?.userData.scoreCanvas) {
+                  const ctx2 = sbMesh.userData.scoreCanvas.getContext("2d");
+                  if (ctx2) { drawScoreboard(ctx2, top10); sbMesh.userData.scoreTex.needsUpdate = true; }
+                }
+              } catch { /**/ }
+            }
+            // Remove board mesh
+            if (skateBoardMeshRef.current && playerMeshRef.current) {
+              playerMeshRef.current.remove(skateBoardMeshRef.current);
+              skateBoardMeshRef.current = null;
+            }
+            sk.speed = 0; sk.combo = 0; sk.score = 0; sk.airborne = false; sk.grinding = false;
+            setSkateScore(0); setSkateCombo(0);
+            e.preventDefault();
+          }
         }
       };
       const onKeyUp = (e: KeyboardEvent) => { keysRef.current.delete(e.code); };
@@ -2122,7 +2222,30 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         // A button jump — edge-detect so it only fires once per press
         const gpAPrev = gpPrevARef.current;
         gpPrevARef.current = gpAPressed;
-        if (gpAPressed && !gpAPrev && jumpRef.current.grounded) {
+        if (skateModeRef.current) {
+          // A = ollie (handled in skate physics), B/X/Y = tricks
+          // Edge-detect B(1), X(2), Y(3) for tricks
+          const gpBtns = navigator.getGamepads()?.[0]?.buttons;
+          if (gpBtns) {
+            const sk = skateRef.current;
+            const gpTrick = (idx: number, name: string, pts: number, dur: number) => {
+              if (gpBtns[idx]?.pressed && sk.airborne && !sk.trickLock && !sk.grinding) {
+                sk.trickLock = true;
+                const mult = Math.max(1, Math.floor(sk.combo / 200) + 1);
+                const earned = pts * mult;
+                sk.combo += earned;
+                setSkateCombo(sk.combo);
+                setSkateTrickPopup(`${name} +${earned}${mult > 1 ? ` (${mult}x!)` : ""}`);
+                if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
+                skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
+                setTimeout(() => { sk.trickLock = false; }, dur);
+              }
+            };
+            gpTrick(1, "KICKFLIP 🛹", 100, 300);  // B button
+            gpTrick(2, "360 FLIP 🔄", 250, 450);   // X button
+            gpTrick(3, "CHRIST AIR ✝️", 300, 500);  // Y button
+          }
+        } else if (gpAPressed && !gpAPrev && jumpRef.current.grounded) {
           jumpRef.current.vy = 9;
           jumpRef.current.grounded = false;
         }
@@ -2143,6 +2266,258 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           0,
           -Math.sin(camOrbitRef.current.theta)
         );
+
+        if (skateModeRef.current) {
+          // ── TONY HAWK SKATE PHYSICS ──────────────────────────────────────
+          const sk = skateRef.current;
+          const ACCEL = 12;       // push acceleration
+          const MAX_SPEED = 18;   // top speed
+          const FRICTION = 3.5;   // ground friction decel
+          const TURN_SPEED = 3.2; // radians/sec steering
+          const GRAVITY = 24;     // slightly stronger for snappier air
+          const GRIND_SNAP = 2.5; // snap distance to rails
+          const GRIND_SPEED = 8;  // speed along rail
+
+          // Steering: A/D rotate heading
+          let turnInput = 0;
+          if (keysRef.current.has("KeyA")) turnInput -= 1;
+          if (keysRef.current.has("KeyD")) turnInput += 1;
+          if (gpLx !== 0) turnInput += gpLx;
+          if (joystickRef.current.active) turnInput += joystickRef.current.dx;
+          sk.heading += turnInput * TURN_SPEED * dt;
+
+          // Acceleration: W to push, S to brake
+          let pushInput = 0;
+          if (keysRef.current.has("KeyW")) pushInput = 1;
+          if (keysRef.current.has("KeyS")) pushInput = -1.8; // braking is stronger
+          if (gpLy < -0.2) pushInput = 1;
+          if (gpLy > 0.2) pushInput = -1.8;
+          if (joystickRef.current.active && joystickRef.current.dy < -0.2) pushInput = 1;
+          if (joystickRef.current.active && joystickRef.current.dy > 0.2) pushInput = -1.8;
+
+          if (!sk.airborne && !sk.grinding) {
+            if (pushInput > 0) {
+              sk.speed = Math.min(MAX_SPEED, sk.speed + ACCEL * dt * pushInput);
+            } else if (pushInput < 0) {
+              sk.speed = Math.max(0, sk.speed + pushInput * FRICTION * 2 * dt);
+            } else {
+              // Coast with friction
+              sk.speed = Math.max(0, sk.speed - FRICTION * dt);
+            }
+          }
+
+          // Ollie (Space) — hold to charge, release to pop
+          if (keysRef.current.has("Space") && !sk.airborne && !sk.grinding) {
+            if (!sk.spaceHeld) { sk.spaceHeld = true; sk.spaceHeldTime = 0; }
+            sk.spaceHeldTime = Math.min(0.5, sk.spaceHeldTime + dt); // max 0.5s charge
+          } else if (sk.spaceHeld && !keysRef.current.has("Space")) {
+            // Release — pop ollie! Height based on charge time
+            const power = 7 + sk.spaceHeldTime * 14; // 7-14 upward velocity
+            sk.vy = power;
+            sk.airborne = true;
+            sk.spaceHeld = false;
+            sk.spaceHeldTime = 0;
+            // Ollie sound
+            try {
+              const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
+              osc.connect(g); g.connect(ac.destination); osc.type = "square";
+              osc.frequency.setValueAtTime(180, ac.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(400, ac.currentTime + 0.08);
+              osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.15);
+              g.gain.setValueAtTime(0.15, ac.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.2);
+              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.2);
+              osc.onended = () => ac.close();
+            } catch { /**/ }
+          }
+          // Gamepad A for ollie too
+          if (gpAPressed && !gpAPrev && !sk.airborne && !sk.grinding) {
+            sk.vy = 12; sk.airborne = true;
+          }
+
+          // Gravity when airborne
+          const [, py, ] = playerPosRef.current;
+          let newY = py;
+          if (sk.airborne || py > 0.05) {
+            sk.vy -= GRAVITY * dt;
+            newY = py + sk.vy * dt;
+
+            // Ramp launch detection — check if over a ramp area and moving fast
+            for (const ramp of SKATE_RAMPS) {
+              const dx = px - ramp.cx, dz = pz - ramp.cz;
+              if (Math.abs(dx) < ramp.w / 2 + 1 && Math.abs(dz) < ramp.d / 2 + 1) {
+                // On a ramp — if descending and near ground, get launched
+                const rampSurface = ramp.h * Math.max(0, 1 - Math.min(Math.abs(dx), Math.abs(dz)) / (Math.max(ramp.w, ramp.d) / 2));
+                if (newY <= rampSurface + 0.3 && newY >= rampSurface - 0.5) {
+                  newY = rampSurface;
+                  if (sk.vy < 0 && sk.speed > 3) {
+                    // Launch! Speed converts to vertical
+                    const launchPower = Math.min(sk.speed * 0.8, 15);
+                    sk.vy = launchPower;
+                    sk.airborne = true;
+                    newY = rampSurface + 0.1;
+                  } else if (sk.vy < 0) {
+                    sk.vy = 0;
+                    sk.airborne = false;
+                  }
+                }
+              }
+            }
+
+            if (newY <= 0) {
+              newY = 0; sk.vy = 0;
+              // Landing — bank combo score or bail
+              if (sk.airborne) {
+                sk.airborne = false;
+                if (sk.trickLock) {
+                  // Bail! Was mid-trick when landing
+                  sk.combo = 0; sk.comboTimer = 0;
+                  sk.trickLock = false;
+                  setSkateTrickPopup("BAIL! 💀");
+                  sk.speed *= 0.3; // lose speed on bail
+                  if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
+                  skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1500);
+                  // Bail sound
+                  try {
+                    const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
+                    osc.connect(g); g.connect(ac.destination); osc.type = "sawtooth";
+                    osc.frequency.setValueAtTime(300, ac.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.4);
+                    g.gain.setValueAtTime(0.2, ac.currentTime);
+                    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
+                    osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.4);
+                    osc.onended = () => ac.close();
+                  } catch { /**/ }
+                } else if (sk.combo > 0) {
+                  // Clean landing — bank the combo!
+                  const banked = sk.combo;
+                  sk.score += banked;
+                  setSkateScore(sk.score);
+                  setSkateTrickPopup(`LANDED! +${banked} 🔥`);
+                  if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
+                  skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
+                  sk.combo = 0; sk.comboTimer = 0;
+                  setSkateCombo(0);
+                  // Land sound
+                  try {
+                    const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
+                    osc.connect(g); g.connect(ac.destination); osc.type = "sine";
+                    osc.frequency.setValueAtTime(250, ac.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(150, ac.currentTime + 0.12);
+                    g.gain.setValueAtTime(0.12, ac.currentTime);
+                    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+                    osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.15);
+                    osc.onended = () => ac.close();
+                  } catch { /**/ }
+                }
+              }
+            }
+          } else {
+            newY = py; // on ground, keep Y stable
+          }
+
+          // Grinding — press E near a rail to lock on
+          if (keysRef.current.has("KeyE") && !sk.airborne && !sk.grinding) {
+            for (let ri = 0; ri < GRIND_RAILS.length; ri++) {
+              const [sx, sy, sz, ex, ey, ez] = GRIND_RAILS[ri];
+              // Point-to-line-segment distance
+              const rlx = ex - sx, rlz = ez - sz;
+              const rlen = Math.sqrt(rlx * rlx + rlz * rlz);
+              const t = Math.max(0, Math.min(1, ((px - sx) * rlx + (pz - sz) * rlz) / (rlen * rlen)));
+              const cx = sx + t * rlx, cz = sz + t * rlz;
+              const dist = Math.hypot(px - cx, pz - cz);
+              if (dist < GRIND_SNAP && Math.abs(py - sy) < 1.5) {
+                sk.grinding = true; sk.grindRailIdx = ri; sk.grindT = t;
+                sk.speed = GRIND_SPEED;
+                newY = sy;
+                // Grind sound
+                try {
+                  const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
+                  osc.connect(g); g.connect(ac.destination); osc.type = "sawtooth";
+                  osc.frequency.setValueAtTime(120, ac.currentTime);
+                  g.gain.setValueAtTime(0.08, ac.currentTime);
+                  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
+                  osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.3);
+                  osc.onended = () => ac.close();
+                } catch { /**/ }
+                break;
+              }
+            }
+          }
+
+          // Grind movement — slide along rail
+          if (sk.grinding && sk.grindRailIdx >= 0) {
+            const [sx, sy, sz, ex, , ez] = GRIND_RAILS[sk.grindRailIdx];
+            const rlen = Math.hypot(ex - sx, ez - sz);
+            sk.grindT += (GRIND_SPEED * dt) / rlen;
+            // Grind score: +50 per second
+            sk.combo += Math.round(50 * dt);
+            setSkateCombo(sk.combo);
+            if (sk.grindT >= 1 || sk.grindT <= 0 || !keysRef.current.has("KeyE")) {
+              // End grind
+              sk.grinding = false;
+              sk.grindT = Math.max(0, Math.min(1, sk.grindT));
+              setSkateTrickPopup(`GRIND! +${sk.combo} 🛹`);
+              if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
+              skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1000);
+              // Bank grind points
+              sk.score += sk.combo;
+              setSkateScore(sk.score);
+              sk.combo = 0; setSkateCombo(0);
+            } else {
+              // Snap position to rail
+              const rx = sx + sk.grindT * (ex - sx);
+              const rz = sz + sk.grindT * (ez - sz);
+              playerPosRef.current = [rx, sy, rz];
+              if (playerMeshRef.current) {
+                playerMeshRef.current.position.set(rx, sy, rz);
+                playerMeshRef.current.rotation.y = Math.atan2(ex - sx, ez - sz);
+              }
+            }
+          }
+
+          // Apply movement (if not grinding)
+          if (!sk.grinding) {
+            const vx = Math.sin(sk.heading) * sk.speed;
+            const vz = Math.cos(sk.heading) * sk.speed;
+            let newX = Math.max(-55, Math.min(78, px + vx * dt));
+            let newZ = Math.max(-55, Math.min(86, pz + vz * dt));
+            // Building collision
+            for (const bld of MOONHAVEN_BUILDINGS) {
+              if (bld.id === "skate_shop") continue; // allow near shop
+              const [bx, , bz] = bld.position;
+              const hw = bld.size[0] / 2 + 0.5;
+              const hd = bld.size[2] / 2 + 0.5;
+              if (newX > bx - hw && newX < bx + hw && newZ > bz - hd && newZ < bz + hd) {
+                // Bounce off buildings at reduced speed
+                sk.speed *= 0.4;
+                newX = px; newZ = pz;
+              }
+            }
+            playerPosRef.current = [newX, newY, newZ];
+            if (playerMeshRef.current) {
+              playerMeshRef.current.position.set(newX, newY, newZ);
+              playerMeshRef.current.rotation.y = sk.heading;
+            }
+          }
+
+          // Board tilt animation
+          if (skateBoardMeshRef.current) {
+            skateBoardMeshRef.current.rotation.z = turnInput * 0.3; // lean into turns
+            if (sk.airborne && sk.trickLock) {
+              skateBoardMeshRef.current.rotation.x += dt * 12; // spin during tricks
+            } else {
+              skateBoardMeshRef.current.rotation.x = 0;
+            }
+          }
+
+          // Combo timeout — if combo active but no new tricks for 0.5s in air, it's just pending
+          if (sk.combo > 0 && sk.comboTimer > 0) {
+            sk.comboTimer -= dt;
+          }
+
+        } else {
+          // ── NORMAL WALKING MOVEMENT ──────────────────────────────────────
 
         if (keysRef.current.has("KeyW")) {
           mx -= camFwd.x; mz -= camFwd.z;
@@ -2225,6 +2600,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           playerPosRef.current = [px, newY, playerPosRef.current[2]];
           if (playerMeshRef.current) playerMeshRef.current.position.y = newY;
         }
+
+        } // end normal vs skate movement
 
         // Update camera orbit around player
         updateCameraOrbit(camera);
@@ -2333,6 +2710,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           driveInNearRef.current = nearScreen;
           setDriveInNear(nearScreen);
         }
+
+        // Skatepark proximity (for shop prompt)
+        const distToSkateShop = Math.hypot(cpx - 42, cpz - (-12));
+        const nearSkate = distToSkateShop < 8;
+        if (nearSkate !== skateNearRef.current) { skateNearRef.current = nearSkate; setSkateNear(nearSkate); }
 
         // RPS Arena proximity
         const distToArena = Math.hypot(cpx - RPS_ARENA_POS[0], cpz - RPS_ARENA_POS[2]);
@@ -3628,6 +4010,104 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         );
       })()}
 
+      {/* Skatepark Rental Dialog */}
+      {showSkateRental && (
+        <div style={{
+          position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+          zIndex: 200, background: "rgba(5,15,5,0.96)", border: "2px solid #33ff88",
+          borderRadius: 16, padding: "28px 36px", textAlign: "center", minWidth: 340,
+          boxShadow: "0 0 40px rgba(51,255,136,0.3)",
+        }}>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>🛹</div>
+          <h2 style={{ color: "#33ff88", fontSize: 22, marginBottom: 8, fontFamily: "monospace" }}>McShred&apos;s Skate Shop</h2>
+          <p style={{ color: "#88ffaa", fontSize: 16, marginBottom: 16, fontFamily: "monospace" }}>Rent a board and shred Moonhaven!</p>
+          <div style={{ color: "#aaddaa", fontSize: 13, marginBottom: 16, fontFamily: "monospace", lineHeight: 1.6, textAlign: "left" }}>
+            <b style={{ color: "#33ff88" }}>Controls:</b><br />
+            W/S — Push / Brake<br />
+            A/D — Steer left / right<br />
+            Space (hold) — Ollie (longer = higher!)<br />
+            1 — Kickflip &nbsp; 2 — Heelflip<br />
+            3 — 360 Flip &nbsp; 4 — Christ Air<br />
+            E — Grind (near any rail/edge!)<br />
+            ESC — Return board<br />
+            <br />
+            <b style={{ color: "#aa88ff" }}>🎮 Controller:</b> A=Ollie B=Kickflip X=360Flip Y=ChristAir
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button onClick={() => {
+              setShowSkateRental(false);
+              skateModeRef.current = true; setSkateMode(true);
+              skateRef.current = { speed: 0, heading: 0, vy: 0, airborne: false, grinding: false, grindRailIdx: -1, grindT: 0, combo: 0, comboTimer: 0, score: 0, trickLock: false, spaceHeld: false, spaceHeldTime: 0 };
+              setSkateScore(0); setSkateCombo(0);
+              // Attach board mesh to player
+              getThree().then(THREE => {
+                if (!playerMeshRef.current) return;
+                const board = new THREE.Group();
+                const deck = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.06, 0.25), new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
+                deck.position.y = -0.3;
+                board.add(deck);
+                // Wheels
+                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+                for (const [wx, wz] of [[-0.28, 0.08], [-0.28, -0.08], [0.28, 0.08], [0.28, -0.08]]) {
+                  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.04, 8), wheelMat);
+                  wheel.position.set(wx, -0.35, wz); wheel.rotation.x = Math.PI / 2;
+                  board.add(wheel);
+                }
+                playerMeshRef.current.add(board);
+                skateBoardMeshRef.current = board;
+              });
+            }} style={{
+              padding: "12px 28px", borderRadius: 10, border: "2px solid #33ff88",
+              background: "rgba(51,204,119,0.3)", color: "#33ff88", fontSize: 18,
+              fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
+            }}>🛹 Rent Board (Free!)</button>
+            <button onClick={() => setShowSkateRental(false)} style={{
+              padding: "12px 20px", borderRadius: 10, border: "1px solid #666",
+              background: "rgba(60,60,60,0.4)", color: "#aaa", fontSize: 16,
+              cursor: "pointer", fontFamily: "monospace",
+            }}>Nah</button>
+          </div>
+        </div>
+      )}
+
+      {/* Skatepark HUD — score, combo, trick popup, speed */}
+      {skateMode && (
+        <div style={{ position: "absolute", top: 16, left: 16, zIndex: 150, pointerEvents: "none" }}>
+          {/* Score */}
+          <div style={{
+            fontSize: 32, fontWeight: 900, color: "#33ff88", fontFamily: "monospace",
+            textShadow: "0 0 12px rgba(51,255,136,0.6), 2px 2px 0 #000",
+          }}>SCORE: {skateScore.toLocaleString()}</div>
+          {/* Speed */}
+          <div style={{
+            fontSize: 16, color: "#88ffaa", fontFamily: "monospace", marginTop: 4,
+            textShadow: "1px 1px 0 #000",
+          }}>SPEED: {Math.round(skateRef.current.speed)} mph</div>
+          {/* Combo */}
+          {skateCombo > 0 && (
+            <div style={{
+              fontSize: 24, fontWeight: 800, color: "#ffcc00", fontFamily: "monospace",
+              textShadow: "0 0 10px rgba(255,204,0,0.5), 2px 2px 0 #000",
+              animation: "pulse 0.4s ease-in-out infinite alternate", marginTop: 8,
+            }}>COMBO: +{skateCombo.toLocaleString()}</div>
+          )}
+          {/* Trick popup */}
+          {skateTrickPopup && (
+            <div style={{
+              fontSize: 28, fontWeight: 900, color: skateTrickPopup.includes("BAIL") ? "#ff4444" : "#fff",
+              fontFamily: "monospace", marginTop: 12,
+              textShadow: `0 0 16px ${skateTrickPopup.includes("BAIL") ? "rgba(255,0,0,0.7)" : "rgba(255,255,255,0.5)"}, 2px 2px 0 #000`,
+              animation: "pulse 0.3s ease-in-out infinite alternate",
+            }}>{skateTrickPopup}</div>
+          )}
+          {/* Exit hint */}
+          <div style={{
+            fontSize: 13, color: "#668866", fontFamily: "monospace", marginTop: 16,
+            textShadow: "1px 1px 0 #000",
+          }}>ESC to return board &nbsp; | &nbsp; E to grind edges</div>
+        </div>
+      )}
+
       {/* RPS Arena UI — appears when near the arena or in a match */}
       {(rpsNear || rpsPhase !== "idle") && (() => {
         const choiceBtn = (choice: RPSChoice, emoji: string, label: string) => (
@@ -4886,4 +5366,284 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene, QL: Qual
   }
 
   return screenMesh;
+}
+
+// ── Grindable edges throughout Moonhaven (world-space line segments) ──────
+// Each rail: [startX, startY, startZ, endX, endY, endZ]
+const GRIND_RAILS: [number, number, number, number, number, number][] = [
+  // Skatepark rails
+  [40, 0.9, -22, 60, 0.9, -22],  // long rail north side
+  [44, 0.9, -28, 56, 0.9, -28],  // mid rail
+  [48, 0.9, -34, 52, 0.9, -34],  // short rail south
+  // Fountain edge (plaza center — the rim is grindable!)
+  [-3, 0.7, 0, 3, 0.7, 0],
+  [0, 0.7, -3, 0, 0.7, 3],
+  // Market stalls front edge
+  [-10, 0.6, 13, 10, 0.6, 13],
+  // Tavern porch rail
+  [13, 0.7, -8, 23, 0.7, -8],
+  // Castle wall edges
+  [-8, 0.8, -28, 8, 0.8, -28],
+  // Blacksmith bench
+  [-18, 0.6, -3, -14, 0.6, -3],
+];
+
+// Skatepark ramp definitions: { center, size, type, angle }
+interface SkateRamp {
+  cx: number; cz: number; w: number; d: number; h: number;
+  type: "halfpipe" | "quarter" | "funbox" | "kicker";
+  rotY?: number; // rotation around Y
+}
+const SKATE_RAMPS: SkateRamp[] = [
+  // Big half-pipe (east side)
+  { cx: 58, cz: -25, w: 8, d: 18, h: 5, type: "halfpipe" },
+  // Quarter-pipe north
+  { cx: 50, cz: -38, w: 16, d: 5, h: 3.5, type: "quarter" },
+  // Quarter-pipe south
+  { cx: 50, cz: -8, w: 16, d: 5, h: 3.5, type: "quarter", rotY: Math.PI },
+  // Fun box center
+  { cx: 50, cz: -23, w: 6, d: 6, h: 1.8, type: "funbox" },
+  // Kicker ramps
+  { cx: 38, cz: -20, w: 4, d: 3, h: 1.5, type: "kicker" },
+  { cx: 38, cz: -30, w: 4, d: 3, h: 1.5, type: "kicker" },
+];
+
+const SKATEPARK_CENTER: [number, number, number] = [50, 0, -23];
+const SKATEPARK_RADIUS = 22;
+
+function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: QualityLevel = "med") {
+  const CX = 50, CZ = -23;
+
+  // ── Concrete pad ─────────────────────────────────────────────────────────
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.92 });
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(44, 40), padMat);
+  pad.rotation.x = -Math.PI / 2; pad.position.set(CX, 0.01, CZ);
+  pad.receiveShadow = true; scene.add(pad);
+
+  // Neon border strips
+  const neonGreen = new THREE.MeshBasicMaterial({ color: 0x33ff88 });
+  const neonPurple = new THREE.MeshBasicMaterial({ color: 0xaa44ff });
+  for (const [bx, bz, bw, bd, mat] of [
+    [CX, CZ - 20, 44, 0.4, neonGreen], [CX, CZ + 20, 44, 0.4, neonGreen],
+    [CX - 22, CZ, 0.4, 40, neonPurple], [CX + 22, CZ, 0.4, 40, neonPurple],
+  ] as [number, number, number, number, import("three").MeshBasicMaterial][]) {
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(bw, bd), mat);
+    strip.rotation.x = -Math.PI / 2; strip.position.set(bx, 0.02, bz); scene.add(strip);
+  }
+
+  // ── Half-pipe (the star attraction) ──────────────────────────────────────
+  const hpW = 8, hpD = 18, hpH = 5;
+  const hpX = 58, hpZ = CZ;
+  // Create curved walls using segments
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a4a55, roughness: 0.85 });
+  const wallAccent = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.7, metalness: 0.3 });
+  const segments = 12;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 0.5;
+      const nextAngle = ((i + 1) / segments) * Math.PI * 0.5;
+      const x1 = side * (hpW / 2) * Math.cos(angle);
+      const y1 = hpH * (1 - Math.sin(angle));
+      const x2 = side * (hpW / 2) * Math.cos(nextAngle);
+      const y2 = hpH * (1 - Math.sin(nextAngle));
+      // Ramp surface segment
+      const segW = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      const seg = new THREE.Mesh(new THREE.PlaneGeometry(segW + 0.05, hpD), i === segments - 1 ? wallAccent : wallMat);
+      seg.position.set(hpX + (x1 + x2) / 2, (y1 + y2) / 2, hpZ);
+      seg.rotation.z = Math.atan2(y2 - y1, x2 - x1) * side;
+      if (side === -1) seg.rotation.z = Math.PI - seg.rotation.z;
+      seg.rotation.x = 0;
+      // Simplified rotation — just use lookAt to orient
+      seg.lookAt(seg.position.x + (y2 - y1) * side, seg.position.y - Math.abs(x2 - x1), seg.position.z);
+      seg.rotation.x = 0; seg.rotation.z = 0;
+      // Actually just use box geometry for simpler approach
+    }
+  }
+  // Simpler half-pipe: two curved walls + flat bottom
+  // Left wall (tilted boxes stacked to approximate curve)
+  for (let i = 0; i < 6; i++) {
+    const t = i / 6;
+    const angle = t * Math.PI * 0.5;
+    const wx = hpX - hpW / 2 + (hpW / 2) * (1 - Math.cos(angle));
+    const wy = hpH * Math.sin(angle);
+    const tilt = angle;
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, hpD), i === 5 ? wallAccent : wallMat);
+    wall.position.set(wx, wy, hpZ);
+    wall.rotation.z = -tilt;
+    wall.receiveShadow = true; scene.add(wall);
+    // Mirror to right side
+    const wall2 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, hpD), i === 5 ? wallAccent : wallMat);
+    wall2.position.set(hpX + hpW / 2 - (hpW / 2) * (1 - Math.cos(angle)), wy, hpZ);
+    wall2.rotation.z = tilt;
+    wall2.receiveShadow = true; scene.add(wall2);
+  }
+  // Flat bottom
+  const hpFloor = new THREE.Mesh(new THREE.BoxGeometry(hpW * 0.4, 0.2, hpD), wallMat);
+  hpFloor.position.set(hpX, 0.1, hpZ); scene.add(hpFloor);
+  // Coping (top edge rails)
+  const copingMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, roughness: 0.3, metalness: 0.8 });
+  for (const sx of [-1, 1]) {
+    const coping = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, hpD, 8), copingMat);
+    coping.position.set(hpX + sx * hpW / 2, hpH, hpZ);
+    coping.rotation.x = Math.PI / 2;
+    scene.add(coping);
+  }
+
+  // ── Quarter pipes (north + south edges) ──────────────────────────────────
+  for (const [qz, qRotY] of [
+    [CZ - 17, 0],      // north
+    [CZ + 17, Math.PI], // south
+  ] as [number, number][]) {
+    const qW = 16, qH = 3.5;
+    for (let i = 0; i < 5; i++) {
+      const t = i / 5;
+      const angle = t * Math.PI * 0.5;
+      const dy = qH * Math.sin(angle);
+      const dz = (qRotY === 0 ? -1 : 1) * 2.5 * (1 - Math.cos(angle));
+      const tilt = angle * (qRotY === 0 ? 1 : -1);
+      const qSeg = new THREE.Mesh(new THREE.BoxGeometry(qW, 0.25, 1.2), i === 4 ? wallAccent : wallMat);
+      qSeg.position.set(CX, dy, qz + dz);
+      qSeg.rotation.x = tilt;
+      scene.add(qSeg);
+    }
+    // Coping
+    const qCoping = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 16, 8), copingMat);
+    qCoping.position.set(CX, qH, qz + (qRotY === 0 ? -2.5 : 2.5));
+    qCoping.rotation.z = Math.PI / 2;
+    scene.add(qCoping);
+  }
+
+  // ── Fun box (center) ─────────────────────────────────────────────────────
+  const fbMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.8 });
+  const fb = new THREE.Mesh(new THREE.BoxGeometry(6, 1.8, 6), fbMat);
+  fb.position.set(CX, 0.9, CZ); fb.castShadow = true; scene.add(fb);
+  // Ramp faces on each side
+  for (const [rx, rz, rotY] of [
+    [CX - 4.5, CZ, Math.PI / 2],
+    [CX + 4.5, CZ, -Math.PI / 2],
+    [CX, CZ - 4.5, 0],
+    [CX, CZ + 4.5, Math.PI],
+  ] as [number, number, number][]) {
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 3), wallMat);
+    ramp.position.set(rx, 0.9, rz);
+    ramp.rotation.x = -0.35;
+    ramp.rotation.y = rotY;
+    scene.add(ramp);
+  }
+
+  // ── Kicker ramps ─────────────────────────────────────────────────────────
+  const kickerMat = new THREE.MeshStandardMaterial({ color: 0x4a6a4a, roughness: 0.85 });
+  for (const [kx, kz] of [[38, -20], [38, -30]] as [number, number][]) {
+    const kicker = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 3), kickerMat);
+    kicker.position.set(kx, 0.75, kz); kicker.castShadow = true; scene.add(kicker);
+    // Angled top face
+    const kTop = new THREE.Mesh(new THREE.BoxGeometry(4, 0.15, 3.5), kickerMat);
+    kTop.position.set(kx + 0.5, 1.55, kz); kTop.rotation.z = 0.25; scene.add(kTop);
+  }
+
+  // ── Grind rails (metal cylinders on posts) ───────────────────────────────
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xaaaacc, roughness: 0.25, metalness: 0.9 });
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x444450, roughness: 0.7 });
+  for (const rail of GRIND_RAILS.slice(0, 3)) { // Only skatepark rails get 3D geometry
+    const [sx, sy, sz, ex, ey, ez] = rail;
+    const len = Math.sqrt((ex - sx) ** 2 + (ez - sz) ** 2);
+    const midX = (sx + ex) / 2, midZ = (sz + ez) / 2;
+    const angle = Math.atan2(ez - sz, ex - sx);
+    // Rail tube
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, len, 8), railMat);
+    tube.position.set(midX, sy, midZ);
+    tube.rotation.z = Math.PI / 2;
+    tube.rotation.y = angle;
+    scene.add(tube);
+    // Posts
+    for (const t of [0.1, 0.5, 0.9]) {
+      const px = sx + (ex - sx) * t;
+      const pz = sz + (ez - sz) * t;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, sy, 6), postMat);
+      post.position.set(px, sy / 2, pz); scene.add(post);
+    }
+  }
+
+  // ── Skate shop building ──────────────────────────────────────────────────
+  const shopX = 42, shopZ = -14;
+  const shopMat = new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.85 });
+  const shop = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), shopMat);
+  shop.position.set(shopX, 2.5, shopZ); shop.castShadow = true; scene.add(shop);
+  const shopRoof = new THREE.Mesh(new THREE.BoxGeometry(7, 0.3, 6), new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
+  shopRoof.position.set(shopX, 5.15, shopZ); scene.add(shopRoof);
+  // Shop sign
+  const signCanvas = document.createElement("canvas"); signCanvas.width = 300; signCanvas.height = 80;
+  const sctx = signCanvas.getContext("2d")!;
+  sctx.fillStyle = "#1a2a1a"; sctx.fillRect(0, 0, 300, 80);
+  sctx.strokeStyle = "#33ff88"; sctx.lineWidth = 3; sctx.strokeRect(4, 4, 292, 72);
+  sctx.font = "bold 24px monospace"; sctx.fillStyle = "#33ff88"; sctx.textAlign = "center";
+  sctx.fillText("🛹 SKATE SHOP 🛹", 150, 35);
+  sctx.font = "16px monospace"; sctx.fillStyle = "#88ffaa";
+  sctx.fillText("RENT A BOARD · 10 coins", 150, 60);
+  const signMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.5, 0.9),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCanvas), side: THREE.DoubleSide })
+  );
+  signMesh.position.set(shopX + 3.05, 3.5, shopZ); scene.add(signMesh);
+
+  // ── Scoreboard billboard ─────────────────────────────────────────────────
+  const bbCanvas = document.createElement("canvas"); bbCanvas.width = 400; bbCanvas.height = 300;
+  const bbctx = bbCanvas.getContext("2d")!;
+  drawScoreboard(bbctx, []);
+  const bbTex = new THREE.CanvasTexture(bbCanvas);
+  const bb = new THREE.Mesh(
+    new THREE.PlaneGeometry(5, 3.75),
+    new THREE.MeshBasicMaterial({ map: bbTex, side: THREE.DoubleSide })
+  );
+  bb.position.set(CX - 22.5, 3, CZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
+  // Billboard post
+  const bbPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 5, 6), postMat);
+  bbPost.position.set(CX - 22.5, 2.5, CZ); scene.add(bbPost);
+  // Store ref for updates
+  bb.userData.scoreCanvas = bbCanvas;
+  bb.userData.scoreTex = bbTex;
+
+  // ── Neon lighting ────────────────────────────────────────────────────────
+  if (QL !== "low") {
+    const g1 = new THREE.PointLight(0x33ff88, 1.5, 25); g1.position.set(CX - 18, 3, CZ); scene.add(g1);
+    const g2 = new THREE.PointLight(0xaa44ff, 1.5, 25); g2.position.set(CX + 18, 3, CZ); scene.add(g2);
+    const g3 = new THREE.PointLight(0x33ff88, 1.0, 15); g3.position.set(shopX, 5.5, shopZ); scene.add(g3);
+  }
+
+  // ── Entrance sign ────────────────────────────────────────────────────────
+  const entCanvas = document.createElement("canvas"); entCanvas.width = 400; entCanvas.height = 100;
+  const ectx = entCanvas.getContext("2d")!;
+  ectx.fillStyle = "#0a0a1a"; ectx.fillRect(0, 0, 400, 100);
+  ectx.font = "bold 36px monospace"; ectx.fillStyle = "#33ff88"; ectx.textAlign = "center";
+  ectx.fillText("🛹 MOONHAVEN SKATEPARK 🛹", 200, 45);
+  ectx.font = "18px monospace"; ectx.fillStyle = "#aa88ff";
+  ectx.fillText("GRIND EVERYTHING", 200, 78);
+  const entSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(8, 2),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(entCanvas), side: THREE.DoubleSide })
+  );
+  entSign.position.set(CX, 6, CZ + 20.5); scene.add(entSign);
+
+  return bb; // return scoreboard mesh for updating
+}
+
+function drawScoreboard(ctx: CanvasRenderingContext2D, scores: { name: string; score: number }[]) {
+  ctx.fillStyle = "#0a0a1a"; ctx.fillRect(0, 0, 400, 300);
+  ctx.strokeStyle = "#33ff88"; ctx.lineWidth = 3; ctx.strokeRect(4, 4, 392, 292);
+  ctx.font = "bold 28px monospace"; ctx.fillStyle = "#33ff88"; ctx.textAlign = "center";
+  ctx.fillText("🏆 HIGH SCORES 🏆", 200, 40);
+  ctx.font = "20px monospace";
+  if (scores.length === 0) {
+    ctx.fillStyle = "#668866"; ctx.fillText("No scores yet!", 200, 160);
+    ctx.fillText("Rent a board & shred!", 200, 190);
+  } else {
+    for (let i = 0; i < Math.min(5, scores.length); i++) {
+      const y = 80 + i * 40;
+      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
+      ctx.fillStyle = i < 3 ? "#ffcc00" : "#88aa88"; ctx.textAlign = "left";
+      ctx.fillText(`${medal} ${scores[i].name}`, 30, y);
+      ctx.textAlign = "right"; ctx.fillStyle = "#33ff88";
+      ctx.fillText(`${scores[i].score.toLocaleString()}`, 370, y);
+    }
+  }
 }
