@@ -63,6 +63,7 @@ let audioCtx = null;
 function ensureAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
+  musicPlaying = true;
 }
 
 function synth(type, opts = {}) {
@@ -92,27 +93,44 @@ function sfxSubmit() {
   [523, 659, 784, 1047].forEach((f, i) => synth('sine', { frequency: f, duration: 0.08, volume: 0.1, delay: i * 0.08 }));
 }
 
-// Simple background drone
-let droneOsc = null, droneGain = null;
-function startDrone() {
-  if (!audioCtx || droneOsc) return;
-  droneOsc = audioCtx.createOscillator();
-  droneGain = audioCtx.createGain();
-  droneOsc.type = 'sine';
-  droneOsc.frequency.value = 55;
-  droneGain.gain.value = 0.04;
-  droneOsc.connect(droneGain).connect(audioCtx.destination);
-  droneOsc.start();
+// Background music — space game melodic loop
+const musicNotes = [262, 330, 392, 523, 392, 330, 262, 330, 392, 523, 659, 523];
+let musicIndex = 0, lastMusicTime = 0, activeOscillators = 0;
+let musicOn = true, musicPlaying = false;
+
+function playBackgroundMusic() {
+  if (!audioCtx || !musicOn || !musicPlaying) return;
+  const now = Date.now();
+  if (now - lastMusicTime > 300 && activeOscillators < 15) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = musicNotes[musicIndex % musicNotes.length];
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.25);
+    activeOscillators++;
+    osc.onended = () => { activeOscillators--; };
+    musicIndex++;
+    lastMusicTime = now;
+  }
 }
-function stopDrone() {
-  if (droneOsc) { try { droneOsc.stop(); } catch {} droneOsc = null; }
-}
+
+function startDrone() { musicPlaying = true; }
+function stopDrone() { /* keep music playing through game over */ }
+function toggleMusic() { musicOn = !musicOn; }
 
 // ============================================================
 // INPUT
 // ============================================================
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyM') toggleMusic();
+  e.preventDefault();
+});
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 let touchPos = null, touchDash = false;
@@ -156,7 +174,14 @@ canvas.addEventListener('touchend', e => {
 let mouseClick = null;
 canvas.addEventListener('click', e => {
   ensureAudio();
-  mouseClick = screenToGame(e.clientX, e.clientY);
+  const p = screenToGame(e.clientX, e.clientY);
+  // Music toggle click
+  const mb = musicBtnPos;
+  if (p.x >= mb.x - 4 && p.x <= mb.x + 50 && p.y >= mb.y && p.y <= mb.y + mb.h + 8) {
+    toggleMusic();
+    return;
+  }
+  mouseClick = p;
 });
 
 // ============================================================
@@ -933,6 +958,23 @@ function drawHUD() {
     ctx.textBaseline = 'top';
     ctx.globalAlpha = 1;
   }
+
+  // Music toggle (top-left)
+  drawMusicToggle();
+}
+
+const musicBtnPos = { x: 30, y: 16, w: 22, h: 22 };
+
+function drawMusicToggle() {
+  const { x, y, w, h } = musicBtnPos;
+  ctx.globalAlpha = 0.5;
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = musicOn ? COL.purpleLight : '#555';
+  ctx.shadowBlur = 0;
+  ctx.fillText(musicOn ? '♪ ON' : '♪ OFF', x, y + 4);
+  ctx.globalAlpha = 1;
 }
 
 function drawGameOver() {
@@ -1079,7 +1121,7 @@ function drawMenu() {
   if (IS_TOUCH) {
     ctx.fillText('Touch to move | DASH button to dodge', BASE_W / 2, BASE_H / 2 + 20);
   } else {
-    ctx.fillText('WASD to move | SPACE to dash', BASE_W / 2, BASE_H / 2 + 20);
+    ctx.fillText('WASD to move | SPACE to dash | M for music', BASE_W / 2, BASE_H / 2 + 20);
   }
 
   // Best time
@@ -1100,6 +1142,9 @@ function drawMenu() {
     ctx.fillStyle = COL.cyan;
     ctx.fillText(IS_TOUCH ? 'TAP TO START' : 'PRESS SPACE TO START', BASE_W / 2, BASE_H / 2 + 100);
   }
+
+  // Music toggle on menu
+  drawMusicToggle();
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -1281,6 +1326,7 @@ function loop(now) {
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
     variableUpdate(dt);
+    playBackgroundMusic();
     drawMenu();
     ctx.restore();
     return;
@@ -1294,6 +1340,7 @@ function loop(now) {
   }
 
   variableUpdate(dt);
+  playBackgroundMusic();
 
   // --- RENDER ---
   ctx.save();

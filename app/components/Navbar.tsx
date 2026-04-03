@@ -14,6 +14,7 @@ const gameSections = [
     { href: "/tightrope",         label: "🎪 Tightrope Terror",  desc: "Balance or fall" },
     { href: "/games/matty-milkers", label: "🥛 Matty Milkers",   desc: "Raw milk platformer" },
     { href: "/games/wingman",     label: "💘 Wingman",           desc: "Dating platformer" },
+    { href: "/dodge-gauntlet",    label: "💠 Dodge Gauntlet",    desc: "Bullet-hell survival" },
   ]},
   { label: "🎉 PARTY GAMES", items: [
     { href: "/games/moon-sim", label: "🌙 Moon Sim", desc: "Take Matt to the moon" },
