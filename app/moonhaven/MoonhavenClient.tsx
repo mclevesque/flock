@@ -2513,32 +2513,48 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             }
           }
 
+          // ── Building collision helper ──────────────────────────────────
+          const skPushOut = (testX: number, testZ: number): [number, number, boolean] => {
+            let rx = testX, rz = testZ, hit = false;
+            for (const bld of MOONHAVEN_BUILDINGS) {
+              const [bx, , bz] = bld.position;
+              const hw = bld.size[0] / 2 + 1.2, hd = bld.size[2] / 2 + 1.2;
+              if (rx > bx - hw && rx < bx + hw && rz > bz - hd && rz < bz + hd) {
+                const pL = rx - (bx - hw), pR = (bx + hw) - rx;
+                const pN = rz - (bz - hd), pS = (bz + hd) - rz;
+                const minP = Math.min(pL, pR, pN, pS);
+                if (minP === pL) rx = bx - hw;
+                else if (minP === pR) rx = bx + hw;
+                else if (minP === pN) rz = bz - hd;
+                else rz = bz + hd;
+                hit = true;
+              }
+            }
+            return [rx, rz, hit];
+          };
+
+          // FIRST: eject from any building we're ALREADY inside of (every frame)
+          {
+            const [ejX, ejZ, wasInside] = skPushOut(px, pz);
+            if (wasInside) {
+              playerPosRef.current = [ejX, playerPosRef.current[1], ejZ];
+              if (playerMeshRef.current) {
+                playerMeshRef.current.position.x = ejX;
+                playerMeshRef.current.position.z = ejZ;
+              }
+              sk.speed *= 0.2; // kill most speed on eject
+            }
+          }
+
           // Apply movement (if not grinding)
           if (!sk.grinding) {
+            const curPos = playerPosRef.current; // may have been ejected above
             const vx = Math.sin(sk.heading) * sk.speed;
             const vz = Math.cos(sk.heading) * sk.speed;
-            let newX = Math.max(-55, Math.min(78, px + vx * dt));
-            let newZ = Math.max(-55, Math.min(86, pz + vz * dt));
-            // Building collision — push to nearest edge + eject if already inside
-            const pushOut = (testX: number, testZ: number): [number, number, boolean] => {
-              let rx = testX, rz = testZ, hit = false;
-              for (const bld of MOONHAVEN_BUILDINGS) {
-                const [bx, , bz] = bld.position;
-                const hw = bld.size[0] / 2 + 1.0, hd = bld.size[2] / 2 + 1.0;
-                if (rx > bx - hw && rx < bx + hw && rz > bz - hd && rz < bz + hd) {
-                  const pushL = rx - (bx - hw), pushR = (bx + hw) - rx;
-                  const pushN = rz - (bz - hd), pushS = (bz + hd) - rz;
-                  const minP = Math.min(pushL, pushR, pushN, pushS);
-                  if (minP === pushL) rx = bx - hw;
-                  else if (minP === pushR) rx = bx + hw;
-                  else if (minP === pushN) rz = bz - hd;
-                  else rz = bz + hd;
-                  hit = true;
-                }
-              }
-              return [rx, rz, hit];
-            };
-            const [safeX, safeZ, wasHit] = pushOut(newX, newZ);
+            let newX = Math.max(-55, Math.min(78, curPos[0] + vx * dt));
+            let newZ = Math.max(-55, Math.min(86, curPos[2] + vz * dt));
+            // SECOND: check new position against buildings too
+            const [safeX, safeZ, wasHit] = skPushOut(newX, newZ);
             newX = safeX; newZ = safeZ;
             if (wasHit) sk.speed *= 0.3;
             playerPosRef.current = [newX, newY, newZ];
@@ -2601,8 +2617,32 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           }
         }
 
+        // Eject from buildings FIRST (every frame, even when standing still)
+        {
+          let ejX = px, ejZ = pz; let ejected = false;
+          for (const bld of MOONHAVEN_BUILDINGS) {
+            const [bx, , bz] = bld.position;
+            const hw = bld.size[0] / 2 + 1.2, hd = bld.size[2] / 2 + 1.2;
+            if (ejX > bx - hw && ejX < bx + hw && ejZ > bz - hd && ejZ < bz + hd) {
+              const pL = ejX - (bx - hw), pR = (bx + hw) - ejX;
+              const pN = ejZ - (bz - hd), pS = (bz + hd) - ejZ;
+              const minP = Math.min(pL, pR, pN, pS);
+              if (minP === pL) ejX = bx - hw;
+              else if (minP === pR) ejX = bx + hw;
+              else if (minP === pN) ejZ = bz - hd;
+              else ejZ = bz + hd;
+              ejected = true;
+            }
+          }
+          if (ejected) {
+            playerPosRef.current = [ejX, playerPosRef.current[1], ejZ];
+            if (playerMeshRef.current) { playerMeshRef.current.position.x = ejX; playerMeshRef.current.position.z = ejZ; }
+          }
+        }
+
         // Jump physics
-        const [, py, ] = playerPosRef.current;
+        const walkPos = playerPosRef.current; // may have been ejected
+        const [, py, ] = walkPos;
         let newY = py;
         if (!jumpRef.current.grounded || py > 0) {
           jumpRef.current.vy -= 22 * dt; // gravity
@@ -2616,14 +2656,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
 
         const len = Math.sqrt(mx * mx + mz * mz);
         if (len > 0) {
-          const newX = Math.max(-55, Math.min(78, px + (mx / len) * speed * dt));
-          const newZ = Math.max(-55, Math.min(86, pz + (mz / len) * speed * dt));
-          // Building collision — push player to nearest edge (prevents getting stuck)
+          const newX = Math.max(-55, Math.min(78, walkPos[0] + (mx / len) * speed * dt));
+          const newZ = Math.max(-55, Math.min(86, walkPos[2] + (mz / len) * speed * dt));
+          // Building collision on new position
           let colX = newX, colZ = newZ;
           for (const bld of MOONHAVEN_BUILDINGS) {
             const [bx, , bz] = bld.position;
-            const hw = bld.size[0] / 2 + 1.0;
-            const hd = bld.size[2] / 2 + 1.0;
+            const hw = bld.size[0] / 2 + 1.2, hd = bld.size[2] / 2 + 1.2;
             if (colX > bx - hw && colX < bx + hw && colZ > bz - hd && colZ < bz + hd) {
               const pL = colX - (bx - hw), pR = (bx + hw) - colX;
               const pN = colZ - (bz - hd), pS = (bz + hd) - colZ;
