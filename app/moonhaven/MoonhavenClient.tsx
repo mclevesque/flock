@@ -1008,6 +1008,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (npc.id === "ollie_mcshred") {
       // Skate shop — rent a board
       setShowSkateRental(true);
+      setTimeout(() => setActiveNPC(null), 2000);
       return;
     } else if (npc.interaction === "vendor") {
       setTimeout(() => setShowVendor(true), 800);
@@ -2274,10 +2275,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           // Key rule: velocity = heading * speed. NO lateral drift. Ever.
           // ═══════════════════════════════════════════════════════════════════
           const sk = skateRef.current;
-          const PUSH_IMPULSE = 4.0;  // speed burst per W press (per second held)
-          const MAX_SPEED = 18;      // speed cap
-          const FRICTION = 0.992;    // multiplicative per-frame decay (~0.5%/frame)
-          const BRAKE_RATE = 12;     // speed units/sec lost when braking
+          const PUSH_IMPULSE = 5.2;  // speed burst per W press (per second held) — 30% faster
+          const MAX_SPEED = 23;      // speed cap — 30% faster
+          const FRICTION = 0.993;    // multiplicative per-frame decay (slightly less drag)
+          const BRAKE_RATE = 14;     // speed units/sec lost when braking
           const TURN_RATE = 2.2;     // radians/sec base turn speed
           const TURN_SPEED_BLEED = 0.994; // speed multiplier when turning
           const GRAVITY = 26;
@@ -2297,10 +2298,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           // A = turn LEFT (decrease heading), D = turn RIGHT (increase heading)
           if (keysRef.current.has("KeyA")) skateTurnInput = 1;
           else if (keysRef.current.has("KeyD")) skateTurnInput = -1;
-          // Analog stick with dead zone
-          if (Math.abs(gpLx) > STICK_DEAD_ZONE) skateTurnInput = gpLx;
-          if (joystickRef.current.active && Math.abs(joystickRef.current.dx) > 0.2) {
-            skateTurnInput = joystickRef.current.dx;
+          // Analog stick / joystick: dx steers, but ONLY when also pushing forward
+          // This makes diagonal work naturally: up+left = forward + steer left
+          if (Math.abs(gpLx) > STICK_DEAD_ZONE) skateTurnInput = -gpLx;
+          if (joystickRef.current.active && Math.abs(joystickRef.current.dx) > 0.15) {
+            skateTurnInput = -joystickRef.current.dx;
           }
           // Apply turn — only when moving
           if (sk.speed > 0.3 && skateTurnInput !== 0 && !sk.grinding) {
@@ -2314,12 +2316,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             let pushing = false;
             if (keysRef.current.has("KeyW")) pushing = true;
             if (gpLy < -STICK_DEAD_ZONE) pushing = true; // stick forward
-            if (joystickRef.current.active && joystickRef.current.dy < -0.2) pushing = true;
+            // Joystick: any upward component = push (even diagonal up-left/up-right)
+            if (joystickRef.current.active && joystickRef.current.dy < -0.1) pushing = true;
 
             let braking = false;
             if (keysRef.current.has("KeyS")) braking = true;
             if (gpLy > STICK_DEAD_ZONE) braking = true; // stick back
-            if (joystickRef.current.active && joystickRef.current.dy > 0.2) braking = true;
+            if (joystickRef.current.active && joystickRef.current.dy > 0.25) braking = true; // only brake on strong pull-back
 
             if (pushing) {
               // Push adds impulse each frame held (like holding X in THPS)
@@ -2516,22 +2519,28 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             const vz = Math.cos(sk.heading) * sk.speed;
             let newX = Math.max(-55, Math.min(78, px + vx * dt));
             let newZ = Math.max(-55, Math.min(86, pz + vz * dt));
-            for (const bld of MOONHAVEN_BUILDINGS) {
-              if (bld.id === "skate_shop") continue;
-              const [bx, , bz] = bld.position;
-              const hw = bld.size[0] / 2 + 0.8, hd = bld.size[2] / 2 + 0.8;
-              if (newX > bx - hw && newX < bx + hw && newZ > bz - hd && newZ < bz + hd) {
-                // Push player to nearest edge (not just freeze)
-                const pushL = newX - (bx - hw), pushR = (bx + hw) - newX;
-                const pushN = newZ - (bz - hd), pushS = (bz + hd) - newZ;
-                const minPush = Math.min(pushL, pushR, pushN, pushS);
-                if (minPush === pushL) newX = bx - hw;
-                else if (minPush === pushR) newX = bx + hw;
-                else if (minPush === pushN) newZ = bz - hd;
-                else newZ = bz + hd;
-                sk.speed *= 0.3;
+            // Building collision — push to nearest edge + eject if already inside
+            const pushOut = (testX: number, testZ: number): [number, number, boolean] => {
+              let rx = testX, rz = testZ, hit = false;
+              for (const bld of MOONHAVEN_BUILDINGS) {
+                const [bx, , bz] = bld.position;
+                const hw = bld.size[0] / 2 + 1.0, hd = bld.size[2] / 2 + 1.0;
+                if (rx > bx - hw && rx < bx + hw && rz > bz - hd && rz < bz + hd) {
+                  const pushL = rx - (bx - hw), pushR = (bx + hw) - rx;
+                  const pushN = rz - (bz - hd), pushS = (bz + hd) - rz;
+                  const minP = Math.min(pushL, pushR, pushN, pushS);
+                  if (minP === pushL) rx = bx - hw;
+                  else if (minP === pushR) rx = bx + hw;
+                  else if (minP === pushN) rz = bz - hd;
+                  else rz = bz + hd;
+                  hit = true;
+                }
               }
-            }
+              return [rx, rz, hit];
+            };
+            const [safeX, safeZ, wasHit] = pushOut(newX, newZ);
+            newX = safeX; newZ = safeZ;
+            if (wasHit) sk.speed *= 0.3;
             playerPosRef.current = [newX, newY, newZ];
             if (playerMeshRef.current) {
               playerMeshRef.current.position.set(newX, newY, newZ);
@@ -2613,15 +2622,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           let colX = newX, colZ = newZ;
           for (const bld of MOONHAVEN_BUILDINGS) {
             const [bx, , bz] = bld.position;
-            const hw = bld.size[0] / 2 + 0.8;
-            const hd = bld.size[2] / 2 + 0.8;
+            const hw = bld.size[0] / 2 + 1.0;
+            const hd = bld.size[2] / 2 + 1.0;
             if (colX > bx - hw && colX < bx + hw && colZ > bz - hd && colZ < bz + hd) {
-              const pushL = colX - (bx - hw), pushR = (bx + hw) - colX;
-              const pushN = colZ - (bz - hd), pushS = (bz + hd) - colZ;
-              const minPush = Math.min(pushL, pushR, pushN, pushS);
-              if (minPush === pushL) colX = bx - hw;
-              else if (minPush === pushR) colX = bx + hw;
-              else if (minPush === pushN) colZ = bz - hd;
+              const pL = colX - (bx - hw), pR = (bx + hw) - colX;
+              const pN = colZ - (bz - hd), pS = (bz + hd) - colZ;
+              const minP = Math.min(pL, pR, pN, pS);
+              if (minP === pL) colX = bx - hw;
+              else if (minP === pR) colX = bx + hw;
+              else if (minP === pN) colZ = bz - hd;
               else colZ = bz + hd;
             }
           }
@@ -3612,11 +3621,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         const ytMatch = activeJukebox.url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
         const videoId = ytMatch?.[1];
         if (!videoId) return null;
-        const elapsed = Math.floor((Date.now() - activeJukebox.startedAt) / 1000);
+        // Compute start offset ONCE from the startedAt timestamp — don't recalculate on re-renders
+        // Using startedAt as part of the key ensures a new iframe only on new songs
+        const elapsed = Math.max(0, Math.floor((activeJukebox.startedAt ? (Date.now() - activeJukebox.startedAt) / 1000 : 0)));
         return (
           <iframe
-            key={videoId}
-            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&start=${elapsed}&enablejsapi=0`}
+            key={`${videoId}-${activeJukebox.startedAt}`}
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&start=${elapsed}&enablejsapi=0&loop=1`}
             allow="autoplay"
             style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", top: 0, left: 0 }}
           />
@@ -4069,7 +4080,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           </div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
             <button onClick={() => {
-              setShowSkateRental(false);
+              setShowSkateRental(false); setActiveNPC(null);
               skateModeRef.current = true; setSkateMode(true);
               skateRef.current = { speed: 0, heading: 0, vy: 0, airborne: false, grinding: false, grindRailIdx: -1, grindT: 0, combo: 0, comboTimer: 0, score: 0, trickLock: false, spaceHeld: false, spaceHeldTime: 0 };
               setSkateScore(0); setSkateCombo(0);
@@ -4123,7 +4134,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               background: "rgba(51,204,119,0.3)", color: "#33ff88", fontSize: 18,
               fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
             }}>🛹 Rent Board (Free!)</button>
-            <button onClick={() => setShowSkateRental(false)} style={{
+            <button onClick={() => { setShowSkateRental(false); setActiveNPC(null); }} style={{
               padding: "12px 20px", borderRadius: 10, border: "1px solid #666",
               background: "rgba(60,60,60,0.4)", color: "#aaa", fontSize: 16,
               cursor: "pointer", fontFamily: "monospace",
