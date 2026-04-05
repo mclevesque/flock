@@ -587,6 +587,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     }
   }, [sendSsOfferTo, createSsPeer, postSsSignal, clearVideoFromScreen]);
   handleScreenSignalRef.current = handleScreenSignal;
+  const sendSsOfferToRef = useRef(sendSsOfferTo);
+  sendSsOfferToRef.current = sendSsOfferTo;
 
   // Start screen share (host)
   const startScreenShare = useCallback(async () => {
@@ -1643,10 +1645,14 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             const pid = msg.player?.user_id as string;
             if (pid && !seenPlayersRef.current.has(pid)) {
               seenPlayersRef.current.add(pid);
-              // Re-announce host status to the room so the new joiner learns it
               setTimeout(() => {
                 ws?.send(JSON.stringify({ type: "room_host_announce", hostId: userId }));
-              }, 300);
+                // If we're hosting a screen share, proactively push an offer to the new joiner
+                // without waiting for them to request it — fixes black screen on late join
+                if (isSharingRef.current && screenStreamRef.current) {
+                  sendSsOfferToRef.current(pid);
+                }
+              }, 500);
             }
           } else if (msg.type === "player_leave") {
             removeOtherPlayer(msg.userId);
