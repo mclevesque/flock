@@ -461,6 +461,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = rendererRef.current?.capabilities.getMaxAnisotropy() ?? 16;
     videoTextureRef.current = tex;
     mesh.material = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
     // Nudge screen forward so it renders in front of the border/frame mesh
