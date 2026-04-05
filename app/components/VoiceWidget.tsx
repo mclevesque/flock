@@ -3,6 +3,7 @@ import {
   useState, useEffect, useRef, useCallback, createContext, useContext,
 } from "react";
 import { useSession } from "@/lib/use-session";
+import { usePortal } from "@/app/components/PortalContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -189,11 +190,28 @@ export default function VoiceWidget() { return null; }
 
 // ─── Main Implementation ──────────────────────────────────────────────────────
 
+// Portal-aware color themes for voice UI
+const RYFT_THEME = {
+  accent: "#7c3aed", accentLight: "#a78bfa", accentDim: "#4f46e5",
+  gradient: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+  border: "rgba(124,58,237,0.45)", borderHover: "rgba(124,58,237,0.8)",
+  glow: "#7c3aed", pill: "#c4b5fd", activeText: "#a78bfa",
+};
+const GS_THEME = {
+  accent: "#d4a942", accentLight: "#d4a942", accentDim: "#8a6d2b",
+  gradient: "linear-gradient(135deg, #d4a942, #8a6d2b)",
+  border: "rgba(212,169,66,0.45)", borderHover: "rgba(212,169,66,0.8)",
+  glow: "#d4a942", pill: "#e8dcc8", activeText: "#d4a942",
+};
+
 function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
   const userId = session?.user?.id ?? null;
   const username = session?.user?.name ?? "User";
   const avatarUrl = session?.user?.image ?? null;
+  const { portal } = usePortal();
+  const isGS = portal === "greatsouls";
+  const vt = isGS ? GS_THEME : RYFT_THEME;
 
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
@@ -1356,18 +1374,18 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
           style={{
             position: "fixed", bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 16, right: 16, zIndex: 9500,
             background: "rgba(13,15,20,0.94)", backdropFilter: "blur(12px)",
-            border: "1px solid rgba(124,58,237,0.45)", borderRadius: 50,
+            border: `1px solid ${vt.border}`, borderRadius: 50,
             padding: "8px 16px", cursor: "pointer",
             display: "flex", alignItems: "center", gap: 8,
             boxShadow: "0 4px 24px rgba(0,0,0,0.6)",
-            fontSize: 13, color: "#c4b5fd", fontWeight: 700,
+            fontSize: 13, color: vt.pill, fontWeight: 700,
             transition: "all 0.2s ease",
           }}
-          onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(124,58,237,0.8)")}
-          onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(124,58,237,0.45)")}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = vt.borderHover)}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = vt.border)}
           title="Click to focus voice window"
         >
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#7c3aed", boxShadow: "0 0 8px #7c3aed", animation: "voicePulse 2s ease infinite" }} />
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: vt.accent, boxShadow: `0 0 8px ${vt.accent}`, animation: "voicePulse 2s ease infinite" }} />
           🔊 Voice pop-out ↗
         </div>
         <style>{`@keyframes voicePulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
@@ -1412,7 +1430,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 600,
-                color: p.user_id === userId ? "#a78bfa" : "#e8eaf6",
+                color: p.user_id === userId ? vt.activeText : "#e8eaf6",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 @{p.username}{p.user_id === userId ? " (you)" : ""}
@@ -1425,7 +1443,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 value={peerVol}
                 onChange={e => setPeerVolume(p.user_id, Number(e.target.value))}
                 title={`Volume: ${Math.round(peerVol * 100)}%`}
-                style={{ width: 52, accentColor: "#7c3aed" }}
+                style={{ width: 52, accentColor: vt.accent }}
               />
             )}
           </div>
@@ -1523,12 +1541,12 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
               display: "flex", alignItems: "center", gap: 10,
               padding: "7px 14px", cursor: "pointer",
               background: isSelected ? "rgba(124,58,237,0.15)" : "transparent",
-              borderLeft: `2px solid ${isSelected ? "#7c3aed" : "transparent"}`,
+              borderLeft: `2px solid ${isSelected ? vt.accent : "transparent"}`,
             }}
           >
             <span style={{ fontSize: 18 }}>{b.emoji}</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: isSelected ? "#a78bfa" : "#e8eaf6" }}>{b.label}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: isSelected ? vt.activeText : "#e8eaf6" }}>{b.label}</div>
               <div style={{ fontSize: 10, color: "#6b7280" }}>{b.desc}</div>
             </div>
             {/* Add/remove from room */}
@@ -1547,7 +1565,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 {isActive ? "− Room" : "+ Room"}
               </button>
             )}
-            {isSelected && <span style={{ fontSize: 10, color: "#7c3aed" }}>●</span>}
+            {isSelected && <span style={{ fontSize: 10, color: vt.accent }}>●</span>}
           </div>
         );
       })}
@@ -1565,13 +1583,13 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
           display: "flex", alignItems: "center", gap: 8,
           padding: "6px 14px", cursor: "pointer",
           background: selectedVoiceName === null ? "rgba(124,58,237,0.15)" : "transparent",
-          borderLeft: `2px solid ${selectedVoiceName === null ? "#7c3aed" : "transparent"}`,
+          borderLeft: `2px solid ${selectedVoiceName === null ? vt.accent : "transparent"}`,
         }}
       >
-        <span style={{ flex: 1, fontSize: 12, color: selectedVoiceName === null ? "#a78bfa" : "#9ca3af", fontWeight: 600 }}>
+        <span style={{ flex: 1, fontSize: 12, color: selectedVoiceName === null ? vt.activeText : "#9ca3af", fontWeight: 600 }}>
           ✨ Auto (per-bot voice)
         </span>
-        {selectedVoiceName === null && <span style={{ fontSize: 10, color: "#7c3aed" }}>●</span>}
+        {selectedVoiceName === null && <span style={{ fontSize: 10, color: vt.accent }}>●</span>}
       </div>
       {KOKORO_VOICES.map(v => {
         const isSelected = selectedVoiceName === v.id;
@@ -1583,12 +1601,12 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
               display: "flex", alignItems: "center", gap: 8,
               padding: "6px 14px", cursor: "pointer",
               background: isSelected ? "rgba(124,58,237,0.15)" : "transparent",
-              borderLeft: `2px solid ${isSelected ? "#7c3aed" : "transparent"}`,
+              borderLeft: `2px solid ${isSelected ? vt.accent : "transparent"}`,
             }}
           >
             <span style={{ fontSize: 13 }}>{v.flag}</span>
             <span style={{ fontSize: 11, color: "#6b7280" }}>{v.gender}</span>
-            <span style={{ flex: 1, fontSize: 12, color: isSelected ? "#a78bfa" : "#e8eaf6", fontWeight: isSelected ? 700 : 400 }}>
+            <span style={{ flex: 1, fontSize: 12, color: isSelected ? vt.activeText : "#e8eaf6", fontWeight: isSelected ? 700 : 400 }}>
               {v.name} {v.traits}
             </span>
             <span style={{ fontSize: 9, color: v.grade.startsWith("A") ? "#4ade80" : v.grade.startsWith("B") ? "#60a5fa" : "#6b7280", fontWeight: 700 }}>{v.grade}</span>
@@ -1653,7 +1671,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         onClick={sendAiTextQuestion}
         disabled={!aiTextInput.trim() || aiLoading}
         style={{
-          background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+          background: vt.gradient,
           border: "none", borderRadius: 8, padding: "0 12px",
           color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
         }}
@@ -1717,7 +1735,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
           onClick={sendRoomMessage}
           disabled={sendingMsg || !roomInput.trim()}
           style={{
-            background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+            background: vt.gradient,
             border: "none", borderRadius: 8, padding: "0 12px",
             color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
           }}
@@ -1815,7 +1833,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
               <span style={{ flex: 1, color: "#e8eaf6", fontWeight: 800, fontSize: 16 }}>
                 🎙️ {currentRoomName || "Voice Room"}
               </span>
-              <InviteRow roomId={currentRoomId!} />
+              <InviteRow roomId={currentRoomId!} accent={vt.activeText} />
               <button onClick={() => setUiSize("normal")} title="Restore" style={{
                 background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6,
                 color: "#9ca3af", cursor: "pointer", fontSize: 14, padding: "4px 8px",
@@ -1890,8 +1908,8 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 </span>
                 {inVoice && (
                   <div style={{ display: "flex", gap: 4 }}>
-                    <TabBtn active={tab === "current"} onClick={() => setTab("current")}>Room</TabBtn>
-                    <TabBtn active={tab === "rooms"} onClick={() => setTab("rooms")}>Browse</TabBtn>
+                    <TabBtn active={tab === "current"} onClick={() => setTab("current")} accent={vt.accent}>Room</TabBtn>
+                    <TabBtn active={tab === "rooms"} onClick={() => setTab("rooms")} accent={vt.accent}>Browse</TabBtn>
                   </div>
                 )}
                 {inVoice && (
@@ -1911,7 +1929,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
                   {participantsPanel}
                   <div style={{ padding: "6px 14px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <InviteRow roomId={currentRoomId!} />
+                    <InviteRow roomId={currentRoomId!} accent={vt.activeText} />
                   </div>
                   {/* Full chat with input */}
                   {chatPanel}
@@ -1939,7 +1957,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                           </select>
                         )}
                         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>
-                          <input type="checkbox" checked={noiseSuppression} onChange={e => { setNoiseSuppression(e.target.checked); reinitStream(); }} style={{ accentColor: "#7c3aed" }} />
+                          <input type="checkbox" checked={noiseSuppression} onChange={e => { setNoiseSuppression(e.target.checked); reinitStream(); }} style={{ accentColor: vt.accent }} />
                           Noise suppression
                         </label>
                       </div>
@@ -1971,7 +1989,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                           placeholder="Room name…"
                           style={{ flex: 1, background: "#1a1d26", border: "1px solid #2a2d3a", borderRadius: 8, padding: "7px 10px", color: "#e8eaf6", fontSize: 16, outline: "none" }}
                         />
-                        <button onClick={handleCreateRoom} style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)", border: "none", borderRadius: 8, padding: "0 14px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Go</button>
+                        <button onClick={handleCreateRoom} style={{ background: vt.gradient, border: "none", borderRadius: 8, padding: "0 14px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Go</button>
                       </div>
                     )}
                     {openRooms.length === 0 ? (
@@ -1999,7 +2017,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                             {currentRoomId === room.id ? (
                               <button onClick={leaveRoom} style={{ background: "#ef4444", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Leave</button>
                             ) : (
-                              <button onClick={() => joinRoom(room.id, room.name)} style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Join</button>
+                              <button onClick={() => joinRoom(room.id, room.name)} style={{ background: vt.gradient, border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Join</button>
                             )}
                           </div>
                         </div>
@@ -2167,7 +2185,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                           placeholder={`Message @${dmActiveUser.username}…`}
                           style={{ flex: 1, background: "#1a1d26", border: "1px solid #2a2d3a", borderRadius: 8, padding: "7px 10px", color: "#e8eaf6", fontSize: 16, outline: "none", fontFamily: "inherit" }}
                         />
-                        <button onClick={sendDm} disabled={!dmInput.trim() || dmSending} style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)", border: "none", borderRadius: 8, padding: "0 12px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: dmInput.trim() ? 1 : 0.5 }}>→</button>
+                        <button onClick={sendDm} disabled={!dmInput.trim() || dmSending} style={{ background: vt.gradient, border: "none", borderRadius: 8, padding: "0 12px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: dmInput.trim() ? 1 : 0.5 }}>→</button>
                       </div>
                     </>
                   )}
@@ -2311,12 +2329,13 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
 // ─── Helper components ─────────────────────────────────────────────────────────
 
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabBtn({ active, onClick, children, accent }: { active: boolean; onClick: () => void; children: React.ReactNode; accent?: string }) {
+  const a = accent ?? "#7c3aed";
   return (
     <button onClick={onClick} style={{
       padding: "3px 10px", borderRadius: 6, border: "none",
-      background: active ? "rgba(124,58,237,0.3)" : "transparent",
-      color: active ? "#a78bfa" : "#6b7280",
+      background: active ? `${a}4D` : "transparent",
+      color: active ? a : "#6b7280",
       fontSize: 11, fontWeight: 700, cursor: "pointer",
     }}>
       {children}
@@ -2324,7 +2343,8 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
   );
 }
 
-function InviteRow({ roomId }: { roomId: string }) {
+function InviteRow({ roomId, accent }: { roomId: string; accent?: string }) {
+  const a = accent ?? "#a78bfa";
   const [copied, setCopied] = useState(false);
   function copyLink() {
     const link = `${window.location.origin}/messages?voice=${roomId}`;
@@ -2342,7 +2362,7 @@ function InviteRow({ roomId }: { roomId: string }) {
       background: copied ? "rgba(74,222,128,0.15)" : "rgba(124,58,237,0.15)",
       border: `1px solid ${copied ? "rgba(74,222,128,0.3)" : "rgba(124,58,237,0.3)"}`,
       borderRadius: 7, padding: "4px 10px", fontSize: 12, fontWeight: 700,
-      color: copied ? "#4ade80" : "#a78bfa", cursor: "pointer", flexShrink: 0,
+      color: copied ? "#4ade80" : a, cursor: "pointer", flexShrink: 0,
     }}>
       {copied ? "✓ Copied!" : "🔗 Invite"}
     </button>

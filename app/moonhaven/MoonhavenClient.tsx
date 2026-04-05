@@ -718,24 +718,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const jumpRef = useRef({ vy: 0, grounded: true });
   const gpPrevARef = useRef(false); // tracks previous A-button state for edge detection
 
-  // ── Skatepark state ──────────────────────────────────────────────────────
-  const [skateMode, setSkateMode] = useState(false);
-  const skateModeRef = useRef(false);
-  const skateRef = useRef({
-    speed: 0, heading: 0, vy: 0, airborne: false,
-    grinding: false, grindRailIdx: -1, grindT: 0,
-    combo: 0, comboTimer: 0, score: 0, trickLock: false,
-    spaceHeld: false, spaceHeldTime: 0,
-  });
-  const [skateScore, setSkateScore] = useState(0);
-  const [skateCombo, setSkateCombo] = useState(0);
-  const [skateTrickPopup, setSkateTrickPopup] = useState<string | null>(null);
-  const skateTrickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [skateNear, setSkateNear] = useState(false);
-  const skateNearRef = useRef(false);
-  const skateBoardMeshRef = useRef<import("three").Group | null>(null);
-  const [showSkateRental, setShowSkateRental] = useState(false);
-
   // ── Drive-In emote particle system ────────────────────────────────────────
   const driveParticlesRef = useRef<DriveParticle[]>([]);
   const driveTomatoRef = useRef<DriveTomato | null>(null);
@@ -1005,12 +987,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     setActiveNPC({ npc, line });
     playNPCVoice(npc.id, idx);
 
-    if (npc.id === "ollie_mcshred") {
-      // Skate shop — rent a board
-      setShowSkateRental(true);
-      setTimeout(() => setActiveNPC(null), 2000);
-      return;
-    } else if (npc.interaction === "vendor") {
+    if (npc.interaction === "vendor") {
       setTimeout(() => setShowVendor(true), 800);
     } else if (npc.interaction === "herald") {
       setTimeout(() => setShowHerald(true), 800);
@@ -1360,6 +1337,20 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (rpsOpponentRevealedRef.current) {
       rpsRevealAndFinish(choice, rpsOpponentRevealedRef.current);
     }
+    // Safety: if still stuck after 10s, re-send reveal to unstick
+    setTimeout(() => {
+      if (rpsPhaseRef.current === "choosing" && rpsMyChoiceRef.current) {
+        if (townSocketRef.current?.readyState === 1) {
+          townSocketRef.current.send(JSON.stringify({
+            type: "rps_reveal", matchId: rpsMatchIdRef.current, userId, choice: rpsMyChoiceRef.current,
+          }));
+        }
+        // If opponent revealed but we missed it, check again
+        if (rpsOpponentRevealedRef.current) {
+          rpsRevealAndFinish(rpsMyChoiceRef.current, rpsOpponentRevealedRef.current);
+        }
+      }
+    }, 10000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -1509,6 +1500,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           townSocketRef.current.send(JSON.stringify({
             type: "rps_reveal", matchId: rpsMatchIdRef.current, userId, choice: rpsMyChoiceRef.current,
           }));
+        }
+        // If opponent already revealed while we were processing, finish now
+        if (rpsOpponentRevealedRef.current && rpsPhaseRef.current === "choosing") {
+          rpsRevealAndFinish(rpsMyChoiceRef.current, rpsOpponentRevealedRef.current);
         }
       }
     } else if (msg.type === "rps_reveal" && msg.userId !== userId && msg.matchId === rpsMatchIdRef.current) {
@@ -1892,19 +1887,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       setLoadMsg("Setting up Drive-In…");
       screenMeshRef.current = buildDriveIn(THREE, scene, QL);
 
-      // ── Skatepark ──────────────────────────────────────────────────────────
-      setLoadMsg("Building skatepark…");
-      const scoreboardMesh = buildSkatepark(THREE, scene, QL);
-      // Load leaderboard from localStorage
-      try {
-        const saved = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
-        if (Array.isArray(saved) && saved.length > 0) {
-          const ctx2 = scoreboardMesh.userData.scoreCanvas?.getContext("2d");
-          if (ctx2) { drawScoreboard(ctx2, saved); scoreboardMesh.userData.scoreTex.needsUpdate = true; }
-        }
-      } catch { /**/ }
-      (window as unknown as Record<string, unknown>).__skateScoreboard = scoreboardMesh;
-
       // ── RPS Arena ─────────────────────────────────────────────────────────
       setLoadMsg("Forging the arena…");
       (() => {
@@ -2080,10 +2062,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           else if (driveInNearRef.current) { openDriveIn(); e.preventDefault(); }
         }
         if (e.code === "Space" && !chatOpenRef.current) {
-          if (skateModeRef.current) {
-            // Space handled in animation loop for ollie charge
-            e.preventDefault();
-          } else if (jumpRef.current.grounded) {
+          if (jumpRef.current.grounded) {
             jumpRef.current.vy = 9;
             jumpRef.current.grounded = false;
             e.preventDefault();
@@ -2101,66 +2080,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
               osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.22);
               osc.onended = () => ac.close();
             } catch { /* silent */ }
-          }
-        }
-        // ── Skate trick keys (1-4) + Escape to exit ──────────────────────
-        if (skateModeRef.current && !chatOpenRef.current) {
-          const sk = skateRef.current;
-          const doTrick = (name: string, pts: number, dur: number) => {
-            if (!sk.airborne || sk.trickLock || sk.grinding) return;
-            sk.trickLock = true;
-            const multiplier = Math.max(1, Math.floor(sk.combo / 200) + 1);
-            const earned = pts * multiplier;
-            sk.combo += earned;
-            setSkateCombo(sk.combo);
-            setSkateTrickPopup(`${name} +${earned}${multiplier > 1 ? ` (${multiplier}x!)` : ""}`);
-            if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
-            skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
-            // Trick completes after duration, allowing landing
-            setTimeout(() => { sk.trickLock = false; }, dur);
-            // Trick sound
-            try {
-              const ac = new AudioContext(); const osc = ac.createOscillator(); const g = ac.createGain();
-              osc.connect(g); g.connect(ac.destination); osc.type = "square";
-              osc.frequency.setValueAtTime(300 + pts, ac.currentTime);
-              osc.frequency.exponentialRampToValueAtTime(500 + pts, ac.currentTime + 0.1);
-              g.gain.setValueAtTime(0.12, ac.currentTime);
-              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
-              osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.15);
-              osc.onended = () => ac.close();
-            } catch { /**/ }
-          };
-          if (e.code === "Digit1") doTrick("KICKFLIP 🛹", 100, 300);
-          if (e.code === "Digit2") doTrick("HEELFLIP 🛹", 100, 300);
-          if (e.code === "Digit3") doTrick("360 FLIP 🔄", 250, 450);
-          if (e.code === "Digit4") doTrick("CHRIST AIR ✝️", 300, 500);
-          if (e.code === "Escape") {
-            // Exit skate mode
-            skateModeRef.current = false; setSkateMode(false);
-            // Save score to localStorage
-            if (sk.score > 0) {
-              try {
-                const scores: { name: string; score: number }[] = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
-                scores.push({ name: username.slice(0, 16), score: sk.score });
-                scores.sort((a, b) => b.score - a.score);
-                const top10 = scores.slice(0, 10);
-                localStorage.setItem("mh_skate_scores", JSON.stringify(top10));
-                // Update scoreboard
-                const sbMesh = (window as unknown as Record<string, unknown>).__skateScoreboard as import("three").Mesh | undefined;
-                if (sbMesh?.userData.scoreCanvas) {
-                  const ctx2 = sbMesh.userData.scoreCanvas.getContext("2d");
-                  if (ctx2) { drawScoreboard(ctx2, top10); sbMesh.userData.scoreTex.needsUpdate = true; }
-                }
-              } catch { /**/ }
-            }
-            // Remove board mesh
-            if (skateBoardMeshRef.current && playerMeshRef.current) {
-              playerMeshRef.current.remove(skateBoardMeshRef.current);
-              skateBoardMeshRef.current = null;
-            }
-            sk.speed = 0; sk.combo = 0; sk.score = 0; sk.airborne = false; sk.grinding = false;
-            setSkateScore(0); setSkateCombo(0);
-            e.preventDefault();
           }
         }
       };
@@ -2223,30 +2142,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         // A button jump — edge-detect so it only fires once per press
         const gpAPrev = gpPrevARef.current;
         gpPrevARef.current = gpAPressed;
-        if (skateModeRef.current) {
-          // A = ollie (handled in skate physics), B/X/Y = tricks
-          // Edge-detect B(1), X(2), Y(3) for tricks
-          const gpBtns = navigator.getGamepads()?.[0]?.buttons;
-          if (gpBtns) {
-            const sk = skateRef.current;
-            const gpTrick = (idx: number, name: string, pts: number, dur: number) => {
-              if (gpBtns[idx]?.pressed && sk.airborne && !sk.trickLock && !sk.grinding) {
-                sk.trickLock = true;
-                const mult = Math.max(1, Math.floor(sk.combo / 200) + 1);
-                const earned = pts * mult;
-                sk.combo += earned;
-                setSkateCombo(sk.combo);
-                setSkateTrickPopup(`${name} +${earned}${mult > 1 ? ` (${mult}x!)` : ""}`);
-                if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
-                skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
-                setTimeout(() => { sk.trickLock = false; }, dur);
-              }
-            };
-            gpTrick(1, "KICKFLIP 🛹", 100, 300);  // B button
-            gpTrick(2, "360 FLIP 🔄", 250, 450);   // X button
-            gpTrick(3, "CHRIST AIR ✝️", 300, 500);  // Y button
-          }
-        } else if (gpAPressed && !gpAPrev && jumpRef.current.grounded) {
+        if (gpAPressed && !gpAPrev && jumpRef.current.grounded) {
           jumpRef.current.vy = 9;
           jumpRef.current.grounded = false;
         }
@@ -2268,315 +2164,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           -Math.sin(camOrbitRef.current.theta)
         );
 
-        if (skateModeRef.current) {
-          // ═══════════════════════════════════════════════════════════════════
-          // TONY HAWK PRO SKATER PHYSICS — board-relative controls
-          // Researched from THPS1 speedrun mechanics + community breakdowns
-          // Key rule: velocity = heading * speed. NO lateral drift. Ever.
-          // ═══════════════════════════════════════════════════════════════════
-          const sk = skateRef.current;
-          const PUSH_IMPULSE = 5.2;  // speed burst per W press (per second held) — 30% faster
-          const MAX_SPEED = 23;      // speed cap — 30% faster
-          const FRICTION = 0.993;    // multiplicative per-frame decay (slightly less drag)
-          const BRAKE_RATE = 14;     // speed units/sec lost when braking
-          const TURN_RATE = 2.2;     // radians/sec base turn speed
-          const TURN_SPEED_BLEED = 0.994; // speed multiplier when turning
-          const GRAVITY = 26;
-          const GRIND_SNAP = 3.0;
-          const GRIND_SPEED = 10;
-          const STICK_DEAD_ZONE = 0.25; // aggressive dead zone for analog
-
-          // Init heading from camera on first frame
-          if (sk.speed === 0 && sk.heading === 0) {
-            sk.heading = camOrbitRef.current.theta + Math.PI;
-          }
-
-          // ── STEERING (board-relative: A=left, D=right) ──────────────────
-          // THPS uses binary D-pad input. For keyboard, strictly binary.
-          // For analog, apply aggressive dead zone to prevent drift.
-          let skateTurnInput = 0;
-          // A = turn LEFT (decrease heading), D = turn RIGHT (increase heading)
-          if (keysRef.current.has("KeyA")) skateTurnInput = 1;
-          else if (keysRef.current.has("KeyD")) skateTurnInput = -1;
-          // Analog stick / joystick: dx steers, but ONLY when also pushing forward
-          // This makes diagonal work naturally: up+left = forward + steer left
-          if (Math.abs(gpLx) > STICK_DEAD_ZONE) skateTurnInput = -gpLx;
-          if (joystickRef.current.active && Math.abs(joystickRef.current.dx) > 0.15) {
-            skateTurnInput = -joystickRef.current.dx;
-          }
-          // Apply turn — only when moving
-          if (sk.speed > 0.3 && skateTurnInput !== 0 && !sk.grinding) {
-            sk.heading += skateTurnInput * TURN_RATE * dt;
-            // Turning bleeds speed (confirmed THPS mechanic)
-            sk.speed *= TURN_SPEED_BLEED;
-          }
-
-          // ── PUSH / BRAKE ────────────────────────────────────────────────
-          if (!sk.airborne && !sk.grinding) {
-            let pushing = false;
-            if (keysRef.current.has("KeyW")) pushing = true;
-            if (gpLy < -STICK_DEAD_ZONE) pushing = true; // stick forward
-            // Joystick: any upward component = push (even diagonal up-left/up-right)
-            if (joystickRef.current.active && joystickRef.current.dy < -0.1) pushing = true;
-
-            let braking = false;
-            if (keysRef.current.has("KeyS")) braking = true;
-            if (gpLy > STICK_DEAD_ZONE) braking = true; // stick back
-            if (joystickRef.current.active && joystickRef.current.dy > 0.25) braking = true; // only brake on strong pull-back
-
-            if (pushing) {
-              // Push adds impulse each frame held (like holding X in THPS)
-              sk.speed = Math.min(MAX_SPEED, sk.speed + PUSH_IMPULSE * dt);
-            } else if (braking) {
-              sk.speed = Math.max(0, sk.speed - BRAKE_RATE * dt);
-            } else {
-              // Coast — multiplicative friction (natural THPS feel)
-              sk.speed *= FRICTION;
-              if (sk.speed < 0.1) sk.speed = 0; // clamp near-zero
-            }
-          }
-
-          // ── OLLIE (hold Space to crouch, release to pop) ────────────────
-          if (keysRef.current.has("Space") && !sk.airborne && !sk.grinding) {
-            if (!sk.spaceHeld) { sk.spaceHeld = true; sk.spaceHeldTime = 0; }
-            sk.spaceHeldTime = Math.min(0.4, sk.spaceHeldTime + dt);
-            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = 0.05;
-          } else if (sk.spaceHeld && !keysRef.current.has("Space")) {
-            const power = 8 + sk.spaceHeldTime * 16;
-            sk.vy = power;
-            sk.airborne = true;
-            sk.spaceHeld = false; sk.spaceHeldTime = 0;
-            if (skateBoardMeshRef.current) skateBoardMeshRef.current.position.y = 0.15;
-            try {
-              const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
-              o.connect(g); g.connect(ac.destination); o.type = "square";
-              o.frequency.setValueAtTime(200, ac.currentTime);
-              o.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.06);
-              o.frequency.exponentialRampToValueAtTime(250, ac.currentTime + 0.12);
-              g.gain.setValueAtTime(0.18, ac.currentTime);
-              g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.18);
-              o.start(ac.currentTime); o.stop(ac.currentTime + 0.18); o.onended = () => ac.close();
-            } catch { /**/ }
-          }
-          // Gamepad A for ollie
-          if (gpAPressed && !gpAPrev && !sk.airborne && !sk.grinding) {
-            sk.vy = 13; sk.airborne = true;
-          }
-
-          // Y-axis physics
-          const [, py, ] = playerPosRef.current;
-          let newY = py;
-
-          // Calculate ground level — normally 0, but could be negative (pool) or positive (ramp)
-          let groundLevel = 0;
-          let onRamp = false;
-          for (const ramp of SKATE_RAMPS) {
-            const rdx = px - ramp.cx, rdz = pz - ramp.cz;
-            const hw = ramp.w / 2 + 0.5, hd = ramp.d / 2 + 0.5;
-            if (Math.abs(rdx) < hw && Math.abs(rdz) < hd) {
-              onRamp = true;
-              if (ramp.type === "pool") {
-                const normX = Math.abs(rdx) / (ramp.w / 2);
-                const normZ = Math.abs(rdz) / (ramp.d / 2);
-                const edgeDist = Math.max(normX, normZ);
-                if (edgeDist < 0.65) {
-                  groundLevel = -ramp.h; // flat bottom
-                } else {
-                  const wallT = (edgeDist - 0.65) / 0.35;
-                  groundLevel = -ramp.h * (1 - wallT * wallT); // curved wall
-                }
-              } else if (ramp.type === "kicker") {
-                const normX = (rdx + ramp.w / 2) / ramp.w;
-                groundLevel = ramp.h * Math.max(0, normX);
-              } else if (ramp.type === "spine") {
-                const normZ2 = 1 - Math.abs(rdz) / (ramp.d / 2);
-                groundLevel = ramp.h * Math.max(0, normZ2);
-              }
-              break; // only one ramp at a time
-            }
-          }
-
-          // Apply gravity when in air or above ground
-          if (sk.airborne || py > groundLevel + 0.1) {
-            sk.vy -= GRAVITY * dt;
-            newY = py + sk.vy * dt;
-
-            // Landing on ramp surface — check for launch or settle
-            if (newY <= groundLevel + 0.15 && sk.vy < 0) {
-              if (onRamp && sk.speed > 3 && groundLevel > -0.5) {
-                // On a ramp lip going down — LAUNCH upward!
-                const launchPower = Math.min(sk.speed * 0.85, 15);
-                sk.vy = launchPower;
-                sk.airborne = true;
-                newY = groundLevel + 0.2;
-                sk.speed = Math.max(sk.speed * 0.75, 4);
-              } else {
-                // Settle on surface
-                newY = groundLevel;
-                sk.vy = 0;
-                // On pool walls going down — gain speed from gravity (like rolling down a bowl!)
-                if (onRamp && groundLevel < -0.5) {
-                  sk.speed = Math.min(sk.speed + 4 * dt, 20);
-                }
-              }
-            }
-
-            // Final ground clamp
-            if (newY <= groundLevel) {
-              newY = groundLevel; sk.vy = 0;
-              if (sk.airborne) {
-                sk.airborne = false;
-                if (sk.trickLock) {
-                  // BAIL! Mid-trick on landing
-                  sk.combo = 0; sk.comboTimer = 0; sk.trickLock = false;
-                  setSkateTrickPopup("BAIL! 💀");
-                  sk.speed *= 0.2;
-                  if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
-                  skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1500);
-                  try {
-                    const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
-                    o.connect(g); g.connect(ac.destination); o.type = "sawtooth";
-                    o.frequency.setValueAtTime(300, ac.currentTime); o.frequency.exponentialRampToValueAtTime(60, ac.currentTime + 0.5);
-                    g.gain.setValueAtTime(0.2, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
-                    o.start(ac.currentTime); o.stop(ac.currentTime + 0.5); o.onended = () => ac.close();
-                  } catch { /**/ }
-                } else if (sk.combo > 0) {
-                  // CLEAN LANDING! Bank combo
-                  const banked = sk.combo;
-                  sk.score += banked; setSkateScore(sk.score);
-                  setSkateTrickPopup(`LANDED! +${banked} 🔥`);
-                  if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
-                  skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1200);
-                  sk.combo = 0; sk.comboTimer = 0; setSkateCombo(0);
-                  try {
-                    const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
-                    o.connect(g); g.connect(ac.destination); o.type = "sine";
-                    o.frequency.setValueAtTime(300, ac.currentTime); o.frequency.exponentialRampToValueAtTime(500, ac.currentTime + 0.1);
-                    g.gain.setValueAtTime(0.15, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
-                    o.start(ac.currentTime); o.stop(ac.currentTime + 0.15); o.onended = () => ac.close();
-                  } catch { /**/ }
-                }
-              }
-            }
-          } else {
-            // On ground — follow terrain surface (pool slopes, ramp surfaces)
-            newY = groundLevel;
-            sk.airborne = false;
-          }
-
-          // Grinding — press E or RB/R1 (button 5) near a rail to lock on
-          const gpGrind = navigator.getGamepads()?.[0]?.buttons[5]?.pressed ?? false;
-          if ((keysRef.current.has("KeyE") || gpGrind) && !sk.airborne && !sk.grinding) {
-            for (let ri = 0; ri < GRIND_RAILS.length; ri++) {
-              const [rsx, rsy, rsz, rex, , rez] = GRIND_RAILS[ri];
-              const rlx = rex - rsx, rlz = rez - rsz;
-              const rlen2 = rlx * rlx + rlz * rlz;
-              const t = Math.max(0, Math.min(1, ((px - rsx) * rlx + (pz - rsz) * rlz) / rlen2));
-              const cpx2 = rsx + t * rlx, cpz2 = rsz + t * rlz;
-              const dist = Math.hypot(px - cpx2, pz - cpz2);
-              if (dist < GRIND_SNAP && Math.abs(py - rsy) < 2.0) {
-                sk.grinding = true; sk.grindRailIdx = ri; sk.grindT = t;
-                sk.speed = GRIND_SPEED; newY = rsy;
-                try {
-                  const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
-                  o.connect(g); g.connect(ac.destination); o.type = "sawtooth";
-                  o.frequency.setValueAtTime(100, ac.currentTime);
-                  g.gain.setValueAtTime(0.1, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
-                  o.start(ac.currentTime); o.stop(ac.currentTime + 0.3); o.onended = () => ac.close();
-                } catch { /**/ }
-                break;
-              }
-            }
-          }
-
-          // Grind movement
-          if (sk.grinding && sk.grindRailIdx >= 0) {
-            const [rsx, rsy, rsz, rex, , rez] = GRIND_RAILS[sk.grindRailIdx];
-            const rlen = Math.hypot(rex - rsx, rez - rsz);
-            sk.grindT += (GRIND_SPEED * dt) / rlen;
-            sk.combo += Math.round(50 * dt); setSkateCombo(sk.combo);
-            if (sk.grindT >= 1 || sk.grindT <= 0 || (!keysRef.current.has("KeyE") && !gpGrind)) {
-              sk.grinding = false;
-              setSkateTrickPopup(`GRIND! +${sk.combo} 🛹`);
-              if (skateTrickTimeoutRef.current) clearTimeout(skateTrickTimeoutRef.current);
-              skateTrickTimeoutRef.current = setTimeout(() => setSkateTrickPopup(null), 1000);
-              sk.score += sk.combo; setSkateScore(sk.score);
-              sk.combo = 0; setSkateCombo(0);
-            } else {
-              const grx = rsx + sk.grindT * (rex - rsx);
-              const grz = rsz + sk.grindT * (rez - rsz);
-              playerPosRef.current = [grx, rsy, grz];
-              if (playerMeshRef.current) {
-                playerMeshRef.current.position.set(grx, rsy, grz);
-                playerMeshRef.current.rotation.y = Math.atan2(rex - rsx, rez - rsz);
-              }
-            }
-          }
-
-          // ── Building collision helper ──────────────────────────────────
-          const skPushOut = (testX: number, testZ: number): [number, number, boolean] => {
-            let rx = testX, rz = testZ, hit = false;
-            for (const bld of MOONHAVEN_BUILDINGS) {
-              const [bx, , bz] = bld.position;
-              const hw = bld.size[0] / 2 + 1.2, hd = bld.size[2] / 2 + 1.2;
-              if (rx > bx - hw && rx < bx + hw && rz > bz - hd && rz < bz + hd) {
-                const pL = rx - (bx - hw), pR = (bx + hw) - rx;
-                const pN = rz - (bz - hd), pS = (bz + hd) - rz;
-                const minP = Math.min(pL, pR, pN, pS);
-                if (minP === pL) rx = bx - hw;
-                else if (minP === pR) rx = bx + hw;
-                else if (minP === pN) rz = bz - hd;
-                else rz = bz + hd;
-                hit = true;
-              }
-            }
-            return [rx, rz, hit];
-          };
-
-          // FIRST: eject from any building we're ALREADY inside of (every frame)
-          {
-            const [ejX, ejZ, wasInside] = skPushOut(px, pz);
-            if (wasInside) {
-              playerPosRef.current = [ejX, playerPosRef.current[1], ejZ];
-              if (playerMeshRef.current) {
-                playerMeshRef.current.position.x = ejX;
-                playerMeshRef.current.position.z = ejZ;
-              }
-              sk.speed *= 0.2; // kill most speed on eject
-            }
-          }
-
-          // Apply movement (if not grinding)
-          if (!sk.grinding) {
-            const curPos = playerPosRef.current; // may have been ejected above
-            const vx = Math.sin(sk.heading) * sk.speed;
-            const vz = Math.cos(sk.heading) * sk.speed;
-            let newX = Math.max(-55, Math.min(78, curPos[0] + vx * dt));
-            let newZ = Math.max(-55, Math.min(86, curPos[2] + vz * dt));
-            // SECOND: check new position against buildings too
-            const [safeX, safeZ, wasHit] = skPushOut(newX, newZ);
-            newX = safeX; newZ = safeZ;
-            if (wasHit) sk.speed *= 0.3;
-            playerPosRef.current = [newX, newY, newZ];
-            if (playerMeshRef.current) {
-              playerMeshRef.current.position.set(newX, newY, newZ);
-              playerMeshRef.current.rotation.y = sk.heading;
-            }
-          }
-
-          // Board animations
-          if (skateBoardMeshRef.current) {
-            skateBoardMeshRef.current.rotation.z = skateTurnInput * 0.25; // lean into turns
-            if (sk.airborne && sk.trickLock) {
-              skateBoardMeshRef.current.rotation.x += dt * 14; // flip during tricks
-            } else if (!sk.spaceHeld) {
-              skateBoardMeshRef.current.rotation.x = 0;
-              skateBoardMeshRef.current.position.y = 0.15;
-            }
-          }
-
-        } else {
-          // ── NORMAL WALKING MOVEMENT ──────────────────────────────────────
+        // ── NORMAL WALKING MOVEMENT ──────────────────────────────────────
 
         if (keysRef.current.has("KeyW")) {
           mx -= camFwd.x; mz -= camFwd.z;
@@ -2682,8 +2270,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           playerPosRef.current = [px, newY, playerPosRef.current[2]];
           if (playerMeshRef.current) playerMeshRef.current.position.y = newY;
         }
-
-        } // end normal vs skate movement
 
         // Update camera orbit around player
         updateCameraOrbit(camera);
@@ -2793,11 +2379,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           setDriveInNear(nearScreen);
         }
 
-        // Skatepark proximity (for shop prompt)
-        const distToSkateShop = Math.hypot(cpx - 42, cpz - (-12));
-        const nearSkate = distToSkateShop < 8;
-        if (nearSkate !== skateNearRef.current) { skateNearRef.current = nearSkate; setSkateNear(nearSkate); }
-
         // RPS Arena proximity
         const distToArena = Math.hypot(cpx - RPS_ARENA_POS[0], cpz - RPS_ARENA_POS[2]);
         const nearArena = distToArena < RPS_ARENA_RADIUS + 3;
@@ -2809,11 +2390,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           if (townSocketRef.current?.readyState === 1) {
             townSocketRef.current.send(JSON.stringify({ type: "rps_enter", userId, username }));
           }
-        } else if (!insideArena && rpsPhaseRef.current === "waiting") {
-          setRpsPhaseSync("idle");
+        } else if (!insideArena && rpsPhaseRef.current !== "idle") {
+          // Walking out of arena during any phase — clean up the match
           if (townSocketRef.current?.readyState === 1) {
             townSocketRef.current.send(JSON.stringify({ type: "rps_leave", userId }));
           }
+          rpsCleanup();
         }
 
         // Proximity audio — volume scales with distance to screen (like a real drive-in)
@@ -3311,6 +2893,38 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           <div style={{ fontSize: 12, color: "#ffd700", fontWeight: 700 }}>🪙 {myCoins}</div>
           <button onClick={() => setShowPlayersPanel(p => !p)} style={{ fontSize: 11, color: "rgba(150,170,255,0.7)", background: showPlayersPanel ? "rgba(100,80,200,0.25)" : "none", border: showPlayersPanel ? "1px solid rgba(100,80,200,0.4)" : "1px solid transparent", borderRadius: 6, padding: "3px 7px", cursor: "pointer" }}>👥 {playerCount}</button>
         </div>
+      </div>
+
+      {/* ── Mobile bottom navbar ────────────────────────────────────────────── */}
+      <div style={{
+        position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 50,
+        display: "flex", alignItems: "center", justifyContent: "space-evenly",
+        padding: "8px 8px calc(8px + env(safe-area-inset-bottom))",
+        background: "linear-gradient(to top, rgba(5,3,20,0.92) 0%, transparent 100%)",
+        pointerEvents: "none",
+      }}>
+        {([
+          { label: "Hub", emoji: "🔥", href: "/greatsouls/hub" },
+          { label: "Watch", emoji: "🎬", href: "/greatsouls/watch" },
+          { label: "Friends", emoji: "👥", href: "/friends" },
+          { label: "Chat", emoji: "💬", href: "/messages" },
+          { label: "Profile", emoji: "👤", href: "/greatsouls/profile" },
+        ] as const).map(item => (
+          <a
+            key={item.label}
+            href={item.href}
+            style={{
+              pointerEvents: "all", display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+              color: "rgba(180,160,255,0.6)", textDecoration: "none",
+              fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+              padding: "6px 10px", borderRadius: 8,
+              minWidth: 44, minHeight: 44, justifyContent: "center",
+            }}
+          >
+            <span style={{ fontSize: 18 }}>{item.emoji}</span>
+            <span>{item.label}</span>
+          </a>
+        ))}
       </div>
 
       {/* ── Players Panel ─────────────────────────────────────────────────────── */}
@@ -4094,159 +3708,6 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         );
       })()}
 
-      {/* Skatepark Rental Dialog */}
-      {showSkateRental && (
-        <div style={{
-          position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-          zIndex: 200, background: "rgba(5,15,5,0.96)", border: "2px solid #33ff88",
-          borderRadius: 16, padding: "28px 36px", textAlign: "center", minWidth: 340,
-          boxShadow: "0 0 40px rgba(51,255,136,0.3)",
-        }}>
-          <div style={{ fontSize: 48, marginBottom: 8 }}>🛹</div>
-          <h2 style={{ color: "#33ff88", fontSize: 22, marginBottom: 8, fontFamily: "monospace" }}>McShred&apos;s Skate Shop</h2>
-          <p style={{ color: "#88ffaa", fontSize: 16, marginBottom: 16, fontFamily: "monospace" }}>Rent a board and shred Moonhaven!</p>
-          <div style={{ color: "#aaddaa", fontSize: 13, marginBottom: 16, fontFamily: "monospace", lineHeight: 1.6, textAlign: "left" }}>
-            <b style={{ color: "#33ff88" }}>Controls:</b><br />
-            W/S — Push / Brake<br />
-            A/D — Steer left / right<br />
-            Space (hold) — Ollie (longer = higher!)<br />
-            1 — Kickflip &nbsp; 2 — Heelflip<br />
-            3 — 360 Flip &nbsp; 4 — Christ Air<br />
-            E — Grind (near any rail/edge!)<br />
-            ESC — Return board<br />
-            <br />
-            <b style={{ color: "#aa88ff" }}>🎮 Controller:</b> A=Ollie B=Kickflip X=360Flip Y=ChristAir RB=Grind
-          </div>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <button onClick={() => {
-              setShowSkateRental(false); setActiveNPC(null);
-              skateModeRef.current = true; setSkateMode(true);
-              skateRef.current = { speed: 0, heading: 0, vy: 0, airborne: false, grinding: false, grindRailIdx: -1, grindT: 0, combo: 0, comboTimer: 0, score: 0, trickLock: false, spaceHeld: false, spaceHeldTime: 0 };
-              setSkateScore(0); setSkateCombo(0);
-              // Attach board mesh to player
-              getThree().then(THREE => {
-                if (!playerMeshRef.current) return;
-                const board = new THREE.Group();
-                // Deck — long along Z (forward), wide on X, thin Y
-                const deckGeo = new THREE.BoxGeometry(0.6, 0.08, 2.2);
-                const deckMat = new THREE.MeshStandardMaterial({ color: 0x33cc77, roughness: 0.6 });
-                const deck = new THREE.Mesh(deckGeo, deckMat);
-                deck.position.y = 0.12;
-                board.add(deck);
-                // Nose/tail kick (slight upturn at ends)
-                for (const zOff of [-1.0, 1.0]) {
-                  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.35), deckMat);
-                  kick.position.set(0, 0.2, zOff);
-                  kick.rotation.x = zOff > 0 ? -0.35 : 0.35;
-                  board.add(kick);
-                }
-                // Trucks (metal axles)
-                const truckMat = new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.8, roughness: 0.3 });
-                for (const tz of [-0.65, 0.65]) {
-                  const truck = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.12), truckMat);
-                  truck.position.set(0, 0.04, tz);
-                  board.add(truck);
-                }
-                // Wheels — 4 corners, bigger
-                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-                for (const [wx, wz] of [[-0.32, -0.65], [-0.32, 0.65], [0.32, -0.65], [0.32, 0.65]]) {
-                  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 12), wheelMat);
-                  wheel.position.set(wx, -0.02, wz); wheel.rotation.z = Math.PI / 2;
-                  board.add(wheel);
-                }
-                // Graphic on top of deck
-                const gfxCanvas = document.createElement("canvas"); gfxCanvas.width = 64; gfxCanvas.height = 128;
-                const gctx = gfxCanvas.getContext("2d")!;
-                gctx.fillStyle = "#33cc77"; gctx.fillRect(0, 0, 64, 128);
-                gctx.fillStyle = "#fff"; gctx.font = "bold 28px sans-serif"; gctx.textAlign = "center";
-                gctx.fillText("🛹", 32, 50); gctx.fillText("SHRED", 32, 95);
-                const gfxTex = new THREE.CanvasTexture(gfxCanvas);
-                const gfxPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.8), new THREE.MeshBasicMaterial({ map: gfxTex }));
-                gfxPlane.rotation.x = -Math.PI / 2; gfxPlane.position.y = 0.17;
-                board.add(gfxPlane);
-                board.position.y = 0.15; // just above ground at player's feet
-                playerMeshRef.current.add(board);
-                skateBoardMeshRef.current = board;
-              });
-            }} style={{
-              padding: "12px 28px", borderRadius: 10, border: "2px solid #33ff88",
-              background: "rgba(51,204,119,0.3)", color: "#33ff88", fontSize: 18,
-              fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
-            }}>🛹 Rent Board (Free!)</button>
-            <button onClick={() => { setShowSkateRental(false); setActiveNPC(null); }} style={{
-              padding: "12px 20px", borderRadius: 10, border: "1px solid #666",
-              background: "rgba(60,60,60,0.4)", color: "#aaa", fontSize: 16,
-              cursor: "pointer", fontFamily: "monospace",
-            }}>Nah</button>
-          </div>
-        </div>
-      )}
-
-      {/* Skatepark HUD — score, combo, trick popup, speed */}
-      {skateMode && (
-        <div style={{ position: "absolute", top: 16, left: 16, zIndex: 150, pointerEvents: "none" }}>
-          {/* Score */}
-          <div style={{
-            fontSize: 32, fontWeight: 900, color: "#33ff88", fontFamily: "monospace",
-            textShadow: "0 0 12px rgba(51,255,136,0.6), 2px 2px 0 #000",
-          }}>SCORE: {skateScore.toLocaleString()}</div>
-          {/* Speed */}
-          <div style={{
-            fontSize: 16, color: "#88ffaa", fontFamily: "monospace", marginTop: 4,
-            textShadow: "1px 1px 0 #000",
-          }}>SPEED: {Math.round(skateRef.current.speed)} mph</div>
-          {/* Combo */}
-          {skateCombo > 0 && (
-            <div style={{
-              fontSize: 24, fontWeight: 800, color: "#ffcc00", fontFamily: "monospace",
-              textShadow: "0 0 10px rgba(255,204,0,0.5), 2px 2px 0 #000",
-              animation: "pulse 0.4s ease-in-out infinite alternate", marginTop: 8,
-            }}>COMBO: +{skateCombo.toLocaleString()}</div>
-          )}
-          {/* Trick popup */}
-          {skateTrickPopup && (
-            <div style={{
-              fontSize: 28, fontWeight: 900, color: skateTrickPopup.includes("BAIL") ? "#ff4444" : "#fff",
-              fontFamily: "monospace", marginTop: 12,
-              textShadow: `0 0 16px ${skateTrickPopup.includes("BAIL") ? "rgba(255,0,0,0.7)" : "rgba(255,255,255,0.5)"}, 2px 2px 0 #000`,
-              animation: "pulse 0.3s ease-in-out infinite alternate",
-            }}>{skateTrickPopup}</div>
-          )}
-          {/* Exit button */}
-          <button onClick={() => {
-            const sk = skateRef.current;
-            skateModeRef.current = false; setSkateMode(false);
-            if (sk.score > 0) {
-              try {
-                const scores: { name: string; score: number }[] = JSON.parse(localStorage.getItem("mh_skate_scores") || "[]");
-                scores.push({ name: username.slice(0, 16), score: sk.score });
-                scores.sort((a, b) => b.score - a.score);
-                const top10 = scores.slice(0, 10);
-                localStorage.setItem("mh_skate_scores", JSON.stringify(top10));
-                const sbMesh = (window as unknown as Record<string, unknown>).__skateScoreboard as import("three").Mesh | undefined;
-                if (sbMesh?.userData.scoreCanvas) {
-                  const ctx2 = sbMesh.userData.scoreCanvas.getContext("2d");
-                  if (ctx2) { drawScoreboard(ctx2, top10); sbMesh.userData.scoreTex.needsUpdate = true; }
-                }
-              } catch { /**/ }
-            }
-            if (skateBoardMeshRef.current && playerMeshRef.current) {
-              playerMeshRef.current.remove(skateBoardMeshRef.current);
-              skateBoardMeshRef.current = null;
-            }
-            sk.speed = 0; sk.combo = 0; sk.score = 0; sk.airborne = false; sk.grinding = false;
-            setSkateScore(0); setSkateCombo(0);
-          }} style={{
-            marginTop: 16, padding: "8px 18px", borderRadius: 8, border: "2px solid #ff6644",
-            background: "rgba(180,40,20,0.4)", color: "#ffaa88", fontSize: 14,
-            fontWeight: 700, cursor: "pointer", fontFamily: "monospace", pointerEvents: "auto",
-          }}>🛹 Return Board (ESC)</button>
-          <div style={{
-            fontSize: 13, color: "#668866", fontFamily: "monospace", marginTop: 8,
-            textShadow: "1px 1px 0 #000",
-          }}>E to grind rails &amp; edges</div>
-        </div>
-      )}
 
       {/* RPS Arena UI — appears when near the arena or in a match */}
       {(rpsNear || rpsPhase !== "idle") && (() => {
@@ -4293,7 +3754,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
           >
             {/* Header */}
             <div style={{ textAlign: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: "rgba(200,170,255,0.5)", letterSpacing: "0.15em", fontWeight: 700, marginBottom: 4 }}>⚔ RPS ARENA</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <div style={{ fontSize: 11, color: "rgba(200,170,255,0.5)", letterSpacing: "0.15em", fontWeight: 700 }}>⚔ RPS ARENA</div>
+                <button onClick={() => rpsCleanup()} style={{ background: "none", border: "none", color: "rgba(200,170,255,0.4)", fontSize: 14, cursor: "pointer", padding: "2px 6px" }} title="Close">✕</button>
+              </div>
 
               {rpsPhase === "waiting" && (
                 <>
@@ -5508,94 +4972,4 @@ function buildDriveIn(THREE: ThreeModule, scene: import("three").Scene, QL: Qual
   return screenMesh;
 }
 
-// ── Grindable edges throughout Moonhaven (world-space line segments) ──────
-// Each rail: [startX, startY, startZ, endX, endY, endZ]
-const GRIND_RAILS: [number, number, number, number, number, number][] = [
-  // Grindable edges throughout Moonhaven (no skatepark-specific rails for now)
-  // Fountain edge (plaza center)
-  [-3, 0.7, 0, 3, 0.7, 0],
-  [0, 0.7, -3, 0, 0.7, 3],
-  // Market stalls front edge
-  [-10, 0.6, 13, 10, 0.6, 13],
-  // Tavern porch rail
-  [13, 0.7, -8, 23, 0.7, -8],
-  // Castle wall edges
-  [-8, 0.8, -28, 8, 0.8, -28],
-  // Blacksmith bench
-  [-18, 0.6, -3, -14, 0.6, -3],
-];
 
-// Skatepark ramp definitions: { center, size, type, angle }
-// No ramps for now — just flat skating + grind rails around Moonhaven
-interface SkateRamp {
-  cx: number; cz: number; w: number; d: number; h: number;
-  type: "pool" | "kicker" | "spine";
-}
-const SKATE_RAMPS: SkateRamp[] = [];
-
-function buildSkatepark(THREE: ThreeModule, scene: import("three").Scene, QL: QualityLevel = "med") {
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x444450, roughness: 0.7 });
-
-  // ── SKATE SHOP (only structure for now) ─────────────────────────────────
-  const shopX = 42, shopZ = -14;
-  const shopMat = new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.85 });
-  const shop = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), shopMat);
-  shop.position.set(shopX, 2.5, shopZ); shop.castShadow = true; scene.add(shop);
-  const shopRoof = new THREE.Mesh(new THREE.BoxGeometry(7, 0.3, 6),
-    new THREE.MeshStandardMaterial({ color: 0x33cc77 }));
-  shopRoof.position.set(shopX, 5.15, shopZ); scene.add(shopRoof);
-  // Shop sign
-  const signCanvas = document.createElement("canvas"); signCanvas.width = 300; signCanvas.height = 80;
-  const sctx = signCanvas.getContext("2d")!;
-  sctx.fillStyle = "#1a2a1a"; sctx.fillRect(0, 0, 300, 80);
-  sctx.strokeStyle = "#33ff88"; sctx.lineWidth = 3; sctx.strokeRect(4, 4, 292, 72);
-  sctx.font = "bold 24px monospace"; sctx.fillStyle = "#33ff88"; sctx.textAlign = "center";
-  sctx.fillText("🛹 SKATE SHOP 🛹", 150, 35);
-  sctx.font = "16px monospace"; sctx.fillStyle = "#88ffaa";
-  sctx.fillText("RENT A BOARD", 150, 60);
-  const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 0.9),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCanvas), side: THREE.DoubleSide }));
-  signMesh.position.set(shopX + 3.05, 3.5, shopZ); scene.add(signMesh);
-
-  // ── Scoreboard billboard ─────────────────────────────────────────────────
-  const bbCanvas = document.createElement("canvas"); bbCanvas.width = 400; bbCanvas.height = 300;
-  const bbctx = bbCanvas.getContext("2d")!;
-  drawScoreboard(bbctx, []);
-  const bbTex = new THREE.CanvasTexture(bbCanvas);
-  const bb = new THREE.Mesh(new THREE.PlaneGeometry(5, 3.75),
-    new THREE.MeshBasicMaterial({ map: bbTex, side: THREE.DoubleSide }));
-  bb.position.set(shopX - 4, 3, shopZ); bb.rotation.y = Math.PI / 2; scene.add(bb);
-  const bbPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 5, 6), postMat);
-  bbPost.position.set(shopX - 4, 2.5, shopZ); scene.add(bbPost);
-  bb.userData.scoreCanvas = bbCanvas;
-  bb.userData.scoreTex = bbTex;
-
-  // Shop glow
-  if (QL !== "low") {
-    const g = new THREE.PointLight(0x33ff88, 1.0, 12);
-    g.position.set(shopX, 5.5, shopZ); scene.add(g);
-  }
-
-  return bb;
-}
-
-function drawScoreboard(ctx: CanvasRenderingContext2D, scores: { name: string; score: number }[]) {
-  ctx.fillStyle = "#0a0a1a"; ctx.fillRect(0, 0, 400, 300);
-  ctx.strokeStyle = "#33ff88"; ctx.lineWidth = 3; ctx.strokeRect(4, 4, 392, 292);
-  ctx.font = "bold 28px monospace"; ctx.fillStyle = "#33ff88"; ctx.textAlign = "center";
-  ctx.fillText("🏆 HIGH SCORES 🏆", 200, 40);
-  ctx.font = "20px monospace";
-  if (scores.length === 0) {
-    ctx.fillStyle = "#668866"; ctx.fillText("No scores yet!", 200, 160);
-    ctx.fillText("Rent a board & shred!", 200, 190);
-  } else {
-    for (let i = 0; i < Math.min(5, scores.length); i++) {
-      const y = 80 + i * 40;
-      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
-      ctx.fillStyle = i < 3 ? "#ffcc00" : "#88aa88"; ctx.textAlign = "left";
-      ctx.fillText(`${medal} ${scores[i].name}`, 30, y);
-      ctx.textAlign = "right"; ctx.fillStyle = "#33ff88";
-      ctx.fillText(`${scores[i].score.toLocaleString()}`, 370, y);
-    }
-  }
-}

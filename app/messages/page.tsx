@@ -1034,13 +1034,14 @@ function MessagesInner() {
           try {
             const msg = JSON.parse((evt as MessageEvent).data as string);
             if (msg.type === "dm") {
+              const senderUser = users.find(u => u.id === msg.senderId);
               const newMsg: ChatMessage = {
                 id: msg.id ?? Date.now(),
                 sender_id: msg.senderId,
                 content: msg.content,
                 created_at: msg.createdAt ?? new Date().toISOString(),
                 username: msg.username,
-                avatar_url: msg.avatarUrl ?? "",
+                avatar_url: msg.avatarUrl || senderUser?.avatar_url || "",
               };
               setMessages(prev => {
                 if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.sender_id === newMsg.sender_id && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 2000))) return prev;
@@ -1048,6 +1049,7 @@ function MessagesInner() {
               });
               if (msg.senderId !== sessionUserId) bloop("receive");
             } else if (msg.type === "dm-image" && msg.imageData) {
+              const imgSenderUser = users.find(u => u.id === msg.senderId);
               const newMsg: ChatMessage = {
                 id: msg.id ?? Date.now(),
                 sender_id: msg.senderId,
@@ -1056,7 +1058,7 @@ function MessagesInner() {
                 is_ephemeral: true,
                 created_at: msg.createdAt ?? new Date().toISOString(),
                 username: msg.username,
-                avatar_url: msg.avatarUrl ?? "",
+                avatar_url: msg.avatarUrl || imgSenderUser?.avatar_url || "",
               };
               setMessages(prev => {
                 if (prev.some(m => m.id === newMsg.id)) return prev;

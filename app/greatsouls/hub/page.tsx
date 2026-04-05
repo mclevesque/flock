@@ -40,6 +40,9 @@ const GAMES: Record<string, GameCard[]> = {
   "RETRO": [
     { id: "snes", title: "SNES", desc: "Classic retro games + netplay", emoji: "🕹️", href: "/emulator", multiplayer: true },
   ],
+  "SOUL CINEMA": [
+    { id: "cinema", title: "Soul Cinema", desc: "Browse & stream together", emoji: "🎬", href: "/greatsouls/watch" },
+  ],
 };
 
 const SECTION_ICONS: Record<string, string> = {
@@ -48,6 +51,7 @@ const SECTION_ICONS: Record<string, string> = {
   "PARTY GAMES": "🎉",
   "ADVENTURE": "🗺️",
   "RETRO": "🕹️",
+  "SOUL CINEMA": "🎬",
 };
 
 export default function GreatSoulsHub() {
@@ -137,6 +141,9 @@ export default function GreatSoulsHub() {
           </Link>
           <Link href="/messages" style={{ color: "#8a6d2b", fontSize: 12, fontWeight: 700, textDecoration: "none", letterSpacing: "0.08em" }}>
             💬 CHAT
+          </Link>
+          <Link href="/greatsouls/watch" style={{ color: "#8a6d2b", fontSize: 12, fontWeight: 700, textDecoration: "none", letterSpacing: "0.08em" }}>
+            🎬 WATCH
           </Link>
           <Link href="/greatsouls/profile" style={{ color: "#8a6d2b", fontSize: 12, fontWeight: 700, textDecoration: "none", letterSpacing: "0.08em" }}>
             👤 PROFILE

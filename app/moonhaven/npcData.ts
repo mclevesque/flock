@@ -22,7 +22,7 @@ export interface MoonhavenNPC {
   dialogueCount: number;
   traitLines: string[];
   /** Zone / landmark NPC belongs to */
-  zone: "plaza" | "market" | "castle" | "forest" | "tavern" | "workshop" | "skatepark";
+  zone: "plaza" | "market" | "castle" | "forest" | "tavern" | "workshop";
   /** Whether NPC is hostile (bandits trigger combat) */
   hostile?: boolean;
   /** Interaction type — determines what opens on talk */
@@ -214,20 +214,6 @@ export const MOONHAVEN_NPCS: MoonhavenNPC[] = [
     interaction: "dialogue",
   },
 
-  // ── SKATEPARK ──────────────────────────────────────────────────────────────
-  {
-    id: "ollie_mcshred",
-    name: "Ollie McShred",
-    emoji: "🛹",
-    position: [42, 0, -12],
-    color: "#33cc77",
-    role: "Skate Shop Owner",
-    dialogueCount: 5,
-    traitLines: [],
-    zone: "skatepark",
-    interaction: "vendor",
-  },
-
   // ── DRIVE-IN ───────────────────────────────────────────────────────────────
   {
     id: "stella_projectionist",
@@ -340,16 +326,6 @@ export const MOONHAVEN_BUILDINGS: MoonhavenBuilding[] = [
     enterable: false,
   },
   {
-    id: "skate_shop",
-    label: "McShred's Skate Shop",
-    position: [42, 0, -14],
-    size: [6, 5, 5],
-    color: "#2a4a2a",
-    roofColor: "#33cc77",
-    zone: "skatepark",
-    enterable: true,
-  },
-  {
     id: "forest_edge",
     label: "Moonwood Forest",
     position: [-30, 0, 20],
@@ -373,5 +349,4 @@ export const MOONHAVEN_ZONES = [
   { id: "tavern",   bounds: { minX: 10, maxX: 26, minZ: -10, maxZ: 2 },   ambient: "tavern" },
   { id: "workshop", bounds: { minX: -26, maxX: -10, minZ: -6, maxZ: 8 },  ambient: "forge" },
   { id: "drive_in", bounds: { minX: 4,  maxX: 76, minZ: 20, maxZ: 86 },   ambient: "outdoor" },
-  { id: "skatepark", bounds: { minX: 28, maxX: 72, minZ: -42, maxZ: -2 }, ambient: "outdoor" },
 ];
