@@ -30,8 +30,11 @@ export async function POST(req: NextRequest) {
   try {
     console.log("[stremio-proxy] Fetching:", url);
     const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(10000),
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(15000),
     });
 
     console.log("[stremio-proxy] Response:", res.status, url.slice(0, 80));
@@ -49,8 +52,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Addon returned non-JSON response" }, { status: 502 });
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Fetch failed";
-    console.log("[stremio-proxy] Fetch error:", msg, url.slice(0, 80));
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : "Fetch failed";
+    console.error("[stremio-proxy] Fetch error:", msg, "URL:", url.slice(0, 120));
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

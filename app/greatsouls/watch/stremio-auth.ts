@@ -189,8 +189,12 @@ export async function fetchStreams(
         body: JSON.stringify({ url: addonUrl }),
         signal: AbortSignal.timeout(12000),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        console.log(`[Soul Cinema] ${addon.manifest.name} returned ${res.status} for ${addonUrl.slice(0, 80)}`);
+        return [];
+      }
       const data = await res.json();
+      console.log(`[Soul Cinema] ${addon.manifest.name}: ${data.streams?.length ?? 0} streams`);
       return ((data.streams ?? []) as StreamResult[]).map((s): ClassifiedStream => ({
         ...s,
         addonName: addon.manifest.name,
