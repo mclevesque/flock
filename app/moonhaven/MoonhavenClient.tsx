@@ -1767,7 +1767,15 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       pollTimer = setInterval(sendPosition, 2000);
     });
 
+    const onUnload = () => {
+      ws?.send(JSON.stringify({ type: "player_leave", userId }));
+      ws?.close();
+    };
+    window.addEventListener("beforeunload", onUnload);
+
     return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      ws?.send(JSON.stringify({ type: "player_leave", userId }));
       ws?.close();
       clearInterval(pollTimer);
       if (hostClaimTimerRef.current) { clearTimeout(hostClaimTimerRef.current); hostClaimTimerRef.current = null; }
