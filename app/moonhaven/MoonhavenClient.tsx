@@ -428,7 +428,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
     ],
   };
-  const signalRoomId = `theater-${partyId || "main"}`;
+  const signalRoomId = `theater-${moonhavenRoomId || "main"}`;
 
   const postSsSignal = useCallback((toUser: string, type: string, payload: unknown) =>
     fetch(`/api/watch-room/${signalRoomId}/signals`, {
@@ -648,6 +648,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       setSsStatus("viewing");
       postSsSignal(offer.hostId, "screen-want", {});
       if (!screenPollRef.current) screenPollRef.current = setInterval(processSsSignals, 3000);
+    }
+    // Reset request flag when share ends so viewer can auto-request next share
+    if (!offer?.active && hasRequestedRef.current) {
+      hasRequestedRef.current = false;
     }
   }, [theaterState?.screenshareOffer, userId, driveInNear, ssStatus, postSsSignal, processSsSignals]);
 
