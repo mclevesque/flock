@@ -428,13 +428,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
     ],
   };
-  const signalRoomId = `theater-${moonhavenRoomId || "main"}`;
-
-  const postSsSignal = useCallback((toUser: string, type: string, payload: unknown) =>
-    fetch(`/api/watch-room/${signalRoomId}/signals`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ toUser, type, payload }),
-    }).catch(() => {}), [signalRoomId]);
+  const postSsSignal = useCallback((toUser: string, type: string, payload: unknown) => {
+    if (townSocketRef.current?.readyState === 1) {
+      townSocketRef.current.send(JSON.stringify({
+        type: "screen-signal", toUser, signalType: type, payload, fromUser: userId,
+      }));
+    }
+  }, [userId]);
 
   // Apply a MediaStream as VideoTexture onto the 3D screen mesh
   const applyVideoToScreen = useCallback(async (stream: MediaStream) => {
@@ -550,49 +550,42 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   }, [createSsPeer, postSsSignal]);
 
   // Process incoming WebRTC signals
-  const processSsSignals = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/watch-room/${signalRoomId}/signals?after=${screenSignalIdRef.current}`);
-      if (!res.ok) return;
-      const { signals } = await res.json();
-      for (const sig of signals as { id: number; from_user: string; type: string; payload: Record<string, unknown> }[]) {
-        if (sig.id > screenSignalIdRef.current) screenSignalIdRef.current = sig.id;
-        if (sig.type === "screen-want" && isSharingRef.current && screenStreamRef.current) {
-          await sendSsOfferTo(sig.from_user);
-        } else if (sig.type === "screen-offer") {
-          const pc = createSsPeer(sig.from_user);
-          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
-          const buffered = pendingIceRef.current.get(sig.from_user) ?? [];
-          for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
-          pendingIceRef.current.delete(sig.from_user);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await postSsSignal(sig.from_user, "screen-answer", answer);
-        } else if (sig.type === "screen-answer") {
-          const pc = screenPeersRef.current.get(sig.from_user);
-          if (pc && pc.signalingState === "have-local-offer") {
-            await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
-            const buffered = pendingIceRef.current.get(sig.from_user) ?? [];
-            for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
-            pendingIceRef.current.delete(sig.from_user);
-          }
-        } else if (sig.type === "screen-ice") {
-          const pc = screenPeersRef.current.get(sig.from_user);
-          if (pc) {
-            if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(sig.payload as RTCIceCandidateInit)).catch(() => {});
-            else { const buf = pendingIceRef.current.get(sig.from_user) ?? []; buf.push(sig.payload as RTCIceCandidateInit); pendingIceRef.current.set(sig.from_user, buf); }
-          }
-        } else if (sig.type === "screen-stop") {
-          setSsStatus("idle");
-          hasRequestedRef.current = false;
-          clearVideoFromScreen();
-          screenPeersRef.current.forEach(pc => pc.close());
-          screenPeersRef.current.clear();
-          if (screenPollRef.current) { clearInterval(screenPollRef.current); screenPollRef.current = null; }
-        }
+  const handleScreenSignalRef = useRef<((sig: { fromUser: string; signalType: string; payload: Record<string, unknown> }) => Promise<void>) | null>(null);
+  const handleScreenSignal = useCallback(async (sig: { fromUser: string; signalType: string; payload: Record<string, unknown> }) => {
+    if (sig.signalType === "screen-want" && isSharingRef.current && screenStreamRef.current) {
+      await sendSsOfferTo(sig.fromUser);
+    } else if (sig.signalType === "screen-offer") {
+      const pc = createSsPeer(sig.fromUser);
+      await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
+      const buffered = pendingIceRef.current.get(sig.fromUser) ?? [];
+      for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
+      pendingIceRef.current.delete(sig.fromUser);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      postSsSignal(sig.fromUser, "screen-answer", answer);
+    } else if (sig.signalType === "screen-answer") {
+      const pc = screenPeersRef.current.get(sig.fromUser);
+      if (pc && pc.signalingState === "have-local-offer") {
+        await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as unknown as RTCSessionDescriptionInit));
+        const buffered = pendingIceRef.current.get(sig.fromUser) ?? [];
+        for (const c of buffered) await pc.addIceCandidate(c).catch(() => {});
+        pendingIceRef.current.delete(sig.fromUser);
       }
-    } catch { /* retry next tick */ }
-  }, [signalRoomId, sendSsOfferTo, createSsPeer, postSsSignal, clearVideoFromScreen]);
+    } else if (sig.signalType === "screen-ice") {
+      const pc = screenPeersRef.current.get(sig.fromUser);
+      if (pc) {
+        if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(sig.payload as RTCIceCandidateInit)).catch(() => {});
+        else { const buf = pendingIceRef.current.get(sig.fromUser) ?? []; buf.push(sig.payload as RTCIceCandidateInit); pendingIceRef.current.set(sig.fromUser, buf); }
+      }
+    } else if (sig.signalType === "screen-stop") {
+      setSsStatus("idle");
+      hasRequestedRef.current = false;
+      clearVideoFromScreen();
+      screenPeersRef.current.forEach(pc => pc.close());
+      screenPeersRef.current.clear();
+    }
+  }, [sendSsOfferTo, createSsPeer, postSsSignal, clearVideoFromScreen]);
+  handleScreenSignalRef.current = handleScreenSignal;
 
   // Start screen share (host)
   const startScreenShare = useCallback(async () => {
@@ -615,14 +608,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: true, hostId: userId }, partyId: partyId || undefined }) });
       stream.getVideoTracks()[0]?.addEventListener("ended", () => stopScreenShare());
-      // Start polling for viewer signals
-      if (!screenPollRef.current) screenPollRef.current = setInterval(processSsSignals, 3000);
+      // Signals now arrive via PartyKit WebSocket — no polling needed
     } catch (e) {
       const err = e as Error;
       if (err.name !== "NotAllowedError") setSsError("Screen share failed: " + err.message);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, partyId, applyVideoToScreen, processSsSignals]);
+  }, [userId, partyId, applyVideoToScreen]);
 
   // Stop screen share
   const stopScreenShare = useCallback(async () => {
@@ -635,7 +627,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     clearVideoFromScreen();
     screenPeersRef.current.forEach(pc => pc.close());
     screenPeersRef.current.clear();
-    if (screenPollRef.current) { clearInterval(screenPollRef.current); screenPollRef.current = null; }
+    // Also broadcast screen-stop to all via WS (in case targeted signals missed someone)
+    if (townSocketRef.current?.readyState === 1) {
+      townSocketRef.current.send(JSON.stringify({ type: "screen-share-ended", userId }));
+    }
     await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: false, hostId: userId } }) }).catch(() => {});
   }, [userId, postSsSignal, clearVideoFromScreen]);
@@ -647,13 +642,13 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       hasRequestedRef.current = true;
       setSsStatus("viewing");
       postSsSignal(offer.hostId, "screen-want", {});
-      if (!screenPollRef.current) screenPollRef.current = setInterval(processSsSignals, 3000);
+      // Signals arrive via PartyKit WS — no polling needed
     }
     // Reset request flag when share ends so viewer can auto-request next share
     if (!offer?.active && hasRequestedRef.current) {
       hasRequestedRef.current = false;
     }
-  }, [theaterState?.screenshareOffer, userId, driveInNear, ssStatus, postSsSignal, processSsSignals]);
+  }, [theaterState?.screenshareOffer, userId, driveInNear, ssStatus, postSsSignal]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1672,6 +1667,14 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             endTagGame();
           } else if (msg.type === "drive_emote" && msg.userId !== userId && msg.emoteId) {
             triggerRemoteDriveEmote(msg.userId, msg.emoteId as DriveEmoteId);
+          } else if (msg.type === "screen-signal" && msg.fromUser && msg.fromUser !== userId) {
+            handleScreenSignalRef.current?.({ fromUser: msg.fromUser as string, signalType: msg.signalType as string, payload: msg.payload as Record<string, unknown> });
+          } else if (msg.type === "screen-share-ended") {
+            setSsStatus("idle");
+            hasRequestedRef.current = false;
+            clearVideoFromScreen();
+            screenPeersRef.current.forEach(pc => pc.close());
+            screenPeersRef.current.clear();
           } else if (msg.type === "rps_enter" || msg.type === "rps_start" || msg.type === "rps_commit" || msg.type === "rps_reveal" || msg.type === "rps_leave") {
             rpsHandleMessage(msg as Record<string, unknown>);
           } else if (msg.type === "jukebox_play" && msg.url) {
