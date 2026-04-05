@@ -1288,9 +1288,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (rpsTimerRef.current) { clearInterval(rpsTimerRef.current); rpsTimerRef.current = null; }
   }, []);
 
+  const rpsCooldownRef = useRef(false);
   const rpsCleanup = useCallback(() => {
     rpsStopTimer();
-    setRpsPhaseSync("idle");
     setRpsMyChoice(null);
     setRpsOpponentChoice(null);
     setRpsOpponent(null);
@@ -1302,6 +1302,10 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     rpsMyCommitRef.current = null;
     rpsOpponentCommitRef.current = null;
     rpsOpponentRevealedRef.current = null;
+    // Cooldown: prevent immediate re-enter for 2 seconds after cleanup
+    rpsCooldownRef.current = true;
+    setRpsPhaseSync("idle");
+    setTimeout(() => { rpsCooldownRef.current = false; }, 2000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rpsStopTimer]);
 
@@ -1340,8 +1344,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       rpsRevealAndFinish(choice, rpsOpponentRevealedRef.current);
     }
     // Safety: if still stuck after 10s, re-send reveal to unstick
+    const savedMatchId = rpsMatchIdRef.current;
     setTimeout(() => {
-      if (rpsPhaseRef.current === "choosing" && rpsMyChoiceRef.current) {
+      if (rpsPhaseRef.current === "choosing" && rpsMyChoiceRef.current && rpsMatchIdRef.current === savedMatchId) {
         if (townSocketRef.current?.readyState === 1) {
           townSocketRef.current.send(JSON.stringify({
             type: "rps_reveal", matchId: rpsMatchIdRef.current, userId, choice: rpsMyChoiceRef.current,
@@ -1420,7 +1425,8 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
   const rpsHandleMessage = useCallback((msg: Record<string, unknown>) => {
     if (msg.type === "rps_enter" && msg.userId !== userId) {
       // Someone entered arena — if we're waiting, start match
-      if (rpsPhaseRef.current === "waiting") {
+      // Only the player with the lower userId initiates to prevent dual-match race
+      if (rpsPhaseRef.current === "waiting" && userId < (msg.userId as string)) {
         const opp = { userId: msg.userId as string, username: msg.username as string };
         rpsOpponentRef.current = opp;
         setRpsOpponent(opp);
@@ -2391,7 +2397,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         if (nearArena !== rpsNearRef.current) { rpsNearRef.current = nearArena; setRpsNear(nearArena); }
         // Enter/leave arena circle
         const insideArena = distToArena < RPS_ARENA_RADIUS;
-        if (insideArena && rpsPhaseRef.current === "idle") {
+        if (insideArena && rpsPhaseRef.current === "idle" && !rpsCooldownRef.current) {
           setRpsPhaseSync("waiting");
           if (townSocketRef.current?.readyState === 1) {
             townSocketRef.current.send(JSON.stringify({ type: "rps_enter", userId, username }));
