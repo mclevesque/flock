@@ -644,8 +644,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     if (offer?.active && offer.hostId !== userId && driveInNear && ssStatus === "idle" && !hasRequestedRef.current) {
       hasRequestedRef.current = true;
       setSsStatus("viewing");
-      postSsSignal(offer.hostId, "screen-want", {});
-      // Signals arrive via PartyKit WS — no polling needed
+      // Small delay so late joiners have time to send their player_update and register in userConnMap
+      // before the host tries to route the screen-offer back to them
+      setTimeout(() => postSsSignal(offer.hostId, "screen-want", {}), 600);
     }
     // Reset request flag when share ends so viewer can auto-request next share
     if (!offer?.active && hasRequestedRef.current) {
@@ -1761,6 +1762,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     };
 
     connect().then(() => {
+      sendPosition(); // register in userConnMap immediately — critical for late-join screen share routing
       pollTimer = setInterval(sendPosition, 2000);
     });
 
