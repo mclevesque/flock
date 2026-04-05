@@ -55,6 +55,11 @@ export default class TownParty implements Party.Server {
         );
       } else if (
         data.type === "rps_update" ||
+        data.type === "rps_enter" ||
+        data.type === "rps_leave" ||
+        data.type === "rps_start" ||
+        data.type === "rps_commit" ||
+        data.type === "rps_reveal" ||
         data.type === "adventure_end" ||
         data.type === "party_update"
       ) {

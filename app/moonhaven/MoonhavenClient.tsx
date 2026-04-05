@@ -1456,7 +1456,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
         }, 1000);
         // Broadcast that match started
         if (townSocketRef.current?.readyState === 1) {
-          townSocketRef.current.send(JSON.stringify({ type: "rps_start", matchId, p1: userId, p2: msg.userId }));
+          townSocketRef.current.send(JSON.stringify({ type: "rps_start", matchId, p1: userId, p1Name: username, p2: msg.userId, p2Name: msg.username }));
         }
       }
     } else if (msg.type === "rps_start" && (msg.p1 === userId || msg.p2 === userId)) {
@@ -1464,7 +1464,11 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       const existing = rpsOpponentRef.current;
       if (!existing || existing.userId !== oppId) {
         // We're the second player — init match on our side
-        const opp = { userId: oppId, username: rpsOpponentRef.current?.username ?? "Opponent" };
+        const oppName = (msg.p1 === userId ? msg.p2Name : msg.p1Name) as string
+          || rpsOpponentRef.current?.username
+          || nearbyPlayersRef.current.find(p => p.user_id === oppId)?.username
+          || "Opponent";
+        const opp = { userId: oppId, username: oppName };
         rpsOpponentRef.current = opp;
         setRpsOpponent(opp);
         rpsMatchIdRef.current = msg.matchId as string;
