@@ -69,6 +69,7 @@ export default class TownParty implements Party.Server {
           }
         }
       } else if (
+        data.type === "screen-share-started" ||
         data.type === "screen-share-ended" ||
         data.type === "rps_update" ||
         data.type === "rps_enter" ||

@@ -604,9 +604,12 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       setSsStatus("hosting");
       // Apply to 3D screen immediately (local preview)
       await applyVideoToScreen(stream);
-      // Notify others
-      await fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: true, hostId: userId }, partyId: partyId || undefined }) });
+      // Notify others — WS for instant real-time update, HTTP for persistence (new joiners)
+      if (townSocketRef.current?.readyState === 1) {
+        townSocketRef.current.send(JSON.stringify({ type: "screen-share-started", hostId: userId }));
+      }
+      fetch("/api/town", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "theater-screenshare-offer", offer: { active: true, hostId: userId }, partyId: partyId || undefined }) }).catch(() => {});
       stream.getVideoTracks()[0]?.addEventListener("ended", () => stopScreenShare());
       // Signals now arrive via PartyKit WebSocket — no polling needed
     } catch (e) {
@@ -1667,6 +1670,9 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             endTagGame();
           } else if (msg.type === "drive_emote" && msg.userId !== userId && msg.emoteId) {
             triggerRemoteDriveEmote(msg.userId, msg.emoteId as DriveEmoteId);
+          } else if (msg.type === "screen-share-started" && msg.hostId && msg.hostId !== userId) {
+            // Host just started — update theaterState so auto-request effect fires immediately
+            setTheaterState(prev => ({ ...(prev ?? {}), screenshareOffer: { active: true, hostId: msg.hostId as string } } as TheaterState));
           } else if (msg.type === "screen-signal" && msg.fromUser && msg.fromUser !== userId) {
             handleScreenSignalRef.current?.({ fromUser: msg.fromUser as string, signalType: msg.signalType as string, payload: msg.payload as Record<string, unknown> });
           } else if (msg.type === "screen-share-ended") {
@@ -1675,6 +1681,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             clearVideoFromScreen();
             screenPeersRef.current.forEach(pc => pc.close());
             screenPeersRef.current.clear();
+            setTheaterState(prev => prev ? { ...prev, screenshareOffer: null } : prev);
           } else if (msg.type === "rps_enter" || msg.type === "rps_start" || msg.type === "rps_commit" || msg.type === "rps_reveal" || msg.type === "rps_leave") {
             rpsHandleMessage(msg as Record<string, unknown>);
           } else if (msg.type === "jukebox_play" && msg.url) {
