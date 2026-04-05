@@ -3,7 +3,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-const BYPASS_USERS = ["peanut", "babachoo"];
+const BYPASS_USERS = ["peanut", "babachoo", "thegreattester"];
 
 export default function SignInPage() {
   const router = useRouter();
