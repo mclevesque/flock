@@ -24,6 +24,7 @@ const GAMES: Record<string, GameCard[]> = {
     { id: "matty", title: "Matty Milkers", desc: "Raw milk platformer adventure", emoji: "🥛", href: "/games/matty-milkers" },
     { id: "wingman", title: "Wingman", desc: "Dating platformer — charm your way to victory", emoji: "💘", href: "/games/wingman" },
     { id: "dodge-gauntlet", title: "Dodge Gauntlet", desc: "Bullet-hell survival arena", emoji: "💠", href: "/dodge-gauntlet" },
+    { id: "winterfells", title: "Winterfells", desc: "Dire wolf bell-bouncing climber", emoji: "🐺", href: "/winterfells" },
   ],
   "TABLE GAMES": [
     { id: "chess", title: "Chess", desc: "Classic 1v1 with ELO rating", emoji: "♟️", href: "/chess", multiplayer: true },

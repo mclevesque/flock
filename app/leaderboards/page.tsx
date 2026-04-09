@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
 
-type Tab = "overview" | "chess" | "outbreak" | "quiz" | "rps" | "gauntlet";
+type Tab = "overview" | "chess" | "outbreak" | "quiz" | "rps" | "gauntlet" | "winterfells";
 
 const DIFFICULTIES = [
   { id: 1, label: "CASUAL" },
@@ -137,6 +137,7 @@ export default function LeaderboardsPage() {
   const [duosEntries, setDuosEntries] = useState<OutbreakEntry[]>([]);
   const [rpsEntries, setRpsEntries] = useState<RpsEntry[]>([]);
   const [gauntletEntries, setGauntletEntries] = useState<GauntletEntry[]>([]);
+  const [winterfellsEntries, setWinterfellsEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [outbreakMode, setOutbreakMode] = useState<"solo" | "duos">("solo");
 
@@ -150,12 +151,14 @@ export default function LeaderboardsPage() {
       fetch("/api/outbreak?dev=1").then(r => r.ok ? r.json() : null).catch(() => null),
       fetch("/api/rps").then(r => r.ok ? r.json() : []).catch(() => []),
       fetch("/api/dodge-gauntlet").then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([users, outbreak, rps, gauntlet]) => {
+      fetch("/api/winterfells").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([users, outbreak, rps, gauntlet, winterfells]) => {
       setPlayers(users || []);
       if (outbreak?.leaderboard) setOutbreakEntries(outbreak.leaderboard);
       if (outbreak?.duosLeaderboard) setDuosEntries(outbreak.duosLeaderboard);
       if (Array.isArray(rps)) setRpsEntries(rps);
       if (gauntlet?.leaderboard) setGauntletEntries(gauntlet.leaderboard);
+      if (winterfells?.leaderboard) setWinterfellsEntries(winterfells.leaderboard);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -199,6 +202,7 @@ export default function LeaderboardsPage() {
     { id: "quiz",     label: "QUIZ",     emoji: "🧠" },
     { id: "rps",      label: "RPS",      emoji: "✂️" },
     { id: "gauntlet", label: "GAUNTLET", emoji: "💠" },
+    { id: "winterfells", label: "WINTERFELLS", emoji: "🐺" },
   ];
 
   if (loading || status === "loading") {
@@ -398,6 +402,23 @@ export default function LeaderboardsPage() {
           {gauntletEntries.length === 0 && (
             <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
               No runs yet — head to 💠 Dodge Gauntlet and survive the storm!
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* ── WINTERFELLS ── */}
+      {tab === "winterfells" && (
+        <Card>
+          <CardTitle>🐺 WINTERFELLS — HIGH SCORES</CardTitle>
+          <ColHeader cols={["HEIGHT", "SCORE"]} />
+          {winterfellsEntries.map((e: any, i: number) => (
+            <LeaderRowFull key={e.username} rank={i + 1} name={e.username}
+              col1={`${e.height} ft`} value={Number(e.score).toLocaleString()} />
+          ))}
+          {winterfellsEntries.length === 0 && (
+            <p style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
+              No runs yet — head to 🐺 Winterfells and climb the Wall!
             </p>
           )}
         </Card>

@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Winterfells</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Segoe UI', sans-serif;
+    cursor: none;
+  }
+  canvas {
+    display: block;
+    image-rendering: auto;
+  }
+  #gameCanvas {
+    cursor: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+// ============================================================
+// WINTERFELLS - A Winterbells clone with Game of Thrones flavor
+// Mouse OR Gamepad control
+// ============================================================
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// High-res canvas - wider play area
+const W = 1000;
+const H = 900;
+let SCALE = Math.min(window.innerWidth / W, window.innerHeight / H);
+canvas.width = W;
+canvas.height = H;
+canvas.style.width = (W * SCALE) + 'px';
+canvas.style.height = (H * SCALE) + 'px';
+
+// Fixed timestep for consistent physics on all devices
+const FIXED_DT = 1000 / 60; // 60fps physics
+let accumulator = 0;
+let lastTime = performance.now();
+
+// ============================================================
+// AUDIO ENGINE (Web Audio API)
+// ============================================================
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freq, duration, type = 'sine', volume = 0.15, detune = 0) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function playBellHit(combo) {
+  // Musical bell sound that rises in pitch with combo
+  const baseFreq = 600 + Math.min(combo, 30) * 40;
+  playTone(baseFreq, 0.4, 'sine', 0.12);
+  playTone(baseFreq * 1.5, 0.3, 'sine', 0.06);
+  playTone(baseFreq * 2, 0.2, 'sine', 0.03);
+  // Shimmer
+  playTone(baseFreq * 3, 0.15, 'triangle', 0.02, Math.random() * 20);
+}
+
+function playStarHit() {
+  for (let i = 0; i < 5; i++) {
+    setTimeout(() => {
+      playTone(800 + i * 200, 0.3, 'sine', 0.08);
+      playTone(1200 + i * 200, 0.2, 'triangle', 0.04);
+    }, i * 60);
+  }
+}
+
+function playJump() {
+  playTone(250, 0.1, 'square', 0.06);
+  playTone(400, 0.08, 'square', 0.04);
+}
+
+function playFall() {
+  for (let i = 0; i < 8; i++) {
+    setTimeout(() => {
+      playTone(400 - i * 40, 0.15, 'sawtooth', 0.05 - i * 0.005);
+    }, i * 80);
+  }
+}
+
+function playWindAmbient() {
+  const bufferSize = audioCtx.sampleRate * 2;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.02;
+  }
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 200;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.3;
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioCtx.destination);
+  source.start();
+  return { source, gain, filter };
+}
+
+let windSound = null;
+
+// ============================================================
+// VOICE LINES (ElevenLabs generated)
+// ============================================================
+const VOICE = {
+  dracarys: ['voice/dracarys_0.mp3','voice/dracarys_1.mp3','voice/dracarys_2.mp3','voice/dracarys_3.mp3'],
+  raven:    ['voice/raven_0.mp3','voice/raven_1.mp3','voice/raven_2.mp3','voice/raven_3.mp3'],
+  ult_ready:['voice/ult_ready_0.mp3','voice/ult_ready_1.mp3','voice/ult_ready_2.mp3','voice/ult_ready_3.mp3'],
+  ult_active:['voice/ult_active_0.mp3','voice/ult_active_1.mp3','voice/ult_active_2.mp3'],
+  death:    ['voice/death_0.mp3','voice/death_1.mp3','voice/death_2.mp3'],
+  combo:    ['voice/combo_0.mp3','voice/combo_1.mp3'],
+};
+const _voiceIdx = {};
+let _lastVoiceTime = 0;
+const VOICE_COOLDOWN = 3000; // ms between voice lines
+
+function playVoiceLine(type) {
+  const now = Date.now();
+  if (now - _lastVoiceTime < VOICE_COOLDOWN) return;
+  const lines = VOICE[type];
+  if (!lines || !lines.length) return;
+  _lastVoiceTime = now;
+  const idx = (_voiceIdx[type] || 0) % lines.length;
+  _voiceIdx[type] = (idx + 1) % lines.length;
+  // Use Audio element - works on file:// unlike fetch+WebAudio
+  const audio = new Audio(lines[idx]);
+  audio.volume = 0.75;
+  audio.play().catch(() => {});
+}
+
+// ============================================================
+// SPRITE DRAWING (Procedural high-detail)
+// ============================================================
+
+// Pre-render sprites to offscreen canvases
+function createSprite(w, h, drawFn) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const cx = c.getContext('2d');
+  drawFn(cx, w, h);
+  return c;
+}
+
+// --- DIRE WOLF PIXEL ART SPRITE ---
+const WOLF_W = 96;
+const WOLF_H = 72;
+const PX = 3; // pixel size for chunky pixel art look
+
+function drawPixelWolf(cx) {
+  // Ghost-white dire wolf pixel art (facing right)
+  // Colors: outline, dark shade, mid, light, white highlight, red eye
+  const O = '#2a2a3a';  // outline
+  const D = '#8088a0';  // dark fur
+  const M = '#a8b0c8';  // mid fur
+  const L = '#ccd0e0';  // light fur
+  const W2 = '#e8eaf4'; // white/highlight
+  const B = '#d8dce8';  // belly
+  const R = '#ff2200';  // red eye
+  const N = '#1a1a24';  // nose
+  const P = '#888898';  // paw dark
+
+  // Each row is a horizontal line of pixels, drawn left to right
+  // Wolf is ~30px wide x 22px tall in pixel units (x3 = 90x66 real pixels)
+  // Origin offset to center in canvas
+  const ox = 2, oy = 2;
+
+  function px(x, y, c) {
+    cx.fillStyle = c;
+    cx.fillRect((x + ox) * PX, (y + oy) * PX, PX, PX);
+  }
+
+  // === EARS (rows 0-4) ===
+  px(20,0,O); px(21,0,O);
+  px(24,0,O); px(25,0,O);
+  px(19,1,O); px(20,1,D); px(21,1,M); px(22,1,O);
+  px(23,1,O); px(24,1,D); px(25,1,M); px(26,1,O);
+  px(19,2,O); px(20,2,M); px(21,2,D); px(22,2,O);
+  px(23,2,O); px(24,2,M); px(25,2,D); px(26,2,O);
+  px(19,3,O); px(20,3,L); px(21,3,M); px(22,3,O);
+  px(23,3,O); px(24,3,L); px(25,3,M); px(26,3,O);
+
+  // === HEAD (rows 4-9) ===
+  // Row 4 - top of head connecting ears
+  for (let x = 18; x <= 27; x++) px(x, 4, O);
+  // Row 5 - head top
+  px(17,5,O);
+  for (let x = 18; x <= 27; x++) px(x, 5, x < 21 ? D : x < 25 ? M : L);
+  px(28,5,O);
+  // Row 6 - eyes level
+  px(16,6,O);
+  px(17,6,M); px(18,6,M); px(19,6,D); px(20,6,M);
+  px(21,6,W2); px(22,6,R); px(23,6,M); // eye!
+  px(24,6,L); px(25,6,L); px(26,6,M);
+  px(27,6,O);
+  // Row 7 - snout starts
+  px(16,7,O);
+  px(17,7,M); px(18,7,L); px(19,7,L); px(20,7,M);
+  px(21,7,L); px(22,7,L); px(23,7,L);
+  px(24,7,L); px(25,7,W2); px(26,7,W2); px(27,7,L);
+  px(28,7,O); px(29,7,O);
+  // Row 8 - snout + nose
+  px(17,8,O);
+  px(18,8,M); px(19,8,L); px(20,8,L); px(21,8,L);
+  px(22,8,L); px(23,8,W2); px(24,8,W2);
+  px(25,8,W2); px(26,8,L); px(27,8,L);
+  px(28,8,N); px(29,8,N); // nose
+  px(30,8,O);
+  // Row 9 - jaw
+  px(17,9,O); px(18,9,O);
+  px(19,9,M); px(20,9,L); px(21,9,L); px(22,9,L);
+  px(23,9,B); px(24,9,B); px(25,9,L); px(26,9,L);
+  px(27,9,O); px(28,9,O);
+
+  // === NECK + MANE (rows 10-11) ===
+  px(14,10,O); px(15,10,O);
+  px(16,10,D); px(17,10,M); px(18,10,M); px(19,10,L);
+  px(20,10,L); px(21,10,W2); px(22,10,L); px(23,10,L);
+  px(24,10,M); px(25,10,O);
+  // Mane fur
+  px(13,11,O);
+  px(14,11,D); px(15,11,M); px(16,11,M); px(17,11,L);
+  px(18,11,L); px(19,11,W2); px(20,11,W2); px(21,11,L);
+  px(22,11,M); px(23,11,O);
+
+  // === BODY (rows 12-17) ===
+  // Row 12 - back starts
+  px(5,12,O); px(6,12,O);
+  for (let x = 7; x <= 22; x++) px(x, 12, x < 10 ? D : x < 16 ? M : x < 20 ? L : M);
+  px(23,12,O);
+  // Row 13
+  px(4,13,O);
+  for (let x = 5; x <= 23; x++) px(x, 13, x < 8 ? D : x < 12 ? M : x < 18 ? L : x < 21 ? W2 : M);
+  px(24,13,O);
+  // Row 14 - widest
+  px(3,14,O);
+  for (let x = 4; x <= 23; x++) px(x, 14, x < 7 ? D : x < 11 ? M : x < 17 ? L : x < 21 ? W2 : L);
+  px(24,14,O);
+  // Row 15 - belly
+  px(3,15,O);
+  for (let x = 4; x <= 23; x++) px(x, 15, x < 7 ? M : x < 11 ? L : x < 17 ? B : x < 21 ? W2 : B);
+  px(24,15,O);
+  // Row 16
+  px(4,16,O);
+  for (let x = 5; x <= 23; x++) px(x, 16, x < 8 ? M : x < 12 ? B : x < 18 ? B : x < 22 ? L : M);
+  px(24,16,O);
+  // Row 17 - bottom of body
+  px(5,17,O); px(6,17,O);
+  for (let x = 7; x <= 22; x++) px(x, 17, O);
+  px(23,17,O);
+
+  // === TAIL (rows 10-16, left side) ===
+  px(3,10,O); px(4,10,O);
+  px(2,11,O); px(3,11,D); px(4,11,M); px(5,11,O);
+  px(1,12,O); px(2,12,D); px(3,12,M); px(4,12,O);
+  px(0,11,O); px(1,11,O);
+  px(0,10,O); px(1,10,D); px(2,10,M);
+  px(0,9,O); px(1,9,M); px(2,9,L); px(3,9,O);
+  px(1,8,O); px(2,8,L); px(3,8,W2); px(4,8,O);
+  px(2,7,O); px(3,7,W2); px(4,7,O);
+  px(2,6,O); px(3,6,O);
+
+  // === LEGS (rows 17-22) ===
+  // Back legs
+  px(6,17,O); px(7,17,O); px(8,17,O); px(9,17,O);
+  px(6,18,O); px(7,18,M); px(8,18,M); px(9,18,O);
+  px(11,18,O); px(12,18,M); px(13,18,O);
+  px(5,19,O); px(6,19,L); px(7,19,M); px(8,19,O);
+  px(11,19,O); px(12,19,M); px(13,19,O);
+  px(5,20,O); px(6,20,M); px(7,20,D); px(8,20,O);
+  px(11,20,O); px(12,20,D); px(13,20,O);
+  px(4,21,O); px(5,21,P); px(6,21,P); px(7,21,P); px(8,21,O);
+  px(10,21,O); px(11,21,P); px(12,21,P); px(13,21,O);
+  px(4,22,O); px(5,22,O); px(6,22,O); px(7,22,O); px(8,22,O);
+  px(10,22,O); px(11,22,O); px(12,22,O); px(13,22,O);
+
+  // Front legs
+  px(17,17,O); px(18,17,O); px(19,17,O); px(20,17,O);
+  px(17,18,O); px(18,18,L); px(19,18,L); px(20,18,O);
+  px(22,18,O); px(23,18,L); px(24,18,O);
+  px(17,19,O); px(18,19,L); px(19,19,M); px(20,19,O);
+  px(22,19,O); px(23,19,M); px(24,19,O);
+  px(17,20,O); px(18,20,M); px(19,20,D); px(20,20,O);
+  px(22,20,O); px(23,20,D); px(24,20,O);
+  px(16,21,O); px(17,21,P); px(18,21,P); px(19,21,P); px(20,21,O);
+  px(21,21,O); px(22,21,P); px(23,21,P); px(24,21,O);
+  px(16,22,O); px(17,22,O); px(18,22,O); px(19,22,O); px(20,22,O);
+  px(21,22,O); px(22,22,O); px(23,22,O); px(24,22,O);
+
+  // === EYE GLOW ===
+  cx.shadowColor = '#ff2200';
+  cx.shadowBlur = 6;
+  cx.fillStyle = '#ff3300';
+  cx.fillRect((22 + ox) * PX, (6 + oy) * PX, PX, PX);
+  cx.shadowBlur = 0;
+}
+
+const wolfSprite = createSprite(WOLF_W, WOLF_H, (cx) => {
+  drawPixelWolf(cx);
+});
+
+// Wolf facing left
+const wolfSpriteLeft = createSprite(WOLF_W, WOLF_H, (cx, w) => {
+  cx.save();
+  cx.translate(w, 0);
+  cx.scale(-1, 1);
+  drawPixelWolf(cx);
+  cx.restore();
+});
+
+// --- BELL/ORB SPRITES ---
+function createBellSprite(size, color1, color2, glowColor) {
+  return createSprite(size, size, (cx, w, h) => {
+    const r = w / 2 - 4;
+    const centerX = w / 2;
+    const centerY = h / 2;
+    // Glow
+    const glow = cx.createRadialGradient(centerX, centerY, r * 0.3, centerX, centerY, r * 1.4);
+    glow.addColorStop(0, glowColor + '40');
+    glow.addColorStop(1, 'transparent');
+    cx.fillStyle = glow;
+    cx.fillRect(0, 0, w, h);
+    // Bell body
+    cx.beginPath();
+    // Bell shape: rounded top, flared bottom
+    cx.moveTo(centerX - r * 0.3, centerY - r * 0.9);
+    cx.quadraticCurveTo(centerX, centerY - r * 1.1, centerX + r * 0.3, centerY - r * 0.9);
+    cx.quadraticCurveTo(centerX + r * 0.8, centerY - r * 0.5, centerX + r, centerY + r * 0.4);
+    cx.quadraticCurveTo(centerX + r, centerY + r * 0.8, centerX, centerY + r * 0.9);
+    cx.quadraticCurveTo(centerX - r, centerY + r * 0.8, centerX - r, centerY + r * 0.4);
+    cx.quadraticCurveTo(centerX - r * 0.8, centerY - r * 0.5, centerX - r * 0.3, centerY - r * 0.9);
+    const grad = cx.createLinearGradient(centerX - r, 0, centerX + r, h);
+    grad.addColorStop(0, color1);
+    grad.addColorStop(0.5, color2);
+    grad.addColorStop(1, color1);
+    cx.fillStyle = grad;
+    cx.fill();
+    cx.strokeStyle = glowColor + '80';
+    cx.lineWidth = 1.5;
+    cx.stroke();
+    // Highlight
+    cx.fillStyle = 'rgba(255,255,255,0.35)';
+    cx.beginPath();
+    cx.ellipse(centerX - r * 0.25, centerY - r * 0.2, r * 0.25, r * 0.45, -0.3, 0, Math.PI * 2);
+    cx.fill();
+    // Clapper
+    cx.fillStyle = color1;
+    cx.beginPath();
+    cx.arc(centerX, centerY + r * 0.85, r * 0.15, 0, Math.PI * 2);
+    cx.fill();
+    // Top ring
+    cx.strokeStyle = glowColor;
+    cx.lineWidth = 2;
+    cx.beginPath();
+    cx.arc(centerX, centerY - r * 0.95, r * 0.15, 0, Math.PI * 2);
+    cx.stroke();
+  });
+}
+
+const bellNormal = createBellSprite(44, '#7799cc', '#aaccff', '#88bbff');
+const bellGold = createBellSprite(44, '#ccaa44', '#ffdd77', '#ffcc44');
+const bellIce = createBellSprite(44, '#44aacc', '#88eeff', '#44ddff');
+
+// --- STAR (Weirwood Leaf / Dragon Egg) ---
+const starSprite = createSprite(50, 50, (cx, w, h) => {
+  const centerX = w / 2;
+  const centerY = h / 2;
+  // Glow
+  const glow = cx.createRadialGradient(centerX, centerY, 4, centerX, centerY, 24);
+  glow.addColorStop(0, '#ff666660');
+  glow.addColorStop(1, 'transparent');
+  cx.fillStyle = glow;
+  cx.fillRect(0, 0, w, h);
+  // Dragon egg shape
+  cx.beginPath();
+  cx.ellipse(centerX, centerY + 2, 14, 18, 0, 0, Math.PI * 2);
+  const grad = cx.createRadialGradient(centerX - 4, centerY - 6, 2, centerX, centerY, 18);
+  grad.addColorStop(0, '#ff8866');
+  grad.addColorStop(0.4, '#cc3322');
+  grad.addColorStop(1, '#881111');
+  cx.fillStyle = grad;
+  cx.fill();
+  // Scale pattern
+  cx.strokeStyle = '#ff444440';
+  cx.lineWidth = 0.8;
+  for (let row = -2; row < 4; row++) {
+    for (let col = -2; col < 3; col++) {
+      const sx = centerX + col * 7 + (row % 2) * 3.5;
+      const sy = centerY + row * 6 - 4;
+      cx.beginPath();
+      cx.arc(sx, sy, 4, 0.8, Math.PI - 0.8);
+      cx.stroke();
+    }
+  }
+  // Highlight
+  cx.fillStyle = 'rgba(255,200,150,0.4)';
+  cx.beginPath();
+  cx.ellipse(centerX - 4, centerY - 6, 5, 8, -0.3, 0, Math.PI * 2);
+  cx.fill();
+  // Inner glow
+  cx.fillStyle = 'rgba(255,100,50,0.2)';
+  cx.beginPath();
+  cx.ellipse(centerX, centerY + 4, 8, 10, 0, 0, Math.PI * 2);
+  cx.fill();
+});
+
+// --- RAVEN SPRITE (larger, visible against dark sky) ---
+const ravenSprite = createSprite(60, 48, (cx, w, h) => {
+  const centerX = w / 2;
+  const centerY = h / 2;
+  // Glow aura so it's visible against dark sky
+  const glow = cx.createRadialGradient(centerX, centerY, 6, centerX, centerY, 28);
+  glow.addColorStop(0, 'rgba(100,120,200,0.25)');
+  glow.addColorStop(1, 'transparent');
+  cx.fillStyle = glow;
+  cx.fillRect(0, 0, w, h);
+  // Body
+  cx.fillStyle = '#3a3a5e';
+  cx.beginPath();
+  cx.ellipse(30, 28, 14, 10, 0, 0, Math.PI * 2);
+  cx.fill();
+  // Head
+  cx.fillStyle = '#444468';
+  cx.beginPath();
+  cx.arc(42, 18, 9, 0, Math.PI * 2);
+  cx.fill();
+  // Beak
+  cx.fillStyle = '#8888aa';
+  cx.beginPath();
+  cx.moveTo(50, 16); cx.lineTo(58, 19); cx.lineTo(50, 21);
+  cx.fill();
+  // Eye - bright so it pops
+  cx.fillStyle = '#ddeeff';
+  cx.beginPath();
+  cx.arc(45, 16, 2.5, 0, Math.PI * 2);
+  cx.fill();
+  cx.fillStyle = '#112';
+  cx.beginPath();
+  cx.arc(45.5, 16, 1.2, 0, Math.PI * 2);
+  cx.fill();
+  // Wings - spread wide, lighter purple-blue
+  cx.fillStyle = '#2e2e52';
+  // Top wing
+  cx.beginPath();
+  cx.moveTo(34, 20);
+  cx.quadraticCurveTo(20, 6, 8, 10);
+  cx.quadraticCurveTo(4, 12, 10, 18);
+  cx.quadraticCurveTo(18, 22, 28, 24);
+  cx.fill();
+  // Bottom wing
+  cx.fillStyle = '#36365e';
+  cx.beginPath();
+  cx.moveTo(28, 28);
+  cx.quadraticCurveTo(14, 22, 6, 28);
+  cx.quadraticCurveTo(4, 32, 12, 34);
+  cx.quadraticCurveTo(20, 34, 26, 32);
+  cx.fill();
+  // Wing feather tips - light edges
+  cx.strokeStyle = '#6668a0';
+  cx.lineWidth = 1;
+  cx.beginPath();
+  cx.moveTo(8, 10); cx.lineTo(6, 12);
+  cx.moveTo(10, 12); cx.lineTo(7, 15);
+  cx.moveTo(6, 28); cx.lineTo(4, 31);
+  cx.moveTo(10, 30); cx.lineTo(7, 33);
+  cx.stroke();
+  // Tail feathers
+  cx.fillStyle = '#2a2a4e';
+  cx.beginPath();
+  cx.moveTo(16, 30); cx.lineTo(6, 40); cx.lineTo(10, 38);
+  cx.lineTo(14, 44); cx.lineTo(18, 38); cx.lineTo(22, 42);
+  cx.lineTo(22, 34);
+  cx.fill();
+  // Body highlight
+  cx.fillStyle = 'rgba(140,140,200,0.15)';
+  cx.beginPath();
+  cx.ellipse(32, 24, 8, 5, -0.2, 0, Math.PI * 2);
+  cx.fill();
+});
+
+// ============================================================
+// GAME STATE
+// ============================================================
+const STATE = {
+  MENU: 0,
+  PLAYING: 1,
+  FALLING: 2,
+  GAMEOVER: 3
+};
+
+let state = STATE.MENU;
+let score = 0;
+let combo = 0;
+let highScores = JSON.parse(localStorage.getItem('winterfells_scores') || '[]');
+let cameraY = 0;
+let targetCameraY = 0;
+let maxHeight = 0;
+
+// Wolf
+let wolf = {
+  x: W / 2,
+  y: H - 80,
+  vy: 0,
+  width: WOLF_W,
+  height: WOLF_H,
+  onGround: true,
+  facingRight: true,
+  jumpFrame: 0
+};
+let jumpRequested = false;
+let ultRequested = false;
+
+// Ult: Three-Eyed Raven mode
+let ultMeter = 0;        // 0-100
+const ULT_COST = 600;
+const ULT_DURATION = 12 * 60; // 12 seconds at 60fps
+const BELL_CAP = 7; // max active bells during normal play
+let ultActive = false;
+let ultTimer = 0;
+let ultBellsSpawned = false;
+
+// Bells
+let bells = [];
+let stars = [];
+let ravens = [];
+let particles = [];
+let snowflakes = [];
+let floatingTexts = [];
+let screenShake = 0;
+let screenFlash = 0; // red flash intensity (0-1)
+
+// Mouse
+let mouseX = W / 2;
+let mouseY = H / 2;
+
+// Gamepad
+let gamepadActive = false;
+let gpX = W / 2;
+
+// ============================================================
+// SNOWFLAKES (background)
+// ============================================================
+for (let i = 0; i < 120; i++) {
+  snowflakes.push({
+    x: Math.random() * W,
+    y: Math.random() * H * 3 - H,
+    r: Math.random() * 2.5 + 0.5,
+    speed: Math.random() * 0.5 + 0.2,
+    drift: Math.random() * 0.3 - 0.15,
+    opacity: Math.random() * 0.5 + 0.3
+  });
+}
+
+// ============================================================
+// BELL GENERATION
+// ============================================================
+function spawnInitialBells() {
+  bells = [];
+  stars = [];
+  ravens = [];
+  // Start with BELL_CAP bells spread above wolf - wide spacing
+  for (let i = 0; i < BELL_CAP; i++) {
+    bells.push({
+      x: 50 + Math.random() * (W - 100),
+      y: H - 160 - i * 120 - Math.random() * 50,
+      type: 'normal',
+      hit: false,
+      swing: Math.random() * Math.PI * 2,
+      swingSpeed: 0.01 + Math.random() * 0.015
+    });
+  }
+}
+
+function spawnBellAtHeight(y, forceBell) {
+  const rand = Math.random();
+  if (!forceBell && rand < 0.06) {
+    // Dragon egg (star) - always ALSO spawn a bell nearby
+    stars.push({
+      x: 30 + Math.random() * (W - 60),
+      y: y,
+      hit: false,
+      pulse: Math.random() * Math.PI * 2
+    });
+    // Companion bell so there's always something to hit
+    bells.push({
+      x: 30 + Math.random() * (W - 60),
+      y: y + 40 + Math.random() * 40,
+      type: 'normal',
+      hit: false,
+      swing: Math.random() * Math.PI * 2,
+      swingSpeed: 0.01 + Math.random() * 0.015
+    });
+  } else if (!forceBell && rand < 0.10) {
+    // Raven - also spawn a bell nearby as safety net
+    ravens.push({
+      x: Math.random() < 0.5 ? -30 : W + 30,
+      y: y,
+      dir: 0,
+      speed: 2.5 + Math.random() * 1.5,
+      hit: false
+    });
+    ravens[ravens.length - 1].dir = ravens[ravens.length - 1].x < 0 ? 1 : -1;
+    bells.push({
+      x: 30 + Math.random() * (W - 60),
+      y: y + 30 + Math.random() * 50,
+      type: 'normal',
+      hit: false,
+      swing: Math.random() * Math.PI * 2,
+      swingSpeed: 0.01 + Math.random() * 0.015
+    });
+  } else {
+    const type = rand < 0.25 ? (rand < 0.15 ? 'ice' : 'gold') : 'normal';
+    bells.push({
+      x: 30 + Math.random() * (W - 60),
+      y: y,
+      type: type,
+      hit: false,
+      swing: Math.random() * Math.PI * 2,
+      swingSpeed: 0.01 + Math.random() * 0.015
+    });
+  }
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+function spawnParticles(x, y, color, count, speed = 3) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = Math.random() * speed + 1;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 1,
+      life: 1,
+      decay: 0.015 + Math.random() * 0.02,
+      color,
+      size: Math.random() * 3 + 1
+    });
+  }
+}
+
+function spawnFloatingText(x, y, text, color = '#fff') {
+  floatingTexts.push({ x, y, text, color, life: 1, vy: -1.5 });
+}
+
+// ============================================================
+// INPUT (Mouse + Touch with drag support)
+// ============================================================
+let touchActive = false;
+
+canvas.addEventListener('mousemove', (e) => {
+  if (touchActive) return;
+  const rect = canvas.getBoundingClientRect();
+  mouseX = (e.clientX - rect.left) / SCALE;
+  mouseY = (e.clientY - rect.top) / SCALE;
+  gamepadActive = false;
+});
+
+canvas.addEventListener('click', (e) => {
+  if (touchActive) return;
+  audioCtx.resume();
+  if (!windSound) windSound = playWindAmbient();
+  if (state === STATE.MENU) {
+    startGame();
+  } else if (state === STATE.PLAYING) {
+    jumpRequested = true;
+  } else if (state === STATE.GAMEOVER) {
+    state = STATE.MENU;
+  }
+});
+
+// Touch: drag to move wolf, tap to jump/start
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  touchActive = true;
+  audioCtx.resume();
+  if (!windSound) windSound = playWindAmbient();
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouseX = (touch.clientX - rect.left) / SCALE;
+  mouseY = (touch.clientY - rect.top) / SCALE;
+  if (state === STATE.MENU) {
+    startGame();
+  } else if (state === STATE.PLAYING) {
+    jumpRequested = true;
+  } else if (state === STATE.GAMEOVER) {
+    state = STATE.MENU;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouseX = (touch.clientX - rect.left) / SCALE;
+  mouseY = (touch.clientY - rect.top) / SCALE;
+  gamepadActive = false;
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    audioCtx.resume();
+    if (!windSound) windSound = playWindAmbient();
+    if (state === STATE.MENU) startGame();
+    else if (state === STATE.PLAYING) jumpRequested = true;
+    else if (state === STATE.GAMEOVER) state = STATE.MENU;
+  }
+  if ((e.key === 'q' || e.key === 'Q') && state === STATE.PLAYING) {
+    ultRequested = true;
+  }
+});
+
+// ============================================================
+// GAMEPAD
+// ============================================================
+function pollGamepad() {
+  const gamepads = navigator.getGamepads();
+  for (const gp of gamepads) {
+    if (!gp) continue;
+    const lx = gp.axes[0];
+    if (Math.abs(lx) > 0.1) {
+      gamepadActive = true;
+      gpX += lx * 8;
+      gpX = Math.max(20, Math.min(W - 20, gpX));
+    }
+    // A button to start/restart/jump
+    if (gp.buttons[0] && gp.buttons[0].pressed) {
+      audioCtx.resume();
+      if (!windSound) windSound = playWindAmbient();
+      if (state === STATE.MENU) startGame();
+      else if (state === STATE.PLAYING) jumpRequested = true;
+      else if (state === STATE.GAMEOVER) state = STATE.MENU;
+    }
+    // X/Y button for ult
+    if ((gp.buttons[2] && gp.buttons[2].pressed) || (gp.buttons[3] && gp.buttons[3].pressed)) {
+      if (state === STATE.PLAYING) ultRequested = true;
+    }
+  }
+}
+
+// ============================================================
+// GAME LOGIC
+// ============================================================
+function startGame() {
+  state = STATE.PLAYING;
+  score = 0;
+  combo = 0;
+  cameraY = 0;
+  targetCameraY = 0;
+  maxHeight = 0;
+  wolf.x = W / 2;
+  wolf.y = H - 80;
+  wolf.vy = 0;
+  wolf.onGround = true;
+  wolf.jumpFrame = 0;
+  particles = [];
+  floatingTexts = [];
+  gpX = W / 2;
+  hasJumped = false;
+  specialStreak = 0;
+  ultMeter = 0;
+  ultActive = false;
+  ultTimer = 0;
+  ultBellsSpawned = false;
+  spawnInitialBells();
+  startMusic();
+}
+
+// Physics - tighter, harder
+// Winterbells-authentic physics: good bounce, real gravity
+const GRAVITY = 0.12;
+const JUMP_FORCE = -6.5;
+const BELL_HIT_FORCE = -7.5;
+const STAR_HIT_FORCE = -11;
+const RAVEN_HIT_FORCE = -10.5;
+let specialStreak = 0; // consecutive raven/dragon egg hits = stacking momentum
+let hasJumped = false;
+
+function fixedUpdate() {
+  pollGamepad();
+
+  if (state === STATE.PLAYING || state === STATE.FALLING) {
+    // Wolf horizontal movement handled in render loop
+
+    // Gravity
+    wolf.vy += GRAVITY;
+    wolf.y += wolf.vy;
+    wolf.jumpFrame++;
+
+    // Ground collision
+    if (wolf.y > H - 60) {
+      if (hasJumped) {
+        if (state === STATE.PLAYING) {
+          state = STATE.FALLING;
+          playFall();
+          setTimeout(() => { state = STATE.GAMEOVER; saveScore(); }, 1200);
+        }
+      } else {
+        wolf.y = H - 60;
+        wolf.vy = 0;
+        wolf.onGround = true;
+      }
+    }
+
+    // Jump when on ground
+    if (jumpRequested && wolf.onGround) {
+      wolf.vy = JUMP_FORCE;
+      wolf.onGround = false;
+      wolf.jumpFrame = 0;
+      hasJumped = true;
+      playJump();
+      spawnParticles(wolf.x, wolf.y + 20, '#dde4f0', 8, 2);
+    }
+    jumpRequested = false;
+
+    // ULT: Three-Eyed Raven mode
+    if (ultRequested && ultMeter >= ULT_COST && !ultActive) {
+      ultActive = true;
+      ultTimer = ULT_DURATION;
+      ultMeter = 0;
+      ultBellsSpawned = false;
+      screenShake = 20;
+      screenFlash = 1.0;
+      playStarHit();
+      spawnParticles(wolf.x, wolf.y, '#ff2200', 40, 8);
+      spawnParticles(wolf.x, wolf.y, '#8888ff', 30, 6);
+      spawnParticles(wolf.x, wolf.y, '#aaccff', 20, 4);
+      floatingTexts.push({ x: wolf.x, y: wolf.y - 60, text: 'THREE-EYED RAVEN', color: '#aaddff', life: 3, vy: -0.5 });
+      playVoiceLine('ult_active');
+    }
+    ultRequested = false;
+
+    if (ultActive) {
+      ultTimer--;
+      // On activation: spawn massive bell field covering ~12s of upward travel
+      // At bounce speed ~7.5, wolf travels roughly 3000-4000px in 12s
+      if (!ultBellsSpawned) {
+        ultBellsSpawned = true;
+        for (let i = 0; i < 100; i++) {
+          bells.push({
+            x: 30 + Math.random() * (W - 60),
+            y: wolf.y - 30 - i * 45 - Math.random() * 20,
+            type: Math.random() < 0.3 ? (Math.random() < 0.5 ? 'gold' : 'ice') : 'normal',
+            hit: false,
+            swing: Math.random() * Math.PI * 2,
+            swingSpeed: 0.01 + Math.random() * 0.015
+          });
+        }
+      }
+      if (ultTimer <= 0) {
+        ultActive = false;
+        // Don't delete existing bells - just stop generating at ult scale
+        floatingTexts.push({ x: wolf.x, y: wolf.y - 40, text: 'Vision fades...', color: '#667799', life: 2, vy: -0.6 });
+      }
+    }
+
+    // Camera: wolf sits at ~58% screen height (just below center)
+    const wolfScreenY = wolf.y - cameraY;
+    if (wolfScreenY < H * 0.58) {
+      targetCameraY = wolf.y - H * 0.58;
+    }
+    // Also push camera down if wolf is too high on screen
+    if (wolfScreenY > H * 0.75 && hasJumped) {
+      targetCameraY = wolf.y - H * 0.65;
+    }
+    cameraY += (targetCameraY - cameraY) * 0.06;
+
+    // Track max height
+    const currentHeight = -wolf.y + H;
+    if (currentHeight > maxHeight) maxHeight = currentHeight;
+
+    // Bell collisions - HIT FROM UNDERNEATH (core Winterbells mechanic)
+    // Wolf rises up into bells above it
+    if (state === STATE.PLAYING) {
+      for (const bell of bells) {
+        if (bell.hit) continue;
+        const bx = bell.x + Math.sin(bell.swing) * 15;
+        const dx = wolf.x - bx;
+        const dy = wolf.y - bell.y; // wolf center vs bell center
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        // Generous hitbox: wolf within horizontal range AND vertically close
+        // Works from below (dy > 0 means wolf below bell) AND above
+        if (absDx < 44 && absDy < 36) {
+          bell.hit = true;
+          specialStreak = 0; // normal bell resets special streak
+          const momentumBonus = wolf.vy < -3 ? 1.15 : wolf.vy < -1 ? 1.08 : 1.0;
+          const ultBonus = ultActive ? 1.35 : 1.0;
+          wolf.vy = BELL_HIT_FORCE * momentumBonus * ultBonus;
+          wolf.jumpFrame = 0;
+          combo++;
+          const points = bell.type === 'gold' ? combo * 20 : bell.type === 'ice' ? combo * 15 : combo * 10;
+          score += points;
+          playBellHit(combo);
+          // Charge ult meter (faster during combos)
+          if (!ultActive) {
+            const wasBelow = ultMeter < ULT_COST;
+            ultMeter = Math.min(ULT_COST, ultMeter + (combo > 10 ? 3 : 2));
+            if (wasBelow && ultMeter >= ULT_COST) playVoiceLine('ult_ready');
+            if (combo > 0 && combo % 50 === 0) playVoiceLine('combo');
+          }
+          const particleColor = bell.type === 'gold' ? '#ffdd44' : bell.type === 'ice' ? '#88eeff' : '#aaccff';
+          spawnParticles(bx, bell.y, particleColor, 12);
+          spawnFloatingText(bx, bell.y - 20, '+' + points, particleColor);
+          // Spawn new bells above - respect cap unless ult active
+          const activeBells = bells.filter(b => !b.hit);
+          if (ultActive || activeBells.length < BELL_CAP) {
+            const topBell = activeBells.length > 0
+              ? Math.min(...activeBells.map(b => b.y))
+              : wolf.y - 200;
+            const toSpawn = ultActive ? 2 : Math.min(2, BELL_CAP - activeBells.length);
+            for (let i = 0; i < toSpawn; i++) {
+              spawnBellAtHeight(topBell - 80 - Math.random() * 120);
+            }
+          }
+        }
+      }
+      // Star collisions (dragon eggs)
+      for (const star of stars) {
+        if (star.hit) continue;
+        const dx = wolf.x - star.x;
+        const dy = wolf.y - star.y;
+        if (Math.abs(dx) < 38 && Math.abs(dy) < 34) {
+          star.hit = true;
+          specialStreak++;
+          const streakBonus = 1 + specialStreak * 0.15;
+          wolf.vy = STAR_HIT_FORCE * (ultActive ? 1.35 : 1.0) * streakBonus;
+          wolf.jumpFrame = 0;
+          combo += 5;
+          const points = combo * 50;
+          score += points;
+          playStarHit();
+          spawnParticles(star.x, star.y, '#ff6644', 25, 5);
+          spawnParticles(star.x, star.y, '#ffaa44', 15, 3);
+          spawnFloatingText(star.x, star.y - 30, 'DRACARYS! +' + points, '#ff6644');
+          screenShake = 10;
+          playVoiceLine('dracarys');
+        }
+      }
+      // Raven collisions
+      for (const raven of ravens) {
+        if (raven.hit) continue;
+        const dx = wolf.x - raven.x;
+        const dy = wolf.y - raven.y;
+        if (Math.abs(dx) < 40 && Math.abs(dy) < 30) {
+          raven.hit = true;
+          specialStreak++;
+          const streakBonus = 1 + specialStreak * 0.15;
+          wolf.vy = RAVEN_HIT_FORCE * (ultActive ? 1.35 : 1.0) * streakBonus;
+          wolf.jumpFrame = 0;
+          combo += 3;
+          const points = combo * 30;
+          score += points;
+          playStarHit(); // same satisfying sound as dracarys
+          spawnParticles(raven.x, raven.y, '#4444aa', 15);
+          spawnFloatingText(raven.x, raven.y - 20, 'DARK WINGS! +' + points, '#8888ff');
+          // Sometimes the three-eyed raven speaks
+          if (Math.random() < 0.4) {
+            floatingTexts.push({ x: raven.x, y: raven.y - 50, text: 'But you will FLY', color: '#aabbff', life: 2.5, vy: -0.4 });
+          }
+          playVoiceLine('raven');
+        }
+      }
+
+      // Falling off screen
+      if (wolf.y - cameraY > H + 50) {
+        state = STATE.FALLING;
+        playFall();
+        setTimeout(() => { state = STATE.GAMEOVER; saveScore(); }, 1200);
+      }
+    }
+
+    // Update ravens
+    for (const raven of ravens) {
+      if (!raven.hit) {
+        raven.x += raven.dir * raven.speed;
+        if (raven.x < -50) raven.x = W + 50;
+        if (raven.x > W + 50) raven.x = -50;
+      }
+    }
+
+    // Clean up objects that have scrolled below the screen (can't go back down)
+    const cullY = cameraY + H + 200;
+    bells = bells.filter(b => b.y < cullY);
+    stars = stars.filter(s => s.y < cullY);
+    ravens = ravens.filter(r => r.y < cullY);
+
+    // SAFETY NET: maintain BELL_CAP unhit bells above wolf (skip during ult)
+    if (state === STATE.PLAYING && !ultActive) {
+      const active = bells.filter(b => !b.hit);
+      if (active.length < BELL_CAP) {
+        const topY = active.length > 0 ? Math.min(...active.map(b => b.y)) : wolf.y - 150;
+        const needed = BELL_CAP - active.length;
+        for (let i = 0; i < needed; i++) {
+          spawnBellAtHeight(topY - 80 - i * 140 - Math.random() * 60, true);
+        }
+      }
+    }
+
+    // Update bell swings
+    for (const bell of bells) {
+      bell.swing += bell.swingSpeed;
+    }
+    for (const star of stars) {
+      star.pulse += 0.05;
+    }
+  }
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;
+    p.life -= p.decay;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Floating texts
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const t = floatingTexts[i];
+    t.y += t.vy;
+    t.life -= 0.015;
+    if (t.life <= 0) floatingTexts.splice(i, 1);
+  }
+
+  // Snowflakes
+  for (const s of snowflakes) {
+    s.y += s.speed;
+    s.x += s.drift + Math.sin(s.y * 0.01) * 0.3;
+    if (s.y > cameraY + H + 20) {
+      s.y = cameraY - 20;
+      s.x = Math.random() * W;
+    }
+  }
+
+  if (screenShake > 0) screenShake *= 0.85;
+  if (screenFlash > 0) screenFlash *= 0.92;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function drawBackground() {
+  // Night sky gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#060618');
+  grad.addColorStop(0.4, '#0a0a2e');
+  grad.addColorStop(0.7, '#101040');
+  grad.addColorStop(1, '#1a1a4a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars in sky
+  ctx.fillStyle = '#ffffff';
+  const starSeed = 42;
+  for (let i = 0; i < 60; i++) {
+    const sx = ((i * 137 + starSeed) % W);
+    const sy = ((i * 89 + starSeed * 3) % (H * 0.6));
+    const twinkle = 0.3 + Math.sin(Date.now() * 0.001 + i) * 0.3 + 0.4;
+    ctx.globalAlpha = twinkle;
+    ctx.beginPath();
+    ctx.arc(sx, sy, ((i * 7) % 3) * 0.4 + 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // The Wall - far background
+  const wallY = H - 200 - cameraY * 0.1;
+  if (wallY > -300 && wallY < H + 100) {
+    ctx.fillStyle = '#2a3a5a';
+    ctx.fillRect(0, wallY, W, 250);
+    // Ice texture on wall
+    ctx.fillStyle = '#3a4a6a';
+    for (let i = 0; i < 20; i++) {
+      ctx.fillRect(i * 42, wallY, 2, 250);
+    }
+    ctx.fillStyle = '#4a5a7a30';
+    for (let i = 0; i < 8; i++) {
+      ctx.fillRect(0, wallY + i * 30, W, 1);
+    }
+  }
+
+  // Northern forest silhouette
+  const treeY = H - 60 - cameraY * 0.05;
+  if (treeY > -200 && treeY < H + 100) {
+    ctx.fillStyle = '#0a0a1e';
+    for (let i = 0; i < 15; i++) {
+      const tx = i * 58 + 10;
+      const th = 60 + (i * 37 % 50);
+      ctx.beginPath();
+      ctx.moveTo(tx, treeY);
+      ctx.lineTo(tx + 15, treeY - th);
+      ctx.lineTo(tx + 30, treeY);
+      ctx.fill();
+    }
+  }
+}
+
+function drawGround() {
+  const groundY = H - 30 - cameraY;
+  if (groundY > H) return;
+  // Snow ground
+  const grad = ctx.createLinearGradient(0, groundY, 0, groundY + 40);
+  grad.addColorStop(0, '#d0d8e8');
+  grad.addColorStop(1, '#8090b0');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, groundY, W, H - groundY + cameraY + 30);
+  // Snow drifts
+  ctx.fillStyle = '#e0e8f0';
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    ctx.ellipse(i * 90 + 40, groundY + 5, 50, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawSnow() {
+  ctx.fillStyle = '#dde4f0';
+  for (const s of snowflakes) {
+    const sy = s.y - cameraY;
+    if (sy < -10 || sy > H + 10) continue;
+    ctx.globalAlpha = s.opacity;
+    ctx.beginPath();
+    ctx.arc(s.x, sy, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBells() {
+  for (const bell of bells) {
+    if (bell.hit) continue;
+    const bx = bell.x + Math.sin(bell.swing) * 15;
+    const by = bell.y - cameraY;
+    if (by < -50 || by > H + 50) continue;
+    const sprite = bell.type === 'gold' ? bellGold : bell.type === 'ice' ? bellIce : bellNormal;
+    ctx.drawImage(sprite, bx - 22, by - 22);
+  }
+  // Stars (dragon eggs)
+  for (const star of stars) {
+    if (star.hit) continue;
+    const sy = star.y - cameraY;
+    if (sy < -50 || sy > H + 50) continue;
+    const pulse = 1 + Math.sin(star.pulse) * 0.1;
+    ctx.save();
+    ctx.translate(star.x, sy);
+    ctx.scale(pulse, pulse);
+    ctx.drawImage(starSprite, -25, -25);
+    ctx.restore();
+  }
+  // Ravens
+  for (const raven of ravens) {
+    if (raven.hit) continue;
+    const ry = raven.y - cameraY;
+    if (ry < -50 || ry > H + 50) continue;
+    ctx.save();
+    if (raven.dir < 0) {
+      ctx.translate(raven.x + 30, ry - 24);
+      ctx.scale(-1, 1);
+      ctx.drawImage(ravenSprite, 0, 0);
+    } else {
+      ctx.drawImage(ravenSprite, raven.x - 30, ry - 24);
+    }
+    ctx.restore();
+  }
+}
+
+function drawWolf() {
+  const wy = wolf.y - cameraY;
+  if (wy < -80 || wy > H + 80) return;
+  const sprite = wolf.facingRight ? wolfSprite : wolfSpriteLeft;
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(wolf.x, wy + 30, 25, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Squash/stretch for jump feel
+  let scaleX = 1, scaleY = 1;
+  if (wolf.vy < -2) { scaleX = 0.9; scaleY = 1.15; }
+  else if (wolf.vy > 2) { scaleX = 1.1; scaleY = 0.9; }
+  ctx.save();
+  ctx.translate(wolf.x, wy);
+  ctx.scale(scaleX, scaleY);
+  ctx.drawImage(sprite, -WOLF_W / 2, -WOLF_H / 2);
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const py = p.y - cameraY;
+    if (py < -20 || py > H + 20) continue;
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, py, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFloatingTexts() {
+  for (const t of floatingTexts) {
+    const ty = t.y - cameraY;
+    ctx.globalAlpha = t.life;
+    ctx.fillStyle = t.color;
+    ctx.font = 'bold 18px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(t.text, t.x, ty);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // Score
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  ctx.fillText('Score: ' + score.toLocaleString(), 20, 40);
+  // Combo
+  if (combo > 1) {
+    ctx.font = 'bold 20px "Segoe UI", sans-serif';
+    ctx.fillStyle = combo > 20 ? '#ff8844' : combo > 10 ? '#ffcc44' : '#88ccff';
+    ctx.fillText('x' + combo + ' combo', 20, 68);
+  }
+  // Height
+  ctx.font = '16px "Segoe UI", sans-serif';
+  ctx.fillStyle = '#8899bb';
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.floor(maxHeight) + ' ft', W - 20, 40);
+  ctx.shadowBlur = 0;
+
+  // Ult meter bar
+  ctx.shadowBlur = 0;
+  const barX = 20, barY = H - 40, barW = 160, barH = 14;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(barX, barY, barW, barH);
+  if (ultActive) {
+    // Draining bar during ult
+    const pct = ultTimer / ULT_DURATION;
+    ctx.fillStyle = '#66aaff';
+    ctx.fillRect(barX, barY, barW * pct, barH);
+    ctx.shadowColor = '#66aaff';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(barX, barY, barW * pct, barH);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('THREE-EYED RAVEN', barX + 4, barY + 11);
+  } else {
+    const pct = ultMeter / ULT_COST;
+    const ready = ultMeter >= ULT_COST;
+    ctx.fillStyle = ready ? '#44ddaa' : '#336688';
+    ctx.fillRect(barX, barY, barW * pct, barH);
+    if (ready) {
+      ctx.shadowColor = '#44ddaa';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(barX, barY, barW * pct, barH);
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = ready ? '#fff' : '#8899aa';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(ready ? 'PRESS Q - RAVEN MODE' : 'Ult [Q]', barX + 4, barY + 11);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barW, barH);
+
+  // Controller indicator
+  if (gamepadActive) {
+    ctx.fillStyle = '#44ff44';
+    ctx.font = '12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('GAMEPAD', W - 20, 78);
+  }
+}
+
+function drawMenu() {
+  // Dark overlay
+  ctx.fillStyle = 'rgba(6,6,24,0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#4488ff';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = '#c0d4ff';
+  ctx.font = 'bold 72px "Segoe UI", sans-serif';
+  ctx.fillText('WINTERFELLS', W / 2, 200);
+  ctx.shadowBlur = 10;
+  ctx.font = '22px "Segoe UI", sans-serif';
+  ctx.fillStyle = '#8899bb';
+  ctx.fillText('The North Remembers', W / 2, 240);
+  ctx.shadowBlur = 0;
+
+  // Wolf preview
+  ctx.drawImage(wolfSprite, W / 2 - 40, 280);
+
+  // Instructions
+  ctx.font = '18px "Segoe UI", sans-serif';
+  ctx.fillStyle = '#aabbdd';
+  ctx.fillText('Mouse / Touch drag / Gamepad to move', W / 2, 380);
+  ctx.fillText('Hit the bells from below to bounce higher!', W / 2, 410);
+  ctx.fillStyle = '#ffdd44';
+  ctx.fillText('Gold bells = bonus points', W / 2, 450);
+  ctx.fillStyle = '#88eeff';
+  ctx.fillText('Ice bells = extra points', W / 2, 475);
+  ctx.fillStyle = '#ff6644';
+  ctx.fillText('Dragon eggs = DRACARYS mega bonus!', W / 2, 500);
+  ctx.fillStyle = '#8888ff';
+  ctx.fillText('Ravens = Dark Wings bonus', W / 2, 525);
+
+  // Start prompt
+  const pulse = 0.6 + Math.sin(Date.now() * 0.003) * 0.4;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 26px "Segoe UI", sans-serif';
+  ctx.fillText('Click or Press A to Begin', W / 2, 600);
+  ctx.globalAlpha = 1;
+
+  // High scores
+  if (highScores.length > 0) {
+    ctx.fillStyle = '#6677aa';
+    ctx.font = 'bold 20px "Segoe UI", sans-serif';
+    ctx.fillText('HIGH SCORES', W / 2, 680);
+    ctx.font = '18px "Segoe UI", sans-serif';
+    const top5 = highScores.slice(0, 5);
+    top5.forEach((s, i) => {
+      const medal = i === 0 ? 'WARDEN' : i === 1 ? 'LORD' : i === 2 ? 'KNIGHT' : 'SWORN';
+      ctx.fillStyle = i === 0 ? '#ffcc44' : i === 1 ? '#c0c0d0' : i === 2 ? '#cc8844' : '#6677aa';
+      ctx.fillText(`${medal}: ${s.score.toLocaleString()} (${s.height} ft)`, W / 2, 710 + i * 28);
+    });
+  }
+}
+
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(6,6,24,0.8)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#ff4444';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#ff6666';
+  // Shrink font if title is long
+  const titleSize = currentDeath.title.length > 22 ? 38 : 52;
+  ctx.font = `bold ${titleSize}px "Segoe UI", sans-serif`;
+  ctx.fillText(currentDeath.title, W / 2, 250);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#8899bb';
+  ctx.font = '20px "Segoe UI", sans-serif';
+  ctx.fillText(currentDeath.sub, W / 2, 290);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 36px "Segoe UI", sans-serif';
+  ctx.fillText(score.toLocaleString() + ' points', W / 2, 370);
+
+  ctx.fillStyle = '#aabbdd';
+  ctx.font = '22px "Segoe UI", sans-serif';
+  ctx.fillText('Height: ' + Math.floor(maxHeight) + ' ft', W / 2, 410);
+  ctx.fillText('Combo: x' + combo, W / 2, 440);
+
+  // Rank
+  const rank = highScores.findIndex(s => s.score <= score);
+  if (rank === 0) {
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = 'bold 28px "Segoe UI", sans-serif';
+    ctx.fillText('NEW WARDEN OF THE NORTH!', W / 2, 500);
+  } else if (rank <= 2 && rank >= 0) {
+    ctx.fillStyle = '#c0d4ff';
+    ctx.font = 'bold 24px "Segoe UI", sans-serif';
+    ctx.fillText('A worthy challenger!', W / 2, 500);
+  }
+
+  // High scores
+  ctx.fillStyle = '#6677aa';
+  ctx.font = 'bold 18px "Segoe UI", sans-serif';
+  ctx.fillText('HIGH SCORES', W / 2, 560);
+  ctx.font = '16px "Segoe UI", sans-serif';
+  const top5 = highScores.slice(0, 5);
+  top5.forEach((s, i) => {
+    const medal = i === 0 ? 'WARDEN' : i === 1 ? 'LORD' : i === 2 ? 'KNIGHT' : 'SWORN';
+    ctx.fillStyle = i === 0 ? '#ffcc44' : i === 1 ? '#c0c0d0' : i === 2 ? '#cc8844' : '#6677aa';
+    ctx.fillText(`${medal}: ${s.score.toLocaleString()} (${s.height} ft)`, W / 2, 590 + i * 26);
+  });
+
+  const pulse = 0.6 + Math.sin(Date.now() * 0.003) * 0.4;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = '#aabbdd';
+  ctx.font = '22px "Segoe UI", sans-serif';
+  ctx.fillText('Click or Press A to return', W / 2, 780);
+  ctx.globalAlpha = 1;
+}
+
+// Read user info from URL params (passed by Great Souls iframe)
+const _urlParams = new URLSearchParams(window.location.search);
+const _gsUserId = _urlParams.get('userId') || '';
+const _gsUsername = _urlParams.get('username') || '';
+
+function saveScore() {
+  playVoiceLine('death');
+  currentDeath = deathTitles[Math.floor(Math.random() * deathTitles.length)];
+  highScores.push({ score, height: Math.floor(maxHeight), date: Date.now() });
+  highScores.sort((a, b) => b.score - a.score);
+  highScores = highScores.slice(0, 10);
+  localStorage.setItem('winterfells_scores', JSON.stringify(highScores));
+
+  // Submit to Great Souls leaderboard
+  if (_gsUserId && score > 0) {
+    const origin = window.location.origin;
+    fetch(origin + '/api/winterfells', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: _gsUserId,
+        username: _gsUsername || 'guest',
+        score: score,
+        height: Math.floor(maxHeight),
+        combo: combo
+      })
+    }).catch(() => {});
+  }
+}
+
+// Custom cursor
+function drawCursor() {
+  if (state !== STATE.PLAYING) return;
+  const cx_pos = gamepadActive ? gpX : mouseX;
+  const cy_pos = mouseY;
+  ctx.strokeStyle = 'rgba(180,200,255,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx_pos - 10, cy_pos);
+  ctx.lineTo(cx_pos + 10, cy_pos);
+  ctx.moveTo(cx_pos, cy_pos - 10);
+  ctx.lineTo(cx_pos, cy_pos + 10);
+  ctx.stroke();
+}
+
+// ============================================================
+// YOUTUBE BACKGROUND MUSIC (Toggle with M key or tap HUD)
+// Uses a real iframe embed - works on file:// and http://
+// ============================================================
+let musicPlaying = false;
+
+function startMusic() {
+  if (musicPlaying) return;
+  // Hidden YouTube iframe - works on production (https), not on localhost/file://
+  const iframe = document.createElement('iframe');
+  iframe.allow = 'autoplay; encrypted-media';
+  iframe.style.cssText = 'position:fixed;width:1px;height:1px;bottom:0;right:0;border:none;opacity:0;pointer-events:none;';
+  iframe.src = 'https://www.youtube.com/embed/UFai_8BS0Us?autoplay=1&loop=1&playlist=UFai_8BS0Us';
+  document.body.appendChild(iframe);
+  musicPlaying = true;
+}
+
+// ============================================================
+// DEATH MESSAGES
+// ============================================================
+const deathTitles = [
+  { title: 'VALAR MORGHULIS', sub: 'All wolves must fall' },
+  { title: 'YOU FELL LIKE BRAN!', sub: 'The things we do for love...' },
+  { title: 'THE LONE WOLF DIES', sub: 'But the pack survives' },
+  { title: 'WINTER CAME FOR YOU', sub: 'And now your watch has ended' },
+  { title: 'THE NORTH FORGETS', sub: 'This particular attempt, anyway' },
+  { title: 'HODOR.', sub: 'Hold the... floor?' },
+];
+let currentDeath = deathTitles[0];
+
+// ============================================================
+// MAIN LOOP (fixed timestep for consistent physics on all devices)
+// ============================================================
+function gameLoop(now) {
+  const dt = now - lastTime;
+  lastTime = now;
+  // Clamp to avoid spiral of death on tab switch
+  accumulator += Math.min(dt, 100);
+
+  while (accumulator >= FIXED_DT) {
+    fixedUpdate();
+    accumulator -= FIXED_DT;
+  }
+
+  // Wolf horizontal - spring physics for visible trailing drag
+  if (state === STATE.PLAYING || state === STATE.FALLING) {
+    const targetX = Math.max(20, Math.min(W - 20, gamepadActive ? gpX : mouseX));
+    const diff = targetX - wolf.x;
+    // Spring: accelerate toward target, with damping
+    if (!wolf.vx) wolf.vx = 0;
+    wolf.vx += diff * 0.012;   // spring force
+    wolf.vx *= 0.78;           // damping - creates the visible lag
+    const prevX = wolf.x;
+    wolf.x += wolf.vx;
+    wolf.x = Math.max(20, Math.min(W - 20, wolf.x));
+    // Face direction based on velocity
+    if (wolf.vx > 0.5) wolf.facingRight = true;
+    else if (wolf.vx < -0.5) wolf.facingRight = false;
+  }
+
+  // Render
+  ctx.save();
+  if (screenShake > 0.5) {
+    ctx.translate(
+      (Math.random() - 0.5) * screenShake,
+      (Math.random() - 0.5) * screenShake
+    );
+  }
+
+  drawBackground();
+  if (state === STATE.PLAYING || state === STATE.FALLING) {
+    drawGround();
+    drawBells();
+    drawWolf();
+    drawParticles();
+    drawFloatingTexts();
+    drawSnow();
+    drawHUD();
+    drawCursor();
+  } else if (state === STATE.MENU) {
+    drawSnow();
+    drawMenu();
+  } else if (state === STATE.GAMEOVER) {
+    drawSnow();
+    drawGameOver();
+  }
+
+  // Screen flash (red) for ult activation
+  if (screenFlash > 0.01) {
+    ctx.globalAlpha = screenFlash * 0.6;
+    ctx.fillStyle = '#ff1100';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+
+    // Three-eyed raven eye graphic - fades with flash
+    if (screenFlash > 0.15) {
+      ctx.globalAlpha = screenFlash;
+      const eyeX = W / 2, eyeY = H / 2;
+      const eyeSize = 80 + (1 - screenFlash) * 40;
+      // Outer eye shape
+      ctx.strokeStyle = '#ff4422';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(eyeX - eyeSize, eyeY);
+      ctx.quadraticCurveTo(eyeX, eyeY - eyeSize * 0.6, eyeX + eyeSize, eyeY);
+      ctx.quadraticCurveTo(eyeX, eyeY + eyeSize * 0.6, eyeX - eyeSize, eyeY);
+      ctx.stroke();
+      // Iris
+      ctx.fillStyle = '#cc1100';
+      ctx.beginPath();
+      ctx.arc(eyeX, eyeY, eyeSize * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupil - vertical slit
+      ctx.fillStyle = '#220000';
+      ctx.beginPath();
+      ctx.ellipse(eyeX, eyeY, eyeSize * 0.08, eyeSize * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Glow
+      ctx.shadowColor = '#ff2200';
+      ctx.shadowBlur = 30;
+      ctx.strokeStyle = '#ff4422';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(eyeX, eyeY, eyeSize * 0.35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // Third eye mark (vertical line above)
+      ctx.strokeStyle = '#ff6644';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(eyeX, eyeY - eyeSize * 0.7);
+      ctx.lineTo(eyeX, eyeY - eyeSize * 0.45);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  ctx.restore();
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// WINDOW RESIZE
+// ============================================================
+window.addEventListener('resize', () => {
+  SCALE = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = (W * SCALE) + 'px';
+  canvas.style.height = (H * SCALE) + 'px';
+});
+
+// Start
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
