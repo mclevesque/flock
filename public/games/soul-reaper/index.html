@@ -554,6 +554,62 @@
           this.tone(440, 'sine',     0.7, 0.01,  0.14);
           break;
         }
+        case 'bossSpawn': {
+          // Ominous horn blast — low root + minor fifth
+          const t0 = this.ctx.currentTime;
+          const o1 = this.ctx.createOscillator(), g1 = this.ctx.createGain();
+          o1.type = 'sawtooth';
+          o1.frequency.setValueAtTime(55, t0);
+          o1.frequency.exponentialRampToValueAtTime(82, t0 + 0.6);
+          g1.gain.setValueAtTime(0, t0);
+          g1.gain.linearRampToValueAtTime(0.32, t0 + 0.05);
+          g1.gain.exponentialRampToValueAtTime(0.001, t0 + 1.2);
+          o1.connect(g1).connect(this.sfxGain);
+          o1.start(t0); o1.stop(t0 + 1.25);
+          this.tone(82,  'triangle', 1.0, 0.02, 0.22);
+          this.tone(110, 'sine',     1.4, 0.04, 0.18);
+          this.noise(0.4, 600, 0.18);
+          // Type-specific sting
+          if (extra === 'horror')      this.tone(1760, 'sine', 0.3, 0.005, 0.12, -30);
+          else if (extra === 'iron')   this.tone(330, 'square', 0.4, 0.005, 0.14);
+          else                          this.tone(880, 'triangle', 0.5, 0.01, 0.18);
+          break;
+        }
+        case 'bossHit': {
+          // Heavy impact: low thump + metallic clang
+          this.tone(130, 'square',   0.18, 0.002, 0.3);
+          this.tone(65,  'triangle', 0.3,  0.002, 0.28);
+          this.noise(0.12, 2400, 0.18);
+          if (extra === 'horror') this.tone(1200, 'sawtooth', 0.15, 0.002, 0.14, 40);
+          else if (extra === 'iron') this.tone(660, 'triangle', 0.18, 0.002, 0.18); // clang
+          break;
+        }
+        case 'bossKill': {
+          // Triumphant crash + fall
+          const t0 = this.ctx.currentTime;
+          [392, 523, 659, 784, 1047].forEach((f, i) => {
+            const osc = this.ctx.createOscillator();
+            const env = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            const start = t0 + i * 0.04;
+            env.gain.setValueAtTime(0, start);
+            env.gain.linearRampToValueAtTime(0.28, start + 0.005);
+            env.gain.exponentialRampToValueAtTime(0.001, start + 0.9);
+            osc.connect(env).connect(this.sfxGain);
+            osc.start(start); osc.stop(start + 0.95);
+          });
+          this.tone(65,  'sine',     1.0, 0.005, 0.32);
+          this.tone(2093, 'sine',    0.7, 0.005, 0.12);
+          this.noise(0.4, 3200, 0.16);
+          break;
+        }
+        case 'shield': {
+          // Metallic ping — bounced off shield
+          this.tone(1200, 'sine', 0.14, 0.002, 0.18);
+          this.tone(2400, 'sine', 0.1,  0.002, 0.1);
+          break;
+        }
       }
     },
 
@@ -672,28 +728,61 @@
     // Juice
     hitStopMs:   45,
     shakeDecay:  0.85,
+
+    // Bosses
+    bossRadius:       52,
+    bossHitboxPad:    24,
+    bossShieldMs:     400,     // invuln window after a hit
+    bossSpeed:        0.45,    // multiplier vs current baseSpeed
+    bossRewardWraith: 30,
+    bossRewardHorror: 35,
+    bossRewardIron:   40,
   };
 
   // ── Difficulty phases ───────────────────────────────────────────
-  // Applied to T live based on game.elapsed so spawnSoul sees the right mix.
+  // Endless ramp: difficulty keeps intensifying past 120s/180s/240s.
   function applyPhase(elapsed) {
+    let bossChance = 0, bossCooldownMin = Infinity;
     if (elapsed < 20) {
-      // INTRO — mostly white, few golds, no wigglers yet
       T.w_white = 0.80; T.w_gold = 0.10; T.w_skull = 0.10;
       T.p_swift = 0.05; T.p_wiggle = 0.05;
     } else if (elapsed < 60) {
-      // RAMP — more variety
       T.w_white = 0.62; T.w_gold = 0.13; T.w_skull = 0.25;
       T.p_swift = 0.15; T.p_wiggle = 0.20;
+      bossChance = 0.18; bossCooldownMin = 22;
     } else if (elapsed < 120) {
-      // CHAOS — lots of cursed + wigglers
       T.w_white = 0.50; T.w_gold = 0.14; T.w_skull = 0.36;
       T.p_swift = 0.25; T.p_wiggle = 0.32;
-    } else {
-      // REAPING — brutal
+      bossChance = 0.28; bossCooldownMin = 18;
+    } else if (elapsed < 180) {
       T.w_white = 0.44; T.w_gold = 0.16; T.w_skull = 0.40;
       T.p_swift = 0.32; T.p_wiggle = 0.40;
+      bossChance = 0.36; bossCooldownMin = 16;
+    } else if (elapsed < 240) {
+      T.w_white = 0.40; T.w_gold = 0.18; T.w_skull = 0.42;
+      T.p_swift = 0.40; T.p_wiggle = 0.48;
+      bossChance = 0.45; bossCooldownMin = 14;
+    } else {
+      // ENDLESS — keeps scaling forever, softly
+      const over = Math.min(240, elapsed - 240);   // cap extra ramp after 8 minutes
+      const k = over / 240;
+      T.w_white = 0.38 - k * 0.04;
+      T.w_gold  = 0.18 + k * 0.02;
+      T.w_skull = 0.44 + k * 0.02;
+      T.p_swift  = 0.45 + k * 0.10;
+      T.p_wiggle = 0.55 + k * 0.10;
+      bossChance = Math.min(0.6, 0.50 + k * 0.10);
+      bossCooldownMin = Math.max(10, 14 - k * 4);
     }
+
+    // Speed uncap past 180s — slow linear growth
+    if (elapsed > 180) T.maxSpeed = 460 + (elapsed - 180) * 0.6;
+    else               T.maxSpeed = 460;
+
+    // Wiggler dodges more aggressively at high difficulty
+    T.dodgeForce = 520 + Math.max(0, elapsed - 120) * 1.2;
+
+    return { bossChance, bossCooldownMin };
   }
 
   // ── Canvas setup ────────────────────────────────────────────────
@@ -764,12 +853,51 @@
   // Multi-spawn waves — triggered by the spawner at higher difficulty
   function spawnWave(n) {
     const pad = T.soulRadius + 16;
-    // Spread across the width
     for (let i = 0; i < n; i++) {
       const slotW = (T.worldW - 2 * pad) / n;
       const x = pad + slotW * (i + 0.5) + rand(-slotW * 0.25, slotW * 0.25);
       spawnSoul(x);
     }
+  }
+
+  // ── Boss spawn ──────────────────────────────────────────────────
+  const BOSS_TYPES = ['wraith', 'horror', 'iron'];
+
+  function spawnBoss() {
+    const bossType = BOSS_TYPES[Math.floor(Math.random() * BOSS_TYPES.length)];
+    const pad = T.bossRadius + 24;
+    const x = rand(pad, T.worldW - pad);
+    const baseSpeed = T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed);
+    const speed = baseSpeed * T.bossSpeed;
+    const boss = {
+      x, baseX: x,
+      y: T.worldH + T.bossRadius + 20,
+      vy: -speed,
+      vxOffset: 0,
+      type: 'boss',           // keeps engine path generic
+      bossType,               // 'wraith' | 'horror' | 'iron'
+      boss: true,
+      hp:    3,
+      maxHp: 3,
+      shielded: false,
+      shieldUntil: 0,
+      flickerUntil: 0,        // for horror teleport
+      swift: false, wiggle: false,
+      bornAt: performance.now(),
+      pulse: 0, wigglePhase: 0,
+      trail: [],
+      dead: false,
+    };
+    souls.push(boss);
+    game.activeBoss = boss;
+    bossAnnounce(bossType);
+    Audio2.sfx('bossSpawn', bossType);
+  }
+
+  function bossLabel(type) {
+    return type === 'wraith' ? 'GREAT WRAITH'
+         : type === 'horror' ? 'SHIFTING HORROR'
+         :                     'IRON REAPER';
   }
 
   function spawnParticles(x, y, color, n) {
@@ -878,6 +1006,8 @@
   const camera = { shakeX: 0, shakeY: 0 };
 
   function drawSoul(s) {
+    if (s.boss) return drawBoss(s);
+
     // Escape warning: glow intensifies in last 1s before leaving top
     const timeToEscape = s.y / -s.vy;
     const warn = s.vy < 0 && timeToEscape < 1 && timeToEscape > 0 ? (1 - timeToEscape) : 0;
@@ -1003,6 +1133,145 @@
     ctx.stroke();
   }
 
+  // ── Bosses ──────────────────────────────────────────────────────
+  function drawBoss(s) {
+    const now = performance.now();
+    const R = T.bossRadius;
+    const shielded = s.shielded && now < s.shieldUntil;
+    const flickering = now < s.flickerUntil;
+    const pulse = 1 + Math.sin(s.pulse) * 0.05;
+
+    const color = s.bossType === 'wraith' ? '#f4e9d0'
+                : s.bossType === 'horror' ? '#2a0a0a'
+                :                           '#d4a942';
+
+    // Big aura
+    const auraAlpha = 0.35 + (shielded ? 0.25 : 0) + Math.sin(now * 0.006) * 0.08;
+    const ag = ctx.createRadialGradient(s.x, s.y, R * 0.3, s.x, s.y, R * 2.4);
+    ag.addColorStop(0, hexA(color, auraAlpha));
+    ag.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = ag;
+    ctx.beginPath(); ctx.arc(s.x, s.y, R * 2.4, 0, Math.PI * 2); ctx.fill();
+
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.scale(pulse, pulse);
+
+    // Teleport flicker (horror)
+    if (flickering) ctx.globalAlpha = 0.3 + Math.random() * 0.5;
+
+    if (s.bossType === 'wraith') {
+      // Giant wisp + crown
+      drawWisp(0, 0, R * 0.95, false);
+      ctx.fillStyle = '#f4e9d0';
+      ctx.globalAlpha = ctx.globalAlpha * 0.85;
+      // Crown of three flames
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        const x = i * R * 0.45;
+        ctx.moveTo(x - R * 0.1, -R * 1.05);
+        ctx.quadraticCurveTo(x, -R * 1.4, x + R * 0.1, -R * 1.05);
+        ctx.quadraticCurveTo(x, -R * 1.2, x - R * 0.1, -R * 1.05);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else if (s.bossType === 'horror') {
+      // Dark silhouette with glowing vertical red eye
+      ctx.fillStyle = '#0a0406';
+      ctx.beginPath();
+      ctx.moveTo(0, R * 1.0);
+      ctx.quadraticCurveTo(R * 0.95, R * 0.3, R * 0.75, -R * 0.4);
+      ctx.quadraticCurveTo(R * 0.5, -R * 1.2, 0, -R * 1.25);
+      ctx.quadraticCurveTo(-R * 0.5, -R * 1.2, -R * 0.75, -R * 0.4);
+      ctx.quadraticCurveTo(-R * 0.95, R * 0.3, 0, R * 1.0);
+      ctx.fill();
+      // Red eye
+      ctx.shadowColor = '#ff2a1a';
+      ctx.shadowBlur = 24;
+      ctx.fillStyle = '#ff2a1a';
+      ctx.beginPath();
+      ctx.ellipse(0, -R * 0.25, R * 0.08, R * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Outline
+      ctx.strokeStyle = '#3a1010';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // Iron Reaper — gold armored skull
+      // Skull base
+      ctx.fillStyle = '#e8dcc8';
+      ctx.beginPath();
+      ctx.ellipse(0, -R * 0.1, R * 0.85, R * 0.95, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye sockets
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(-R * 0.3, -R * 0.15, R * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( R * 0.3, -R * 0.15, R * 0.2, 0, Math.PI * 2); ctx.fill();
+      // Teeth row
+      ctx.fillStyle = '#2a1c1c';
+      ctx.fillRect(-R * 0.55, R * 0.45, R * 1.1, R * 0.35);
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillStyle = '#e8dcc8';
+        ctx.fillRect(i * R * 0.2 - R * 0.05, R * 0.48, R * 0.1, R * 0.28);
+      }
+      // Golden armored plates — cracked proportionally to hp loss
+      ctx.strokeStyle = '#d4a942';
+      ctx.lineWidth = 3;
+      // Top plate
+      if (s.hp >= 1) {
+        ctx.beginPath();
+        ctx.arc(0, -R * 0.1, R * 0.95, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+      }
+      // Jaw plate
+      if (s.hp >= 2) {
+        ctx.strokeRect(-R * 0.6, R * 0.4, R * 1.2, R * 0.45);
+      }
+      // Crown spike
+      if (s.hp >= 3) {
+        ctx.fillStyle = '#d4a942';
+        ctx.beginPath();
+        ctx.moveTo(-R * 0.15, -R * 0.95);
+        ctx.lineTo(0, -R * 1.3);
+        ctx.lineTo(R * 0.15, -R * 0.95);
+        ctx.fill();
+      }
+    }
+
+    // Shield ring when invuln
+    if (shielded) {
+      ctx.strokeStyle = '#d4a942';
+      ctx.globalAlpha = 0.6 + Math.sin(now * 0.02) * 0.25;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 1.35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+
+    // HP indicator (three pips above head) + boss label
+    const pipY = s.y - R * 1.55;
+    const pipGap = 12;
+    for (let i = 0; i < s.maxHp; i++) {
+      const filled = i < s.hp;
+      const px = s.x + (i - (s.maxHp - 1) / 2) * pipGap;
+      ctx.fillStyle = filled ? '#d4a942' : '#2a2a2a';
+      ctx.strokeStyle = '#d4a942';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(px, pipY, 4, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+    // Name
+    ctx.fillStyle = hexA(color === '#2a0a0a' ? '#c4531a' : color, 0.85);
+    ctx.font = '700 11px "Cinzel", serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(bossLabel(s.bossType), s.x, pipY - 8);
+    ctx.textAlign = 'start';
+  }
+
   function drawParticle(p) {
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.fillStyle = p.color;
@@ -1044,14 +1313,15 @@
   function onTap(clientX, clientY) {
     Clairvoyance.markInput();
     const { x, y } = canvasCoords(clientX, clientY);
-    // Topmost (highest-y-reversed) soul within hitbox wins — easier in clusters
+    // Pick nearest eligible entity; bosses use bigger hitbox
     let best = null;
     let bestDist = Infinity;
     for (const s of souls) {
       if (s.dead) continue;
       const dx = s.x - x, dy = s.y - y;
       const d = Math.hypot(dx, dy);
-      const hit = T.soulRadius + T.hitboxPadPx;
+      const hit = s.boss ? (T.bossRadius + T.bossHitboxPad)
+                         : (T.soulRadius + T.hitboxPadPx);
       if (d <= hit && d < bestDist) { best = s; bestDist = d; }
     }
     onTapResolved(best, x, y);
@@ -1118,18 +1388,37 @@
     // Spawner
     if (!paused) {
       game.elapsed += dt;
-      applyPhase(game.elapsed);
+      const phase = applyPhase(game.elapsed);
       game.sinceSpawn += dt * 1000;
-      const interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
-      if (game.sinceSpawn >= interval) {
+      game.bossCooldown = Math.max(0, game.bossCooldown - dt);
+
+      // Is a boss currently alive?
+      const bossAlive = !!game.activeBoss && !game.activeBoss.dead;
+      const regularCount = souls.reduce((n, s) => n + (!s.boss && !s.dead ? 1 : 0), 0);
+
+      // Boss spawn — tied to phase chance + cooldown + not already active
+      if (!bossAlive && game.bossCooldown <= 0 && phase.bossChance > 0 && Math.random() < phase.bossChance * dt * 2) {
+        spawnBoss();
+        game.bossCooldown = phase.bossCooldownMin + Math.random() * 6;
+      }
+
+      // Regular spawns — throttled during boss fight
+      let interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
+      if (bossAlive) interval *= 2.5;              // much slower during boss
+      const regularCap = bossAlive ? 2 : 99;
+
+      if (game.sinceSpawn >= interval && regularCount < regularCap) {
         game.sinceSpawn = 0;
-        // Multi-spawn waves — roll depends on phase
+        // Multi-spawn waves — only when NO boss active
         let waveChance = 0, maxN = 1;
-        if (game.elapsed > 30)  { waveChance = 0.12; maxN = 2; }
-        if (game.elapsed > 60)  { waveChance = 0.20; maxN = 3; }
-        if (game.elapsed > 120) { waveChance = 0.28; maxN = 3; }
-        if (Math.random() < waveChance) {
-          spawnWave(2 + Math.floor(Math.random() * (maxN)));
+        if (!bossAlive) {
+          if (game.elapsed > 30)  { waveChance = 0.12; maxN = 2; }
+          if (game.elapsed > 60)  { waveChance = 0.20; maxN = 3; }
+          if (game.elapsed > 120) { waveChance = 0.28; maxN = 3; }
+          if (game.elapsed > 200) { waveChance = 0.36; maxN = 4; }
+        }
+        if (!bossAlive && Math.random() < waveChance) {
+          spawnWave(2 + Math.floor(Math.random() * maxN));
         } else {
           spawnSoul();
         }
@@ -1187,6 +1476,8 @@
     lastComboAt: 0,
     sinceSpawn: 0,
     elapsed: 0,
+    activeBoss: null,
+    bossCooldown: 25,   // first boss not before ~25s into run
     high: Number(localStorage.getItem(HIGHSCORE_KEY) || 0),
   };
 
@@ -1329,10 +1620,10 @@
   window.onTapResolved = function(soul, x, y) {
     if (game.state !== 'playing') return;
     if (!soul) {
-      // Miss — visual-only ripple, no penalty
       spawnRipple(x, y, '#4a4a4a');
       return;
     }
+    if (soul.boss) { hitBoss(soul, x, y); return; }
     soul.dead = true;
     if (soul.type === 'skull')      punishCursed(soul, x, y);
     else                             awardSoul(soul, x, y);
@@ -1340,10 +1631,100 @@
 
   window.onSoulEscaped = function(soul) {
     if (game.state !== 'playing') return;
-    // Cursed skulls escaping is GOOD — no penalty
-    if (soul.type === 'skull') return;
+    if (soul.boss) {
+      // Iron Reaper escaping costs a life; others just missed points
+      if (soul.bossType === 'iron') {
+        punishEscape();
+        flashState.color = '#d4a942';
+        flashState.alpha = 0.5;
+      }
+      if (game.activeBoss === soul) game.activeBoss = null;
+      return;
+    }
+    if (soul.type === 'skull') return;   // cursed skulls escaping is GOOD
     punishEscape();
   };
+
+  // ── Boss handlers ───────────────────────────────────────────────
+  function hitBoss(b, x, y) {
+    const now = performance.now();
+    // Shielded? visual pop, no damage
+    if (b.shielded && now < b.shieldUntil) {
+      spawnParticles(x, y, '#d4a942', 8);
+      spawnRipple(x, y, '#d4a942');
+      shake(2);
+      Audio2.sfx('shield');
+      return;
+    }
+    b.hp -= 1;
+    b.shielded = true;
+    b.shieldUntil = now + T.bossShieldMs;
+
+    // Horror: teleport to a new X position
+    if (b.bossType === 'horror') {
+      const pad = T.bossRadius + 24;
+      b.baseX = rand(pad, T.worldW - pad);
+      b.x = b.baseX;
+      b.vxOffset = 0;
+      b.flickerUntil = now + 300;
+    }
+
+    const bcol = b.bossType === 'wraith' ? '#f4e9d0'
+               : b.bossType === 'horror' ? '#ff2a1a'
+               :                           '#d4a942';
+
+    if (b.hp <= 0) {
+      killBoss(b, x, y);
+    } else {
+      spawnParticles(x, y, bcol, 22);
+      spawnRipple(x, y, bcol);
+      shake(9);
+      hitStop(90);
+      Audio2.sfx('bossHit', b.bossType);
+      comboPopup(x, y - 20, b.hp + ' HP', false);
+    }
+  }
+
+  function killBoss(b, x, y) {
+    b.dead = true;
+    if (game.activeBoss === b) game.activeBoss = null;
+    const reward = b.bossType === 'wraith' ? T.bossRewardWraith
+                 : b.bossType === 'horror' ? T.bossRewardHorror
+                 :                           T.bossRewardIron;
+    game.score += reward;
+
+    // Massive juice
+    const bcol = b.bossType === 'wraith' ? '#f4e9d0'
+               : b.bossType === 'horror' ? '#ff2a1a'
+               :                           '#d4a942';
+    spawnParticles(x, y, bcol, 60);
+    spawnParticles(x, y, '#d4a942', 30);
+    for (let i = 0; i < 3; i++) spawnRipple(x, y, bcol);
+    shake(22);
+    hitStop(180);
+    flashState.color = bcol;
+    flashState.alpha = 0.4;
+    Audio2.sfx('bossKill', b.bossType);
+
+    comboPopup(x, y, '+' + reward, true);
+    setTimeout(() => comboPopup(T.worldW / 2, T.worldH * 0.4, bossLabel(b.bossType) + ' BANISHED', true), 80);
+
+    renderScore();
+  }
+
+  function bossAnnounce(type) {
+    const el = document.createElement('div');
+    el.className = 'combo-pop gold';
+    el.style.fontSize = '24px';
+    el.style.letterSpacing = '0.2em';
+    el.style.color = '#c4531a';
+    el.style.textShadow = '0 0 30px #c4531a';
+    el.textContent = '⚔ ' + bossLabel(type) + ' ⚔';
+    el.style.left = (T.worldW / 2) + 'px';
+    el.style.top  = (T.worldH * 0.3) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
 
   // ── State transitions ───────────────────────────────────────────
   function startGame() {
@@ -1368,6 +1749,8 @@
     game.lastComboAt = 0;
     game.elapsed = 0;
     game.sinceSpawn = 400;
+    game.activeBoss = null;
+    game.bossCooldown = 25;
     souls.length = 0;
     particles.length = 0;
     ripples.length = 0;
