@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Soul Reaper — Great Souls</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0d0d0d; color: #e8dcc8;
+      font-family: system-ui, -apple-system, sans-serif;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      overscroll-behavior: none;
+    }
+    body {
+      position: fixed; inset: 0;
+    }
+    #game {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; display: block;
+      touch-action: none;
+    }
+
+    /* ── HUD ──────────────────────────────────── */
+    #hud {
+      position: absolute;
+      top: env(safe-area-inset-top, 0); left: 0; right: 0;
+      padding: 14px 18px;
+      pointer-events: none;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      z-index: 10;
+    }
+    .hud-score {
+      font-family: 'Cinzel', serif;
+      color: #d4a942; font-size: 32px; font-weight: 700;
+      text-shadow: 0 0 20px rgba(212,169,66,0.4), 0 2px 4px rgba(0,0,0,0.8);
+      letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .hud-combo {
+      font-family: 'Cinzel', serif;
+      color: #c4531a; font-size: 14px; font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+      opacity: 0;
+      transition: opacity 0.18s, transform 0.18s;
+      transform: translateY(-4px);
+    }
+    .hud-combo.active { opacity: 1; transform: translateY(0); }
+    .hud-lives {
+      display: flex; gap: 6px;
+      font-size: 22px;
+    }
+    .heart {
+      filter: drop-shadow(0 0 8px rgba(196,83,26,0.5));
+      transition: opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
+    }
+    .heart.lost {
+      opacity: 0.15; transform: scale(0.7);
+      filter: grayscale(1) brightness(0.4);
+    }
+
+    /* ── Overlays (menu + gameover) ──────────── */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(13,13,13,0.88);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      z-index: 20;
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .overlay.hidden { display: none; }
+    .title {
+      font-family: 'Cinzel', serif;
+      font-size: 44px; font-weight: 900;
+      color: #d4a942; letter-spacing: 0.15em;
+      text-shadow: 0 0 40px rgba(212,169,66,0.4);
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: #6a5a4a; font-size: 11px; letter-spacing: 0.3em;
+      text-transform: uppercase; margin-bottom: 40px;
+    }
+    .btn {
+      font-family: 'Cinzel', serif;
+      background: linear-gradient(135deg, #d4a942, #8a6d2b);
+      color: #0d0d0d; border: 1px solid #d4a942; border-radius: 12px;
+      padding: 16px 40px; font-size: 15px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 4px 24px rgba(212,169,66,0.3);
+      transition: transform 0.1s, box-shadow 0.15s;
+    }
+    .btn:active {
+      transform: scale(0.96);
+      box-shadow: 0 2px 12px rgba(212,169,66,0.4);
+    }
+    .how {
+      color: #a89878; font-size: 14px; line-height: 1.9;
+      max-width: 320px; margin: 16px 0 36px;
+    }
+    .how .white { color: #e8dcc8; font-weight: 600; }
+    .how .gold  { color: #d4a942; font-weight: 700; }
+    .how .skull { color: #c4531a; font-weight: 700; }
+    .highscore {
+      font-family: 'Cinzel', serif;
+      color: #8a6d2b; font-size: 12px; letter-spacing: 0.15em;
+      margin-top: 24px; text-transform: uppercase;
+    }
+    .gameover-score {
+      font-family: 'Cinzel', serif;
+      color: #d4a942; font-size: 72px; font-weight: 900;
+      text-shadow: 0 0 40px rgba(212,169,66,0.5);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 8px; line-height: 1;
+    }
+    .new-best {
+      color: #c4531a; font-family: 'Cinzel', serif;
+      font-size: 14px; font-weight: 700; letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      animation: pulse-glow 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.7; text-shadow: 0 0 10px rgba(196,83,26,0.4); }
+      50%      { opacity: 1;   text-shadow: 0 0 24px rgba(196,83,26,0.9); }
+    }
+
+    /* ── Debug HUD (toggle: 5-tap on title) ──── */
+    #debug {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0) + 6px);
+      left: 0; right: 0;
+      padding: 6px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px; color: #4a4a4a;
+      pointer-events: none;
+      display: none;
+      z-index: 15;
+      text-align: center;
+    }
+    #debug.visible { display: block; }
+    #debug .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #debug .good { color: #4caf7d; }
+    #debug .warn { color: #d4a942; }
+    #debug .bad  { color: #c4531a; }
+    #debug .lbl  { color: #3a3a3a; }
+
+    /* ── Floating combo popups ──────────────── */
+    @keyframes float-up {
+      0%   { opacity: 0; transform: translate(-50%, 0) scale(0.7); }
+      15%  { opacity: 1; transform: translate(-50%, -12px) scale(1.25); }
+      100% { opacity: 0; transform: translate(-50%, -56px) scale(1); }
+    }
+    .combo-pop {
+      position: absolute;
+      font-family: 'Cinzel', serif;
+      font-size: 30px; font-weight: 900;
+      color: #d4a942; text-shadow: 0 0 20px #d4a942, 0 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      animation: float-up 0.75s ease-out forwards;
+      z-index: 12;
+      letter-spacing: 0.05em;
+    }
+    .combo-pop.gold { color: #fff3c8; text-shadow: 0 0 24px #d4a942; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div>
+      <div class="hud-score" id="scoreEl">0</div>
+      <div class="hud-combo" id="comboEl">×1</div>
+    </div>
+    <div class="hud-lives" id="livesEl">
+      <span class="heart">🔥</span>
+      <span class="heart">🔥</span>
+      <span class="heart">🔥</span>
+    </div>
+  </div>
+
+  <div class="overlay" id="menu">
+    <div class="title" id="titleEl">SOUL REAPER</div>
+    <div class="subtitle">The hour of reckoning</div>
+    <div class="how">
+      Tap the <span class="white">pale souls</span> before they escape.<br>
+      The rare <span class="gold">gold souls</span> grant <span class="gold">×5</span>.<br>
+      Never touch the <span class="skull">cursed skulls</span>.<br>
+      Let none rise past you.
+    </div>
+    <button class="btn" id="startBtn">Begin the Reap</button>
+    <div class="highscore" id="highEl"></div>
+  </div>
+
+  <div class="overlay hidden" id="gameover">
+    <div class="subtitle">The reaping ends</div>
+    <div class="gameover-score" id="finalScoreEl">0</div>
+    <div class="new-best" id="newBestEl" style="display:none">— NEW BEST —</div>
+    <div class="highscore" id="finalHighEl"></div>
+    <div style="height: 32px"></div>
+    <button class="btn" id="retryBtn">Reap Again</button>
+  </div>
+
+  <div id="debug">
+    <div class="row" id="debugRow">— init —</div>
+  </div>
+
+  <script>
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 2 — CLAIRVOYANCE (trimmed for reflex game)
+
+     FIVE PILLARS (GOLDEN RULE: "What does the player do next?")
+       1. RESPONSIVE — tap→visible in < 50ms, stable 60fps, low jitter
+       2. READABLE   — soul types visually distinct (colour + shape + size)
+       3. FAIR       — escape telegraphed (~1s warning glow), cursed marked
+       4. GUIDED     — souls always on-screen, score/lives always visible
+       5. JUICY      — hit-stop + shake + particles + scale pulse per tap
+     ══════════════════════════════════════════════════════════════════ */
+  const Clairvoyance = {
+    enabled: true,
+    history: [],
+    maxHistory: 300,
+    frameCount: 0,
+
+    // Reflex-game profile — tap-to-banish rising souls
+    profile: {
+      name: 'Reflex (Soul Reaper)',
+      inputLatencyMs:  { ideal: 32,  max: 50  },  // touchstart -> visual reaction
+      fps:             { ideal: 60,  min: 55  },
+      frameJitterMs:   { ideal: 8,   max: 20  },
+      screenCrossTime: { min: 2.0,   ideal: 3.0, max: 5.0 }, // soul bottom→top
+      telegraphMs:     { ideal: 1000, min: 700 }, // warning before soul escapes
+      hitboxPadPx:     { ideal: 18,  min: 12  },  // thumb forgiveness
+      hitStopMs:       { ideal: 40,  min: 30, max: 80 },
+      shakeDecay:      { ideal: 0.85, min: 0.8, max: 0.92 },
+    },
+
+    // Input-latency measurement (touchstart timestamp → first frame painted)
+    pendingInputs: [],   // [{ t: performance.now(), resolved: false }]
+    latencies:     [],   // rolling window of measured latencies
+
+    markInput() {
+      this.pendingInputs.push({ t: performance.now(), resolved: false });
+    },
+    resolveInputs() {
+      // Called once per rAF — any unresolved pending inputs get their latency measured
+      const now = performance.now();
+      for (const p of this.pendingInputs) {
+        if (!p.resolved) {
+          p.resolved = true;
+          this.latencies.push(now - p.t);
+          if (this.latencies.length > 60) this.latencies.shift();
+        }
+      }
+      this.pendingInputs = this.pendingInputs.filter(p => !p.resolved).slice(-10);
+    },
+
+    recordFrame(data) {
+      if (!this.enabled) return;
+      this.history.push({ frame: this.frameCount++, time: performance.now(), ...data });
+      if (this.history.length > this.maxHistory) this.history.shift();
+    },
+
+    // Live metrics for the debug HUD
+    metrics() {
+      const n = this.history.length;
+      if (n < 10) return null;
+      const recent = this.history.slice(-60);
+      const deltas = [];
+      for (let i = 1; i < recent.length; i++) deltas.push(recent[i].time - recent[i-1].time);
+      const avgDelta = deltas.reduce((a,b) => a+b, 0) / Math.max(1, deltas.length);
+      const fps = 1000 / avgDelta;
+      const jitter = deltas.length ? (Math.max(...deltas) - Math.min(...deltas)) : 0;
+      const avgLatency = this.latencies.length
+        ? this.latencies.reduce((a,b)=>a+b,0) / this.latencies.length
+        : 0;
+      return {
+        fps: Math.round(fps),
+        jitter: Math.round(jitter),
+        latency: Math.round(avgLatency),
+        entities: recent[recent.length-1]?.entities ?? 0,
+      };
+    },
+
+    // Preflight — validate tunables BEFORE starting a round.
+    // Returns { ok, score: 'n/m', checks: [{name, passed, value, expected}] }
+    preflightCheck(tunables) {
+      const p = this.profile;
+      const checks = [];
+
+      // RESPONSIVE
+      checks.push({
+        name: 'Hitbox padding is thumb-friendly',
+        passed: tunables.hitboxPadPx >= p.hitboxPadPx.min,
+        value: tunables.hitboxPadPx + 'px',
+        expected: '≥ ' + p.hitboxPadPx.min + 'px',
+      });
+
+      // READABLE — soul types must have distinct colors
+      const colors = [tunables.color_white, tunables.color_gold, tunables.color_skull];
+      const unique = new Set(colors).size;
+      checks.push({
+        name: 'Soul types visually distinct',
+        passed: unique === 3,
+        value: unique + ' unique colors',
+        expected: '3 unique',
+      });
+
+      // FAIR — screen cross time long enough to react
+      const crossTime = tunables.worldH / tunables.baseSpeed;
+      checks.push({
+        name: 'Screen-cross time is reactable',
+        passed: crossTime >= p.screenCrossTime.min,
+        value: crossTime.toFixed(1) + 's',
+        expected: '≥ ' + p.screenCrossTime.min + 's',
+      });
+
+      // FAIR — cursed skulls visually obvious (flagged by color being red-ish)
+      checks.push({
+        name: 'Cursed skulls telegraphed with distinct color',
+        passed: /^#c4/i.test(tunables.color_skull) || /red|#c/i.test(tunables.color_skull),
+        value: tunables.color_skull,
+        expected: 'warm/red hue',
+      });
+
+      // GUIDED — spawn rate guarantees something on screen
+      checks.push({
+        name: 'Spawn rate guarantees a target on-screen',
+        passed: tunables.spawnInterval < crossTime * 1000 * 0.7,
+        value: tunables.spawnInterval + 'ms',
+        expected: '< ' + Math.round(crossTime * 700) + 'ms',
+      });
+
+      // JUICY — juice values within ideal ranges
+      checks.push({
+        name: 'Hit-stop is satisfying not jarring',
+        passed: tunables.hitStopMs >= p.hitStopMs.min && tunables.hitStopMs <= p.hitStopMs.max,
+        value: tunables.hitStopMs + 'ms',
+        expected: p.hitStopMs.min + '-' + p.hitStopMs.max + 'ms',
+      });
+      checks.push({
+        name: 'Shake decay is tuned',
+        passed: tunables.shakeDecay >= p.shakeDecay.min && tunables.shakeDecay <= p.shakeDecay.max,
+        value: tunables.shakeDecay.toFixed(2),
+        expected: p.shakeDecay.min + '-' + p.shakeDecay.max,
+      });
+
+      const passed = checks.filter(c => c.passed).length;
+      const ok = passed === checks.length;
+      return { ok, score: passed + '/' + checks.length, checks };
+    },
+
+    // Runtime analysis — call after a round for summary issues
+    analyze() {
+      const m = this.metrics();
+      if (!m) return null;
+      const issues = [];
+      const p = this.profile;
+      if (m.fps < p.fps.min)
+        issues.push({ pillar: 'responsive', msg: `FPS ${m.fps} (< ${p.fps.min})` });
+      if (m.jitter > p.frameJitterMs.max)
+        issues.push({ pillar: 'responsive', msg: `Jitter ${m.jitter}ms (> ${p.frameJitterMs.max})` });
+      if (m.latency > p.inputLatencyMs.max)
+        issues.push({ pillar: 'responsive', msg: `Input lag ${m.latency}ms (> ${p.inputLatencyMs.max})` });
+      return { metrics: m, issues, healthy: issues.length === 0 };
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 3 — ENGINE (canvas, entities, loop, spawner, input)
+     ══════════════════════════════════════════════════════════════════ */
+
+  // ── Tunables (passed to Clairvoyance preflight) ─────────────────
+  const T = {
+    worldW: 0, worldH: 0,     // set on resize
+    dpr: 1,
+
+    // Souls
+    baseSpeed:    160,         // px/s upward (world coords)
+    speedRampPerSec: 4,        // px/s added every second of play
+    maxSpeed:     380,
+    spawnInterval: 900,        // ms between spawns at start
+    spawnMin:      400,
+    spawnRamp:     6,          // ms trimmed per second played
+    soulRadius:    32,         // visual radius
+    hitboxPadPx:   18,         // extra tap forgiveness on top of radius
+
+    // Spawn weights (sum = 1)
+    w_white: 0.72,
+    w_gold:  0.12,
+    w_skull: 0.16,
+
+    // Colours
+    color_white: '#e8dcc8',
+    color_gold:  '#d4a942',
+    color_skull: '#c4531a',
+    color_bg:    '#0d0d0d',
+
+    // Juice
+    hitStopMs:   45,
+    shakeDecay:  0.85,
+  };
+
+  // ── Canvas setup ────────────────────────────────────────────────
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    T.dpr = Math.min(2, window.devicePixelRatio || 1);   // cap at 2x for perf
+    canvas.width  = Math.floor(w * T.dpr);
+    canvas.height = Math.floor(h * T.dpr);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(T.dpr, 0, 0, T.dpr, 0, 0);
+    T.worldW = w;
+    T.worldH = h;
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', resize, { passive: true });
+  resize();
+
+  // ── Entities ────────────────────────────────────────────────────
+  /** Soul: { x, y, vy, type, bornAt, scale, pulse, escaping, dead } */
+  const souls     = [];
+  const particles = [];
+  const ripples   = [];     // tap feedback rings
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function pick(weights) {
+    const r = Math.random();
+    let acc = 0;
+    for (const [k, w] of weights) { acc += w; if (r < acc) return k; }
+    return weights[weights.length - 1][0];
+  }
+
+  function spawnSoul() {
+    const type = pick([
+      ['white', T.w_white],
+      ['gold',  T.w_gold],
+      ['skull', T.w_skull],
+    ]);
+    const pad = T.soulRadius + 8;
+    souls.push({
+      x: rand(pad, T.worldW - pad),
+      y: T.worldH + T.soulRadius + 10,
+      vy: -(T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed) + rand(-15, 15)),
+      type,
+      bornAt: performance.now(),
+      pulse: Math.random() * Math.PI * 2,
+      dead: false,
+    });
+  }
+
+  function spawnParticles(x, y, color, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = rand(60, 220);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - rand(40, 120),   // bias upward
+        life: 1, maxLife: rand(0.45, 0.85),
+        size: rand(2, 4), color,
+      });
+    }
+  }
+
+  function spawnRipple(x, y, color) {
+    ripples.push({ x, y, r: 6, maxR: 70, life: 1, color });
+  }
+
+  // ── Update ──────────────────────────────────────────────────────
+  function updateSouls(dt) {
+    for (const s of souls) {
+      if (s.dead) continue;
+      s.y    += s.vy * dt;
+      s.pulse += dt * 4;
+      // Escape → mark dead, signal to game layer via callback
+      if (s.y < -T.soulRadius * 1.5) {
+        s.dead = true;
+        s.escaped = true;
+      }
+    }
+    // Purge
+    for (let i = souls.length - 1; i >= 0; i--) {
+      if (souls[i].dead) {
+        if (souls[i].escaped) onSoulEscaped(souls[i]);
+        souls.splice(i, 1);
+      }
+    }
+  }
+
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 280 * dt;              // gravity
+      p.vx *= (1 - 1.2 * dt);        // drag
+      p.life -= dt / p.maxLife;
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function updateRipples(dt) {
+    for (const r of ripples) {
+      r.r    += (r.maxR - r.r) * 6 * dt;
+      r.life -= dt / 0.35;
+    }
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      if (ripples[i].life <= 0) ripples.splice(i, 1);
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────
+  const camera = { shakeX: 0, shakeY: 0 };
+
+  function drawSoul(s) {
+    const t = performance.now();
+    const timeAlive = (t - s.bornAt) / 1000;
+    // Escape warning: glow intensifies in last 1s before leaving top
+    const timeToEscape = s.y / -s.vy;   // seconds until y=0
+    const warn = s.vy < 0 && timeToEscape < 1 && timeToEscape > 0 ? (1 - timeToEscape) : 0;
+    const pulse = 1 + Math.sin(s.pulse) * 0.08;
+    const r = T.soulRadius * pulse;
+
+    ctx.save();
+    ctx.translate(s.x, s.y);
+
+    // Outer aura
+    const auraColor = s.type === 'white' ? T.color_white
+                    : s.type === 'gold'  ? T.color_gold
+                    : T.color_skull;
+    const auraAlpha = 0.18 + warn * 0.5;
+    const grad = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.9);
+    grad.addColorStop(0, hexA(auraColor, auraAlpha));
+    grad.addColorStop(1, hexA(auraColor, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body
+    if (s.type === 'skull') {
+      drawSkull(0, 0, r * 0.85);
+    } else {
+      drawWisp(0, 0, r, s.type === 'gold');
+    }
+    ctx.restore();
+  }
+
+  function drawWisp(cx, cy, r, gold) {
+    const bodyColor = gold ? T.color_gold : T.color_white;
+    // Body — elongated teardrop tail
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.9);
+    ctx.quadraticCurveTo(cx + r * 0.85, cy + r * 0.3, cx + r * 0.75, cy - r * 0.2);
+    ctx.quadraticCurveTo(cx + r * 0.5, cy - r * 1.05, cx, cy - r * 1.15);
+    ctx.quadraticCurveTo(cx - r * 0.5, cy - r * 1.05, cx - r * 0.75, cy - r * 0.2);
+    ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 0.3, cx, cy + r * 0.9);
+    ctx.closePath();
+
+    const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+    g.addColorStop(0, gold ? '#fff3c8' : '#ffffff');
+    g.addColorStop(1, gold ? '#8a6d2b' : '#6a5a4a');
+    ctx.fillStyle = g;
+    ctx.globalAlpha = 0.92;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Eyes — hollow dark sockets
+    ctx.fillStyle = gold ? '#2a1c05' : '#1a1a1a';
+    ctx.beginPath(); ctx.arc(cx - r * 0.22, cy - r * 0.35, r * 0.11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.22, cy - r * 0.35, r * 0.11, 0, Math.PI * 2); ctx.fill();
+
+    // Outline for readability
+    ctx.strokeStyle = gold ? '#d4a942' : '#a89878';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function drawSkull(cx, cy, r) {
+    // Menacing ember skull — red-orange glow
+    ctx.fillStyle = '#1a0a0a';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.1, r * 0.85, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Jaw
+    ctx.fillRect(cx - r * 0.5, cy + r * 0.55, r, r * 0.35);
+
+    // Eye sockets with ember glow
+    const eyeR = r * 0.22;
+    ctx.fillStyle = '#c4531a';
+    ctx.shadowColor = '#c4531a';
+    ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(cx - r * 0.28, cy - r * 0.15, eyeR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.28, cy - r * 0.15, eyeR, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Teeth
+    ctx.fillStyle = '#2a1c1c';
+    for (let i = -2; i <= 2; i++) {
+      ctx.fillRect(cx + i * r * 0.18 - r * 0.06, cy + r * 0.55, r * 0.12, r * 0.28);
+    }
+
+    // Outline
+    ctx.strokeStyle = '#c4531a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.1, r * 0.85, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawParticle(p) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawRipple(r) {
+    ctx.globalAlpha = Math.max(0, r.life * 0.6);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBackground() {
+    // Solid fill — faster than gradient every frame. Subtle vignette via radial overlay.
+    ctx.fillStyle = T.color_bg;
+    ctx.fillRect(0, 0, T.worldW, T.worldH);
+
+    // Floor ember glow
+    const floorG = ctx.createLinearGradient(0, T.worldH - 180, 0, T.worldH);
+    floorG.addColorStop(0, 'rgba(196,83,26,0)');
+    floorG.addColorStop(1, 'rgba(196,83,26,0.15)');
+    ctx.fillStyle = floorG;
+    ctx.fillRect(0, T.worldH - 180, T.worldW, 180);
+  }
+
+  // ── Input (touch + mouse, low-latency) ──────────────────────────
+  function canvasCoords(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  function onTap(clientX, clientY) {
+    Clairvoyance.markInput();
+    const { x, y } = canvasCoords(clientX, clientY);
+    // Topmost (highest-y-reversed) soul within hitbox wins — easier in clusters
+    let best = null;
+    let bestDist = Infinity;
+    for (const s of souls) {
+      if (s.dead) continue;
+      const dx = s.x - x, dy = s.y - y;
+      const d = Math.hypot(dx, dy);
+      const hit = T.soulRadius + T.hitboxPadPx;
+      if (d <= hit && d < bestDist) { best = s; bestDist = d; }
+    }
+    onTapResolved(best, x, y);
+  }
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) onTap(t.clientX, t.clientY);
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', e => {
+    // Mouse fallback for desktop testing
+    onTap(e.clientX, e.clientY);
+  });
+
+  // ── Helpers ─────────────────────────────────────────────────────
+  function hexA(hex, a) {
+    // #rrggbb -> rgba(r,g,b,a)
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // ── Main loop ───────────────────────────────────────────────────
+  let lastTime = performance.now();
+  let hitStopUntil = 0;
+  const flashState = { color: '#c4531a', alpha: 0 };
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+
+    const frameDt = Math.min(0.05, (now - lastTime) / 1000);  // clamp to 50ms
+    lastTime = now;
+
+    // Hit-stop freezes game sim, not render
+    const paused = now < hitStopUntil || game.state !== 'playing';
+    const dt = paused ? 0 : frameDt;
+
+    // Spawner
+    if (!paused) {
+      game.elapsed += dt;
+      game.sinceSpawn += dt * 1000;
+      const interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
+      if (game.sinceSpawn >= interval) {
+        game.sinceSpawn = 0;
+        spawnSoul();
+      }
+    }
+
+    updateSouls(dt);
+    updateParticles(frameDt);   // particles keep animating during hit-stop for satisfaction
+    updateRipples(frameDt);
+
+    // Camera shake decay
+    camera.shakeX *= T.shakeDecay;
+    camera.shakeY *= T.shakeDecay;
+    if (Math.abs(camera.shakeX) < 0.1) camera.shakeX = 0;
+    if (Math.abs(camera.shakeY) < 0.1) camera.shakeY = 0;
+
+    // Render
+    drawBackground();
+    ctx.save();
+    ctx.translate(camera.shakeX, camera.shakeY);
+    for (const r of ripples) drawRipple(r);
+    for (const s of souls) if (!s.dead) drawSoul(s);
+    for (const p of particles) drawParticle(p);
+    ctx.restore();
+
+    // Flash overlay (damage / cursed hit) — drawn on top, no shake
+    if (flashState.alpha > 0) {
+      ctx.globalAlpha = flashState.alpha;
+      ctx.fillStyle = flashState.color;
+      ctx.fillRect(0, 0, T.worldW, T.worldH);
+      ctx.globalAlpha = 1;
+      flashState.alpha *= 0.82;
+      if (flashState.alpha < 0.01) flashState.alpha = 0;
+    }
+
+    // Clairvoyance
+    Clairvoyance.resolveInputs();
+    Clairvoyance.recordFrame({ entities: souls.length + particles.length });
+    if (DEBUG.visible) updateDebugHud();
+  }
+  requestAnimationFrame(tick);
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 4 — GAME (state machine, juice, wiring)
+     ══════════════════════════════════════════════════════════════════ */
+  const HIGHSCORE_KEY = 'soulReaper.high';
+
+  const game = {
+    state: 'menu',       // 'menu' | 'playing' | 'gameover'
+    score: 0,
+    lives: 3,
+    maxLives: 3,
+    combo: 1,
+    comboTimer: 0,
+    lastComboAt: 0,
+    sinceSpawn: 0,
+    elapsed: 0,
+    high: Number(localStorage.getItem(HIGHSCORE_KEY) || 0),
+  };
+
+  const DEBUG = { visible: false, taps: 0, lastTapAt: 0 };
+
+  // ── DOM refs ────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const menuEl      = $('menu');
+  const gameoverEl  = $('gameover');
+  const scoreEl     = $('scoreEl');
+  const comboEl     = $('comboEl');
+  const livesEl     = $('livesEl');
+  const highEl      = $('highEl');
+  const finalScoreEl= $('finalScoreEl');
+  const finalHighEl = $('finalHighEl');
+  const newBestEl   = $('newBestEl');
+  const debugEl     = $('debug');
+  const debugRowEl  = $('debugRow');
+  const titleEl     = $('titleEl');
+
+  // ── Rendering HUD ───────────────────────────────────────────────
+  function renderScore() { scoreEl.textContent = game.score; }
+  function renderCombo() {
+    if (game.combo > 1) {
+      comboEl.textContent = '× ' + game.combo;
+      comboEl.classList.add('active');
+    } else {
+      comboEl.classList.remove('active');
+    }
+  }
+  function renderLives() {
+    const hearts = livesEl.querySelectorAll('.heart');
+    hearts.forEach((h, i) => h.classList.toggle('lost', i >= game.lives));
+  }
+  function renderHighscore() {
+    const txt = game.high ? 'BEST — ' + game.high : '';
+    highEl.textContent = txt;
+    finalHighEl.textContent = txt;
+  }
+
+  // ── Juice ───────────────────────────────────────────────────────
+  function shake(amount) {
+    const a = Math.random() * Math.PI * 2;
+    camera.shakeX += Math.cos(a) * amount;
+    camera.shakeY += Math.sin(a) * amount;
+  }
+
+  function hitStop(ms) {
+    hitStopUntil = performance.now() + ms;
+  }
+
+  function flashScreen(color, alpha) {
+    flashState.color = color;
+    flashState.alpha = alpha;
+  }
+
+  function comboPopup(x, y, text, gold) {
+    const el = document.createElement('div');
+    el.className = 'combo-pop' + (gold ? ' gold' : '');
+    el.textContent = text;
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+
+  // ── Scoring ─────────────────────────────────────────────────────
+  function awardSoul(s, x, y) {
+    const gold = s.type === 'gold';
+    const base = gold ? 5 : 1;
+
+    // Combo: updates if within 1.5s of last good tap
+    const now = performance.now();
+    if (now - game.lastComboAt < 1500) {
+      game.combo = Math.min(5, game.combo + 1);
+    } else {
+      game.combo = 1;
+    }
+    game.lastComboAt = now;
+
+    const earned = base * game.combo;
+    game.score += earned;
+
+    // Juice
+    const color = gold ? T.color_gold : T.color_white;
+    spawnParticles(x, y, color, gold ? 22 : 10);
+    spawnRipple(x, y, color);
+    shake(gold ? 6 : 3);
+    hitStop(gold ? 70 : T.hitStopMs);
+
+    // Pop
+    comboPopup(x, y, '+' + earned, gold);
+    if (game.combo >= 2) {
+      setTimeout(() => comboPopup(x, y - 28, '× ' + game.combo, gold), 60);
+    }
+
+    renderScore();
+    renderCombo();
+  }
+
+  function punishCursed(s, x, y) {
+    game.lives = Math.max(0, game.lives - 1);
+    game.combo = 1;
+    game.lastComboAt = 0;
+
+    // Big juice — red flash, shake, hit-stop
+    spawnParticles(x, y, T.color_skull, 26);
+    spawnRipple(x, y, T.color_skull);
+    shake(14);
+    hitStop(120);
+    flashState.color = '#c4531a';
+    flashState.alpha = 0.6;
+
+    renderLives();
+    renderCombo();
+
+    if (game.lives <= 0) setTimeout(gameOver, 300);
+  }
+
+  function punishEscape() {
+    game.lives = Math.max(0, game.lives - 1);
+    game.combo = 1;
+    game.lastComboAt = 0;
+    shake(5);
+    flashState.color = '#8a3020';
+    flashState.alpha = 0.35;
+    renderLives();
+    renderCombo();
+    if (game.lives <= 0) setTimeout(gameOver, 300);
+  }
+
+  // ── Event hooks called by engine ────────────────────────────────
+  window.onTapResolved = function(soul, x, y) {
+    if (game.state !== 'playing') return;
+    if (!soul) {
+      // Miss — visual-only ripple, no penalty
+      spawnRipple(x, y, '#4a4a4a');
+      return;
+    }
+    soul.dead = true;
+    if (soul.type === 'skull')      punishCursed(soul, x, y);
+    else                             awardSoul(soul, x, y);
+  };
+
+  window.onSoulEscaped = function(soul) {
+    if (game.state !== 'playing') return;
+    // Cursed skulls escaping is GOOD — no penalty
+    if (soul.type === 'skull') return;
+    punishEscape();
+  };
+
+  // ── State transitions ───────────────────────────────────────────
+  function startGame() {
+    // Clairvoyance preflight
+    const pre = Clairvoyance.preflightCheck(T);
+    if (!pre.ok && console) {
+      console.warn('[Clairvoyance] preflight failed:', pre.score);
+      console.table(pre.checks.filter(c => !c.passed));
+    } else if (console) {
+      console.log('[Clairvoyance] preflight', pre.score, '✓');
+    }
+
+    game.state = 'playing';
+    game.score = 0;
+    game.lives = game.maxLives;
+    game.combo = 1;
+    game.lastComboAt = 0;
+    game.elapsed = 0;
+    game.sinceSpawn = 400; // first spawn soon after start
+    souls.length = 0;
+    particles.length = 0;
+    ripples.length = 0;
+
+    renderScore(); renderCombo(); renderLives();
+    menuEl.classList.add('hidden');
+    gameoverEl.classList.add('hidden');
+  }
+
+  function gameOver() {
+    game.state = 'gameover';
+    const isNewBest = game.score > game.high;
+    if (isNewBest) {
+      game.high = game.score;
+      try { localStorage.setItem(HIGHSCORE_KEY, String(game.high)); } catch {}
+    }
+    finalScoreEl.textContent = game.score;
+    newBestEl.style.display = isNewBest && game.score > 0 ? 'block' : 'none';
+    renderHighscore();
+    gameoverEl.classList.remove('hidden');
+
+    // Runtime analysis (logged, shown in debug HUD)
+    const report = Clairvoyance.analyze();
+    if (report && console) {
+      if (report.healthy) console.log('[Clairvoyance] runtime ✓', report.metrics);
+      else                 console.warn('[Clairvoyance] issues', report.issues);
+    }
+  }
+
+  // ── Debug HUD ───────────────────────────────────────────────────
+  function updateDebugHud() {
+    const m = Clairvoyance.metrics();
+    if (!m) return;
+    const p = Clairvoyance.profile;
+    const cls = (val, good, warn) =>
+      val <= good ? 'good' : val <= warn ? 'warn' : 'bad';
+    const fpsCls = m.fps >= 58 ? 'good' : m.fps >= 45 ? 'warn' : 'bad';
+    debugRowEl.innerHTML =
+      `<span class="lbl">FPS</span> <span class="${fpsCls}">${m.fps}</span>` +
+      ` <span class="lbl">JIT</span> <span class="${cls(m.jitter, p.frameJitterMs.ideal, p.frameJitterMs.max)}">${m.jitter}ms</span>` +
+      ` <span class="lbl">INP</span> <span class="${cls(m.latency, p.inputLatencyMs.ideal, p.inputLatencyMs.max)}">${m.latency}ms</span>` +
+      ` <span class="lbl">ENT</span> <span>${m.entities}</span>` +
+      ` <span class="lbl">LIVES</span> <span>${game.lives}</span>`;
+  }
+
+  function toggleDebug() {
+    DEBUG.visible = !DEBUG.visible;
+    debugEl.classList.toggle('visible', DEBUG.visible);
+  }
+
+  // 5-tap on the title shows the debug HUD
+  titleEl.addEventListener('click', () => {
+    const now = performance.now();
+    if (now - DEBUG.lastTapAt > 600) DEBUG.taps = 0;
+    DEBUG.taps++;
+    DEBUG.lastTapAt = now;
+    if (DEBUG.taps >= 5) {
+      toggleDebug();
+      DEBUG.taps = 0;
+    }
+  });
+
+  // ── Wire up buttons ─────────────────────────────────────────────
+  $('startBtn').addEventListener('click', startGame);
+  $('retryBtn').addEventListener('click', startGame);
+
+  // Prevent iOS double-tap zoom on buttons
+  ['startBtn','retryBtn'].forEach(id => {
+    $(id).addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive: false });
+  });
+
+  // ── Initial render ──────────────────────────────────────────────
+  renderHighscore();
+  renderScore();
+  renderLives();
+  </script>
+</body>
+</html>
