@@ -216,8 +216,9 @@
     <div class="how">
       Tap the <span class="white">pale souls</span> before they escape.<br>
       The rare <span class="gold">gold souls</span> grant <span class="gold">×5</span>.<br>
-      Never touch the <span class="skull">cursed skulls</span>.<br>
-      Let none rise past you.
+      Tap the <span class="skull">bomb souls</span> to <span class="skull">detonate</span> — clears everything nearby.<br>
+      Bosses take <span class="gold">three strikes</span>.<br>
+      You lose a <span class="skull">🔥</span> only when a soul escapes.
     </div>
     <button class="btn" id="startBtn">Begin the Reap</button>
     <div class="highscore" id="highEl"></div>
@@ -610,6 +611,26 @@
           this.tone(2400, 'sine', 0.1,  0.002, 0.1);
           break;
         }
+        case 'boom': {
+          // Thumpy explosion — low frequency sweep + filtered noise burst
+          const t0 = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(180, t0);
+          osc.frequency.exponentialRampToValueAtTime(40, t0 + 0.4);
+          env.gain.setValueAtTime(0, t0);
+          env.gain.linearRampToValueAtTime(0.45, t0 + 0.01);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.52);
+          // Bright crackle on top
+          this.noise(0.3, 3000, 0.32);
+          this.noise(0.15, 800, 0.25);
+          // Spark chime
+          this.tone(1320, 'triangle', 0.22, 0.002, 0.18);
+          break;
+        }
       }
     },
 
@@ -704,6 +725,9 @@
     spawnRamp:     9,          // ms trimmed per second played
     soulRadius:    32,
     hitboxPadPx:   18,
+
+    // Density cap — keep the screen readable even at peak difficulty
+    maxRegularSouls: 6,
 
     // Variants
     swiftMul:      1.75,       // speed multiplier for swift souls
@@ -1402,10 +1426,10 @@
         game.bossCooldown = phase.bossCooldownMin + Math.random() * 6;
       }
 
-      // Regular spawns — throttled during boss fight
+      // Regular spawns — throttled during boss fight, capped in density
       let interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
       if (bossAlive) interval *= 2.5;              // much slower during boss
-      const regularCap = bossAlive ? 2 : 99;
+      const regularCap = bossAlive ? 2 : T.maxRegularSouls;
 
       if (game.sinceSpawn >= interval && regularCount < regularCap) {
         game.sinceSpawn = 0;
@@ -1582,38 +1606,83 @@
     renderCombo();
   }
 
-  function punishCursed(s, x, y) {
-    game.lives = Math.max(0, game.lives - 1);
-    game.combo = 1;
-    game.lastComboAt = 0;
+  // Bomb soul tapped — it DETONATES, banishing every soul within BLAST_RADIUS.
+  // Nearby whites and golds get auto-collected for bonus points.
+  function explodeSkull(s, x, y) {
+    const BLAST_RADIUS = 180;
+    const BASE_REWARD  = 10;
+    let bonusEarned = BASE_REWARD;
+    let chainKills  = 0;
 
-    // Big juice — red flash, shake, hit-stop
-    spawnParticles(x, y, T.color_skull, 26);
-    spawnRipple(x, y, T.color_skull);
+    // Visual explosion
+    spawnParticles(x, y, '#ff7a2a', 36);
+    spawnParticles(x, y, '#d4a942', 18);
+    for (let i = 0; i < 3; i++) spawnRipple(x, y, '#ff7a2a');
     shake(14);
-    hitStop(120);
-    flashState.color = '#c4531a';
-    flashState.alpha = 0.6;
+    hitStop(90);
+    flashState.color = '#ff7a2a';
+    flashState.alpha = 0.4;
+    Audio2.sfx('boom');
 
-    Audio2.sfx('tapCursed');
+    // Chain banish — anything within radius that isn't the skull itself or a boss
+    for (const other of souls) {
+      if (other === s || other.dead) continue;
+      if (other.boss) continue;                     // bosses only die to direct hits
+      const d = Math.hypot(other.x - x, other.y - y);
+      if (d <= BLAST_RADIUS) {
+        other.dead = true;
+        const col = other.type === 'gold' ? T.color_gold
+                  : other.type === 'skull' ? T.color_skull
+                  :                          T.color_white;
+        // Trail of particles from explosion to the caught soul
+        const steps = 6;
+        for (let k = 0; k < steps; k++) {
+          const t = k / steps;
+          spawnParticles(x + (other.x - x) * t, y + (other.y - y) * t, col, 2);
+        }
+        spawnParticles(other.x, other.y, col, 12);
+        // Reward: golds worth more; chained skulls DON'T chain-explode (to cap damage)
+        if (other.type === 'gold')  bonusEarned += 5;
+        else if (other.type === 'skull') bonusEarned += 3;  // small consolation for stacked skulls
+        else                              bonusEarned += 1;
+        chainKills += 1;
+      }
+    }
 
-    renderLives();
-    renderCombo();
+    game.score += bonusEarned;
+    renderScore();
 
-    if (game.lives <= 0) setTimeout(gameOver, 300);
+    comboPopup(x, y, '+' + bonusEarned, true);
+    if (chainKills >= 2) {
+      setTimeout(() => comboPopup(x, y - 32, 'CHAIN ×' + chainKills, true), 80);
+    }
   }
 
+  // A regular (non-skull, non-boss) soul escaped past the top — lose a life.
   function punishEscape() {
     game.lives = Math.max(0, game.lives - 1);
     game.combo = 1;
     game.lastComboAt = 0;
-    shake(5);
+    shake(8);
     flashState.color = '#8a3020';
-    flashState.alpha = 0.35;
+    flashState.alpha = 0.45;
     Audio2.sfx('escape');
+
+    // Unmissable -1 🔥 popup so you always see WHY a life dropped
+    const el = document.createElement('div');
+    el.className = 'combo-pop';
+    el.style.color = '#c4531a';
+    el.style.textShadow = '0 0 24px #c4531a, 0 2px 6px rgba(0,0,0,0.9)';
+    el.style.fontSize = '34px';
+    el.textContent = '-1 🔥';
+    el.style.left = (T.worldW / 2) + 'px';
+    el.style.top  = (T.worldH * 0.22) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+
     renderLives();
     renderCombo();
-    if (game.lives <= 0) setTimeout(gameOver, 300);
+    if (game.lives <= 0) setTimeout(gameOver, 350);
   }
 
   // ── Event hooks called by engine ────────────────────────────────
@@ -1625,19 +1694,14 @@
     }
     if (soul.boss) { hitBoss(soul, x, y); return; }
     soul.dead = true;
-    if (soul.type === 'skull')      punishCursed(soul, x, y);
+    if (soul.type === 'skull')      explodeSkull(soul, x, y);
     else                             awardSoul(soul, x, y);
   };
 
   window.onSoulEscaped = function(soul) {
     if (game.state !== 'playing') return;
     if (soul.boss) {
-      // Iron Reaper escaping costs a life; others just missed points
-      if (soul.bossType === 'iron') {
-        punishEscape();
-        flashState.color = '#d4a942';
-        flashState.alpha = 0.5;
-      }
+      // No boss escape costs a life — you just miss the reward.
       if (game.activeBoss === soul) game.activeBoss = null;
       return;
     }
