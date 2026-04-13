@@ -56,10 +56,26 @@
       transform: translateY(-4px);
     }
     .hud-combo.active { opacity: 1; transform: translateY(0); }
+    .hud-right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+      pointer-events: auto;
+    }
     .hud-lives {
       display: flex; gap: 6px;
       font-size: 22px;
     }
+    .mute-btn {
+      pointer-events: auto;
+      background: rgba(13,13,13,0.5);
+      border: 1px solid rgba(212,169,66,0.3);
+      color: #d4a942; font-size: 16px;
+      width: 34px; height: 34px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; touch-action: manipulation;
+      transition: transform 0.1s, border-color 0.15s;
+    }
+    .mute-btn:active { transform: scale(0.9); }
+    .mute-btn.muted { color: #4a4a4a; border-color: #2a2a2a; }
     .heart {
       filter: drop-shadow(0 0 8px rgba(196,83,26,0.5));
       transition: opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
@@ -184,10 +200,13 @@
       <div class="hud-score" id="scoreEl">0</div>
       <div class="hud-combo" id="comboEl">×1</div>
     </div>
-    <div class="hud-lives" id="livesEl">
-      <span class="heart">🔥</span>
-      <span class="heart">🔥</span>
-      <span class="heart">🔥</span>
+    <div class="hud-right">
+      <button class="mute-btn" id="muteBtn" aria-label="Toggle sound">🔊</button>
+      <div class="hud-lives" id="livesEl">
+        <span class="heart">🔥</span>
+        <span class="heart">🔥</span>
+        <span class="heart">🔥</span>
+      </div>
     </div>
   </div>
 
@@ -379,6 +398,239 @@
   };
 
   /* ══════════════════════════════════════════════════════════════════
+     SECTION 2.5 — AUDIO (Web Audio, all synthesized, no assets)
+     ══════════════════════════════════════════════════════════════════ */
+  const Audio2 = {
+    ctx: null, master: null, musicGain: null, sfxGain: null,
+    muted: localStorage.getItem('soulReaper.muted') === '1',
+    musicNodes: [], bellTimer: null, started: false,
+
+    // Create / resume context on first user gesture
+    ensure() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        this.ctx = new AC();
+        this.master    = this.ctx.createGain();
+        this.musicGain = this.ctx.createGain();
+        this.sfxGain   = this.ctx.createGain();
+        this.master.gain.value    = this.muted ? 0 : 0.9;
+        this.musicGain.gain.value = 0.22;   // music sits under SFX
+        this.sfxGain.gain.value   = 1.0;
+        this.musicGain.connect(this.master);
+        this.sfxGain.connect(this.master);
+        this.master.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return true;
+    },
+
+    setMuted(m) {
+      this.muted = !!m;
+      localStorage.setItem('soulReaper.muted', m ? '1' : '0');
+      if (this.master) this.master.gain.linearRampToValueAtTime(m ? 0 : 0.9, this.ctx.currentTime + 0.08);
+    },
+
+    // ── SFX primitives ─────────────────────────────────────────
+    // One-shot oscillator with ADSR envelope. Returns the node for chaining.
+    tone(freq, type, dur, attack = 0.005, gain = 0.3, detune = 0) {
+      if (!this.ctx || this.muted) return;
+      const t0 = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + attack);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      osc.connect(env).connect(this.sfxGain);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+      return osc;
+    },
+
+    // Short filtered noise burst (for cursed / escape grit)
+    noise(dur, cutoff, gain = 0.3) {
+      if (!this.ctx || this.muted) return;
+      const t0 = this.ctx.currentTime;
+      const bufSize = Math.floor(this.ctx.sampleRate * dur);
+      const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = cutoff;
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(gain, t0);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      src.connect(lp).connect(env).connect(this.sfxGain);
+      src.start(t0);
+    },
+
+    // ── Named SFX ──────────────────────────────────────────────
+    sfx(name, extra = 0) {
+      if (!this.ctx || this.muted) return;
+      switch (name) {
+        case 'tapWhite': {
+          // Crisp bell ping — combo-pitch offset makes chains musical
+          const base = 720 * Math.pow(1.122, extra); // semitone per combo level
+          this.tone(base,        'triangle', 0.18, 0.002, 0.32);
+          this.tone(base * 2.01, 'sine',     0.22, 0.003, 0.14);
+          this.tone(base * 3.02, 'sine',     0.15, 0.003, 0.06);
+          break;
+        }
+        case 'tapGold': {
+          // Fast arpeggio: fifth + octave — triumphant
+          const t0 = this.ctx.currentTime;
+          [523, 659, 784, 1047].forEach((f, i) => {
+            const osc = this.ctx.createOscillator();
+            const env = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            const start = t0 + i * 0.028;
+            env.gain.setValueAtTime(0, start);
+            env.gain.linearRampToValueAtTime(0.25, start + 0.004);
+            env.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+            osc.connect(env).connect(this.sfxGain);
+            osc.start(start); osc.stop(start + 0.37);
+          });
+          // Shimmer
+          this.tone(2093, 'sine', 0.4, 0.01, 0.08);
+          break;
+        }
+        case 'tapCursed': {
+          // Ugly detuned buzz + noise
+          this.tone(180, 'sawtooth', 0.32, 0.002, 0.32, -20);
+          this.tone(184, 'sawtooth', 0.32, 0.002, 0.28, 20);
+          this.noise(0.2, 1200, 0.28);
+          // Pitch drop
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          const t0 = this.ctx.currentTime;
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(260, t0);
+          osc.frequency.exponentialRampToValueAtTime(80, t0 + 0.3);
+          env.gain.setValueAtTime(0.22, t0);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.34);
+          break;
+        }
+        case 'combo': {
+          // Rising pip stacked on top of tap — extra = combo level
+          this.tone(880 + 120 * extra, 'sine', 0.1, 0.002, 0.14);
+          break;
+        }
+        case 'escape': {
+          // Sad descending sigh
+          const t0 = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(440, t0);
+          osc.frequency.exponentialRampToValueAtTime(280, t0 + 0.35);
+          env.gain.setValueAtTime(0, t0);
+          env.gain.linearRampToValueAtTime(0.22, t0 + 0.02);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.38);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.4);
+          break;
+        }
+        case 'gameOver': {
+          // Doom tone — low fifth
+          this.tone(110, 'sine',     1.6, 0.02, 0.35);
+          this.tone(165, 'sine',     1.6, 0.02, 0.25);
+          this.tone(82,  'triangle', 1.8, 0.04, 0.22);
+          this.noise(0.6, 400, 0.14);
+          break;
+        }
+        case 'start': {
+          // Gong — low thump + bright shimmer
+          this.tone(80,  'sine',     1.2, 0.005, 0.42);
+          this.tone(220, 'triangle', 0.5, 0.005, 0.18);
+          this.tone(440, 'sine',     0.7, 0.01,  0.14);
+          break;
+        }
+      }
+    },
+
+    // ── Procedural music: drone + random bell tones ────────────
+    startMusic() {
+      if (!this.ctx || this.started) return;
+      this.started = true;
+      const t0 = this.ctx.currentTime;
+
+      // Deep drone — A2 (110Hz) + E3 (164.8Hz), detuned for richness
+      [[110, 0], [110, 6], [164.81, -4]].forEach(([f, det]) => {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        osc.detune.value = det;
+        const g = this.ctx.createGain();
+        g.gain.value = 0.14;
+        // Slow LFO on gain for breathing
+        const lfo = this.ctx.createOscillator();
+        const lfoG = this.ctx.createGain();
+        lfo.frequency.value = 0.08 + Math.random() * 0.05;
+        lfoG.gain.value = 0.05;
+        lfo.connect(lfoG).connect(g.gain);
+        osc.connect(g).connect(this.musicGain);
+        osc.start(t0); lfo.start(t0);
+        this.musicNodes.push(osc, lfo);
+      });
+
+      // Filtered noise pad — texture
+      const bufSize = Math.floor(this.ctx.sampleRate * 2);
+      const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buf; noise.loop = true;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 2;
+      const ng = this.ctx.createGain();
+      ng.gain.value = 0.045;
+      noise.connect(lp).connect(ng).connect(this.musicGain);
+      noise.start(t0);
+      this.musicNodes.push(noise);
+
+      // Random bell tones — pentatonic minor: A, C, D, E, G
+      const scale = [440, 523.25, 587.33, 659.25, 783.99];
+      const bell = () => {
+        if (!this.started) return;
+        const f = scale[Math.floor(Math.random() * scale.length)] * (Math.random() < 0.4 ? 2 : 1);
+        const t = this.ctx.currentTime;
+        [[f, 0.14], [f * 2.01, 0.07], [f * 3.02, 0.03]].forEach(([freq, g]) => {
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(g, t + 0.02);
+          env.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+          osc.connect(env).connect(this.musicGain);
+          osc.start(t); osc.stop(t + 3.1);
+        });
+        this.bellTimer = setTimeout(bell, 5000 + Math.random() * 6000);
+      };
+      this.bellTimer = setTimeout(bell, 2500);
+    },
+
+    stopMusic() {
+      this.started = false;
+      if (this.bellTimer) clearTimeout(this.bellTimer);
+      const t = this.ctx ? this.ctx.currentTime : 0;
+      for (const n of this.musicNodes) {
+        try { n.stop(t + 0.3); } catch {}
+      }
+      this.musicNodes = [];
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
      SECTION 3 — ENGINE (canvas, entities, loop, spawner, input)
      ══════════════════════════════════════════════════════════════════ */
 
@@ -389,18 +641,27 @@
 
     // Souls
     baseSpeed:    160,         // px/s upward (world coords)
-    speedRampPerSec: 4,        // px/s added every second of play
-    maxSpeed:     380,
-    spawnInterval: 900,        // ms between spawns at start
-    spawnMin:      400,
-    spawnRamp:     6,          // ms trimmed per second played
-    soulRadius:    32,         // visual radius
-    hitboxPadPx:   18,         // extra tap forgiveness on top of radius
+    speedRampPerSec: 6,        // px/s added every second of play
+    maxSpeed:     460,
+    spawnInterval: 860,        // ms between spawns at start
+    spawnMin:      280,        // min at peak difficulty
+    spawnRamp:     9,          // ms trimmed per second played
+    soulRadius:    32,
+    hitboxPadPx:   18,
 
-    // Spawn weights (sum = 1)
-    w_white: 0.72,
-    w_gold:  0.12,
-    w_skull: 0.16,
+    // Variants
+    swiftMul:      1.75,       // speed multiplier for swift souls
+    wigglerAmp:    70,         // sine-drift amplitude (px)
+    wigglerFreq:   2.4,        // oscillations per second
+    dodgeRadius:   92,         // px — wiggler dodges pointer within this
+    dodgeForce:    520,        // lateral push when dodging (px/s)
+
+    // Spawn weights (sum = 1 per phase, set per-frame by phase logic)
+    w_white: 0.72, w_gold: 0.12, w_skull: 0.16,
+
+    // Variant probabilities (multiplied into the roll after type)
+    p_swift:  0.15,
+    p_wiggle: 0.22,
 
     // Colours
     color_white: '#e8dcc8',
@@ -412,6 +673,28 @@
     hitStopMs:   45,
     shakeDecay:  0.85,
   };
+
+  // ── Difficulty phases ───────────────────────────────────────────
+  // Applied to T live based on game.elapsed so spawnSoul sees the right mix.
+  function applyPhase(elapsed) {
+    if (elapsed < 20) {
+      // INTRO — mostly white, few golds, no wigglers yet
+      T.w_white = 0.80; T.w_gold = 0.10; T.w_skull = 0.10;
+      T.p_swift = 0.05; T.p_wiggle = 0.05;
+    } else if (elapsed < 60) {
+      // RAMP — more variety
+      T.w_white = 0.62; T.w_gold = 0.13; T.w_skull = 0.25;
+      T.p_swift = 0.15; T.p_wiggle = 0.20;
+    } else if (elapsed < 120) {
+      // CHAOS — lots of cursed + wigglers
+      T.w_white = 0.50; T.w_gold = 0.14; T.w_skull = 0.36;
+      T.p_swift = 0.25; T.p_wiggle = 0.32;
+    } else {
+      // REAPING — brutal
+      T.w_white = 0.44; T.w_gold = 0.16; T.w_skull = 0.40;
+      T.p_swift = 0.32; T.p_wiggle = 0.40;
+    }
+  }
 
   // ── Canvas setup ────────────────────────────────────────────────
   const canvas = document.getElementById('game');
@@ -447,22 +730,46 @@
     return weights[weights.length - 1][0];
   }
 
-  function spawnSoul() {
+  function spawnSoul(xHint) {
     const type = pick([
       ['white', T.w_white],
       ['gold',  T.w_gold],
       ['skull', T.w_skull],
     ]);
+    const swift = Math.random() < T.p_swift;
+    // Skulls don't wiggle — they need to be unambiguously avoidable
+    const wiggle = type !== 'skull' && Math.random() < T.p_wiggle;
+
     const pad = T.soulRadius + 8;
+    const baseSpeed = T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed);
+    const speed = baseSpeed * (swift ? T.swiftMul : 1) + rand(-15, 15);
+
     souls.push({
-      x: rand(pad, T.worldW - pad),
+      x: xHint ?? rand(pad, T.worldW - pad),
+      baseX: 0,                        // set below
       y: T.worldH + T.soulRadius + 10,
-      vy: -(T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed) + rand(-15, 15)),
+      vy: -speed,
+      vxOffset: 0,                     // transient dodge velocity
       type,
+      swift, wiggle,
       bornAt: performance.now(),
       pulse: Math.random() * Math.PI * 2,
+      wigglePhase: Math.random() * Math.PI * 2,
+      trail: [],                       // for swift motion blur
       dead: false,
     });
+    souls[souls.length - 1].baseX = souls[souls.length - 1].x;
+  }
+
+  // Multi-spawn waves — triggered by the spawner at higher difficulty
+  function spawnWave(n) {
+    const pad = T.soulRadius + 16;
+    // Spread across the width
+    for (let i = 0; i < n; i++) {
+      const slotW = (T.worldW - 2 * pad) / n;
+      const x = pad + slotW * (i + 0.5) + rand(-slotW * 0.25, slotW * 0.25);
+      spawnSoul(x);
+    }
   }
 
   function spawnParticles(x, y, color, n) {
@@ -483,13 +790,53 @@
     ripples.push({ x, y, r: 6, maxR: 70, life: 1, color });
   }
 
+  // Pointer tracking (for wiggler dodge)
+  const pointer = { x: -1e4, y: -1e4, active: false, lastMoveAt: 0 };
+
   // ── Update ──────────────────────────────────────────────────────
   function updateSouls(dt) {
+    const now = performance.now();
+    const pointerFresh = now - pointer.lastMoveAt < 180;   // recent movement only
     for (const s of souls) {
       if (s.dead) continue;
-      s.y    += s.vy * dt;
+      s.y     += s.vy * dt;
       s.pulse += dt * 4;
-      // Escape → mark dead, signal to game layer via callback
+
+      // Wiggle: sine drift around baseX
+      if (s.wiggle) {
+        s.wigglePhase += dt * T.wigglerFreq * Math.PI * 2;
+        const sway = Math.sin(s.wigglePhase) * T.wigglerAmp;
+        s.x = s.baseX + sway + s.vxOffset;
+
+        // Dodge: if pointer is close, push perpendicular
+        if (pointerFresh && pointer.active) {
+          const dx = s.x - pointer.x, dy = s.y - pointer.y;
+          const d = Math.hypot(dx, dy);
+          if (d < T.dodgeRadius && d > 0.1) {
+            // Push away along x (rising souls can't easily dodge vertically)
+            const push = (1 - d / T.dodgeRadius) * T.dodgeForce * dt;
+            s.vxOffset += Math.sign(dx || (Math.random() - 0.5)) * push;
+          }
+        }
+        // Spring vxOffset back toward 0
+        s.vxOffset *= Math.max(0, 1 - 5 * dt);
+      } else {
+        s.x = s.baseX + s.vxOffset;
+        s.vxOffset *= Math.max(0, 1 - 6 * dt);
+      }
+
+      // Keep in bounds
+      const pad = T.soulRadius + 4;
+      if (s.x < pad)            { s.x = pad; s.vxOffset *= -0.4; s.baseX += pad - s.x; }
+      if (s.x > T.worldW - pad) { s.x = T.worldW - pad; s.vxOffset *= -0.4; }
+
+      // Swift: capture trail every frame for motion blur
+      if (s.swift) {
+        s.trail.push({ x: s.x, y: s.y });
+        if (s.trail.length > 6) s.trail.shift();
+      }
+
+      // Escape
       if (s.y < -T.soulRadius * 1.5) {
         s.dead = true;
         s.escaped = true;
@@ -531,22 +878,35 @@
   const camera = { shakeX: 0, shakeY: 0 };
 
   function drawSoul(s) {
-    const t = performance.now();
-    const timeAlive = (t - s.bornAt) / 1000;
     // Escape warning: glow intensifies in last 1s before leaving top
-    const timeToEscape = s.y / -s.vy;   // seconds until y=0
+    const timeToEscape = s.y / -s.vy;
     const warn = s.vy < 0 && timeToEscape < 1 && timeToEscape > 0 ? (1 - timeToEscape) : 0;
     const pulse = 1 + Math.sin(s.pulse) * 0.08;
     const r = T.soulRadius * pulse;
+    const auraColor = s.type === 'white' ? T.color_white
+                    : s.type === 'gold'  ? T.color_gold
+                    : T.color_skull;
+
+    // Swift trail (motion blur — draw older positions dimmer)
+    if (s.swift && s.trail.length > 1) {
+      for (let i = 0; i < s.trail.length - 1; i++) {
+        const alpha = (i / s.trail.length) * 0.25;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = auraColor;
+        ctx.beginPath();
+        ctx.arc(s.trail[i].x, s.trail[i].y, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
 
     ctx.save();
     ctx.translate(s.x, s.y);
 
-    // Outer aura
-    const auraColor = s.type === 'white' ? T.color_white
-                    : s.type === 'gold'  ? T.color_gold
-                    : T.color_skull;
-    const auraAlpha = 0.18 + warn * 0.5;
+    // Outer aura — stronger if swift, pulsing if wiggling
+    let auraAlpha = 0.18 + warn * 0.5;
+    if (s.swift) auraAlpha += 0.15;
+    if (s.wiggle) auraAlpha += 0.08 * (1 + Math.sin(s.wigglePhase * 1.5));
     const grad = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.9);
     grad.addColorStop(0, hexA(auraColor, auraAlpha));
     grad.addColorStop(1, hexA(auraColor, 0));
@@ -555,11 +915,27 @@
     ctx.arc(0, 0, r * 1.9, 0, Math.PI * 2);
     ctx.fill();
 
+    // Slight rotation tilt for wigglers — reads as "slippery"
+    if (s.wiggle) {
+      ctx.rotate(Math.sin(s.wigglePhase) * 0.15);
+    }
+
     // Body
     if (s.type === 'skull') {
       drawSkull(0, 0, r * 0.85);
     } else {
       drawWisp(0, 0, r, s.type === 'gold');
+    }
+
+    // Swift indicator — streaking chevron behind
+    if (s.swift) {
+      ctx.strokeStyle = hexA(auraColor, 0.55);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.35, r * 1.0);
+      ctx.lineTo(0, r * 1.35);
+      ctx.lineTo(r * 0.35, r * 1.0);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -683,13 +1059,37 @@
 
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    for (const t of e.changedTouches) onTap(t.clientX, t.clientY);
+    pointer.active = true;
+    const t = e.changedTouches[0];
+    if (t) { const c = canvasCoords(t.clientX, t.clientY); pointer.x = c.x; pointer.y = c.y; pointer.lastMoveAt = performance.now(); }
+    for (const tt of e.changedTouches) onTap(tt.clientX, tt.clientY);
   }, { passive: false });
 
+  canvas.addEventListener('touchmove', e => {
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const c = canvasCoords(t.clientX, t.clientY);
+    pointer.x = c.x; pointer.y = c.y; pointer.lastMoveAt = performance.now();
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', () => { pointer.active = false; }, { passive: true });
+  canvas.addEventListener('touchcancel', () => { pointer.active = false; }, { passive: true });
+
+  canvas.addEventListener('mousemove', e => {
+    const c = canvasCoords(e.clientX, e.clientY);
+    pointer.x = c.x; pointer.y = c.y;
+    pointer.active = true;
+    pointer.lastMoveAt = performance.now();
+  });
+
   canvas.addEventListener('mousedown', e => {
-    // Mouse fallback for desktop testing
+    const c = canvasCoords(e.clientX, e.clientY);
+    pointer.x = c.x; pointer.y = c.y; pointer.active = true;
+    pointer.lastMoveAt = performance.now();
     onTap(e.clientX, e.clientY);
   });
+
+  canvas.addEventListener('mouseleave', () => { pointer.active = false; });
 
   // ── Helpers ─────────────────────────────────────────────────────
   function hexA(hex, a) {
@@ -718,11 +1118,21 @@
     // Spawner
     if (!paused) {
       game.elapsed += dt;
+      applyPhase(game.elapsed);
       game.sinceSpawn += dt * 1000;
       const interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
       if (game.sinceSpawn >= interval) {
         game.sinceSpawn = 0;
-        spawnSoul();
+        // Multi-spawn waves — roll depends on phase
+        let waveChance = 0, maxN = 1;
+        if (game.elapsed > 30)  { waveChance = 0.12; maxN = 2; }
+        if (game.elapsed > 60)  { waveChance = 0.20; maxN = 3; }
+        if (game.elapsed > 120) { waveChance = 0.28; maxN = 3; }
+        if (Math.random() < waveChance) {
+          spawnWave(2 + Math.floor(Math.random() * (maxN)));
+        } else {
+          spawnSoul();
+        }
       }
     }
 
@@ -867,6 +1277,10 @@
     shake(gold ? 6 : 3);
     hitStop(gold ? 70 : T.hitStopMs);
 
+    // Audio
+    Audio2.sfx(gold ? 'tapGold' : 'tapWhite', game.combo - 1);
+    if (game.combo >= 2) Audio2.sfx('combo', game.combo);
+
     // Pop
     comboPopup(x, y, '+' + earned, gold);
     if (game.combo >= 2) {
@@ -890,6 +1304,8 @@
     flashState.color = '#c4531a';
     flashState.alpha = 0.6;
 
+    Audio2.sfx('tapCursed');
+
     renderLives();
     renderCombo();
 
@@ -903,6 +1319,7 @@
     shake(5);
     flashState.color = '#8a3020';
     flashState.alpha = 0.35;
+    Audio2.sfx('escape');
     renderLives();
     renderCombo();
     if (game.lives <= 0) setTimeout(gameOver, 300);
@@ -930,6 +1347,11 @@
 
   // ── State transitions ───────────────────────────────────────────
   function startGame() {
+    // Audio needs a user gesture — we're in one now (button click)
+    Audio2.ensure();
+    Audio2.sfx('start');
+    Audio2.startMusic();
+
     // Clairvoyance preflight
     const pre = Clairvoyance.preflightCheck(T);
     if (!pre.ok && console) {
@@ -945,7 +1367,7 @@
     game.combo = 1;
     game.lastComboAt = 0;
     game.elapsed = 0;
-    game.sinceSpawn = 400; // first spawn soon after start
+    game.sinceSpawn = 400;
     souls.length = 0;
     particles.length = 0;
     ripples.length = 0;
@@ -957,6 +1379,9 @@
 
   function gameOver() {
     game.state = 'gameover';
+    Audio2.sfx('gameOver');
+    Audio2.stopMusic();
+
     const isNewBest = game.score > game.high;
     if (isNewBest) {
       game.high = game.score;
@@ -967,7 +1392,7 @@
     renderHighscore();
     gameoverEl.classList.remove('hidden');
 
-    // Runtime analysis (logged, shown in debug HUD)
+    // Runtime analysis
     const report = Clairvoyance.analyze();
     if (report && console) {
       if (report.healthy) console.log('[Clairvoyance] runtime ✓', report.metrics);
@@ -1016,6 +1441,21 @@
   ['startBtn','retryBtn'].forEach(id => {
     $(id).addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive: false });
   });
+
+  // Mute button
+  const muteBtn = $('muteBtn');
+  function renderMute() {
+    muteBtn.textContent = Audio2.muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', Audio2.muted);
+  }
+  function toggleMute() {
+    Audio2.ensure();
+    Audio2.setMuted(!Audio2.muted);
+    renderMute();
+  }
+  muteBtn.addEventListener('click', toggleMute);
+  muteBtn.addEventListener('touchend', e => { e.preventDefault(); toggleMute(); }, { passive: false });
+  renderMute();
 
   // ── Initial render ──────────────────────────────────────────────
   renderHighscore();
