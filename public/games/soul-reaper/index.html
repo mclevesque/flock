@@ -716,13 +716,13 @@
     worldW: 0, worldH: 0,     // set on resize
     dpr: 1,
 
-    // Souls
+    // Souls — gentler ramp so difficulty arcs over 2-3 minutes instead of 1
     baseSpeed:    160,         // px/s upward (world coords)
-    speedRampPerSec: 6,        // px/s added every second of play
+    speedRampPerSec: 3,        // px/s added every second (peaks at ~100s)
     maxSpeed:     460,
     spawnInterval: 860,        // ms between spawns at start
-    spawnMin:      280,        // min at peak difficulty
-    spawnRamp:     9,          // ms trimmed per second played
+    spawnMin:      340,        // min at peak difficulty (softer than 280)
+    spawnRamp:     5,          // ms trimmed per second played
     soulRadius:    32,
     hitboxPadPx:   18,
 
@@ -764,32 +764,32 @@
   };
 
   // ── Difficulty phases ───────────────────────────────────────────
-  // Endless ramp: difficulty keeps intensifying past 120s/180s/240s.
+  // Endless ramp: difficulty keeps intensifying, but arcs over ~6 minutes.
   function applyPhase(elapsed) {
     let bossChance = 0, bossCooldownMin = Infinity;
-    if (elapsed < 20) {
+    if (elapsed < 30) {
       T.w_white = 0.80; T.w_gold = 0.10; T.w_skull = 0.10;
       T.p_swift = 0.05; T.p_wiggle = 0.05;
-    } else if (elapsed < 60) {
+    } else if (elapsed < 100) {
       T.w_white = 0.62; T.w_gold = 0.13; T.w_skull = 0.25;
       T.p_swift = 0.15; T.p_wiggle = 0.20;
       bossChance = 0.18; bossCooldownMin = 22;
-    } else if (elapsed < 120) {
+    } else if (elapsed < 200) {
       T.w_white = 0.50; T.w_gold = 0.14; T.w_skull = 0.36;
       T.p_swift = 0.25; T.p_wiggle = 0.32;
       bossChance = 0.28; bossCooldownMin = 18;
-    } else if (elapsed < 180) {
+    } else if (elapsed < 300) {
       T.w_white = 0.44; T.w_gold = 0.16; T.w_skull = 0.40;
       T.p_swift = 0.32; T.p_wiggle = 0.40;
       bossChance = 0.36; bossCooldownMin = 16;
-    } else if (elapsed < 240) {
+    } else if (elapsed < 400) {
       T.w_white = 0.40; T.w_gold = 0.18; T.w_skull = 0.42;
       T.p_swift = 0.40; T.p_wiggle = 0.48;
       bossChance = 0.45; bossCooldownMin = 14;
     } else {
       // ENDLESS — keeps scaling forever, softly
-      const over = Math.min(240, elapsed - 240);   // cap extra ramp after 8 minutes
-      const k = over / 240;
+      const over = Math.min(300, elapsed - 400);
+      const k = over / 300;
       T.w_white = 0.38 - k * 0.04;
       T.w_gold  = 0.18 + k * 0.02;
       T.w_skull = 0.44 + k * 0.02;
@@ -799,12 +799,12 @@
       bossCooldownMin = Math.max(10, 14 - k * 4);
     }
 
-    // Speed uncap past 180s — slow linear growth
-    if (elapsed > 180) T.maxSpeed = 460 + (elapsed - 180) * 0.6;
+    // Speed uncap past 300s — slow linear growth
+    if (elapsed > 300) T.maxSpeed = 460 + (elapsed - 300) * 0.5;
     else               T.maxSpeed = 460;
 
-    // Wiggler dodges more aggressively at high difficulty
-    T.dodgeForce = 520 + Math.max(0, elapsed - 120) * 1.2;
+    // Wiggler dodges more aggressively at higher elapsed time
+    T.dodgeForce = 520 + Math.max(0, elapsed - 200) * 1.0;
 
     return { bossChance, bossCooldownMin };
   }
@@ -893,6 +893,8 @@
     const x = rand(pad, T.worldW - pad);
     const baseSpeed = T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed);
     const speed = baseSpeed * T.bossSpeed;
+    // First boss is a beefier tutorial encounter (5 HP). Later bosses are 3.
+    const hp = game.bossesSpawned === 0 ? 5 : 3;
     const boss = {
       x, baseX: x,
       y: T.worldH + T.bossRadius + 20,
@@ -901,8 +903,8 @@
       type: 'boss',           // keeps engine path generic
       bossType,               // 'wraith' | 'horror' | 'iron'
       boss: true,
-      hp:    3,
-      maxHp: 3,
+      hp,
+      maxHp: hp,
       shielded: false,
       shieldUntil: 0,
       flickerUntil: 0,        // for horror teleport
@@ -914,6 +916,7 @@
     };
     souls.push(boss);
     game.activeBoss = boss;
+    game.bossesSpawned += 1;
     bossAnnounce(bossType);
     Audio2.sfx('bossSpawn', bossType);
   }
@@ -1436,10 +1439,10 @@
         // Multi-spawn waves — only when NO boss active
         let waveChance = 0, maxN = 1;
         if (!bossAlive) {
-          if (game.elapsed > 30)  { waveChance = 0.12; maxN = 2; }
-          if (game.elapsed > 60)  { waveChance = 0.20; maxN = 3; }
-          if (game.elapsed > 120) { waveChance = 0.28; maxN = 3; }
-          if (game.elapsed > 200) { waveChance = 0.36; maxN = 4; }
+          if (game.elapsed > 50)  { waveChance = 0.12; maxN = 2; }
+          if (game.elapsed > 120) { waveChance = 0.20; maxN = 3; }
+          if (game.elapsed > 220) { waveChance = 0.28; maxN = 3; }
+          if (game.elapsed > 350) { waveChance = 0.36; maxN = 4; }
         }
         if (!bossAlive && Math.random() < waveChance) {
           spawnWave(2 + Math.floor(Math.random() * maxN));
@@ -1501,7 +1504,8 @@
     sinceSpawn: 0,
     elapsed: 0,
     activeBoss: null,
-    bossCooldown: 25,   // first boss not before ~25s into run
+    bossCooldown: 30,    // first boss after the 30s intro phase
+    bossesSpawned: 0,    // first boss is meatier (5 HP), rest stay 3
     high: Number(localStorage.getItem(HIGHSCORE_KEY) || 0),
   };
 
@@ -1814,7 +1818,8 @@
     game.elapsed = 0;
     game.sinceSpawn = 400;
     game.activeBoss = null;
-    game.bossCooldown = 25;
+    game.bossCooldown = 30;
+    game.bossesSpawned = 0;
     souls.length = 0;
     particles.length = 0;
     ripples.length = 0;
