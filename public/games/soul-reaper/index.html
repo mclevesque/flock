@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Soul Reaper — Great Souls</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0d0d0d; color: #e8dcc8;
+      font-family: system-ui, -apple-system, sans-serif;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      overscroll-behavior: none;
+    }
+    body {
+      position: fixed; inset: 0;
+    }
+    #game {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; display: block;
+      touch-action: none;
+    }
+
+    /* ── HUD ──────────────────────────────────── */
+    #hud {
+      position: absolute;
+      top: env(safe-area-inset-top, 0); left: 0; right: 0;
+      padding: 14px 18px;
+      pointer-events: none;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      z-index: 10;
+    }
+    .hud-score {
+      font-family: 'Cinzel', serif;
+      color: #d4a942; font-size: 32px; font-weight: 700;
+      text-shadow: 0 0 20px rgba(212,169,66,0.4), 0 2px 4px rgba(0,0,0,0.8);
+      letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .hud-combo {
+      font-family: 'Cinzel', serif;
+      color: #c4531a; font-size: 14px; font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+      opacity: 0;
+      transition: opacity 0.18s, transform 0.18s;
+      transform: translateY(-4px);
+    }
+    .hud-combo.active { opacity: 1; transform: translateY(0); }
+    .hud-right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+      pointer-events: auto;
+    }
+    .hud-lives {
+      display: flex; gap: 6px;
+      font-size: 22px;
+    }
+    .mute-btn {
+      pointer-events: auto;
+      background: rgba(13,13,13,0.5);
+      border: 1px solid rgba(212,169,66,0.3);
+      color: #d4a942; font-size: 16px;
+      width: 34px; height: 34px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; touch-action: manipulation;
+      transition: transform 0.1s, border-color 0.15s;
+    }
+    .mute-btn:active { transform: scale(0.9); }
+    .mute-btn.muted { color: #4a4a4a; border-color: #2a2a2a; }
+    .heart {
+      filter: drop-shadow(0 0 8px rgba(196,83,26,0.5));
+      transition: opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
+    }
+    .heart.lost {
+      opacity: 0.15; transform: scale(0.7);
+      filter: grayscale(1) brightness(0.4);
+    }
+
+    /* ── Overlays (menu + gameover) ──────────── */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(13,13,13,0.88);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      z-index: 20;
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .overlay.hidden { display: none; }
+    .title {
+      font-family: 'Cinzel', serif;
+      font-size: 44px; font-weight: 900;
+      color: #d4a942; letter-spacing: 0.15em;
+      text-shadow: 0 0 40px rgba(212,169,66,0.4);
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: #6a5a4a; font-size: 11px; letter-spacing: 0.3em;
+      text-transform: uppercase; margin-bottom: 40px;
+    }
+    .btn {
+      font-family: 'Cinzel', serif;
+      background: linear-gradient(135deg, #d4a942, #8a6d2b);
+      color: #0d0d0d; border: 1px solid #d4a942; border-radius: 12px;
+      padding: 16px 40px; font-size: 15px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 4px 24px rgba(212,169,66,0.3);
+      transition: transform 0.1s, box-shadow 0.15s;
+    }
+    .btn:active {
+      transform: scale(0.96);
+      box-shadow: 0 2px 12px rgba(212,169,66,0.4);
+    }
+    .how {
+      color: #a89878; font-size: 14px; line-height: 1.9;
+      max-width: 320px; margin: 16px 0 36px;
+    }
+    .how .white { color: #e8dcc8; font-weight: 600; }
+    .how .gold  { color: #d4a942; font-weight: 700; }
+    .how .skull { color: #c4531a; font-weight: 700; }
+    .highscore {
+      font-family: 'Cinzel', serif;
+      color: #8a6d2b; font-size: 12px; letter-spacing: 0.15em;
+      margin-top: 24px; text-transform: uppercase;
+    }
+    .gameover-score {
+      font-family: 'Cinzel', serif;
+      color: #d4a942; font-size: 72px; font-weight: 900;
+      text-shadow: 0 0 40px rgba(212,169,66,0.5);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 8px; line-height: 1;
+    }
+    .new-best {
+      color: #c4531a; font-family: 'Cinzel', serif;
+      font-size: 14px; font-weight: 700; letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      animation: pulse-glow 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.7; text-shadow: 0 0 10px rgba(196,83,26,0.4); }
+      50%      { opacity: 1;   text-shadow: 0 0 24px rgba(196,83,26,0.9); }
+    }
+
+    /* ── Debug HUD (toggle: 5-tap on title) ──── */
+    #debug {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0) + 6px);
+      left: 0; right: 0;
+      padding: 6px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px; color: #4a4a4a;
+      pointer-events: none;
+      display: none;
+      z-index: 15;
+      text-align: center;
+    }
+    #debug.visible { display: block; }
+    #debug .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #debug .good { color: #4caf7d; }
+    #debug .warn { color: #d4a942; }
+    #debug .bad  { color: #c4531a; }
+    #debug .lbl  { color: #3a3a3a; }
+
+    /* ── Floating combo popups ──────────────── */
+    @keyframes float-up {
+      0%   { opacity: 0; transform: translate(-50%, 0) scale(0.7); }
+      15%  { opacity: 1; transform: translate(-50%, -12px) scale(1.25); }
+      100% { opacity: 0; transform: translate(-50%, -56px) scale(1); }
+    }
+    .combo-pop {
+      position: absolute;
+      font-family: 'Cinzel', serif;
+      font-size: 30px; font-weight: 900;
+      color: #d4a942; text-shadow: 0 0 20px #d4a942, 0 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      animation: float-up 0.75s ease-out forwards;
+      z-index: 12;
+      letter-spacing: 0.05em;
+    }
+    .combo-pop.gold { color: #fff3c8; text-shadow: 0 0 24px #d4a942; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div>
+      <div class="hud-score" id="scoreEl">0</div>
+      <div class="hud-combo" id="comboEl">×1</div>
+    </div>
+    <div class="hud-right">
+      <button class="mute-btn" id="muteBtn" aria-label="Toggle sound">🔊</button>
+      <div class="hud-lives" id="livesEl">
+        <span class="heart">🔥</span>
+        <span class="heart">🔥</span>
+        <span class="heart">🔥</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="menu">
+    <div class="title" id="titleEl">SOUL REAPER</div>
+    <div class="subtitle">The hour of reckoning</div>
+    <div class="how">
+      Tap the <span class="white">pale souls</span> before they escape.<br>
+      The rare <span class="gold">gold souls</span> grant <span class="gold">×5</span>.<br>
+      Tap the <span class="skull">bomb souls</span> to <span class="skull">detonate</span> — clears everything nearby.<br>
+      Bosses take <span class="gold">three strikes</span>.<br>
+      You lose a <span class="skull">🔥</span> only when a soul escapes.
+    </div>
+    <button class="btn" id="startBtn">Begin the Reap</button>
+    <div class="highscore" id="highEl"></div>
+  </div>
+
+  <div class="overlay hidden" id="gameover">
+    <div class="subtitle">The reaping ends</div>
+    <div class="gameover-score" id="finalScoreEl">0</div>
+    <div class="new-best" id="newBestEl" style="display:none">— NEW BEST —</div>
+    <div class="highscore" id="finalHighEl"></div>
+    <div style="height: 32px"></div>
+    <button class="btn" id="retryBtn">Reap Again</button>
+  </div>
+
+  <div id="debug">
+    <div class="row" id="debugRow">— init —</div>
+  </div>
+
+  <script>
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 2 — CLAIRVOYANCE (trimmed for reflex game)
+
+     FIVE PILLARS (GOLDEN RULE: "What does the player do next?")
+       1. RESPONSIVE — tap→visible in < 50ms, stable 60fps, low jitter
+       2. READABLE   — soul types visually distinct (colour + shape + size)
+       3. FAIR       — escape telegraphed (~1s warning glow), cursed marked
+       4. GUIDED     — souls always on-screen, score/lives always visible
+       5. JUICY      — hit-stop + shake + particles + scale pulse per tap
+     ══════════════════════════════════════════════════════════════════ */
+  const Clairvoyance = {
+    enabled: true,
+    history: [],
+    maxHistory: 300,
+    frameCount: 0,
+
+    // Reflex-game profile — tap-to-banish rising souls
+    profile: {
+      name: 'Reflex (Soul Reaper)',
+      inputLatencyMs:  { ideal: 32,  max: 50  },  // touchstart -> visual reaction
+      fps:             { ideal: 60,  min: 55  },
+      frameJitterMs:   { ideal: 8,   max: 20  },
+      screenCrossTime: { min: 2.0,   ideal: 3.0, max: 5.0 }, // soul bottom→top
+      telegraphMs:     { ideal: 1000, min: 700 }, // warning before soul escapes
+      hitboxPadPx:     { ideal: 18,  min: 12  },  // thumb forgiveness
+      hitStopMs:       { ideal: 40,  min: 30, max: 80 },
+      shakeDecay:      { ideal: 0.85, min: 0.8, max: 0.92 },
+    },
+
+    // Input-latency measurement (touchstart timestamp → first frame painted)
+    pendingInputs: [],   // [{ t: performance.now(), resolved: false }]
+    latencies:     [],   // rolling window of measured latencies
+
+    markInput() {
+      this.pendingInputs.push({ t: performance.now(), resolved: false });
+    },
+    resolveInputs() {
+      // Called once per rAF — any unresolved pending inputs get their latency measured
+      const now = performance.now();
+      for (const p of this.pendingInputs) {
+        if (!p.resolved) {
+          p.resolved = true;
+          this.latencies.push(now - p.t);
+          if (this.latencies.length > 60) this.latencies.shift();
+        }
+      }
+      this.pendingInputs = this.pendingInputs.filter(p => !p.resolved).slice(-10);
+    },
+
+    recordFrame(data) {
+      if (!this.enabled) return;
+      this.history.push({ frame: this.frameCount++, time: performance.now(), ...data });
+      if (this.history.length > this.maxHistory) this.history.shift();
+    },
+
+    // Live metrics for the debug HUD
+    metrics() {
+      const n = this.history.length;
+      if (n < 10) return null;
+      const recent = this.history.slice(-60);
+      const deltas = [];
+      for (let i = 1; i < recent.length; i++) deltas.push(recent[i].time - recent[i-1].time);
+      const avgDelta = deltas.reduce((a,b) => a+b, 0) / Math.max(1, deltas.length);
+      const fps = 1000 / avgDelta;
+      const jitter = deltas.length ? (Math.max(...deltas) - Math.min(...deltas)) : 0;
+      const avgLatency = this.latencies.length
+        ? this.latencies.reduce((a,b)=>a+b,0) / this.latencies.length
+        : 0;
+      return {
+        fps: Math.round(fps),
+        jitter: Math.round(jitter),
+        latency: Math.round(avgLatency),
+        entities: recent[recent.length-1]?.entities ?? 0,
+      };
+    },
+
+    // Preflight — validate tunables BEFORE starting a round.
+    // Returns { ok, score: 'n/m', checks: [{name, passed, value, expected}] }
+    preflightCheck(tunables) {
+      const p = this.profile;
+      const checks = [];
+
+      // RESPONSIVE
+      checks.push({
+        name: 'Hitbox padding is thumb-friendly',
+        passed: tunables.hitboxPadPx >= p.hitboxPadPx.min,
+        value: tunables.hitboxPadPx + 'px',
+        expected: '≥ ' + p.hitboxPadPx.min + 'px',
+      });
+
+      // READABLE — soul types must have distinct colors
+      const colors = [tunables.color_white, tunables.color_gold, tunables.color_skull];
+      const unique = new Set(colors).size;
+      checks.push({
+        name: 'Soul types visually distinct',
+        passed: unique === 3,
+        value: unique + ' unique colors',
+        expected: '3 unique',
+      });
+
+      // FAIR — screen cross time long enough to react
+      const crossTime = tunables.worldH / tunables.baseSpeed;
+      checks.push({
+        name: 'Screen-cross time is reactable',
+        passed: crossTime >= p.screenCrossTime.min,
+        value: crossTime.toFixed(1) + 's',
+        expected: '≥ ' + p.screenCrossTime.min + 's',
+      });
+
+      // FAIR — cursed skulls visually obvious (flagged by color being red-ish)
+      checks.push({
+        name: 'Cursed skulls telegraphed with distinct color',
+        passed: /^#c4/i.test(tunables.color_skull) || /red|#c/i.test(tunables.color_skull),
+        value: tunables.color_skull,
+        expected: 'warm/red hue',
+      });
+
+      // GUIDED — spawn rate guarantees something on screen
+      checks.push({
+        name: 'Spawn rate guarantees a target on-screen',
+        passed: tunables.spawnInterval < crossTime * 1000 * 0.7,
+        value: tunables.spawnInterval + 'ms',
+        expected: '< ' + Math.round(crossTime * 700) + 'ms',
+      });
+
+      // JUICY — juice values within ideal ranges
+      checks.push({
+        name: 'Hit-stop is satisfying not jarring',
+        passed: tunables.hitStopMs >= p.hitStopMs.min && tunables.hitStopMs <= p.hitStopMs.max,
+        value: tunables.hitStopMs + 'ms',
+        expected: p.hitStopMs.min + '-' + p.hitStopMs.max + 'ms',
+      });
+      checks.push({
+        name: 'Shake decay is tuned',
+        passed: tunables.shakeDecay >= p.shakeDecay.min && tunables.shakeDecay <= p.shakeDecay.max,
+        value: tunables.shakeDecay.toFixed(2),
+        expected: p.shakeDecay.min + '-' + p.shakeDecay.max,
+      });
+
+      const passed = checks.filter(c => c.passed).length;
+      const ok = passed === checks.length;
+      return { ok, score: passed + '/' + checks.length, checks };
+    },
+
+    // Runtime analysis — call after a round for summary issues
+    analyze() {
+      const m = this.metrics();
+      if (!m) return null;
+      const issues = [];
+      const p = this.profile;
+      if (m.fps < p.fps.min)
+        issues.push({ pillar: 'responsive', msg: `FPS ${m.fps} (< ${p.fps.min})` });
+      if (m.jitter > p.frameJitterMs.max)
+        issues.push({ pillar: 'responsive', msg: `Jitter ${m.jitter}ms (> ${p.frameJitterMs.max})` });
+      if (m.latency > p.inputLatencyMs.max)
+        issues.push({ pillar: 'responsive', msg: `Input lag ${m.latency}ms (> ${p.inputLatencyMs.max})` });
+      return { metrics: m, issues, healthy: issues.length === 0 };
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 2.5 — AUDIO (Web Audio, all synthesized, no assets)
+     ══════════════════════════════════════════════════════════════════ */
+  const Audio2 = {
+    ctx: null, master: null, musicGain: null, sfxGain: null,
+    muted: localStorage.getItem('soulReaper.muted') === '1',
+    musicNodes: [], bellTimer: null, started: false,
+
+    // Create / resume context on first user gesture
+    ensure() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        this.ctx = new AC();
+        this.master    = this.ctx.createGain();
+        this.musicGain = this.ctx.createGain();
+        this.sfxGain   = this.ctx.createGain();
+        this.master.gain.value    = this.muted ? 0 : 0.9;
+        this.musicGain.gain.value = 0.22;   // music sits under SFX
+        this.sfxGain.gain.value   = 1.0;
+        this.musicGain.connect(this.master);
+        this.sfxGain.connect(this.master);
+        this.master.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return true;
+    },
+
+    setMuted(m) {
+      this.muted = !!m;
+      localStorage.setItem('soulReaper.muted', m ? '1' : '0');
+      if (this.master) this.master.gain.linearRampToValueAtTime(m ? 0 : 0.9, this.ctx.currentTime + 0.08);
+    },
+
+    // ── SFX primitives ─────────────────────────────────────────
+    // One-shot oscillator with ADSR envelope. Returns the node for chaining.
+    tone(freq, type, dur, attack = 0.005, gain = 0.3, detune = 0) {
+      if (!this.ctx || this.muted) return;
+      const t0 = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + attack);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      osc.connect(env).connect(this.sfxGain);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+      return osc;
+    },
+
+    // Short filtered noise burst (for cursed / escape grit)
+    noise(dur, cutoff, gain = 0.3) {
+      if (!this.ctx || this.muted) return;
+      const t0 = this.ctx.currentTime;
+      const bufSize = Math.floor(this.ctx.sampleRate * dur);
+      const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = cutoff;
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(gain, t0);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      src.connect(lp).connect(env).connect(this.sfxGain);
+      src.start(t0);
+    },
+
+    // ── Named SFX ──────────────────────────────────────────────
+    sfx(name, extra = 0) {
+      if (!this.ctx || this.muted) return;
+      switch (name) {
+        case 'tapWhite': {
+          // Crisp bell ping — combo-pitch offset makes chains musical
+          const base = 720 * Math.pow(1.122, extra); // semitone per combo level
+          this.tone(base,        'triangle', 0.18, 0.002, 0.32);
+          this.tone(base * 2.01, 'sine',     0.22, 0.003, 0.14);
+          this.tone(base * 3.02, 'sine',     0.15, 0.003, 0.06);
+          break;
+        }
+        case 'tapGold': {
+          // Fast arpeggio: fifth + octave — triumphant
+          const t0 = this.ctx.currentTime;
+          [523, 659, 784, 1047].forEach((f, i) => {
+            const osc = this.ctx.createOscillator();
+            const env = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            const start = t0 + i * 0.028;
+            env.gain.setValueAtTime(0, start);
+            env.gain.linearRampToValueAtTime(0.25, start + 0.004);
+            env.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+            osc.connect(env).connect(this.sfxGain);
+            osc.start(start); osc.stop(start + 0.37);
+          });
+          // Shimmer
+          this.tone(2093, 'sine', 0.4, 0.01, 0.08);
+          break;
+        }
+        case 'tapCursed': {
+          // Ugly detuned buzz + noise
+          this.tone(180, 'sawtooth', 0.32, 0.002, 0.32, -20);
+          this.tone(184, 'sawtooth', 0.32, 0.002, 0.28, 20);
+          this.noise(0.2, 1200, 0.28);
+          // Pitch drop
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          const t0 = this.ctx.currentTime;
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(260, t0);
+          osc.frequency.exponentialRampToValueAtTime(80, t0 + 0.3);
+          env.gain.setValueAtTime(0.22, t0);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.34);
+          break;
+        }
+        case 'combo': {
+          // Rising pip stacked on top of tap — extra = combo level
+          this.tone(880 + 120 * extra, 'sine', 0.1, 0.002, 0.14);
+          break;
+        }
+        case 'escape': {
+          // Sad descending sigh
+          const t0 = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(440, t0);
+          osc.frequency.exponentialRampToValueAtTime(280, t0 + 0.35);
+          env.gain.setValueAtTime(0, t0);
+          env.gain.linearRampToValueAtTime(0.22, t0 + 0.02);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.38);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.4);
+          break;
+        }
+        case 'gameOver': {
+          // Doom tone — low fifth
+          this.tone(110, 'sine',     1.6, 0.02, 0.35);
+          this.tone(165, 'sine',     1.6, 0.02, 0.25);
+          this.tone(82,  'triangle', 1.8, 0.04, 0.22);
+          this.noise(0.6, 400, 0.14);
+          break;
+        }
+        case 'start': {
+          // Gong — low thump + bright shimmer
+          this.tone(80,  'sine',     1.2, 0.005, 0.42);
+          this.tone(220, 'triangle', 0.5, 0.005, 0.18);
+          this.tone(440, 'sine',     0.7, 0.01,  0.14);
+          break;
+        }
+        case 'bossSpawn': {
+          // Ominous horn blast — low root + minor fifth
+          const t0 = this.ctx.currentTime;
+          const o1 = this.ctx.createOscillator(), g1 = this.ctx.createGain();
+          o1.type = 'sawtooth';
+          o1.frequency.setValueAtTime(55, t0);
+          o1.frequency.exponentialRampToValueAtTime(82, t0 + 0.6);
+          g1.gain.setValueAtTime(0, t0);
+          g1.gain.linearRampToValueAtTime(0.32, t0 + 0.05);
+          g1.gain.exponentialRampToValueAtTime(0.001, t0 + 1.2);
+          o1.connect(g1).connect(this.sfxGain);
+          o1.start(t0); o1.stop(t0 + 1.25);
+          this.tone(82,  'triangle', 1.0, 0.02, 0.22);
+          this.tone(110, 'sine',     1.4, 0.04, 0.18);
+          this.noise(0.4, 600, 0.18);
+          // Type-specific sting
+          if (extra === 'horror')      this.tone(1760, 'sine', 0.3, 0.005, 0.12, -30);
+          else if (extra === 'iron')   this.tone(330, 'square', 0.4, 0.005, 0.14);
+          else                          this.tone(880, 'triangle', 0.5, 0.01, 0.18);
+          break;
+        }
+        case 'bossHit': {
+          // Heavy impact: low thump + metallic clang
+          this.tone(130, 'square',   0.18, 0.002, 0.3);
+          this.tone(65,  'triangle', 0.3,  0.002, 0.28);
+          this.noise(0.12, 2400, 0.18);
+          if (extra === 'horror') this.tone(1200, 'sawtooth', 0.15, 0.002, 0.14, 40);
+          else if (extra === 'iron') this.tone(660, 'triangle', 0.18, 0.002, 0.18); // clang
+          break;
+        }
+        case 'bossKill': {
+          // Triumphant crash + fall
+          const t0 = this.ctx.currentTime;
+          [392, 523, 659, 784, 1047].forEach((f, i) => {
+            const osc = this.ctx.createOscillator();
+            const env = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            const start = t0 + i * 0.04;
+            env.gain.setValueAtTime(0, start);
+            env.gain.linearRampToValueAtTime(0.28, start + 0.005);
+            env.gain.exponentialRampToValueAtTime(0.001, start + 0.9);
+            osc.connect(env).connect(this.sfxGain);
+            osc.start(start); osc.stop(start + 0.95);
+          });
+          this.tone(65,  'sine',     1.0, 0.005, 0.32);
+          this.tone(2093, 'sine',    0.7, 0.005, 0.12);
+          this.noise(0.4, 3200, 0.16);
+          break;
+        }
+        case 'shield': {
+          // Metallic ping — bounced off shield
+          this.tone(1200, 'sine', 0.14, 0.002, 0.18);
+          this.tone(2400, 'sine', 0.1,  0.002, 0.1);
+          break;
+        }
+        case 'boom': {
+          // Thumpy explosion — low frequency sweep + filtered noise burst
+          const t0 = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(180, t0);
+          osc.frequency.exponentialRampToValueAtTime(40, t0 + 0.4);
+          env.gain.setValueAtTime(0, t0);
+          env.gain.linearRampToValueAtTime(0.45, t0 + 0.01);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.52);
+          // Bright crackle on top
+          this.noise(0.3, 3000, 0.32);
+          this.noise(0.15, 800, 0.25);
+          // Spark chime
+          this.tone(1320, 'triangle', 0.22, 0.002, 0.18);
+          break;
+        }
+      }
+    },
+
+    // ── Procedural music: drone + random bell tones ────────────
+    startMusic() {
+      if (!this.ctx || this.started) return;
+      this.started = true;
+      const t0 = this.ctx.currentTime;
+
+      // Deep drone — A2 (110Hz) + E3 (164.8Hz), detuned for richness
+      [[110, 0], [110, 6], [164.81, -4]].forEach(([f, det]) => {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        osc.detune.value = det;
+        const g = this.ctx.createGain();
+        g.gain.value = 0.14;
+        // Slow LFO on gain for breathing
+        const lfo = this.ctx.createOscillator();
+        const lfoG = this.ctx.createGain();
+        lfo.frequency.value = 0.08 + Math.random() * 0.05;
+        lfoG.gain.value = 0.05;
+        lfo.connect(lfoG).connect(g.gain);
+        osc.connect(g).connect(this.musicGain);
+        osc.start(t0); lfo.start(t0);
+        this.musicNodes.push(osc, lfo);
+      });
+
+      // Filtered noise pad — texture
+      const bufSize = Math.floor(this.ctx.sampleRate * 2);
+      const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buf; noise.loop = true;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 2;
+      const ng = this.ctx.createGain();
+      ng.gain.value = 0.045;
+      noise.connect(lp).connect(ng).connect(this.musicGain);
+      noise.start(t0);
+      this.musicNodes.push(noise);
+
+      // Random bell tones — pentatonic minor: A, C, D, E, G
+      const scale = [440, 523.25, 587.33, 659.25, 783.99];
+      const bell = () => {
+        if (!this.started) return;
+        const f = scale[Math.floor(Math.random() * scale.length)] * (Math.random() < 0.4 ? 2 : 1);
+        const t = this.ctx.currentTime;
+        [[f, 0.14], [f * 2.01, 0.07], [f * 3.02, 0.03]].forEach(([freq, g]) => {
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(g, t + 0.02);
+          env.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+          osc.connect(env).connect(this.musicGain);
+          osc.start(t); osc.stop(t + 3.1);
+        });
+        this.bellTimer = setTimeout(bell, 5000 + Math.random() * 6000);
+      };
+      this.bellTimer = setTimeout(bell, 2500);
+    },
+
+    stopMusic() {
+      this.started = false;
+      if (this.bellTimer) clearTimeout(this.bellTimer);
+      const t = this.ctx ? this.ctx.currentTime : 0;
+      for (const n of this.musicNodes) {
+        try { n.stop(t + 0.3); } catch {}
+      }
+      this.musicNodes = [];
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 3 — ENGINE (canvas, entities, loop, spawner, input)
+     ══════════════════════════════════════════════════════════════════ */
+
+  // ── Tunables (passed to Clairvoyance preflight) ─────────────────
+  const T = {
+    worldW: 0, worldH: 0,     // set on resize
+    dpr: 1,
+
+    // Souls — gentler ramp so difficulty arcs over 2-3 minutes instead of 1
+    baseSpeed:    160,         // px/s upward (world coords)
+    speedRampPerSec: 3,        // px/s added every second (peaks at ~100s)
+    maxSpeed:     460,
+    spawnInterval: 860,        // ms between spawns at start
+    spawnMin:      340,        // min at peak difficulty (softer than 280)
+    spawnRamp:     5,          // ms trimmed per second played
+    soulRadius:    32,
+    hitboxPadPx:   18,
+
+    // Density cap — keep the screen readable even at peak difficulty
+    maxRegularSouls: 6,
+
+    // Variants
+    swiftMul:      1.75,       // speed multiplier for swift souls
+    wigglerAmp:    70,         // sine-drift amplitude (px)
+    wigglerFreq:   2.4,        // oscillations per second
+    dodgeRadius:   92,         // px — wiggler dodges pointer within this
+    dodgeForce:    520,        // lateral push when dodging (px/s)
+
+    // Spawn weights (sum = 1 per phase, set per-frame by phase logic)
+    w_white: 0.72, w_gold: 0.12, w_skull: 0.16,
+
+    // Variant probabilities (multiplied into the roll after type)
+    p_swift:  0.15,
+    p_wiggle: 0.22,
+
+    // Colours
+    color_white: '#e8dcc8',
+    color_gold:  '#d4a942',
+    color_skull: '#c4531a',
+    color_bg:    '#0d0d0d',
+
+    // Juice
+    hitStopMs:   45,
+    shakeDecay:  0.85,
+
+    // Bosses
+    bossRadius:       52,
+    bossHitboxPad:    24,
+    bossShieldMs:     400,     // invuln window after a hit
+    bossSpeed:        0.45,    // multiplier vs current baseSpeed
+    bossRewardWraith: 30,
+    bossRewardHorror: 35,
+    bossRewardIron:   40,
+  };
+
+  // ── Difficulty phases ───────────────────────────────────────────
+  // Endless ramp: difficulty keeps intensifying, but arcs over ~6 minutes.
+  function applyPhase(elapsed) {
+    let bossChance = 0, bossCooldownMin = Infinity;
+    if (elapsed < 30) {
+      T.w_white = 0.80; T.w_gold = 0.10; T.w_skull = 0.10;
+      T.p_swift = 0.05; T.p_wiggle = 0.05;
+    } else if (elapsed < 100) {
+      T.w_white = 0.62; T.w_gold = 0.13; T.w_skull = 0.25;
+      T.p_swift = 0.15; T.p_wiggle = 0.20;
+      bossChance = 0.18; bossCooldownMin = 22;
+    } else if (elapsed < 200) {
+      T.w_white = 0.50; T.w_gold = 0.14; T.w_skull = 0.36;
+      T.p_swift = 0.25; T.p_wiggle = 0.32;
+      bossChance = 0.28; bossCooldownMin = 18;
+    } else if (elapsed < 300) {
+      T.w_white = 0.44; T.w_gold = 0.16; T.w_skull = 0.40;
+      T.p_swift = 0.32; T.p_wiggle = 0.40;
+      bossChance = 0.36; bossCooldownMin = 16;
+    } else if (elapsed < 400) {
+      T.w_white = 0.40; T.w_gold = 0.18; T.w_skull = 0.42;
+      T.p_swift = 0.40; T.p_wiggle = 0.48;
+      bossChance = 0.45; bossCooldownMin = 14;
+    } else {
+      // ENDLESS — keeps scaling forever, softly
+      const over = Math.min(300, elapsed - 400);
+      const k = over / 300;
+      T.w_white = 0.38 - k * 0.04;
+      T.w_gold  = 0.18 + k * 0.02;
+      T.w_skull = 0.44 + k * 0.02;
+      T.p_swift  = 0.45 + k * 0.10;
+      T.p_wiggle = 0.55 + k * 0.10;
+      bossChance = Math.min(0.6, 0.50 + k * 0.10);
+      bossCooldownMin = Math.max(10, 14 - k * 4);
+    }
+
+    // Speed uncap past 300s — slow linear growth
+    if (elapsed > 300) T.maxSpeed = 460 + (elapsed - 300) * 0.5;
+    else               T.maxSpeed = 460;
+
+    // Wiggler dodges more aggressively at higher elapsed time
+    T.dodgeForce = 520 + Math.max(0, elapsed - 200) * 1.0;
+
+    return { bossChance, bossCooldownMin };
+  }
+
+  // ── Canvas setup ────────────────────────────────────────────────
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    T.dpr = Math.min(2, window.devicePixelRatio || 1);   // cap at 2x for perf
+    canvas.width  = Math.floor(w * T.dpr);
+    canvas.height = Math.floor(h * T.dpr);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(T.dpr, 0, 0, T.dpr, 0, 0);
+    T.worldW = w;
+    T.worldH = h;
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', resize, { passive: true });
+  resize();
+
+  // ── Entities ────────────────────────────────────────────────────
+  /** Soul: { x, y, vy, type, bornAt, scale, pulse, escaping, dead } */
+  const souls     = [];
+  const particles = [];
+  const ripples   = [];     // tap feedback rings
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function pick(weights) {
+    const r = Math.random();
+    let acc = 0;
+    for (const [k, w] of weights) { acc += w; if (r < acc) return k; }
+    return weights[weights.length - 1][0];
+  }
+
+  function spawnSoul(xHint) {
+    const type = pick([
+      ['white', T.w_white],
+      ['gold',  T.w_gold],
+      ['skull', T.w_skull],
+    ]);
+    const swift = Math.random() < T.p_swift;
+    // Skulls don't wiggle — they need to be unambiguously avoidable
+    const wiggle = type !== 'skull' && Math.random() < T.p_wiggle;
+
+    const pad = T.soulRadius + 8;
+    const baseSpeed = T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed);
+    const speed = baseSpeed * (swift ? T.swiftMul : 1) + rand(-15, 15);
+
+    souls.push({
+      x: xHint ?? rand(pad, T.worldW - pad),
+      baseX: 0,                        // set below
+      y: T.worldH + T.soulRadius + 10,
+      vy: -speed,
+      vxOffset: 0,                     // transient dodge velocity
+      type,
+      swift, wiggle,
+      bornAt: performance.now(),
+      pulse: Math.random() * Math.PI * 2,
+      wigglePhase: Math.random() * Math.PI * 2,
+      trail: [],                       // for swift motion blur
+      dead: false,
+    });
+    souls[souls.length - 1].baseX = souls[souls.length - 1].x;
+  }
+
+  // Multi-spawn waves — triggered by the spawner at higher difficulty
+  function spawnWave(n) {
+    const pad = T.soulRadius + 16;
+    for (let i = 0; i < n; i++) {
+      const slotW = (T.worldW - 2 * pad) / n;
+      const x = pad + slotW * (i + 0.5) + rand(-slotW * 0.25, slotW * 0.25);
+      spawnSoul(x);
+    }
+  }
+
+  // ── Boss spawn ──────────────────────────────────────────────────
+  const BOSS_TYPES = ['wraith', 'horror', 'iron'];
+
+  function spawnBoss() {
+    const bossType = BOSS_TYPES[Math.floor(Math.random() * BOSS_TYPES.length)];
+    const pad = T.bossRadius + 24;
+    const x = rand(pad, T.worldW - pad);
+    const baseSpeed = T.baseSpeed + Math.min(T.maxSpeed - T.baseSpeed, T.speedRampPerSec * game.elapsed);
+    const speed = baseSpeed * T.bossSpeed;
+    // First boss is a beefier tutorial encounter (5 HP). Later bosses are 3.
+    const hp = game.bossesSpawned === 0 ? 5 : 3;
+    const boss = {
+      x, baseX: x,
+      y: T.worldH + T.bossRadius + 20,
+      vy: -speed,
+      vxOffset: 0,
+      type: 'boss',           // keeps engine path generic
+      bossType,               // 'wraith' | 'horror' | 'iron'
+      boss: true,
+      hp,
+      maxHp: hp,
+      shielded: false,
+      shieldUntil: 0,
+      flickerUntil: 0,        // for horror teleport
+      swift: false, wiggle: false,
+      bornAt: performance.now(),
+      pulse: 0, wigglePhase: 0,
+      trail: [],
+      dead: false,
+    };
+    souls.push(boss);
+    game.activeBoss = boss;
+    game.bossesSpawned += 1;
+    bossAnnounce(bossType);
+    Audio2.sfx('bossSpawn', bossType);
+  }
+
+  function bossLabel(type) {
+    return type === 'wraith' ? 'GREAT WRAITH'
+         : type === 'horror' ? 'SHIFTING HORROR'
+         :                     'IRON REAPER';
+  }
+
+  function spawnParticles(x, y, color, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = rand(60, 220);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - rand(40, 120),   // bias upward
+        life: 1, maxLife: rand(0.45, 0.85),
+        size: rand(2, 4), color,
+      });
+    }
+  }
+
+  function spawnRipple(x, y, color) {
+    ripples.push({ x, y, r: 6, maxR: 70, life: 1, color });
+  }
+
+  // Pointer tracking (for wiggler dodge)
+  const pointer = { x: -1e4, y: -1e4, active: false, lastMoveAt: 0 };
+
+  // ── Update ──────────────────────────────────────────────────────
+  function updateSouls(dt) {
+    const now = performance.now();
+    const pointerFresh = now - pointer.lastMoveAt < 180;   // recent movement only
+    for (const s of souls) {
+      if (s.dead) continue;
+      s.y     += s.vy * dt;
+      s.pulse += dt * 4;
+
+      // Wiggle: sine drift around baseX
+      if (s.wiggle) {
+        s.wigglePhase += dt * T.wigglerFreq * Math.PI * 2;
+        const sway = Math.sin(s.wigglePhase) * T.wigglerAmp;
+        s.x = s.baseX + sway + s.vxOffset;
+
+        // Dodge: if pointer is close, push perpendicular
+        if (pointerFresh && pointer.active) {
+          const dx = s.x - pointer.x, dy = s.y - pointer.y;
+          const d = Math.hypot(dx, dy);
+          if (d < T.dodgeRadius && d > 0.1) {
+            // Push away along x (rising souls can't easily dodge vertically)
+            const push = (1 - d / T.dodgeRadius) * T.dodgeForce * dt;
+            s.vxOffset += Math.sign(dx || (Math.random() - 0.5)) * push;
+          }
+        }
+        // Spring vxOffset back toward 0
+        s.vxOffset *= Math.max(0, 1 - 5 * dt);
+      } else {
+        s.x = s.baseX + s.vxOffset;
+        s.vxOffset *= Math.max(0, 1 - 6 * dt);
+      }
+
+      // Keep in bounds
+      const pad = T.soulRadius + 4;
+      if (s.x < pad)            { s.x = pad; s.vxOffset *= -0.4; s.baseX += pad - s.x; }
+      if (s.x > T.worldW - pad) { s.x = T.worldW - pad; s.vxOffset *= -0.4; }
+
+      // Swift: capture trail every frame for motion blur
+      if (s.swift) {
+        s.trail.push({ x: s.x, y: s.y });
+        if (s.trail.length > 6) s.trail.shift();
+      }
+
+      // Escape
+      if (s.y < -T.soulRadius * 1.5) {
+        s.dead = true;
+        s.escaped = true;
+      }
+    }
+    // Purge
+    for (let i = souls.length - 1; i >= 0; i--) {
+      if (souls[i].dead) {
+        if (souls[i].escaped) onSoulEscaped(souls[i]);
+        souls.splice(i, 1);
+      }
+    }
+  }
+
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 280 * dt;              // gravity
+      p.vx *= (1 - 1.2 * dt);        // drag
+      p.life -= dt / p.maxLife;
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function updateRipples(dt) {
+    for (const r of ripples) {
+      r.r    += (r.maxR - r.r) * 6 * dt;
+      r.life -= dt / 0.35;
+    }
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      if (ripples[i].life <= 0) ripples.splice(i, 1);
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────
+  const camera = { shakeX: 0, shakeY: 0 };
+
+  function drawSoul(s) {
+    if (s.boss) return drawBoss(s);
+
+    // Escape warning: glow intensifies in last 1s before leaving top
+    const timeToEscape = s.y / -s.vy;
+    const warn = s.vy < 0 && timeToEscape < 1 && timeToEscape > 0 ? (1 - timeToEscape) : 0;
+    const pulse = 1 + Math.sin(s.pulse) * 0.08;
+    const r = T.soulRadius * pulse;
+    const auraColor = s.type === 'white' ? T.color_white
+                    : s.type === 'gold'  ? T.color_gold
+                    : T.color_skull;
+
+    // Swift trail (motion blur — draw older positions dimmer)
+    if (s.swift && s.trail.length > 1) {
+      for (let i = 0; i < s.trail.length - 1; i++) {
+        const alpha = (i / s.trail.length) * 0.25;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = auraColor;
+        ctx.beginPath();
+        ctx.arc(s.trail[i].x, s.trail[i].y, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.save();
+    ctx.translate(s.x, s.y);
+
+    // Outer aura — stronger if swift, pulsing if wiggling
+    let auraAlpha = 0.18 + warn * 0.5;
+    if (s.swift) auraAlpha += 0.15;
+    if (s.wiggle) auraAlpha += 0.08 * (1 + Math.sin(s.wigglePhase * 1.5));
+    const grad = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.9);
+    grad.addColorStop(0, hexA(auraColor, auraAlpha));
+    grad.addColorStop(1, hexA(auraColor, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Slight rotation tilt for wigglers — reads as "slippery"
+    if (s.wiggle) {
+      ctx.rotate(Math.sin(s.wigglePhase) * 0.15);
+    }
+
+    // Body
+    if (s.type === 'skull') {
+      drawSkull(0, 0, r * 0.85);
+    } else {
+      drawWisp(0, 0, r, s.type === 'gold');
+    }
+
+    // Swift indicator — streaking chevron behind
+    if (s.swift) {
+      ctx.strokeStyle = hexA(auraColor, 0.55);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.35, r * 1.0);
+      ctx.lineTo(0, r * 1.35);
+      ctx.lineTo(r * 0.35, r * 1.0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWisp(cx, cy, r, gold) {
+    const bodyColor = gold ? T.color_gold : T.color_white;
+    // Body — elongated teardrop tail
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.9);
+    ctx.quadraticCurveTo(cx + r * 0.85, cy + r * 0.3, cx + r * 0.75, cy - r * 0.2);
+    ctx.quadraticCurveTo(cx + r * 0.5, cy - r * 1.05, cx, cy - r * 1.15);
+    ctx.quadraticCurveTo(cx - r * 0.5, cy - r * 1.05, cx - r * 0.75, cy - r * 0.2);
+    ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 0.3, cx, cy + r * 0.9);
+    ctx.closePath();
+
+    const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+    g.addColorStop(0, gold ? '#fff3c8' : '#ffffff');
+    g.addColorStop(1, gold ? '#8a6d2b' : '#6a5a4a');
+    ctx.fillStyle = g;
+    ctx.globalAlpha = 0.92;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Eyes — hollow dark sockets
+    ctx.fillStyle = gold ? '#2a1c05' : '#1a1a1a';
+    ctx.beginPath(); ctx.arc(cx - r * 0.22, cy - r * 0.35, r * 0.11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.22, cy - r * 0.35, r * 0.11, 0, Math.PI * 2); ctx.fill();
+
+    // Outline for readability
+    ctx.strokeStyle = gold ? '#d4a942' : '#a89878';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function drawSkull(cx, cy, r) {
+    // Menacing ember skull — red-orange glow
+    ctx.fillStyle = '#1a0a0a';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.1, r * 0.85, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Jaw
+    ctx.fillRect(cx - r * 0.5, cy + r * 0.55, r, r * 0.35);
+
+    // Eye sockets with ember glow
+    const eyeR = r * 0.22;
+    ctx.fillStyle = '#c4531a';
+    ctx.shadowColor = '#c4531a';
+    ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(cx - r * 0.28, cy - r * 0.15, eyeR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.28, cy - r * 0.15, eyeR, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Teeth
+    ctx.fillStyle = '#2a1c1c';
+    for (let i = -2; i <= 2; i++) {
+      ctx.fillRect(cx + i * r * 0.18 - r * 0.06, cy + r * 0.55, r * 0.12, r * 0.28);
+    }
+
+    // Outline
+    ctx.strokeStyle = '#c4531a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.1, r * 0.85, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // ── Bosses ──────────────────────────────────────────────────────
+  function drawBoss(s) {
+    const now = performance.now();
+    const R = T.bossRadius;
+    const shielded = s.shielded && now < s.shieldUntil;
+    const flickering = now < s.flickerUntil;
+    const pulse = 1 + Math.sin(s.pulse) * 0.05;
+
+    const color = s.bossType === 'wraith' ? '#f4e9d0'
+                : s.bossType === 'horror' ? '#2a0a0a'
+                :                           '#d4a942';
+
+    // Big aura
+    const auraAlpha = 0.35 + (shielded ? 0.25 : 0) + Math.sin(now * 0.006) * 0.08;
+    const ag = ctx.createRadialGradient(s.x, s.y, R * 0.3, s.x, s.y, R * 2.4);
+    ag.addColorStop(0, hexA(color, auraAlpha));
+    ag.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = ag;
+    ctx.beginPath(); ctx.arc(s.x, s.y, R * 2.4, 0, Math.PI * 2); ctx.fill();
+
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.scale(pulse, pulse);
+
+    // Teleport flicker (horror)
+    if (flickering) ctx.globalAlpha = 0.3 + Math.random() * 0.5;
+
+    if (s.bossType === 'wraith') {
+      // Giant wisp + crown
+      drawWisp(0, 0, R * 0.95, false);
+      ctx.fillStyle = '#f4e9d0';
+      ctx.globalAlpha = ctx.globalAlpha * 0.85;
+      // Crown of three flames
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        const x = i * R * 0.45;
+        ctx.moveTo(x - R * 0.1, -R * 1.05);
+        ctx.quadraticCurveTo(x, -R * 1.4, x + R * 0.1, -R * 1.05);
+        ctx.quadraticCurveTo(x, -R * 1.2, x - R * 0.1, -R * 1.05);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else if (s.bossType === 'horror') {
+      // Dark silhouette with glowing vertical red eye
+      ctx.fillStyle = '#0a0406';
+      ctx.beginPath();
+      ctx.moveTo(0, R * 1.0);
+      ctx.quadraticCurveTo(R * 0.95, R * 0.3, R * 0.75, -R * 0.4);
+      ctx.quadraticCurveTo(R * 0.5, -R * 1.2, 0, -R * 1.25);
+      ctx.quadraticCurveTo(-R * 0.5, -R * 1.2, -R * 0.75, -R * 0.4);
+      ctx.quadraticCurveTo(-R * 0.95, R * 0.3, 0, R * 1.0);
+      ctx.fill();
+      // Red eye
+      ctx.shadowColor = '#ff2a1a';
+      ctx.shadowBlur = 24;
+      ctx.fillStyle = '#ff2a1a';
+      ctx.beginPath();
+      ctx.ellipse(0, -R * 0.25, R * 0.08, R * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Outline
+      ctx.strokeStyle = '#3a1010';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // Iron Reaper — gold armored skull
+      // Skull base
+      ctx.fillStyle = '#e8dcc8';
+      ctx.beginPath();
+      ctx.ellipse(0, -R * 0.1, R * 0.85, R * 0.95, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye sockets
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(-R * 0.3, -R * 0.15, R * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( R * 0.3, -R * 0.15, R * 0.2, 0, Math.PI * 2); ctx.fill();
+      // Teeth row
+      ctx.fillStyle = '#2a1c1c';
+      ctx.fillRect(-R * 0.55, R * 0.45, R * 1.1, R * 0.35);
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillStyle = '#e8dcc8';
+        ctx.fillRect(i * R * 0.2 - R * 0.05, R * 0.48, R * 0.1, R * 0.28);
+      }
+      // Golden armored plates — cracked proportionally to hp loss
+      ctx.strokeStyle = '#d4a942';
+      ctx.lineWidth = 3;
+      // Top plate
+      if (s.hp >= 1) {
+        ctx.beginPath();
+        ctx.arc(0, -R * 0.1, R * 0.95, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+      }
+      // Jaw plate
+      if (s.hp >= 2) {
+        ctx.strokeRect(-R * 0.6, R * 0.4, R * 1.2, R * 0.45);
+      }
+      // Crown spike
+      if (s.hp >= 3) {
+        ctx.fillStyle = '#d4a942';
+        ctx.beginPath();
+        ctx.moveTo(-R * 0.15, -R * 0.95);
+        ctx.lineTo(0, -R * 1.3);
+        ctx.lineTo(R * 0.15, -R * 0.95);
+        ctx.fill();
+      }
+    }
+
+    // Shield ring when invuln
+    if (shielded) {
+      ctx.strokeStyle = '#d4a942';
+      ctx.globalAlpha = 0.6 + Math.sin(now * 0.02) * 0.25;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 1.35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+
+    // HP indicator (three pips above head) + boss label
+    const pipY = s.y - R * 1.55;
+    const pipGap = 12;
+    for (let i = 0; i < s.maxHp; i++) {
+      const filled = i < s.hp;
+      const px = s.x + (i - (s.maxHp - 1) / 2) * pipGap;
+      ctx.fillStyle = filled ? '#d4a942' : '#2a2a2a';
+      ctx.strokeStyle = '#d4a942';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(px, pipY, 4, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+    // Name
+    ctx.fillStyle = hexA(color === '#2a0a0a' ? '#c4531a' : color, 0.85);
+    ctx.font = '700 11px "Cinzel", serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(bossLabel(s.bossType), s.x, pipY - 8);
+    ctx.textAlign = 'start';
+  }
+
+  function drawParticle(p) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawRipple(r) {
+    ctx.globalAlpha = Math.max(0, r.life * 0.6);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBackground() {
+    // Solid fill — faster than gradient every frame. Subtle vignette via radial overlay.
+    ctx.fillStyle = T.color_bg;
+    ctx.fillRect(0, 0, T.worldW, T.worldH);
+
+    // Floor ember glow
+    const floorG = ctx.createLinearGradient(0, T.worldH - 180, 0, T.worldH);
+    floorG.addColorStop(0, 'rgba(196,83,26,0)');
+    floorG.addColorStop(1, 'rgba(196,83,26,0.15)');
+    ctx.fillStyle = floorG;
+    ctx.fillRect(0, T.worldH - 180, T.worldW, 180);
+  }
+
+  // ── Input (touch + mouse, low-latency) ──────────────────────────
+  function canvasCoords(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  function onTap(clientX, clientY) {
+    Clairvoyance.markInput();
+    const { x, y } = canvasCoords(clientX, clientY);
+    // Pick nearest eligible entity; bosses use bigger hitbox
+    let best = null;
+    let bestDist = Infinity;
+    for (const s of souls) {
+      if (s.dead) continue;
+      const dx = s.x - x, dy = s.y - y;
+      const d = Math.hypot(dx, dy);
+      const hit = s.boss ? (T.bossRadius + T.bossHitboxPad)
+                         : (T.soulRadius + T.hitboxPadPx);
+      if (d <= hit && d < bestDist) { best = s; bestDist = d; }
+    }
+    onTapResolved(best, x, y);
+  }
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    pointer.active = true;
+    const t = e.changedTouches[0];
+    if (t) { const c = canvasCoords(t.clientX, t.clientY); pointer.x = c.x; pointer.y = c.y; pointer.lastMoveAt = performance.now(); }
+    for (const tt of e.changedTouches) onTap(tt.clientX, tt.clientY);
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const c = canvasCoords(t.clientX, t.clientY);
+    pointer.x = c.x; pointer.y = c.y; pointer.lastMoveAt = performance.now();
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', () => { pointer.active = false; }, { passive: true });
+  canvas.addEventListener('touchcancel', () => { pointer.active = false; }, { passive: true });
+
+  canvas.addEventListener('mousemove', e => {
+    const c = canvasCoords(e.clientX, e.clientY);
+    pointer.x = c.x; pointer.y = c.y;
+    pointer.active = true;
+    pointer.lastMoveAt = performance.now();
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    const c = canvasCoords(e.clientX, e.clientY);
+    pointer.x = c.x; pointer.y = c.y; pointer.active = true;
+    pointer.lastMoveAt = performance.now();
+    onTap(e.clientX, e.clientY);
+  });
+
+  canvas.addEventListener('mouseleave', () => { pointer.active = false; });
+
+  // ── Helpers ─────────────────────────────────────────────────────
+  function hexA(hex, a) {
+    // #rrggbb -> rgba(r,g,b,a)
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // ── Main loop ───────────────────────────────────────────────────
+  let lastTime = performance.now();
+  let hitStopUntil = 0;
+  const flashState = { color: '#c4531a', alpha: 0 };
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+
+    const frameDt = Math.min(0.05, (now - lastTime) / 1000);  // clamp to 50ms
+    lastTime = now;
+
+    // Hit-stop freezes game sim, not render
+    const paused = now < hitStopUntil || game.state !== 'playing';
+    const dt = paused ? 0 : frameDt;
+
+    // Spawner
+    if (!paused) {
+      game.elapsed += dt;
+      const phase = applyPhase(game.elapsed);
+      game.sinceSpawn += dt * 1000;
+      game.bossCooldown = Math.max(0, game.bossCooldown - dt);
+
+      // Is a boss currently alive?
+      const bossAlive = !!game.activeBoss && !game.activeBoss.dead;
+      const regularCount = souls.reduce((n, s) => n + (!s.boss && !s.dead ? 1 : 0), 0);
+
+      // Boss spawn — tied to phase chance + cooldown + not already active
+      if (!bossAlive && game.bossCooldown <= 0 && phase.bossChance > 0 && Math.random() < phase.bossChance * dt * 2) {
+        spawnBoss();
+        game.bossCooldown = phase.bossCooldownMin + Math.random() * 6;
+      }
+
+      // Regular spawns — throttled during boss fight, capped in density
+      let interval = Math.max(T.spawnMin, T.spawnInterval - T.spawnRamp * game.elapsed);
+      if (bossAlive) interval *= 2.5;              // much slower during boss
+      const regularCap = bossAlive ? 2 : T.maxRegularSouls;
+
+      if (game.sinceSpawn >= interval && regularCount < regularCap) {
+        game.sinceSpawn = 0;
+        // Multi-spawn waves — only when NO boss active
+        let waveChance = 0, maxN = 1;
+        if (!bossAlive) {
+          if (game.elapsed > 50)  { waveChance = 0.12; maxN = 2; }
+          if (game.elapsed > 120) { waveChance = 0.20; maxN = 3; }
+          if (game.elapsed > 220) { waveChance = 0.28; maxN = 3; }
+          if (game.elapsed > 350) { waveChance = 0.36; maxN = 4; }
+        }
+        if (!bossAlive && Math.random() < waveChance) {
+          spawnWave(2 + Math.floor(Math.random() * maxN));
+        } else {
+          spawnSoul();
+        }
+      }
+    }
+
+    updateSouls(dt);
+    updateParticles(frameDt);   // particles keep animating during hit-stop for satisfaction
+    updateRipples(frameDt);
+
+    // Camera shake decay
+    camera.shakeX *= T.shakeDecay;
+    camera.shakeY *= T.shakeDecay;
+    if (Math.abs(camera.shakeX) < 0.1) camera.shakeX = 0;
+    if (Math.abs(camera.shakeY) < 0.1) camera.shakeY = 0;
+
+    // Render
+    drawBackground();
+    ctx.save();
+    ctx.translate(camera.shakeX, camera.shakeY);
+    for (const r of ripples) drawRipple(r);
+    for (const s of souls) if (!s.dead) drawSoul(s);
+    for (const p of particles) drawParticle(p);
+    ctx.restore();
+
+    // Flash overlay (damage / cursed hit) — drawn on top, no shake
+    if (flashState.alpha > 0) {
+      ctx.globalAlpha = flashState.alpha;
+      ctx.fillStyle = flashState.color;
+      ctx.fillRect(0, 0, T.worldW, T.worldH);
+      ctx.globalAlpha = 1;
+      flashState.alpha *= 0.82;
+      if (flashState.alpha < 0.01) flashState.alpha = 0;
+    }
+
+    // Clairvoyance
+    Clairvoyance.resolveInputs();
+    Clairvoyance.recordFrame({ entities: souls.length + particles.length });
+    if (DEBUG.visible) updateDebugHud();
+  }
+  requestAnimationFrame(tick);
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 4 — GAME (state machine, juice, wiring)
+     ══════════════════════════════════════════════════════════════════ */
+  const HIGHSCORE_KEY = 'soulReaper.high';
+
+  const game = {
+    state: 'menu',       // 'menu' | 'playing' | 'gameover'
+    score: 0,
+    lives: 3,
+    maxLives: 3,
+    combo: 1,
+    comboTimer: 0,
+    lastComboAt: 0,
+    sinceSpawn: 0,
+    elapsed: 0,
+    activeBoss: null,
+    bossCooldown: 30,    // first boss after the 30s intro phase
+    bossesSpawned: 0,    // first boss is meatier (5 HP), rest stay 3
+    high: Number(localStorage.getItem(HIGHSCORE_KEY) || 0),
+  };
+
+  const DEBUG = { visible: false, taps: 0, lastTapAt: 0 };
+
+  // ── DOM refs ────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const menuEl      = $('menu');
+  const gameoverEl  = $('gameover');
+  const scoreEl     = $('scoreEl');
+  const comboEl     = $('comboEl');
+  const livesEl     = $('livesEl');
+  const highEl      = $('highEl');
+  const finalScoreEl= $('finalScoreEl');
+  const finalHighEl = $('finalHighEl');
+  const newBestEl   = $('newBestEl');
+  const debugEl     = $('debug');
+  const debugRowEl  = $('debugRow');
+  const titleEl     = $('titleEl');
+
+  // ── Rendering HUD ───────────────────────────────────────────────
+  function renderScore() { scoreEl.textContent = game.score; }
+  function renderCombo() {
+    if (game.combo > 1) {
+      comboEl.textContent = '× ' + game.combo;
+      comboEl.classList.add('active');
+    } else {
+      comboEl.classList.remove('active');
+    }
+  }
+  function renderLives() {
+    const hearts = livesEl.querySelectorAll('.heart');
+    hearts.forEach((h, i) => h.classList.toggle('lost', i >= game.lives));
+  }
+  function renderHighscore() {
+    const txt = game.high ? 'BEST — ' + game.high : '';
+    highEl.textContent = txt;
+    finalHighEl.textContent = txt;
+  }
+
+  // ── Juice ───────────────────────────────────────────────────────
+  function shake(amount) {
+    const a = Math.random() * Math.PI * 2;
+    camera.shakeX += Math.cos(a) * amount;
+    camera.shakeY += Math.sin(a) * amount;
+  }
+
+  function hitStop(ms) {
+    hitStopUntil = performance.now() + ms;
+  }
+
+  function flashScreen(color, alpha) {
+    flashState.color = color;
+    flashState.alpha = alpha;
+  }
+
+  function comboPopup(x, y, text, gold) {
+    const el = document.createElement('div');
+    el.className = 'combo-pop' + (gold ? ' gold' : '');
+    el.textContent = text;
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+
+  // ── Scoring ─────────────────────────────────────────────────────
+  function awardSoul(s, x, y) {
+    const gold = s.type === 'gold';
+    const base = gold ? 5 : 1;
+
+    // Combo: updates if within 1.5s of last good tap
+    const now = performance.now();
+    if (now - game.lastComboAt < 1500) {
+      game.combo = Math.min(5, game.combo + 1);
+    } else {
+      game.combo = 1;
+    }
+    game.lastComboAt = now;
+
+    const earned = base * game.combo;
+    game.score += earned;
+
+    // Juice
+    const color = gold ? T.color_gold : T.color_white;
+    spawnParticles(x, y, color, gold ? 22 : 10);
+    spawnRipple(x, y, color);
+    shake(gold ? 6 : 3);
+    hitStop(gold ? 70 : T.hitStopMs);
+
+    // Audio
+    Audio2.sfx(gold ? 'tapGold' : 'tapWhite', game.combo - 1);
+    if (game.combo >= 2) Audio2.sfx('combo', game.combo);
+
+    // Pop
+    comboPopup(x, y, '+' + earned, gold);
+    if (game.combo >= 2) {
+      setTimeout(() => comboPopup(x, y - 28, '× ' + game.combo, gold), 60);
+    }
+
+    renderScore();
+    renderCombo();
+  }
+
+  // Bomb soul tapped — it DETONATES, banishing every soul within BLAST_RADIUS.
+  // Nearby whites and golds get auto-collected for bonus points.
+  function explodeSkull(s, x, y) {
+    const BLAST_RADIUS = 180;
+    const BASE_REWARD  = 10;
+    let bonusEarned = BASE_REWARD;
+    let chainKills  = 0;
+
+    // Visual explosion
+    spawnParticles(x, y, '#ff7a2a', 36);
+    spawnParticles(x, y, '#d4a942', 18);
+    for (let i = 0; i < 3; i++) spawnRipple(x, y, '#ff7a2a');
+    shake(14);
+    hitStop(90);
+    flashState.color = '#ff7a2a';
+    flashState.alpha = 0.4;
+    Audio2.sfx('boom');
+
+    // Chain banish — anything within radius that isn't the skull itself or a boss
+    for (const other of souls) {
+      if (other === s || other.dead) continue;
+      if (other.boss) continue;                     // bosses only die to direct hits
+      const d = Math.hypot(other.x - x, other.y - y);
+      if (d <= BLAST_RADIUS) {
+        other.dead = true;
+        const col = other.type === 'gold' ? T.color_gold
+                  : other.type === 'skull' ? T.color_skull
+                  :                          T.color_white;
+        // Trail of particles from explosion to the caught soul
+        const steps = 6;
+        for (let k = 0; k < steps; k++) {
+          const t = k / steps;
+          spawnParticles(x + (other.x - x) * t, y + (other.y - y) * t, col, 2);
+        }
+        spawnParticles(other.x, other.y, col, 12);
+        // Reward: golds worth more; chained skulls DON'T chain-explode (to cap damage)
+        if (other.type === 'gold')  bonusEarned += 5;
+        else if (other.type === 'skull') bonusEarned += 3;  // small consolation for stacked skulls
+        else                              bonusEarned += 1;
+        chainKills += 1;
+      }
+    }
+
+    game.score += bonusEarned;
+    renderScore();
+
+    comboPopup(x, y, '+' + bonusEarned, true);
+    if (chainKills >= 2) {
+      setTimeout(() => comboPopup(x, y - 32, 'CHAIN ×' + chainKills, true), 80);
+    }
+  }
+
+  // A regular (non-skull, non-boss) soul escaped past the top — lose a life.
+  function punishEscape() {
+    game.lives = Math.max(0, game.lives - 1);
+    game.combo = 1;
+    game.lastComboAt = 0;
+    shake(8);
+    flashState.color = '#8a3020';
+    flashState.alpha = 0.45;
+    Audio2.sfx('escape');
+
+    // Unmissable -1 🔥 popup so you always see WHY a life dropped
+    const el = document.createElement('div');
+    el.className = 'combo-pop';
+    el.style.color = '#c4531a';
+    el.style.textShadow = '0 0 24px #c4531a, 0 2px 6px rgba(0,0,0,0.9)';
+    el.style.fontSize = '34px';
+    el.textContent = '-1 🔥';
+    el.style.left = (T.worldW / 2) + 'px';
+    el.style.top  = (T.worldH * 0.22) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+
+    renderLives();
+    renderCombo();
+    if (game.lives <= 0) setTimeout(gameOver, 350);
+  }
+
+  // ── Event hooks called by engine ────────────────────────────────
+  window.onTapResolved = function(soul, x, y) {
+    if (game.state !== 'playing') return;
+    if (!soul) {
+      spawnRipple(x, y, '#4a4a4a');
+      return;
+    }
+    if (soul.boss) { hitBoss(soul, x, y); return; }
+    soul.dead = true;
+    if (soul.type === 'skull')      explodeSkull(soul, x, y);
+    else                             awardSoul(soul, x, y);
+  };
+
+  window.onSoulEscaped = function(soul) {
+    if (game.state !== 'playing') return;
+    if (soul.boss) {
+      // No boss escape costs a life — you just miss the reward.
+      if (game.activeBoss === soul) game.activeBoss = null;
+      return;
+    }
+    if (soul.type === 'skull') return;   // cursed skulls escaping is GOOD
+    punishEscape();
+  };
+
+  // ── Boss handlers ───────────────────────────────────────────────
+  function hitBoss(b, x, y) {
+    const now = performance.now();
+    // Shielded? visual pop, no damage
+    if (b.shielded && now < b.shieldUntil) {
+      spawnParticles(x, y, '#d4a942', 8);
+      spawnRipple(x, y, '#d4a942');
+      shake(2);
+      Audio2.sfx('shield');
+      return;
+    }
+    b.hp -= 1;
+    b.shielded = true;
+    b.shieldUntil = now + T.bossShieldMs;
+
+    // Horror: teleport to a new X position
+    if (b.bossType === 'horror') {
+      const pad = T.bossRadius + 24;
+      b.baseX = rand(pad, T.worldW - pad);
+      b.x = b.baseX;
+      b.vxOffset = 0;
+      b.flickerUntil = now + 300;
+    }
+
+    const bcol = b.bossType === 'wraith' ? '#f4e9d0'
+               : b.bossType === 'horror' ? '#ff2a1a'
+               :                           '#d4a942';
+
+    if (b.hp <= 0) {
+      killBoss(b, x, y);
+    } else {
+      spawnParticles(x, y, bcol, 22);
+      spawnRipple(x, y, bcol);
+      shake(9);
+      hitStop(90);
+      Audio2.sfx('bossHit', b.bossType);
+      comboPopup(x, y - 20, b.hp + ' HP', false);
+    }
+  }
+
+  function killBoss(b, x, y) {
+    b.dead = true;
+    if (game.activeBoss === b) game.activeBoss = null;
+    const reward = b.bossType === 'wraith' ? T.bossRewardWraith
+                 : b.bossType === 'horror' ? T.bossRewardHorror
+                 :                           T.bossRewardIron;
+    game.score += reward;
+
+    // Massive juice
+    const bcol = b.bossType === 'wraith' ? '#f4e9d0'
+               : b.bossType === 'horror' ? '#ff2a1a'
+               :                           '#d4a942';
+    spawnParticles(x, y, bcol, 60);
+    spawnParticles(x, y, '#d4a942', 30);
+    for (let i = 0; i < 3; i++) spawnRipple(x, y, bcol);
+    shake(22);
+    hitStop(180);
+    flashState.color = bcol;
+    flashState.alpha = 0.4;
+    Audio2.sfx('bossKill', b.bossType);
+
+    comboPopup(x, y, '+' + reward, true);
+    setTimeout(() => comboPopup(T.worldW / 2, T.worldH * 0.4, bossLabel(b.bossType) + ' BANISHED', true), 80);
+
+    renderScore();
+  }
+
+  function bossAnnounce(type) {
+    const el = document.createElement('div');
+    el.className = 'combo-pop gold';
+    el.style.fontSize = '24px';
+    el.style.letterSpacing = '0.2em';
+    el.style.color = '#c4531a';
+    el.style.textShadow = '0 0 30px #c4531a';
+    el.textContent = '⚔ ' + bossLabel(type) + ' ⚔';
+    el.style.left = (T.worldW / 2) + 'px';
+    el.style.top  = (T.worldH * 0.3) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+
+  // ── State transitions ───────────────────────────────────────────
+  function startGame() {
+    // Audio needs a user gesture — we're in one now (button click)
+    Audio2.ensure();
+    Audio2.sfx('start');
+    Audio2.startMusic();
+
+    // Clairvoyance preflight
+    const pre = Clairvoyance.preflightCheck(T);
+    if (!pre.ok && console) {
+      console.warn('[Clairvoyance] preflight failed:', pre.score);
+      console.table(pre.checks.filter(c => !c.passed));
+    } else if (console) {
+      console.log('[Clairvoyance] preflight', pre.score, '✓');
+    }
+
+    game.state = 'playing';
+    game.score = 0;
+    game.lives = game.maxLives;
+    game.combo = 1;
+    game.lastComboAt = 0;
+    game.elapsed = 0;
+    game.sinceSpawn = 400;
+    game.activeBoss = null;
+    game.bossCooldown = 30;
+    game.bossesSpawned = 0;
+    souls.length = 0;
+    particles.length = 0;
+    ripples.length = 0;
+
+    renderScore(); renderCombo(); renderLives();
+    menuEl.classList.add('hidden');
+    gameoverEl.classList.add('hidden');
+  }
+
+  function gameOver() {
+    game.state = 'gameover';
+    Audio2.sfx('gameOver');
+    Audio2.stopMusic();
+
+    const isNewBest = game.score > game.high;
+    if (isNewBest) {
+      game.high = game.score;
+      try { localStorage.setItem(HIGHSCORE_KEY, String(game.high)); } catch {}
+    }
+    finalScoreEl.textContent = game.score;
+    newBestEl.style.display = isNewBest && game.score > 0 ? 'block' : 'none';
+    renderHighscore();
+    gameoverEl.classList.remove('hidden');
+
+    // Runtime analysis
+    const report = Clairvoyance.analyze();
+    if (report && console) {
+      if (report.healthy) console.log('[Clairvoyance] runtime ✓', report.metrics);
+      else                 console.warn('[Clairvoyance] issues', report.issues);
+    }
+  }
+
+  // ── Debug HUD ───────────────────────────────────────────────────
+  function updateDebugHud() {
+    const m = Clairvoyance.metrics();
+    if (!m) return;
+    const p = Clairvoyance.profile;
+    const cls = (val, good, warn) =>
+      val <= good ? 'good' : val <= warn ? 'warn' : 'bad';
+    const fpsCls = m.fps >= 58 ? 'good' : m.fps >= 45 ? 'warn' : 'bad';
+    debugRowEl.innerHTML =
+      `<span class="lbl">FPS</span> <span class="${fpsCls}">${m.fps}</span>` +
+      ` <span class="lbl">JIT</span> <span class="${cls(m.jitter, p.frameJitterMs.ideal, p.frameJitterMs.max)}">${m.jitter}ms</span>` +
+      ` <span class="lbl">INP</span> <span class="${cls(m.latency, p.inputLatencyMs.ideal, p.inputLatencyMs.max)}">${m.latency}ms</span>` +
+      ` <span class="lbl">ENT</span> <span>${m.entities}</span>` +
+      ` <span class="lbl">LIVES</span> <span>${game.lives}</span>`;
+  }
+
+  function toggleDebug() {
+    DEBUG.visible = !DEBUG.visible;
+    debugEl.classList.toggle('visible', DEBUG.visible);
+  }
+
+  // 5-tap on the title shows the debug HUD
+  titleEl.addEventListener('click', () => {
+    const now = performance.now();
+    if (now - DEBUG.lastTapAt > 600) DEBUG.taps = 0;
+    DEBUG.taps++;
+    DEBUG.lastTapAt = now;
+    if (DEBUG.taps >= 5) {
+      toggleDebug();
+      DEBUG.taps = 0;
+    }
+  });
+
+  // ── Wire up buttons ─────────────────────────────────────────────
+  $('startBtn').addEventListener('click', startGame);
+  $('retryBtn').addEventListener('click', startGame);
+
+  // Prevent iOS double-tap zoom on buttons
+  ['startBtn','retryBtn'].forEach(id => {
+    $(id).addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive: false });
+  });
+
+  // Mute button
+  const muteBtn = $('muteBtn');
+  function renderMute() {
+    muteBtn.textContent = Audio2.muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', Audio2.muted);
+  }
+  function toggleMute() {
+    Audio2.ensure();
+    Audio2.setMuted(!Audio2.muted);
+    renderMute();
+  }
+  muteBtn.addEventListener('click', toggleMute);
+  muteBtn.addEventListener('touchend', e => { e.preventDefault(); toggleMute(); }, { passive: false });
+  renderMute();
+
+  // ── Initial render ──────────────────────────────────────────────
+  renderHighscore();
+  renderScore();
+  renderLives();
+  </script>
+</body>
+</html>
