@@ -5024,8 +5024,13 @@ export async function ensureDebateTables() {
 }
 
 // Close debates whose voting window has expired (no winner set yet).
-// Intended to be called before any lobby/detail read so we don't rely on a cron.
+// Rate-limited to at most once per 60s per serverless instance so lobby/detail polls
+// don't hammer the DB. Worst case across N hot instances: N runs per minute.
+let _lastDebateCleanupAt = 0;
 export async function closeExpiredDebateVoting() {
+  const now = Date.now();
+  if (now - _lastDebateCleanupAt < 60000) return;
+  _lastDebateCleanupAt = now;
   await sql`
     UPDATE debates d
     SET status = 'closed',

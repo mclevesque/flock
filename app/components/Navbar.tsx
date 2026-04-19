@@ -5,7 +5,7 @@ import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { useNotifications } from "@/lib/useNotifications";
 
-const TOP_LEVEL = ["/", "/lobby", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim"];
+const TOP_LEVEL = ["/", "/lobby", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim", "/debate"];
 
 const gameSections = [
   { label: "⚔️ BATTLE ARENA", items: [
@@ -164,6 +164,7 @@ export default function Navbar() {
             <Badge n={unreadMessages} />
           </Link>
           <Link href="/lobby" style={activeStyle(path.startsWith("/lobby")) as React.CSSProperties}>⚔️ Lobby</Link>
+          <Link href="/debate" style={activeStyle(path.startsWith("/debate")) as React.CSSProperties}>🎙️ Debate</Link>
           <Link href="/moonhaven" style={activeStyle(path.startsWith("/moonhaven")) as React.CSSProperties}>🌙 Moonhaven</Link>
           <Link href="/leaderboards" style={activeStyle(path.startsWith("/leaderboards")) as React.CSSProperties}>🏆 Leaderboards</Link>
         </nav>

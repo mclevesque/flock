@@ -66,7 +66,8 @@ export default function DebateRoomClient({ debateId, sessionUserId }: { debateId
   useEffect(() => {
     if (!data) return;
     if (data.debate.status === "closed") return; // stop polling once final
-    const t = setInterval(refresh, data.debate.status === "active" ? 5000 : 12000);
+    // Keep polling gentle on the DB — 15s during turns, 30s during voting window.
+    const t = setInterval(refresh, data.debate.status === "active" ? 15000 : 30000);
     return () => clearInterval(t);
   }, [data, refresh]);
 
