@@ -1,5 +1,5 @@
 /**
- * Flock Debate — preset topic library.
+ * The Great Debate — preset topic library.
  * Escape Pod DNA: heated rankings, specific recency takes, anatomical absurdities,
  * hypotheticals, deep fandom arguments. Broad franchise coverage across:
  * Star Wars, LOTR, Marvel, DC, anime, prestige TV, animation, video games, film canon.

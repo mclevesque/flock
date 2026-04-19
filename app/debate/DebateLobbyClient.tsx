@@ -53,27 +53,27 @@ export default function DebateLobbyClient({ open, active, closed, categories, se
       background: "var(--bg, #0f0d0a)",
       color: "var(--text-primary, #e8dcc8)",
     }}>
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-        <div>
-          <h1 style={{ fontFamily: "Cinzel, serif", fontSize: "clamp(24px, 6vw, 34px)", margin: 0, color: "var(--accent-purple, #d4a942)" }}>
-            Flock Debate
-          </h1>
-          <p style={{ margin: "4px 0 0", opacity: 0.75, fontSize: 13 }}>
-            Pop-culture arguments settled by audio. No politics. Just vibes.
-          </p>
-        </div>
-        <Link href="/debate/leaderboard" style={{
-          fontSize: 12, padding: "6px 10px", borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.15)", color: "inherit", textDecoration: "none",
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <h1 style={{ fontFamily: "Cinzel, serif", fontSize: "clamp(22px, 5.5vw, 32px)", margin: 0, color: "var(--accent-purple, #d4a942)", letterSpacing: "0.04em" }}>
+          The Great Debate
+        </h1>
+        <Link href="/debate/leaderboard" aria-label="Leaderboard" style={{
+          fontSize: 16, padding: "8px 12px", borderRadius: 10,
+          border: "1px solid rgba(212,169,66,0.35)", color: "inherit", textDecoration: "none",
+          flexShrink: 0,
         }}>🏆</Link>
       </header>
+      <p style={{ margin: "0 0 14px", opacity: 0.6, fontSize: 12, color: "#b9a98a" }}>
+        Pop-culture arguments, settled by audio. No politics. Just vibes.
+      </p>
 
       <Link href="/debate/new" style={{
         display: "block", textAlign: "center",
         background: "var(--accent-purple, #d4a942)", color: "#1a1408",
         fontWeight: 800, padding: "14px 16px", borderRadius: 14,
         textDecoration: "none", marginBottom: 16, fontSize: 16,
-        boxShadow: "0 4px 18px rgba(212,169,66,0.25)",
+        boxShadow: "0 4px 18px rgba(212,169,66,0.22)",
       }}>
         + New Debate
       </Link>
@@ -117,6 +117,7 @@ export default function DebateLobbyClient({ open, active, closed, categories, se
           </div>
         </section>
       ))}
+    </div>
     </div>
   );
 }

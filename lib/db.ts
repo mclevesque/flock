@@ -4922,7 +4922,7 @@ export async function cleanupExpiredGroundItems() {
   await sql`DELETE FROM town_ground_items WHERE dropped_at < NOW() - INTERVAL '10 minutes'`.catch(() => {});
 }
 
-// ── Flock Debate: media debate app (audio clips, voting, AI judge) ────────────
+// ── The Great Debate: media debate app (audio clips, voting, AI judge) ────────────
 let _debateTablesReady = false;
 export async function ensureDebateTables() {
   if (_debateTablesReady) return; _debateTablesReady = true;

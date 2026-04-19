@@ -1,5 +1,5 @@
 /**
- * Flock Debate — GROQ integrations.
+ * The Great Debate — GROQ integrations.
  *  - moderateTopic(): rejects political/hateful/off-brand topics before a debate is created
  *  - transcribeClip(): Whisper-large-v3 via GROQ for free-tier audio transcription
  *  - judgeDebate(): Escape Pod-style snarky cohost verdict on the transcripts
@@ -36,7 +36,7 @@ function prefilter(title: string): ModerationResult {
   const lower = title.toLowerCase();
   for (const bad of BANNED_SUBSTRINGS) {
     if (lower.includes(bad)) {
-      return { ok: false, reason: "Flock Debate is pop-culture only — political, electoral, or real-world geopolitical topics aren't allowed. Try a media/fandom debate instead." };
+      return { ok: false, reason: "The Great Debate is pop-culture only — political, electoral, or real-world geopolitical topics aren't allowed. Try a media/fandom debate instead." };
     }
   }
   if (title.trim().length < 6) return { ok: false, reason: "Topic is too short. Give us something to argue about." };
