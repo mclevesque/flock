@@ -4922,6 +4922,128 @@ export async function cleanupExpiredGroundItems() {
   await sql`DELETE FROM town_ground_items WHERE dropped_at < NOW() - INTERVAL '10 minutes'`.catch(() => {});
 }
 
+// ── Flock Debate: media debate app (audio clips, voting, AI judge) ────────────
+let _debateTablesReady = false;
+export async function ensureDebateTables() {
+  if (_debateTablesReady) return; _debateTablesReady = true;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_topics (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      side_a_label TEXT,
+      side_b_label TEXT,
+      preset BOOLEAN DEFAULT false,
+      creator_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS debate_topics_category_idx ON debate_topics(category)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debates (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT REFERENCES debate_topics(id) ON DELETE SET NULL,
+      custom_title TEXT,
+      category TEXT,
+      side_a_label TEXT NOT NULL,
+      side_b_label TEXT NOT NULL,
+      user_a TEXT REFERENCES users(id) ON DELETE CASCADE,
+      user_b TEXT REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT DEFAULT 'open',
+      round_limit INTEGER DEFAULT 3,
+      clip_len_s INTEGER DEFAULT 60,
+      current_round INTEGER DEFAULT 1,
+      current_turn TEXT DEFAULT 'a',
+      visibility TEXT DEFAULT 'public',
+      voting_ends_at TIMESTAMP,
+      winner_side TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS debates_status_idx ON debates(status)`;
+  await sql`CREATE INDEX IF NOT EXISTS debates_user_a_idx ON debates(user_a)`;
+  await sql`CREATE INDEX IF NOT EXISTS debates_user_b_idx ON debates(user_b)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_clips (
+      id TEXT PRIMARY KEY,
+      debate_id TEXT REFERENCES debates(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      side TEXT NOT NULL,
+      round_no INTEGER NOT NULL,
+      r2_key TEXT NOT NULL,
+      url TEXT NOT NULL,
+      duration_ms INTEGER DEFAULT 0,
+      transcript TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS debate_clips_debate_idx ON debate_clips(debate_id, round_no, side)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_votes (
+      debate_id TEXT REFERENCES debates(id) ON DELETE CASCADE,
+      voter_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      vote_side TEXT NOT NULL,
+      reaction TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (debate_id, voter_id)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_verdicts (
+      debate_id TEXT PRIMARY KEY REFERENCES debates(id) ON DELETE CASCADE,
+      ai_winner TEXT,
+      score_a INTEGER DEFAULT 0,
+      score_b INTEGER DEFAULT 0,
+      roast_line TEXT DEFAULT '',
+      reasoning TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_stats (
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      streak INTEGER DEFAULT 0,
+      best_streak INTEGER DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (user_id, category)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS debate_highlights (
+      id TEXT PRIMARY KEY,
+      clip_id TEXT REFERENCES debate_clips(id) ON DELETE CASCADE,
+      sharer_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      share_key TEXT UNIQUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+}
+
+// Close debates whose voting window has expired (no winner set yet).
+// Intended to be called before any lobby/detail read so we don't rely on a cron.
+export async function closeExpiredDebateVoting() {
+  await sql`
+    UPDATE debates d
+    SET status = 'closed',
+        winner_side = COALESCE((
+          SELECT CASE
+            WHEN SUM(CASE WHEN vote_side='a' THEN 1 ELSE 0 END) >
+                 SUM(CASE WHEN vote_side='b' THEN 1 ELSE 0 END) THEN 'a'
+            WHEN SUM(CASE WHEN vote_side='b' THEN 1 ELSE 0 END) >
+                 SUM(CASE WHEN vote_side='a' THEN 1 ELSE 0 END) THEN 'b'
+            ELSE 'tie'
+          END
+          FROM debate_votes v WHERE v.debate_id = d.id
+        ), 'tie'),
+        updated_at = NOW()
+    WHERE status = 'voting' AND voting_ends_at IS NOT NULL AND voting_ends_at < NOW()
+  `.catch(() => {});
+}
+
 // TEMP: Call all ensure functions for fresh DB setup
 export async function ensureAllTables() {
   await ensureVoiceTables().catch(()=>{});
@@ -4939,4 +5061,5 @@ export async function ensureAllTables() {
   await ensureAiUsageTable().catch(()=>{});
   await ensurePongTables().catch(()=>{});
   await ensureWaddabiTables().catch(()=>{});
+  await ensureDebateTables().catch(()=>{});
 }
