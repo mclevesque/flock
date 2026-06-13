@@ -124,7 +124,7 @@ export function VibeProvider({ children }: { children: React.ReactNode }) {
 
   // Show mini player when playing and not on a profile page (profile has its own Vibe tab)
   const onProfilePage = pathname.startsWith("/profile");
-  const showMini = currentVideo && !onVibePage && !onProfilePage;
+  const showMini = currentVideo && !onVibePage && !onProfilePage && !pathname.startsWith("/budi");
 
   return (
     <VibeContext.Provider value={{

@@ -202,6 +202,7 @@ export default function ChallengePopup() {
   const visibleIncoming = incoming.filter(c => !dismissed.has(c.id));
   // Don't show quiz popups on the quiz hub — they're already shown inline there
   const visibleQuizIncoming = onQuizHub ? [] : quizIncoming.filter(c => !quizDismissed.has(c.id));
+  if (pathname?.startsWith("/budi")) return null; // Budi is standalone — no GS game-challenge popups
   if (!session?.user?.id) return null;
   if (visibleIncoming.length === 0 && visibleQuizIncoming.length === 0 && !accepted) return null;
 

@@ -4,6 +4,7 @@ import {
 } from "react";
 import { useSession } from "@/lib/use-session";
 import { usePortal } from "@/app/components/PortalContext";
+import { usePathname } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   const username = session?.user?.name ?? "User";
   const avatarUrl = session?.user?.image ?? null;
   const { portal } = usePortal();
+  const pathname = usePathname();
   const isGS = portal === "greatsouls";
   const vt = isGS ? GS_THEME : RYFT_THEME;
 
@@ -1358,6 +1360,8 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   // UI
   // ────────────────────────────────────────────────────────────────────────────
 
+  // Budi is a standalone app — keep voice context alive but hide GS's floating voice + DM widgets there
+  if (pathname?.startsWith("/budi")) return <>{children}</>;
   if (!userId) return <>{children}</>;
 
   const inVoice = !!currentRoomId;

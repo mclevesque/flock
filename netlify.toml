@@ -32,6 +32,12 @@
   [headers.values]
     Permissions-Policy = "camera=(self), microphone=(self), display-capture=(self)"
 
+# Budi needs camera + mic to record clips and voice notes
+[[headers]]
+  for = "/budi/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=(self)"
+
 # ── Redirects ─────────────────────────────────────────────────────────────────
 # /watch → /stremio (decommissioned page)
 [[redirects]]

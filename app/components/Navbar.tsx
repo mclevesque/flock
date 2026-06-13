@@ -31,6 +31,7 @@ const gameSections = [
 export default function Navbar() {
   const path = usePathname();
   if (path === "/voice-popup") return null;
+  if (path.startsWith("/budi")) return null; // Budi is a standalone app — no Great Souls chrome
 
   const router = useRouter();
   const { data: session } = useSession();

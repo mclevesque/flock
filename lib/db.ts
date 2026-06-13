@@ -353,6 +353,214 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `.catch(() => {});
+
+  await ensureBudiTables().catch(() => {});
+}
+
+// ── BUDI — daily video-log social app (Setlog-style) ─────────────────────────
+// Logs are groups (invite-code) or a personal solo log. Clips are short videos
+// stored in R2 (private keys, presigned on read) like stories. A "day" runs
+// 4am→4am, approximated server-side as (NOW() - INTERVAL '4 hours')::date.
+
+let _budiReady = false;
+export async function ensureBudiTables() {
+  if (_budiReady) return; _budiReady = true;
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_logs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'group',          -- 'group' | 'solo'
+      name TEXT NOT NULL,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      invite_code TEXT UNIQUE,                      -- NULL for solo logs
+      max_members INTEGER DEFAULT 10,
+      clip_max_seconds INTEGER DEFAULT 30,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_members (
+      log_id TEXT REFERENCES budi_logs(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT DEFAULT 'member',                   -- 'owner' | 'member'
+      streak_count INTEGER DEFAULT 0,
+      last_post_date DATE,
+      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (log_id, user_id)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_clips (
+      id TEXT PRIMARY KEY,
+      log_id TEXT REFERENCES budi_logs(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      avatar_url TEXT,
+      video_key TEXT NOT NULL,                      -- R2 key (private), NOT public URL
+      thumb_key TEXT,
+      duration_seconds REAL NOT NULL DEFAULT 0,
+      caption TEXT DEFAULT '',
+      local_day DATE NOT NULL,                      -- the 4am→4am day bucket
+      recorded_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS budi_clips_log_day_idx ON budi_clips (log_id, local_day, recorded_at)`.catch(() => {});
+  // media_type: 'video' | 'audio' (voice note). Ephemeral by default via expires_at,
+  // kept only if highlight=true (saved in-app) — separate from device "save to gallery".
+  await sql`ALTER TABLE budi_clips ADD COLUMN IF NOT EXISTS media_type TEXT DEFAULT 'video'`.catch(() => {});
+  await sql`ALTER TABLE budi_clips ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`.catch(() => {});
+  await sql`ALTER TABLE budi_clips ADD COLUMN IF NOT EXISTS highlight BOOLEAN DEFAULT FALSE`.catch(() => {});
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_comments (
+      id SERIAL PRIMARY KEY,
+      clip_id TEXT REFERENCES budi_clips(id) ON DELETE CASCADE,
+      author_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      parent_id INTEGER REFERENCES budi_comments(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_clip_likes (
+      clip_id TEXT REFERENCES budi_clips(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (clip_id, user_id)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS budi_compilations (
+      id TEXT PRIMARY KEY,
+      log_id TEXT REFERENCES budi_logs(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      video_key TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',       -- 'pending' | 'ready' | 'failed'
+      clip_count INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(log_id, day)
+    )
+  `;
+}
+
+function budiId(): string {
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8);
+}
+
+async function genBudiInviteCode(): Promise<string> {
+  for (let i = 0; i < 10; i++) {
+    const code = (Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6))
+      .toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (code.length < 6) continue;
+    const existing = await sql`SELECT 1 FROM budi_logs WHERE invite_code = ${code} LIMIT 1`;
+    if (existing.length === 0) return code;
+  }
+  return budiId().slice(0, 6).toUpperCase();
+}
+
+// Ensure the user's personal solo "vlog" log exists; return it.
+export async function ensureBudiSolo(userId: string) {
+  await ensureBudiTables();
+  const existing = await sql`SELECT * FROM budi_logs WHERE owner_id = ${userId} AND kind = 'solo' LIMIT 1`;
+  if (existing[0]) return existing[0];
+  const id = budiId();
+  const rows = await sql`
+    INSERT INTO budi_logs (id, kind, name, owner_id, invite_code)
+    VALUES (${id}, 'solo', 'vlog', ${userId}, NULL)
+    RETURNING *
+  `;
+  await sql`
+    INSERT INTO budi_members (log_id, user_id, role)
+    VALUES (${id}, ${userId}, 'owner')
+    ON CONFLICT DO NOTHING
+  `;
+  return rows[0];
+}
+
+export async function createBudiLog(ownerId: string, name: string) {
+  await ensureBudiTables();
+  const id = budiId();
+  const code = await genBudiInviteCode();
+  const cleanName = (name || "new log").trim().slice(0, 40) || "new log";
+  const rows = await sql`
+    INSERT INTO budi_logs (id, kind, name, owner_id, invite_code)
+    VALUES (${id}, 'group', ${cleanName}, ${ownerId}, ${code})
+    RETURNING *
+  `;
+  await sql`
+    INSERT INTO budi_members (log_id, user_id, role)
+    VALUES (${id}, ${ownerId}, 'owner')
+    ON CONFLICT DO NOTHING
+  `;
+  return rows[0];
+}
+
+export async function joinBudiLogByCode(userId: string, code: string): Promise<{ ok: boolean; log?: Record<string, unknown>; error?: string }> {
+  await ensureBudiTables();
+  const clean = (code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (clean.length < 4) return { ok: false, error: "Enter a valid code" };
+  const logs = await sql`SELECT * FROM budi_logs WHERE invite_code = ${clean} AND kind = 'group' LIMIT 1`;
+  const log = logs[0];
+  if (!log) return { ok: false, error: "No log found for that code" };
+  const already = await sql`SELECT 1 FROM budi_members WHERE log_id = ${log.id} AND user_id = ${userId} LIMIT 1`;
+  if (already.length) return { ok: true, log };
+  const countRows = await sql`SELECT COUNT(*)::int AS n FROM budi_members WHERE log_id = ${log.id}`;
+  const n = Number(countRows[0]?.n ?? 0);
+  if (n >= Number(log.max_members ?? 10)) return { ok: false, error: "This log is full" };
+  await sql`
+    INSERT INTO budi_members (log_id, user_id, role)
+    VALUES (${log.id}, ${userId}, 'member')
+    ON CONFLICT DO NOTHING
+  `;
+  return { ok: true, log };
+}
+
+export async function getBudiLogsForUser(userId: string) {
+  await ensureBudiTables();
+  await ensureBudiSolo(userId); // home always shows the personal "vlog" space
+  return sql`
+    SELECT l.*,
+      m.streak_count, m.last_post_date, m.role,
+      (SELECT COUNT(*)::int FROM budi_members m2 WHERE m2.log_id = l.id) AS member_count,
+      (SELECT COUNT(*)::int FROM budi_clips c WHERE c.log_id = l.id
+         AND c.local_day = ((NOW() - INTERVAL '4 hours')::date)) AS clips_today,
+      (SELECT MAX(c.created_at) FROM budi_clips c WHERE c.log_id = l.id) AS last_clip_at
+    FROM budi_members m
+    JOIN budi_logs l ON l.id = m.log_id
+    WHERE m.user_id = ${userId}
+    ORDER BY (l.kind = 'solo') DESC, last_clip_at DESC NULLS LAST, l.created_at DESC
+  `;
+}
+
+export async function getBudiLog(logId: string, userId: string) {
+  await ensureBudiTables();
+  const member = await sql`SELECT 1 FROM budi_members WHERE log_id = ${logId} AND user_id = ${userId} LIMIT 1`;
+  if (!member.length) return null; // not a member → no access
+  const logs = await sql`SELECT * FROM budi_logs WHERE id = ${logId} LIMIT 1`;
+  return logs[0] ?? null;
+}
+
+export async function getBudiMembers(logId: string) {
+  await ensureBudiTables();
+  return sql`
+    SELECT m.user_id, m.role, m.streak_count, m.last_post_date, m.joined_at,
+      u.username, u.display_name, u.avatar_url
+    FROM budi_members m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.log_id = ${logId}
+    ORDER BY (m.role = 'owner') DESC, m.joined_at ASC
+  `;
+}
+
+export async function leaveBudiLog(logId: string, userId: string): Promise<boolean> {
+  await ensureBudiTables();
+  // Only group logs can be left; solo logs persist as the user's personal space.
+  const result = await sql`
+    DELETE FROM budi_members m
+    USING budi_logs l
+    WHERE m.log_id = ${logId} AND m.user_id = ${userId}
+      AND m.log_id = l.id AND l.kind = 'group'
+    RETURNING m.user_id
+  `;
+  return result.length > 0;
 }
 
 // ── GAME CHALLENGES ─────────────────────────────────────────────────────────
