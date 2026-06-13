@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { C, display, Avatar, Smiley, ago, memberColor, type BudiLog } from "./_ui";
+import { C, display, Avatar, Smiley, ago, memberColor, useLandscapeTrigger, type BudiLog } from "./_ui";
 import BudiRecorder from "./BudiRecorder";
 import BudiInstall from "./BudiInstall";
 
@@ -18,6 +18,9 @@ export default function BudiHome({ initialLogs, me }: { initialLogs: BudiLog[]; 
   useEffect(() => {
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("record") === "1") setTab("camera");
   }, []);
+
+  // Rotate phone to landscape → open the camera
+  useLandscapeTrigger(() => setTab("camera"), tab !== "camera");
 
   const solo = logs.find(l => l.kind === "solo");
   const groups = logs.filter(l => l.kind !== "solo");

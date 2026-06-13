@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect, useRef } from "react";
 
 // ── Budi neon design system ──────────────────────────────────────────────────
 export const C = {
@@ -88,4 +89,33 @@ export function ago(dateStr?: string | null): string {
   const m = Math.floor(s / 60); if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60); if (h < 24) return `${h}h`;
   const d = Math.floor(h / 24); return `${d}d`;
+}
+
+// ── Orientation: Budi is portrait-first; landscape = camera ───────────────────
+export function useIsLandscape(): boolean {
+  const [land, setLand] = useState(false);
+  useEffect(() => {
+    const check = () => setLand(window.innerWidth > window.innerHeight * 1.1);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return land;
+}
+
+// Fires onLandscape once each time the device rotates portrait→landscape (while enabled)
+export function useLandscapeTrigger(onLandscape: () => void, enabled: boolean) {
+  const cb = useRef(onLandscape);
+  cb.current = onLandscape;
+  useEffect(() => {
+    if (!enabled) return;
+    let was = window.innerWidth > window.innerHeight * 1.1;
+    const check = () => {
+      const is = window.innerWidth > window.innerHeight * 1.1;
+      if (is && !was) cb.current();
+      was = is;
+    };
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [enabled]);
 }

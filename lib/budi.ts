@@ -90,3 +90,37 @@ export async function setBudiHighlight(clipId: string, userId: string, highlight
   `;
   return res.length > 0;
 }
+
+// A user's personal (solo) vlog — visible to themselves, or to anyone who shares a
+// group party with them. Returns null if the viewer isn't allowed (or user missing).
+export async function getBudiUserVlog(viewerId: string, targetUserId: string) {
+  await ensureBudiTables();
+  if (viewerId !== targetUserId) {
+    const shared = await sql`
+      SELECT 1 FROM budi_members a
+      JOIN budi_members b ON a.log_id = b.log_id
+      JOIN budi_logs l ON l.id = a.log_id AND l.kind = 'group'
+      WHERE a.user_id = ${viewerId} AND b.user_id = ${targetUserId}
+      LIMIT 1
+    `;
+    if (!shared.length) return null;
+  }
+  const userRows = await sql`SELECT id, username, display_name, avatar_url FROM users WHERE id = ${targetUserId} LIMIT 1`;
+  const user = userRows[0];
+  if (!user) return null;
+  const soloRows = await sql`SELECT id FROM budi_logs WHERE owner_id = ${targetUserId} AND kind = 'solo' LIMIT 1`;
+  const solo = soloRows[0];
+  if (!solo) return { user, clips: [] as Record<string, unknown>[] };
+  const clips = await sql`
+    SELECT c.id, c.user_id, c.username, c.avatar_url, c.video_key, c.thumb_key,
+           c.duration_seconds, c.caption, c.media_type, c.highlight, c.recorded_at, c.created_at,
+           (SELECT COUNT(*)::int FROM budi_clip_likes l WHERE l.clip_id = c.id) AS like_count,
+           EXISTS(SELECT 1 FROM budi_clip_likes l WHERE l.clip_id = c.id AND l.user_id = ${viewerId}) AS liked,
+           (SELECT COUNT(*)::int FROM budi_comments cm WHERE cm.clip_id = c.id) AS comment_count
+    FROM budi_clips c
+    WHERE c.log_id = ${solo.id}
+      AND (c.highlight = TRUE OR c.expires_at IS NULL OR c.expires_at > NOW())
+    ORDER BY c.recorded_at DESC, c.created_at DESC
+  `;
+  return { user, clips };
+}
