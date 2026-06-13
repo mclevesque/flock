@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { C, display, Avatar, Smiley, ago, memberColor, type BudiLog } from "./_ui";
 import BudiRecorder from "./BudiRecorder";
+import BudiInstall from "./BudiInstall";
 
 type Me = { id: string; username: string; avatarUrl: string | null };
 
@@ -66,6 +67,7 @@ export default function BudiHome({ initialLogs, me }: { initialLogs: BudiLog[]; 
 
       {tab === "logs" ? (
         <main style={{ padding: "4px 14px 0" }}>
+          <BudiInstall />
           {/* rotate-to-capture hint */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 6px 16px", color: C.muted }}>
             <Smiley size={26} color={C.pink} />
