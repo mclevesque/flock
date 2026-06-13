@@ -24,7 +24,13 @@ export const viewport: Viewport = {
 
 export default function BudiLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={fredoka.variable} style={{ minHeight: "100dvh", background: "#000000" }}>
+    <div className={`${fredoka.variable} budi-app`} style={{ minHeight: "100dvh", background: "#000000" }}>
+      {/* Standalone/touch polish so /budi feels native when installed on Android/iOS */}
+      <style>{`
+        .budi-app { overflow-x: hidden; overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; }
+        .budi-app input, .budi-app textarea, .budi-app audio { user-select: auto; -webkit-touch-callout: default; }
+        .budi-app video, .budi-app img { -webkit-touch-callout: none; }
+      `}</style>
       {children}
     </div>
   );

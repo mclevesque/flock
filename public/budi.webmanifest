@@ -9,8 +9,20 @@
   "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#000000",
+  "lang": "en-US",
+  "dir": "ltr",
+  "categories": ["social", "photo", "lifestyle"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "/budi-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/budi-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Record a clip",
+      "short_name": "Record",
+      "url": "/budi?record=1",
+      "icons": [{ "src": "/budi-icon-512.png", "sizes": "512x512" }]
+    }
   ]
 }

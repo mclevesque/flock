@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { C, display, Avatar, Smiley, ago, memberColor, type BudiLog } from "./_ui";
 import BudiRecorder from "./BudiRecorder";
@@ -12,6 +12,11 @@ export default function BudiHome({ initialLogs, me }: { initialLogs: BudiLog[]; 
   const [tab, setTab] = useState<"logs" | "camera">("logs");
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<"create" | "join" | null>(null);
+
+  // Open the recorder directly from the PWA "Record" shortcut (/budi?record=1)
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("record") === "1") setTab("camera");
+  }, []);
 
   const solo = logs.find(l => l.kind === "solo");
   const groups = logs.filter(l => l.kind !== "solo");

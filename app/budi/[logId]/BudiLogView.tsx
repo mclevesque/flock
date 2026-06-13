@@ -246,6 +246,14 @@ function ClipCard({ c, mine, onLike, onHighlight, onDownload }: {
   const [muted, setMuted] = useState(true);
   const [menu, setMenu] = useState(false);
 
+  // Android perf: only play a clip while it's actually on-screen
+  useEffect(() => {
+    const v = videoRef.current; if (!v) return;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }, { threshold: 0.5 });
+    io.observe(v);
+    return () => io.disconnect();
+  }, []);
+
   function toggleSound() {
     const v = videoRef.current; if (!v) return;
     const m = !muted; setMuted(m); v.muted = m; v.play().catch(() => {});
