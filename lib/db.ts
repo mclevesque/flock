@@ -5317,6 +5317,18 @@ export async function createBlindRankSession(
   return id;
 }
 
+export async function upsertBlindRankSession(
+  id: string, topic: string, items: string[], useImages: boolean, createdBy: string | null
+): Promise<void> {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  await sql`
+    INSERT INTO blindrank_sessions (id, topic, items, use_images, created_by)
+    VALUES (${id}, ${topic}, ${JSON.stringify(items)}, ${useImages}, ${createdBy})
+    ON CONFLICT (id) DO NOTHING
+  `;
+}
+
 export async function getBlindRankSession(id: string) {
   await ensureBlindRankTables();
   const sql = getDb();

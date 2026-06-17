@@ -35,7 +35,7 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
   }, [refresh]);
 
   const copyPlayLink = async () => {
-    await navigator.clipboard.writeText(`${window.location.origin}/blindrank/play/${sessionId}`);
+    await navigator.clipboard.writeText(window.location.href);
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2500);
   };
@@ -91,14 +91,14 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
             }}>
               {linkCopied ? "✓ COPIED!" : "📋 SHARE LINK"}
             </button>
-            <a href={`/blindrank/play/${sessionId}`} style={{
+            <a href="/blindrank" style={{
               display: "flex", alignItems: "center",
               background: "rgba(212,169,66,0.06)", border: "1px solid #333",
               borderRadius: 8, padding: "9px 14px", color: "#888",
               textDecoration: "none", fontSize: 12, fontFamily: "'Cinzel', serif",
               letterSpacing: "0.05em", whiteSpace: "nowrap",
             }}>
-              ▶ RANK IT
+              + NEW RANK
             </a>
           </div>
         </div>
@@ -108,12 +108,12 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
           <div style={{ textAlign: "center", padding: "60px 20px", animation: "br-fade-in 0.4s ease" }}>
             <div style={{ fontSize: 40, marginBottom: 12, filter: "grayscale(1) opacity(0.3)" }}>📭</div>
             <p style={{ color: "#333", fontSize: 14 }}>No rankings yet — be the first!</p>
-            <a href={`/blindrank/play/${sessionId}`} style={{
+            <a href="/blindrank" style={{
               display: "inline-block", marginTop: 12,
               color: "#d4a942", fontSize: 14, textDecoration: "none",
               border: "1px solid #d4a942", borderRadius: 8, padding: "10px 20px",
               fontFamily: "'Cinzel', serif", letterSpacing: "0.06em",
-            }}>▶ PLAY NOW</a>
+            }}>+ CREATE ONE</a>
           </div>
         )}
 
