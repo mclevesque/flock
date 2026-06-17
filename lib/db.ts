@@ -5275,4 +5275,88 @@ export async function ensureAllTables() {
   await ensurePongTables().catch(()=>{});
   await ensureWaddabiTables().catch(()=>{});
   await ensureDebateTables().catch(()=>{});
+  await ensureBlindRankTables().catch(()=>{});
+}
+
+// ── BLINDR4NK ─────────────────────────────────────────────────────────────────
+let _brReady = false;
+async function ensureBlindRankTables() {
+  if (_brReady) return; _brReady = true;
+  const sql = getDb();
+  await sql`
+    CREATE TABLE IF NOT EXISTS blindrank_sessions (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL,
+      items JSONB NOT NULL,
+      use_images BOOLEAN DEFAULT false,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `.catch(() => {});
+  await sql`
+    CREATE TABLE IF NOT EXISTS blindrank_results (
+      id SERIAL PRIMARY KEY,
+      session_id TEXT REFERENCES blindrank_sessions(id) ON DELETE CASCADE,
+      ranker_name TEXT,
+      ranking JSONB NOT NULL,
+      submitted_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `.catch(() => {});
+}
+
+export async function createBlindRankSession(
+  topic: string, items: string[], useImages: boolean, createdBy: string | null
+): Promise<string> {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  const id = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  await sql`
+    INSERT INTO blindrank_sessions (id, topic, items, use_images, created_by)
+    VALUES (${id}, ${topic}, ${JSON.stringify(items)}, ${useImages}, ${createdBy})
+  `;
+  return id;
+}
+
+export async function getBlindRankSession(id: string) {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  const rows = await sql`SELECT * FROM blindrank_sessions WHERE id = ${id}`;
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: r.id as string,
+    topic: r.topic as string,
+    items: r.items as string[],
+    useImages: r.use_images as boolean,
+    createdBy: r.created_by as string | null,
+  };
+}
+
+export async function submitBlindRankResult(
+  sessionId: string, ranking: string[], rankerName: string | null
+): Promise<number> {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO blindrank_results (session_id, ranking, ranker_name)
+    VALUES (${sessionId}, ${JSON.stringify(ranking)}, ${rankerName})
+    RETURNING id
+  `;
+  return rows[0].id as number;
+}
+
+export async function getBlindRankResults(sessionId: string) {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, ranker_name, ranking, submitted_at
+    FROM blindrank_results WHERE session_id = ${sessionId}
+    ORDER BY submitted_at ASC
+  `;
+  return rows.map(r => ({
+    id: r.id as number,
+    rankerName: r.ranker_name as string | null,
+    ranking: r.ranking as string[],
+    submittedAt: (r.submitted_at as Date).toISOString(),
+  }));
 }
