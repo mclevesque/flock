@@ -5,7 +5,7 @@ import { useSession, signOut } from "@/lib/use-session";
 import { useState, useEffect, useRef } from "react";
 import { useNotifications } from "@/lib/useNotifications";
 
-const TOP_LEVEL = ["/", "/lobby", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim", "/debate"];
+const TOP_LEVEL = ["/", "/lobby", "/friends", "/messages", "/chess", "/emulator", "/pong", "/signin", "/draw", "/waddabi", "/leaderboards", "/games", "/profile", "/customize", "/moonhaven", "/outbreak", "/whodoneit", "/tightrope", "/games/moon-sim", "/debate", "/blindrank"];
 
 const gameSections = [
   { label: "⚔️ BATTLE ARENA", items: [
@@ -17,7 +17,8 @@ const gameSections = [
     { href: "/dodge-gauntlet",    label: "💠 Dodge Gauntlet",    desc: "Bullet-hell survival" },
   ]},
   { label: "🎉 PARTY GAMES", items: [
-    { href: "/games/moon-sim", label: "🌙 Moon Sim", desc: "Take Matt to the moon" },
+    { href: "/blindrank",      label: "🃏 BL!NDR4NK",  desc: "Rank it blind, reveal by reveal" },
+    { href: "/games/moon-sim", label: "🌙 Moon Sim",   desc: "Take Matt to the moon" },
   ]},
   { label: "🎲 TABLE GAMES", items: [
     { href: "/chess", label: "♟️ Chess",  desc: "1v1 with ELO rating" },
