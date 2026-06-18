@@ -148,6 +148,7 @@ export default function BlindRankGameClient({ sessionId, topic, items, createdBy
   };
 
   const SLOT_H = Math.max(50, Math.min(68, Math.floor(360 / Math.max(total, 1))));
+  const IMG_SIZE = typeof window !== "undefined" && window.innerWidth < 540 ? 140 : 180;
 
   return (
     <div
@@ -203,24 +204,43 @@ export default function BlindRankGameClient({ sessionId, topic, items, createdBy
                     display: "flex", alignItems: "center", gap: 10, height: SLOT_H,
                     background: isHover ? "rgba(212,169,66,0.1)" : empty ? "#0f0f0f" : "#161616",
                     border: `1.5px solid ${isHover ? "#d4a942" : empty ? "#1a1a1a" : isLocked ? "#d4a942" : "#242424"}`,
-                    borderRadius: 10, padding: "0 14px",
+                    borderRadius: 10, padding: item?.image ? "8px" : "0 14px",
                     transition: "border-color 0.15s, background 0.15s",
                     animation: isLocked ? "br-lock-in 0.4s ease" : undefined,
                     boxShadow: isHover ? "0 0 12px rgba(212,169,66,0.15)" : "none",
+                    position: "relative",
+                    overflow: "hidden",
                   }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
-                      background: !empty && i === 0 ? "linear-gradient(135deg,#d4a942,#c4531a)" : empty ? "#141414" : "#1e1e1e",
-                      border: empty ? "1px dashed #252525" : "none",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 10, fontWeight: 700, color: !empty && i === 0 ? "#000" : "#444",
-                      fontFamily: "'Cinzel', serif",
-                    }}>{i + 1}</div>
-                    {empty
-                      ? <span style={{ flex: 1, fontSize: 12, color: isHover ? "rgba(212,169,66,0.6)" : "#222", fontStyle: "italic" }}>{isHover ? "drop here" : "—"}</span>
-                      : <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>{item!.text}</span>
-                    }
-                    {!empty && <span style={{ fontSize: 10, color: "#2a2a2a", flexShrink: 0 }}>🔒</span>}
+                    {item?.image ? (
+                      <>
+                        <img src={item.image} alt={item.text} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6, position: "absolute", top: 0, left: 0 }} />
+                        <div style={{
+                          width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                          background: i === 0 ? "linear-gradient(135deg,#d4a942,#c4531a)" : "rgba(0,0,0,0.7)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 10, fontWeight: 700, color: i === 0 ? "#000" : "#fff",
+                          fontFamily: "'Cinzel', serif",
+                          position: "relative",
+                          zIndex: 1,
+                        }}>{i + 1}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{
+                          width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                          background: !empty && i === 0 ? "linear-gradient(135deg,#d4a942,#c4531a)" : empty ? "#141414" : "#1e1e1e",
+                          border: empty ? "1px dashed #252525" : "none",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 10, fontWeight: 700, color: !empty && i === 0 ? "#000" : "#444",
+                          fontFamily: "'Cinzel', serif",
+                        }}>{i + 1}</div>
+                        {empty
+                          ? <span style={{ flex: 1, fontSize: 12, color: isHover ? "rgba(212,169,66,0.6)" : "#222", fontStyle: "italic" }}>{isHover ? "drop here" : "—"}</span>
+                          : <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>{item!.text}</span>
+                        }
+                        {!empty && <span style={{ fontSize: 10, color: "#2a2a2a", flexShrink: 0 }}>🔒</span>}
+                      </>
+                    )}
                   </div>
                 );
               })}
@@ -233,20 +253,33 @@ export default function BlindRankGameClient({ sessionId, topic, items, createdBy
 
             {staged ? (
               <div onPointerDown={handleDragStart} style={{
-                width: "100%", minHeight: 100,
+                width: "100%",
                 background: isDragging ? "rgba(212,169,66,0.06)" : "#181818",
                 border: `2px solid ${isDragging ? "rgba(212,169,66,0.3)" : "#d4a942"}`,
-                borderRadius: 12, padding: "16px 14px",
+                borderRadius: 12, padding: staged.image ? 0 : "16px 14px",
                 cursor: isDragging ? "grabbing" : "grab",
                 opacity: isDragging ? 0.35 : 1,
-                display: "flex", flexDirection: "column", justifyContent: "center", gap: 8,
+                display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: staged.image ? 8 : 8,
                 touchAction: "none",
                 animation: "br-card-in 0.3s cubic-bezier(0.34,1.56,0.64,1)",
                 boxShadow: isDragging ? "none" : "0 0 18px rgba(212,169,66,0.1)",
                 transition: "opacity 0.15s",
+                overflow: "hidden",
               }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: "#e8dcc8", lineHeight: 1.3 }}>{staged.text}</span>
-                <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.05em" }}>drag to a slot →</span>
+                {staged.image ? (
+                  <>
+                    <img src={staged.image} alt={staged.text} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: "10px 10px 0 0" }} />
+                    <div style={{ padding: "12px 14px", textAlign: "center", width: "100%" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#e8dcc8", lineHeight: 1.3, display: "block", marginBottom: 4 }}>{staged.text}</span>
+                      <span style={{ fontSize: 10, color: "#444", letterSpacing: "0.05em" }}>drag to slot →</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#e8dcc8", lineHeight: 1.3 }}>{staged.text}</span>
+                    <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.05em" }}>drag to a slot →</span>
+                  </>
+                )}
               </div>
             ) : (
               <div style={{ width: "100%", minHeight: 100, background: "#0e0e0e", border: "2px dashed #1a1a1a", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
