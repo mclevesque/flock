@@ -5,6 +5,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 interface Item { id: string; text: string; }
 interface GameData { topic: string; items: string[]; useImages: boolean; createdBy?: string; }
 
+function computeSessionId(d: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < d.length; i++) { h ^= d.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+
 function makeSounds() {
   let ctx: AudioContext | null = null;
   const get = () => {
@@ -32,6 +38,7 @@ export default function BlindRankPlayClient({ username }: { username?: string | 
   const params    = useSearchParams();
   const router    = useRouter();
   const rawD      = params.get("d") ?? "";
+  const sessionId = useMemo(() => computeSessionId(rawD), [rawD]);
 
   const gameData = useMemo<GameData | null>(() => {
     if (!rawD) return null;
