@@ -1,7 +1,6 @@
 "use client";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 
 interface Item { id: string; text: string; }
 interface GameData { topic: string; items: string[]; useImages: boolean; createdBy?: string; }
@@ -153,14 +152,6 @@ export default function BlindRankPlayClient({ username }: { username?: string | 
   const handleGuestSubmit = async () => {
     const name = guestName.trim();
     if (!name) { setSubmitError("Enter a username to continue"); return; }
-    setSubmitting(true); setSubmitError(null);
-    try {
-      const result = await signIn("credentials", { username: name, blindrankGuest: "true", redirect: false });
-      if (result?.error) {
-        setSubmitError("That username is taken. Try a different one.");
-        setSubmitting(false); return;
-      }
-    } catch { /* sign-in failed — still submit with the name */ }
     await submitRanking(name);
   };
 

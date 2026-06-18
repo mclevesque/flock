@@ -1,7 +1,6 @@
 "use client";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 
 interface Item { id: string; text: string; }
 interface Props {
@@ -118,7 +117,15 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
       const res = await fetch("/api/blindrank/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, ranking: slots.map(s => s?.text ?? ""), rankerName: name }),
+        body: JSON.stringify({
+          sessionId,
+          topic,
+          items,
+          useImages,
+          createdBy,
+          ranking: slots.map(s => s?.text ?? ""),
+          rankerName: name,
+        }),
       });
       if (!res.ok) { setSubmitError("Couldn't save — try again"); setSubmitting(false); return; }
       router.push(`/blindrank/results/${sessionId}`);
@@ -133,14 +140,6 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
   const handleGuestSubmit = async () => {
     const name = guestName.trim();
     if (!name) { setSubmitError("Enter a username to continue"); return; }
-    setSubmitting(true); setSubmitError(null);
-    try {
-      const result = await signIn("credentials", { username: name, blindrankGuest: "true", redirect: false });
-      if (result?.error) {
-        setSubmitError("That username is taken. Try a different one.");
-        setSubmitting(false); return;
-      }
-    } catch { /* continue anyway */ }
     await submitRanking(name);
   };
 

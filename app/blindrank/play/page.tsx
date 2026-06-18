@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { auth } from "@/auth";
 import BlindRankPlayClient from "./BlindRankPlayClient";
 
+export const dynamic = "force-dynamic";
 export const metadata = { title: "BL!NDR4NK — Ranking" };
 
 export default async function BlindRankPlayPage() {
