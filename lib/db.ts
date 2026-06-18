@@ -5372,3 +5372,22 @@ export async function getBlindRankResults(sessionId: string) {
     submittedAt: (r.submitted_at as Date).toISOString(),
   }));
 }
+
+export async function getUserBlindRankSessions(createdBy: string) {
+  await ensureBlindRankTables();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT s.id, s.topic, s.created_at, COUNT(r.id) as result_count
+    FROM blindrank_sessions s
+    LEFT JOIN blindrank_results r ON s.id = r.session_id
+    WHERE s.created_by = ${createdBy}
+    GROUP BY s.id, s.topic, s.created_at
+    ORDER BY s.created_at DESC
+  `;
+  return rows.map(r => ({
+    id: r.id as string,
+    topic: r.topic as string,
+    createdAt: (r.created_at as Date).toISOString(),
+    resultCount: parseInt(r.result_count as any, 10),
+  }));
+}

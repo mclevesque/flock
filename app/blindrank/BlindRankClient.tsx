@@ -90,6 +90,16 @@ export default function BlindRankClient({ username }: { username: string | null 
           <p style={{ color: "#a89878", marginTop: 10, fontSize: 14, letterSpacing: "0.04em" }}>
             Build a list. Share a link. Everyone ranks it blind.
           </p>
+          {username && (
+            <a href="/blindrank/my-rankings" style={{
+              display: "inline-block", marginTop: 12, color: "#555", fontSize: 13,
+              textDecoration: "none", borderBottom: "1px solid #333", paddingBottom: 2,
+              transition: "all 0.2s",
+            }} onMouseEnter={e => { (e.target as HTMLElement).style.color = "#d4a942"; (e.target as HTMLElement).style.borderBottomColor = "#d4a942"; }}
+               onMouseLeave={e => { (e.target as HTMLElement).style.color = "#555"; (e.target as HTMLElement).style.borderBottomColor = "#333"; }}>
+              📋 My Rankings
+            </a>
+          )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
