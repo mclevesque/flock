@@ -94,15 +94,24 @@ export default function BlindRankRankingsClient() {
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <a href={`/blindrank/play/${s.id}`} style={{
+                    background: "linear-gradient(135deg,#d4a942,#c4531a)", color: "#000",
+                    border: "none", borderRadius: 8, padding: "8px 12px", minHeight: 40, minWidth: 60,
+                    fontWeight: 700, fontSize: 12, fontFamily: "'Cinzel', serif",
+                    textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center",
+                    whiteSpace: "nowrap", transition: "all 0.2s", cursor: "pointer",
+                  }}>
+                    ▶ PLAY
+                  </a>
                   <button onClick={() => copyShareLink(s.id)} style={{
                     background: copied === s.id ? "rgba(90,154,84,0.12)" : "rgba(212,169,66,0.08)",
                     border: `1px solid ${copied === s.id ? "#5a9a54" : "#d4a942"}`,
-                    borderRadius: 8, padding: "8px 12px", minHeight: 40, minWidth: 80,
+                    borderRadius: 8, padding: "8px 12px", minHeight: 40, minWidth: 90,
                     color: copied === s.id ? "#5a9a54" : "#d4a942",
                     cursor: "pointer", fontWeight: 700, fontSize: 12,
                     fontFamily: "'Cinzel', serif", transition: "all 0.2s", whiteSpace: "nowrap",
                   }}>
-                    {copied === s.id ? "✓ COPIED" : "📋 PLAY"}
+                    {copied === s.id ? "✓ COPIED" : "🔗 CHALLENGE"}
                   </button>
                   <a href={`/blindrank/results/${s.id}`} style={{
                     background: "rgba(212,169,66,0.06)", border: "1px solid #333",
