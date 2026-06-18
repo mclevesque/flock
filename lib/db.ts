@@ -5368,7 +5368,7 @@ export async function getBlindRankResults(sessionId: string) {
   return rows.map(r => ({
     id: r.id as number,
     rankerName: r.ranker_name as string | null,
-    ranking: r.ranking as string[],
+    ranking: typeof r.ranking === "string" ? JSON.parse(r.ranking) : r.ranking as string[],
     submittedAt: (r.submitted_at as Date).toISOString(),
   }));
 }
