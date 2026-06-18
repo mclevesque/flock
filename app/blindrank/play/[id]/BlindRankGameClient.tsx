@@ -7,7 +7,6 @@ interface Props {
   sessionId: string;
   topic: string;
   items: string[];
-  useImages: boolean;
   createdBy: string | null;
   username: string | null;
 }
@@ -35,7 +34,7 @@ function makeSounds() {
   };
 }
 
-export default function BlindRankGameClient({ sessionId, topic, items, useImages, createdBy, username }: Props) {
+export default function BlindRankGameClient({ sessionId, topic, items, createdBy, username }: Props) {
   const router = useRouter();
   const sound  = useMemo(() => typeof window !== "undefined" ? makeSounds() : null, []);
 
@@ -121,7 +120,6 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
           sessionId,
           topic,
           items,
-          useImages,
           createdBy,
           ranking: slots.map(s => s?.text ?? ""),
           rankerName: name,
@@ -212,12 +210,6 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
                       fontSize: 10, fontWeight: 700, color: !empty && i === 0 ? "#000" : "#444",
                       fontFamily: "'Cinzel', serif",
                     }}>{i + 1}</div>
-
-                    {useImages && item && (
-                      <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(item.text+" vibrant digital art")}?width=80&height=80&nologo=true&seed=1`}
-                        alt={item.text} style={{ width: 34, height: 34, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} loading="lazy" />
-                    )}
-
                     {empty
                       ? <span style={{ flex: 1, fontSize: 12, color: isHover ? "rgba(212,169,66,0.6)" : "#222", fontStyle: "italic" }}>{isHover ? "drop here" : "—"}</span>
                       : <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>{item!.text}</span>
@@ -247,10 +239,6 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
                 boxShadow: isDragging ? "none" : "0 0 18px rgba(212,169,66,0.1)",
                 transition: "opacity 0.15s",
               }}>
-                {useImages && (
-                  <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(staged.text+" vibrant digital art")}?width=200&height=100&nologo=true&seed=1`}
-                    alt={staged.text} style={{ width: "100%", height: 70, borderRadius: 7, objectFit: "cover" }} loading="lazy" />
-                )}
                 <span style={{ fontSize: 15, fontWeight: 700, color: "#e8dcc8", lineHeight: 1.3 }}>{staged.text}</span>
                 <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.05em" }}>drag to a slot →</span>
               </div>

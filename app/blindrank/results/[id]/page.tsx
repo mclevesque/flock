@@ -29,7 +29,6 @@ export default async function BlindRankResultsPage({ params }: { params: Promise
       sessionId={id}
       topic={session.topic}
       items={session.items}
-      useImages={session.useImages}
       createdBy={session.createdBy}
       initialResults={results}
     />

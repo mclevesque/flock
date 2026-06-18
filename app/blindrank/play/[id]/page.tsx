@@ -17,7 +17,6 @@ export default async function BlindRankPlayPage({ params }: { params: Promise<{ 
       sessionId={id}
       topic={session.topic}
       items={session.items}
-      useImages={session.useImages}
       createdBy={session.createdBy}
       username={authSession?.user?.name ?? null}
     />

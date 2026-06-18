@@ -12,12 +12,11 @@ interface Props {
   sessionId: string;
   topic: string;
   items: string[];
-  useImages: boolean;
   createdBy: string | null;
   initialResults: Result[];
 }
 
-export default function BlindRankResultsClient({ sessionId, topic, items, useImages, createdBy, initialResults }: Props) {
+export default function BlindRankResultsClient({ sessionId, topic, items, createdBy, initialResults }: Props) {
   const [results, setResults] = useState<Result[]>(initialResults);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -150,10 +149,6 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
                     }}>
                       {i === 0 ? "👑" : i + 1}
                     </div>
-                    {useImages && (
-                      <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(item + " vibrant digital art")}?width=60&height=60&nologo=true&seed=1`}
-                        alt={item} style={{ width: 30, height: 30, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} loading="lazy" />
-                    )}
                     <span style={{ flex: 1, fontSize: 13, fontWeight: i < 3 ? 600 : 400, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>
                       {item}
                     </span>
