@@ -1,15 +1,9 @@
 "use client";
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 interface Item { id: string; text: string; }
 interface GameData { topic: string; items: string[]; useImages: boolean; createdBy?: string; }
-
-function computeSessionId(d: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < d.length; i++) { h ^= d.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
-  return h.toString(16).padStart(8, "0");
-}
 
 function makeSounds() {
   let ctx: AudioContext | null = null;
@@ -38,12 +32,34 @@ export default function BlindRankPlayClient({ username }: { username?: string | 
   const params    = useSearchParams();
   const router    = useRouter();
   const rawD      = params.get("d") ?? "";
-  const sessionId = useMemo(() => computeSessionId(rawD), [rawD]);
 
   const gameData = useMemo<GameData | null>(() => {
     if (!rawD) return null;
     try { return JSON.parse(decodeURIComponent(atob(rawD))); } catch { return null; }
   }, [rawD]);
+
+  // Handle backward compatibility: if old ?d= format, create session and redirect
+  useEffect(() => {
+    if (!rawD || !gameData) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/blindrank/create-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: gameData.topic,
+            items: gameData.items,
+            useImages: gameData.useImages,
+            createdBy: gameData.createdBy ?? null,
+          }),
+        });
+        if (res.ok) {
+          const { sessionId } = await res.json();
+          router.replace(`/blindrank/play/${sessionId}`);
+        }
+      } catch {}
+    })();
+  }, [rawD, gameData, router]);
 
   // Items come out in the order they were written — no shuffle
   const allItems = useMemo<Item[]>(() =>
@@ -158,10 +174,20 @@ export default function BlindRankPlayClient({ username }: { username?: string | 
   if (!gameData) return (
     <div style={{ minHeight: "100vh", background: "#0d0d0d", display: "flex", alignItems: "center", justifyContent: "center", color: "#e8dcc8" }}>
       <div style={{ textAlign: "center", padding: 24 }}>
-        <div style={{ fontSize: 40, marginBottom: 16 }}>💔</div>
-        <h2 style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", margin: "0 0 8px" }}>Bad Link</h2>
-        <p style={{ color: "#a89878", margin: "0 0 20px" }}>This ranking link is broken or expired.</p>
-        <a href="/blindrank" style={{ color: "#d4a942", fontSize: 14 }}>Create a new one →</a>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>
+          {rawD ? "⏳" : "💔"}
+        </div>
+        <h2 style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", margin: "0 0 8px" }}>
+          {rawD ? "Loading…" : "Bad Link"}
+        </h2>
+        <p style={{ color: "#a89878", margin: "0 0 20px" }}>
+          {rawD ? "Updating to new format..." : "This ranking link is broken or expired."}
+        </p>
+        {!rawD && (
+          <a href="/blindrank" style={{ color: "#d4a942", fontSize: 14 }}>
+            Create a new one →
+          </a>
+        )}
       </div>
     </div>
   );

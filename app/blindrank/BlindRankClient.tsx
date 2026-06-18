@@ -3,15 +3,6 @@ import { useState, useCallback } from "react";
 
 const MAX_ITEMS = 12;
 
-function computeSessionId(d: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < d.length; i++) {
-    h ^= d.charCodeAt(i);
-    h = (h * 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
-}
-
 export default function BlindRankClient({ username }: { username: string | null }) {
   const [topic, setTopic]         = useState("");
   const [itemsText, setItemsText] = useState("");
@@ -19,20 +10,38 @@ export default function BlindRankClient({ username }: { username: string | null 
   const [playLink, setPlayLink]   = useState<string | null>(null);
   const [resultsLink, setResultsLink] = useState<string | null>(null);
   const [copied, setCopied]       = useState<"play" | "results" | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const items = itemsText.split("\n").map(s => s.trim()).filter(Boolean);
   const overLimit = items.length > MAX_ITEMS;
   const canGenerate = topic.trim().length > 0 && items.length >= 2;
 
-  const generateLink = useCallback(() => {
-    if (!canGenerate) return;
-    const data = { topic: topic.trim(), items: items.slice(0, MAX_ITEMS), useImages, createdBy: username ?? "anonymous" };
-    const d = btoa(encodeURIComponent(JSON.stringify(data)));
-    const sid = computeSessionId(d);
-    setPlayLink(`${window.location.origin}/blindrank/play?d=${d}`);
-    setResultsLink(`${window.location.origin}/blindrank/results/${sid}`);
-    setCopied(null);
-  }, [topic, items, useImages, username, canGenerate]);
+  const generateLink = useCallback(async () => {
+    if (!canGenerate || generating) return;
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/blindrank/create-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: topic.trim(),
+          items: items.slice(0, MAX_ITEMS),
+          useImages,
+          createdBy: username ?? "anonymous",
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create session");
+      const { sessionId } = await res.json();
+      setPlayLink(`${window.location.origin}/blindrank/play/${sessionId}`);
+      setResultsLink(`${window.location.origin}/blindrank/results/${sessionId}`);
+      setCopied(null);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to generate link");
+    } finally {
+      setGenerating(false);
+    }
+  }, [topic, items, useImages, username, canGenerate, generating]);
 
   const copy = async (which: "play" | "results") => {
     const link = which === "play" ? playLink : resultsLink;
@@ -123,16 +132,16 @@ export default function BlindRankClient({ username }: { username: string | null 
           </button>
 
           {/* Generate button */}
-          <button className="br-gen-btn" onClick={generateLink} disabled={!canGenerate} style={{
-            background: canGenerate ? "linear-gradient(135deg,#d4a942,#c4531a)" : "#1e1e1e",
-            color: canGenerate ? "#000" : "#444",
-            border: canGenerate ? "none" : "1px solid #2a2a2a",
+          <button className="br-gen-btn" onClick={generateLink} disabled={!canGenerate || generating} style={{
+            background: (canGenerate && !generating) ? "linear-gradient(135deg,#d4a942,#c4531a)" : "#1e1e1e",
+            color: (canGenerate && !generating) ? "#000" : "#444",
+            border: (canGenerate && !generating) ? "none" : "1px solid #2a2a2a",
             borderRadius: 10, padding: "16px 24px", fontSize: 16, fontWeight: 800,
             fontFamily: "'Cinzel', serif", letterSpacing: "0.08em", minHeight: 54,
-            cursor: canGenerate ? "pointer" : "not-allowed", transition: "all 0.2s",
-            boxShadow: canGenerate ? "0 4px 16px rgba(212,169,66,0.2)" : "none",
+            cursor: (canGenerate && !generating) ? "pointer" : "not-allowed", transition: "all 0.2s",
+            boxShadow: (canGenerate && !generating) ? "0 4px 16px rgba(212,169,66,0.2)" : "none",
           }}>
-            GENERATE LINK →
+            {generating ? "GENERATING…" : "GENERATE LINK →"}
           </button>
 
           {/* Generated links */}

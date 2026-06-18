@@ -5338,7 +5338,7 @@ export async function getBlindRankSession(id: string) {
   return {
     id: r.id as string,
     topic: r.topic as string,
-    items: r.items as string[],
+    items: typeof r.items === "string" ? JSON.parse(r.items) : r.items as string[],
     useImages: r.use_images as boolean,
     createdBy: r.created_by as string | null,
   };
