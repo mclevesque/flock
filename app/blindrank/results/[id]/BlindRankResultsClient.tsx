@@ -60,6 +60,12 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
       <style>{`
         @keyframes br-pop { from { opacity:0; transform:scale(0.94) translateY(8px); } to { opacity:1; transform:none; } }
         @keyframes br-fade-in { from { opacity:0; } to { opacity:1; } }
+        /* Mobile: stack consensus above individual, full width */
+        @media (max-width: 540px) {
+          .br-results-layout { flex-direction: column !important; }
+          .br-consensus-col { flex: unset !important; width: 100% !important; min-width: unset !important; }
+          .br-individual-col { flex: unset !important; width: 100% !important; }
+        }
       `}</style>
 
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
@@ -86,7 +92,7 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
               border: `1px solid ${linkCopied ? "#5a9a54" : "#d4a942"}`,
               borderRadius: 8, padding: "9px 14px",
               color: linkCopied ? "#5a9a54" : "#d4a942",
-              cursor: "pointer", fontWeight: 700, fontSize: 12,
+              cursor: "pointer", fontWeight: 700, fontSize: 13, minHeight: 44,
               fontFamily: "'Cinzel', serif", letterSpacing: "0.05em", transition: "all 0.2s", whiteSpace: "nowrap",
             }}>
               {linkCopied ? "✓ COPIED!" : "📋 SHARE LINK"}
@@ -119,10 +125,10 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
 
         {/* Results feed: consensus + individual side-by-side */}
         {results.length > 0 && (
-          <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div className="br-results-layout" style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
 
             {/* Consensus column */}
-            <div style={{ flex: "0 0 200px", minWidth: 180 }}>
+            <div className="br-consensus-col" style={{ flex: "0 0 200px", minWidth: 180 }}>
               <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 8px" }}>
                 Consensus ({results.length} voters)
               </p>
@@ -161,7 +167,7 @@ export default function BlindRankResultsClient({ sessionId, topic, items, useIma
             </div>
 
             {/* Individual rankings */}
-            <div style={{ flex: "1 1 400px" }}>
+            <div className="br-individual-col" style={{ flex: "1 1 400px" }}>
               <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 8px" }}>
                 Individual Rankings
               </p>

@@ -11,6 +11,7 @@ const nextAuthConfig = NextAuth({
         password: { label: "Password", type: "password" },
         guestToken: {},
         gsPortal: {},
+        blindrankGuest: {},
       },
       async authorize(credentials) {
         // ── Guest / Warrior mode ─────────────────────────────────────────────
@@ -43,6 +44,23 @@ const nextAuthConfig = NextAuth({
             }
             if (!existing) return null;
             return { id: existing.id as string, name: existing.username as string, email: null, image: null };
+          } catch { return null; }
+        }
+
+        // ── BlindRank guest sign-in (creates passwordless account) ─────────
+        if (credentials?.blindrankGuest === "true") {
+          const username = (credentials?.username as string ?? "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+          if (!username || username.length < 2) return null;
+          try {
+            const existing = await getUserByUsername(username);
+            if (existing) {
+              if (existing.password_hash) return null; // has a real password — must sign in properly
+              return { id: existing.id as string, name: existing.username as string, email: null, image: null };
+            }
+            const { randomUUID } = await import("crypto");
+            const id = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            await createUser(id, username, username, "");
+            return { id, name: username, email: null, image: null };
           } catch { return null; }
         }
 

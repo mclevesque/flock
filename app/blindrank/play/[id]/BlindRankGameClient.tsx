@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 interface Item { id: string; text: string; }
 interface Props {
@@ -12,11 +13,10 @@ interface Props {
   username: string | null;
 }
 
-// ─── Sound Engine ─────────────────────────────────────────────────────────────
 function makeSounds() {
   let ctx: AudioContext | null = null;
   const get = () => {
-    if (!ctx) ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!ctx) ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     if (ctx.state === "suspended") ctx.resume();
     return ctx;
   };
@@ -24,56 +24,53 @@ function makeSounds() {
     const c = get(); const osc = c.createOscillator(); const g = c.createGain();
     osc.connect(g); g.connect(c.destination); osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.015);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.015);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     osc.start(t); osc.stop(t + dur);
   };
   return {
-    reveal() { try { const c = get(); const t = c.currentTime; [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => note(f, t + i * 0.075, 0.4, 0.18)); } catch {} },
-    drop()   { try { const c = get(); const t = c.currentTime; note(320, t, 0.06, 0.28); note(160, t + 0.04, 0.18, 0.2); note(880, t, 0.07, 0.09, "triangle"); } catch {} },
-    tick()   { try { const c = get(); note(800, c.currentTime, 0.04, 0.06, "triangle"); } catch {} },
-    complete() { try { const c = get(); const t = c.currentTime; [261.63, 329.63, 392, 523.25, 659.25, 783.99, 1046.50].forEach((f, i) => note(f, t + i * 0.11, 0.7, 0.17, "triangle")); } catch {} },
+    reveal()   { try { const c = get(); const t = c.currentTime; [523.25,659.25,783.99,1046.50].forEach((f,i) => note(f,t+i*0.075,0.4,0.18)); } catch {} },
+    drop()     { try { const c = get(); const t = c.currentTime; note(320,t,0.06,0.28); note(160,t+0.04,0.18,0.2); note(880,t,0.07,0.09,"triangle"); } catch {} },
+    tick()     { try { const c = get(); note(800,c.currentTime,0.04,0.06,"triangle"); } catch {} },
+    complete() { try { const c = get(); const t = c.currentTime; [261.63,329.63,392,523.25,659.25,783.99,1046.50].forEach((f,i) => note(f,t+i*0.11,0.7,0.17,"triangle")); } catch {} },
   };
 }
 
 export default function BlindRankGameClient({ sessionId, topic, items, useImages, createdBy, username }: Props) {
   const router = useRouter();
-  const sound = useMemo(() => typeof window !== "undefined" ? makeSounds() : null, []);
+  const sound  = useMemo(() => typeof window !== "undefined" ? makeSounds() : null, []);
 
-  // Shuffle client-side so each player gets a different reveal order
-  const shuffled = useMemo<Item[]>(() =>
-    [...items].sort(() => Math.random() - 0.5).map((text, i) => ({ id: `i${i}`, text }))
-  , [items]);
+  // Items revealed in the order they were written — no shuffle
+  const orderedItems = useMemo<Item[]>(() => items.map((text, i) => ({ id: `i${i}`, text })), [items]);
+  const total = orderedItems.length;
 
-  const total = shuffled.length;
-  const [slots, setSlots]             = useState<(Item | null)[]>(() => new Array(total).fill(null));
-  const [staged, setStaged]           = useState<Item | null>(null);
+  const [slots, setSlots]           = useState<(Item | null)[]>(() => new Array(total).fill(null));
+  const [staged, setStaged]         = useState<Item | null>(null);
   const [revealIndex, setRevealIndex] = useState(0);
-  const [justPlaced, setJustPlaced]   = useState<number | null>(null);
+  const [justPlaced, setJustPlaced] = useState<number | null>(null);
 
-  // Submit modal state
-  const [showModal, setShowModal]     = useState(false);
-  const [rankerName, setRankerName]   = useState(username ?? "");
-  const [submitting, setSubmitting]   = useState(false);
+  // Submit modal
+  const [showModal, setShowModal]   = useState(false);
+  const [guestName, setGuestName]   = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Drag state
-  const [isDragging, setIsDragging]   = useState(false);
-  const [dragPos, setDragPos]         = useState<{x: number; y: number} | null>(null);
-  const [hoverSlot, setHoverSlot]     = useState<number | null>(null);
+  // Drag
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPos, setDragPos]       = useState<{x: number; y: number} | null>(null);
+  const [hoverSlot, setHoverSlot]   = useState<number | null>(null);
   const slotRefs  = useRef<(HTMLDivElement | null)[]>([]);
   const lastHover = useRef<number | null>(null);
 
   const placedCount = slots.filter(Boolean).length;
-  const isComplete  = placedCount === total && total > 0;
   const canReveal   = !staged && revealIndex < total;
 
   const handleReveal = useCallback(() => {
     if (!canReveal) return;
     sound?.reveal();
-    setStaged(shuffled[revealIndex]);
+    setStaged(orderedItems[revealIndex]);
     setRevealIndex(p => p + 1);
-  }, [canReveal, shuffled, revealIndex, sound]);
+  }, [canReveal, orderedItems, revealIndex, sound]);
 
   const handleDragStart = useCallback((e: React.PointerEvent) => {
     if (!staged) return;
@@ -90,8 +87,8 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
     slotRefs.current.forEach((ref, i) => {
       if (!ref || slots[i] !== null) return;
       const r = ref.getBoundingClientRect();
-      const inBounds = e.clientX > r.left - 20 && e.clientX < r.right + 20 && e.clientY > r.top - 20 && e.clientY < r.bottom + 20;
-      if (inBounds) { const d = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)); if (d < bestDist) { bestDist = d; best = i; } }
+      const inBounds = e.clientX > r.left-20 && e.clientX < r.right+20 && e.clientY > r.top-20 && e.clientY < r.bottom+20;
+      if (inBounds) { const d = Math.hypot(e.clientX-(r.left+r.width/2), e.clientY-(r.top+r.height/2)); if (d < bestDist) { bestDist = d; best = i; } }
     });
     if (best !== lastHover.current) { lastHover.current = best; setHoverSlot(best); if (best !== null) sound?.tick(); }
   }, [isDragging, slots, sound]);
@@ -100,33 +97,51 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
     if (!isDragging) return;
     setIsDragging(false); setDragPos(null);
     if (staged && hoverSlot !== null && slots[hoverSlot] === null) {
-      setSlots(prev => { const n = [...prev]; n[hoverSlot] = staged; return n; });
+      const newSlots = [...slots]; newSlots[hoverSlot] = staged;
+      setSlots(newSlots);
       setStaged(null);
       setJustPlaced(hoverSlot);
       setTimeout(() => setJustPlaced(null), 1800);
       sound?.drop();
+      // All items placed — auto-fire submit modal
+      if (newSlots.filter(Boolean).length === total) {
+        sound?.complete();
+        setTimeout(() => setShowModal(true), 500);
+      }
     }
     setHoverSlot(null); lastHover.current = null;
-  }, [isDragging, staged, hoverSlot, slots, sound]);
+  }, [isDragging, staged, hoverSlot, slots, sound, total]);
 
-  const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    sound?.complete();
+  const submitRanking = async (name: string | null) => {
+    setSubmitting(true); setSubmitError(null);
     try {
-      await fetch("/api/blindrank/submit", {
+      const res = await fetch("/api/blindrank/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          ranking: slots.map(s => s?.text ?? ""),
-          rankerName: rankerName.trim() || null,
-        }),
+        body: JSON.stringify({ sessionId, ranking: slots.map(s => s?.text ?? ""), rankerName: name }),
       });
+      if (!res.ok) { setSubmitError("Couldn't save — try again"); setSubmitting(false); return; }
       router.push(`/blindrank/results/${sessionId}`);
     } catch {
+      setSubmitError("Network error — try again");
       setSubmitting(false);
     }
+  };
+
+  const handleSignedInSubmit = () => submitRanking(username);
+
+  const handleGuestSubmit = async () => {
+    const name = guestName.trim();
+    if (!name) { setSubmitError("Enter a username to continue"); return; }
+    setSubmitting(true); setSubmitError(null);
+    try {
+      const result = await signIn("credentials", { username: name, blindrankGuest: "true", redirect: false });
+      if (result?.error) {
+        setSubmitError("That username is taken. Try a different one.");
+        setSubmitting(false); return;
+      }
+    } catch { /* continue anyway */ }
+    await submitRanking(name);
   };
 
   const SLOT_H = Math.max(50, Math.min(68, Math.floor(360 / Math.max(total, 1))));
@@ -143,10 +158,16 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
         @keyframes br-pulse { 0%,100% { box-shadow:0 0 14px rgba(212,169,66,0.2); } 50% { box-shadow:0 0 28px rgba(212,169,66,0.5); } }
         @keyframes br-card-in { from { opacity:0; transform:translateY(-12px) scale(0.95); } to { opacity:1; transform:none; } }
         .br-btn:hover { transform:scale(1.04) !important; } .br-btn:active { transform:scale(0.97) !important; }
+        @media (max-width: 540px) {
+          .br-layout { flex-direction: column !important; }
+          .br-slots-col { width: 100% !important; flex: unset !important; min-width: unset !important; }
+          .br-card-col { width: 100% !important; flex: unset !important; min-width: unset !important; order: -1; flex-direction: row !important; flex-wrap: wrap !important; align-items: flex-start !important; }
+          .br-card-col > * { flex: 1 1 140px; }
+          .br-card-col .br-hint { display: none !important; }
+        }
       `}</style>
 
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <a href="/blindrank" style={{ textDecoration: "none" }}>
             <h1 style={{ fontFamily: "'Cinzel', serif", fontSize: "clamp(18px,5vw,26px)", fontWeight: 900, letterSpacing: "0.1em", background: "linear-gradient(135deg,#d4a942,#fff,#d4a942)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", margin: 0 }}>
@@ -160,21 +181,19 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
             </p>
           </div>
         </div>
-        {/* Progress */}
+
         <div style={{ height: 3, background: "#1a1a1a", borderRadius: 2, marginBottom: 20, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${(placedCount / total) * 100}%`, background: "linear-gradient(90deg,#d4a942,#c4531a)", borderRadius: 2, transition: "width 0.5s cubic-bezier(0.34,1.56,0.64,1)" }} />
+          <div style={{ height: "100%", width: `${(placedCount/total)*100}%`, background: "linear-gradient(90deg,#d4a942,#c4531a)", borderRadius: 2, transition: "width 0.5s cubic-bezier(0.34,1.56,0.64,1)" }} />
         </div>
 
-        {/* Two-column layout */}
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
-
+        <div className="br-layout" style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
           {/* LEFT: Rank slots */}
-          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+          <div className="br-slots-col" style={{ flex: "1 1 200px", minWidth: 180 }}>
             <p style={{ color: "#333", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", margin: "0 0 8px" }}>Ranking</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {slots.map((item, i) => {
-                const empty   = item === null;
-                const isHover = hoverSlot === i && isDragging && empty;
+                const empty    = item === null;
+                const isHover  = hoverSlot === i && isDragging && empty;
                 const isLocked = justPlaced === i;
                 return (
                   <div key={i} ref={el => { slotRefs.current[i] = el; }} style={{
@@ -195,18 +214,15 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
                       fontFamily: "'Cinzel', serif",
                     }}>{i + 1}</div>
 
-                    {gameData_useImages(useImages, item) && (
-                      <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(item!.text + " vibrant digital art")}?width=80&height=80&nologo=true&seed=1`}
-                        alt={item!.text} style={{ width: 34, height: 34, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} loading="lazy" />
+                    {useImages && item && (
+                      <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(item.text+" vibrant digital art")}?width=80&height=80&nologo=true&seed=1`}
+                        alt={item.text} style={{ width: 34, height: 34, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} loading="lazy" />
                     )}
 
-                    {empty ? (
-                      <span style={{ flex: 1, fontSize: 12, color: isHover ? "rgba(212,169,66,0.6)" : "#222", fontStyle: "italic" }}>
-                        {isHover ? "drop here" : "—"}
-                      </span>
-                    ) : (
-                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>{item!.text}</span>
-                    )}
+                    {empty
+                      ? <span style={{ flex: 1, fontSize: 12, color: isHover ? "rgba(212,169,66,0.6)" : "#222", fontStyle: "italic" }}>{isHover ? "drop here" : "—"}</span>
+                      : <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>{item!.text}</span>
+                    }
                     {!empty && <span style={{ fontSize: 10, color: "#2a2a2a", flexShrink: 0 }}>🔒</span>}
                   </div>
                 );
@@ -214,8 +230,8 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
             </div>
           </div>
 
-          {/* RIGHT: Staged item + controls */}
-          <div style={{ flex: "0 0 190px", minWidth: 170, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+          {/* RIGHT: Staged + controls */}
+          <div className="br-card-col" style={{ flex: "0 0 190px", minWidth: 170, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
             <p style={{ color: "#333", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", margin: 0, alignSelf: "flex-start" }}>Current item</p>
 
             {staged ? (
@@ -233,7 +249,7 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
                 transition: "opacity 0.15s",
               }}>
                 {useImages && (
-                  <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(staged.text + " vibrant digital art")}?width=200&height=100&nologo=true&seed=1`}
+                  <img src={`https://image.pollinations.ai/prompt/${encodeURIComponent(staged.text+" vibrant digital art")}?width=200&height=100&nologo=true&seed=1`}
                     alt={staged.text} style={{ width: "100%", height: 70, borderRadius: 7, objectFit: "cover" }} loading="lazy" />
                 )}
                 <span style={{ fontSize: 15, fontWeight: 700, color: "#e8dcc8", lineHeight: 1.3 }}>{staged.text}</span>
@@ -242,7 +258,7 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
             ) : (
               <div style={{ width: "100%", minHeight: 100, background: "#0e0e0e", border: "2px dashed #1a1a1a", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
                 <span style={{ fontSize: 26, filter: "grayscale(1) opacity(0.25)" }}>🃏</span>
-                <span style={{ fontSize: 11, color: "#252525" }}>{isComplete ? "all placed" : "reveal next"}</span>
+                <span style={{ fontSize: 11, color: "#252525" }}>{placedCount === total && total > 0 ? "all placed ✓" : "reveal next"}</span>
               </div>
             )}
 
@@ -257,18 +273,7 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
               </button>
             )}
 
-            {staged && <p style={{ color: "#3a3a3a", fontSize: 11, textAlign: "center", margin: 0 }}>Place this before revealing next</p>}
-
-            {isComplete && !staged && (
-              <button onClick={() => setShowModal(true)} style={{
-                width: "100%", background: "linear-gradient(135deg,#2d5a27,#3a8a34)", color: "#a8e4a0",
-                border: "1px solid #4a8a44", borderRadius: 10, padding: "13px 0", fontSize: 13,
-                fontWeight: 800, fontFamily: "'Cinzel', serif", letterSpacing: "0.06em", cursor: "pointer",
-                boxShadow: "0 0 16px rgba(90,154,84,0.2)",
-              }}>
-                ✓  LOCK IN
-              </button>
-            )}
+            {staged && <p className="br-hint" style={{ color: "#3a3a3a", fontSize: 11, textAlign: "center", margin: 0 }}>Place this before revealing next</p>}
 
             <a href={`/blindrank/results/${sessionId}`} style={{ color: "#2a2a2a", fontSize: 11, textAlign: "center", textDecoration: "none" }}>
               View results feed →
@@ -277,10 +282,10 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
         </div>
       </div>
 
-      {/* Ghost */}
+      {/* Ghost card */}
       {isDragging && dragPos && staged && (
         <div style={{
-          position: "fixed", left: dragPos.x - 105, top: dragPos.y - 36,
+          position: "fixed", left: dragPos.x-105, top: dragPos.y-36,
           zIndex: 9999, pointerEvents: "none", width: 210,
           background: "#1c1c1c", border: "2px solid #d4a942", borderRadius: 10, padding: "11px 14px",
           opacity: 0.93, transform: "rotate(2deg) scale(1.04)",
@@ -290,59 +295,46 @@ export default function BlindRankGameClient({ sessionId, topic, items, useImages
         </div>
       )}
 
-      {/* Submit modal */}
+      {/* Submit modal — auto-fires when last item is placed */}
       {showModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1000,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-        }}>
-          <div style={{
-            background: "#141414", border: "1px solid #d4a942", borderRadius: 16,
-            padding: 28, maxWidth: 380, width: "100%",
-            boxShadow: "0 0 60px rgba(212,169,66,0.12)",
-          }}>
-            <h2 style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", fontSize: 18, margin: "0 0 6px", fontWeight: 700 }}>
-              Lock it in?
-            </h2>
-            <p style={{ color: "#a89878", fontSize: 13, margin: "0 0 20px" }}>
-              Once submitted your ranking goes to the results feed. You can't change it.
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: "#141414", border: "1px solid #d4a942", borderRadius: 16, padding: 28, maxWidth: 380, width: "100%", boxShadow: "0 0 60px rgba(212,169,66,0.12)" }}>
+            <h2 style={{ fontFamily: "'Cinzel', serif", color: "#d4a942", fontSize: 18, margin: "0 0 6px", fontWeight: 700 }}>Ranking complete!</h2>
+            <p style={{ color: "#a89878", fontSize: 13, margin: "0 0 20px", lineHeight: 1.5 }}>
+              Your picks are locked. Submit to add your ranking to the results.
             </p>
-            <label style={{ display: "block", color: "#555", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
-              Your name (optional)
-            </label>
-            <input
-              value={rankerName}
-              onChange={e => setRankerName(e.target.value)}
-              placeholder="Anonymous"
-              maxLength={40}
-              style={{
-                width: "100%", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8,
-                padding: "10px 14px", color: "#e8dcc8", fontSize: 15, outline: "none", boxSizing: "border-box",
-                marginBottom: 16, fontFamily: "inherit",
-              }}
-            />
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setShowModal(false)} style={{
-                flex: 1, background: "transparent", border: "1px solid #333", borderRadius: 8,
-                padding: "11px", color: "#666", cursor: "pointer", fontSize: 13,
-              }}>
-                Go back
-              </button>
-              <button onClick={handleSubmit} disabled={submitting} style={{
-                flex: 2, background: "linear-gradient(135deg,#d4a942,#c4531a)", color: "#000",
-                border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 800,
-                fontFamily: "'Cinzel', serif", cursor: submitting ? "wait" : "pointer", letterSpacing: "0.06em",
-              }}>
-                {submitting ? "Submitting…" : "SUBMIT →"}
-              </button>
-            </div>
+
+            {username ? (
+              <>
+                <p style={{ color: "#666", fontSize: 13, margin: "0 0 16px" }}>Submitting as <span style={{ color: "#d4a942", fontWeight: 700 }}>{username}</span></p>
+                {submitError && <p style={{ color: "#c4531a", fontSize: 12, margin: "-8px 0 12px" }}>{submitError}</p>}
+                <button onClick={handleSignedInSubmit} disabled={submitting} style={{ width: "100%", background: "linear-gradient(135deg,#d4a942,#c4531a)", color: "#000", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, fontFamily: "'Cinzel', serif", cursor: submitting ? "wait" : "pointer", letterSpacing: "0.06em" }}>
+                  {submitting ? "Submitting…" : "SUBMIT →"}
+                </button>
+              </>
+            ) : (
+              <>
+                <label style={{ display: "block", color: "#555", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Pick a username</label>
+                <input
+                  value={guestName}
+                  onChange={e => setGuestName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  onKeyDown={e => e.key === "Enter" && handleGuestSubmit()}
+                  placeholder="your_name"
+                  maxLength={30}
+                  autoFocus
+                  style={{ width: "100%", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, padding: "10px 14px", color: "#e8dcc8", fontSize: 15, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: "inherit" }}
+                />
+                <p style={{ color: "#333", fontSize: 11, margin: "0 0 14px" }}>This creates a free account. No password needed now.</p>
+                {submitError && <p style={{ color: "#c4531a", fontSize: 12, margin: "-6px 0 10px" }}>{submitError}</p>}
+                <button onClick={handleGuestSubmit} disabled={submitting || !guestName.trim()} style={{ width: "100%", background: "linear-gradient(135deg,#d4a942,#c4531a)", color: "#000", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, fontFamily: "'Cinzel', serif", cursor: submitting ? "wait" : "pointer", letterSpacing: "0.06em", opacity: guestName.trim() ? 1 : 0.45 }}>
+                  {submitting ? "Saving…" : "SIGN IN AS GUEST →"}
+                </button>
+                <a href="/signin" style={{ display: "block", textAlign: "center", color: "#444", fontSize: 12, marginTop: 12, textDecoration: "none" }}>Already have an account? Sign in →</a>
+              </>
+            )}
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function gameData_useImages(useImages: boolean, item: Item | null): item is Item {
-  return useImages && item !== null;
 }
