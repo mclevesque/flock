@@ -1,19 +1,34 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 const MAX_ITEMS = 12;
+
+interface RankItem {
+  text: string;
+  image?: string;
+}
 
 export default function BlindRankClient({ username }: { username: string | null }) {
   const [topic, setTopic]         = useState("");
   const [itemsText, setItemsText] = useState("");
+  const [withImages, setWithImages] = useState(false);
+  const [items, setItems] = useState<RankItem[]>([]);
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const [playLink, setPlayLink]   = useState<string | null>(null);
   const [resultsLink, setResultsLink] = useState<string | null>(null);
   const [copied, setCopied]       = useState<"play" | "results" | null>(null);
   const [generating, setGenerating] = useState(false);
+  const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const items = itemsText.split("\n").map(s => s.trim()).filter(Boolean);
-  const overLimit = items.length > MAX_ITEMS;
-  const canGenerate = topic.trim().length > 0 && items.length >= 2;
+  const parsedItems = itemsText.split("\n").map(s => s.trim()).filter(Boolean);
+  const overLimit = parsedItems.length > MAX_ITEMS;
+  const canGenerate = topic.trim().length > 0 && parsedItems.length >= 2;
+
+  // Sync items with images
+  const itemsToSend = parsedItems.slice(0, MAX_ITEMS).map((text, i) => ({
+    text,
+    image: items[i]?.image,
+  }));
 
   const generateLink = useCallback(async () => {
     if (!canGenerate || generating) return;
@@ -24,7 +39,7 @@ export default function BlindRankClient({ username }: { username: string | null 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: topic.trim(),
-          items: items.slice(0, MAX_ITEMS),
+          items: itemsToSend,
           createdBy: username ?? "anonymous",
         }),
       });
@@ -39,7 +54,7 @@ export default function BlindRankClient({ username }: { username: string | null 
     } finally {
       setGenerating(false);
     }
-  }, [topic, items, username, canGenerate, generating]);
+  }, [topic, itemsToSend, username, canGenerate, generating]);
 
   const copy = async (which: "play" | "results") => {
     const link = which === "play" ? playLink : resultsLink;
@@ -48,6 +63,33 @@ export default function BlindRankClient({ username }: { username: string | null 
     setCopied(which);
     setTimeout(() => setCopied(null), 2500);
   };
+
+  const handleImageUpload = useCallback(async (idx: number, file: File) => {
+    setUploadingIdx(idx);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target?.result as string;
+        const res = await fetch("/api/blindrank/upload-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base64, filename: file.name }),
+        });
+        if (!res.ok) throw new Error("Upload failed");
+        const { url } = await res.json();
+        const newItems = [...items];
+        if (!newItems[idx]) newItems[idx] = { text: "", image: url };
+        else newItems[idx].image = url;
+        setItems(newItems);
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error(e);
+      alert("Image upload failed");
+    } finally {
+      setUploadingIdx(null);
+    }
+  }, [items]);
 
   // fontSize 16 on all inputs — prevents iOS from auto-zooming the page when focused
   const inputStyle = {
@@ -121,6 +163,62 @@ export default function BlindRankClient({ username }: { username: string | null 
               style={{ ...inputStyle, resize: "vertical", lineHeight: 1.8 }} />
             {overLimit && <p style={{ color: "#c4531a", fontSize: 13, marginTop: 5 }}>Only the first 12 will be used.</p>}
           </div>
+
+          {/* With Images toggle */}
+          <button className="br-toggle" onClick={() => setWithImages(v => !v)} style={{
+            display: "flex", alignItems: "center", gap: 12,
+            background: withImages ? "rgba(212,169,66,0.08)" : "transparent",
+            border: `1px solid ${withImages ? "#d4a942" : "#333"}`, borderRadius: 10,
+            padding: "14px 16px", color: withImages ? "#d4a942" : "#666",
+            cursor: "pointer", fontSize: 14, transition: "all 0.2s", textAlign: "left",
+            minHeight: 48,
+          }}>
+            <span style={{ width: 20, height: 20, borderRadius: 5, border: `1.5px solid ${withImages ? "#d4a942" : "#444"}`, background: withImages ? "#d4a942" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#000", flexShrink: 0, transition: "all 0.2s" }}>
+              {withImages ? "✓" : ""}
+            </span>
+            📸 Add images to your items
+          </button>
+
+          {/* Image uploads */}
+          {withImages && parsedItems.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "16px 14px", background: "#0a0a0a", borderRadius: 10, border: "1px solid #1a1a1a" }}>
+              <p style={{ margin: 0, fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: "0.08em" }}>Upload image for each item</p>
+              {parsedItems.slice(0, MAX_ITEMS).map((text, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: "#d4a942", fontWeight: 600, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {text}
+                    </div>
+                    {items[i]?.image ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <img src={items[i].image} alt="preview" style={{ width: 40, height: 40, borderRadius: 4, objectFit: "cover" }} />
+                        <button onClick={() => { const newItems = [...items]; newItems[i] = { ...newItems[i], image: undefined }; setItems(newItems); }} style={{
+                          background: "rgba(196,83,26,0.2)", color: "#c4531a", border: "1px solid #c4531a",
+                          borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer",
+                        }}>
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => fileInputRefs.current[i]?.click()} disabled={uploadingIdx === i} style={{
+                        background: "rgba(212,169,66,0.08)", border: "1px solid #d4a942", color: "#d4a942",
+                        borderRadius: 6, padding: "6px 12px", fontSize: 11, cursor: uploadingIdx === i ? "not-allowed" : "pointer",
+                      }}>
+                        {uploadingIdx === i ? "…" : "+ Upload"}
+                      </button>
+                    )}
+                    <input
+                      ref={el => { fileInputRefs.current[i] = el; }}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={e => { if (e.target.files?.[0]) handleImageUpload(i, e.target.files[0]); }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Generate button */}
           <button className="br-gen-btn" onClick={generateLink} disabled={!canGenerate || generating} style={{
