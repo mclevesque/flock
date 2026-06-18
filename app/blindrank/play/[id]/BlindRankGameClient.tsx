@@ -2,11 +2,11 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
-interface Item { id: string; text: string; }
+interface RankItem { id: string; text: string; image?: string; }
 interface Props {
   sessionId: string;
   topic: string;
-  items: string[];
+  items: any[];
   createdBy: string | null;
   username: string | null;
 }
@@ -39,8 +39,14 @@ export default function BlindRankGameClient({ sessionId, topic, items, createdBy
   const sound  = useMemo(() => typeof window !== "undefined" ? makeSounds() : null, []);
 
   // Items revealed in the order they were written — no shuffle
-  const orderedItems = useMemo<Item[]>(() => items.map((text, i) => ({ id: `i${i}`, text })), [items]);
+  const orderedItems = useMemo<RankItem[]>(() =>
+    items.map((item, i) => ({
+      id: `i${i}`,
+      text: typeof item === "string" ? item : item.text,
+      image: typeof item === "object" ? item.image : undefined,
+    })), [items]);
   const total = orderedItems.length;
+  const hasImages = orderedItems.some(i => i.image);
 
   const [slots, setSlots]           = useState<(Item | null)[]>(() => new Array(total).fill(null));
   const [staged, setStaged]         = useState<Item | null>(null);
