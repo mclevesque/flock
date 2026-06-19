@@ -48,8 +48,8 @@ export default function BlindRankGameClient({ sessionId, topic, items, createdBy
   const total = orderedItems.length;
   const hasImages = orderedItems.some(i => i.image);
 
-  const [slots, setSlots]           = useState<(Item | null)[]>(() => new Array(total).fill(null));
-  const [staged, setStaged]         = useState<Item | null>(null);
+  const [slots, setSlots]           = useState<(RankItem | null)[]>(() => new Array(total).fill(null));
+  const [staged, setStaged]         = useState<RankItem | null>(null);
   const [revealIndex, setRevealIndex] = useState(0);
   const [justPlaced, setJustPlaced] = useState<number | null>(null);
 
