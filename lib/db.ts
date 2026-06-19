@@ -843,6 +843,15 @@ export async function createUserWithPassword(id: string, username: string, displ
   return rows[0] ?? null;
 }
 
+export async function updateUserPassword(userId: string, passwordHash: string) {
+  const rows = await sql`
+    UPDATE users SET password_hash = ${passwordHash}
+    WHERE id = ${userId}
+    RETURNING *
+  `;
+  return rows[0] ?? null;
+}
+
 export async function getUserByEmail(email: string) {
   const rows = await sql`SELECT * FROM users WHERE email = ${email}`;
   return rows[0] ?? null;
