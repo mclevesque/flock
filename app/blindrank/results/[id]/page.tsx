@@ -5,9 +5,12 @@ export const dynamic = "force-dynamic";
 
 export default async function BlindRankResultsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const timeout = (promise: Promise<any>, ms: number) =>
+    Promise.race([promise, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
+
   const [session, results] = await Promise.all([
-    getBlindRankSession(id).catch(() => null),
-    getBlindRankResults(id).catch(() => []),
+    timeout(getBlindRankSession(id).catch(() => null), 5000).catch(() => null),
+    timeout(getBlindRankResults(id).catch(() => []), 5000).catch(() => []),
   ]);
 
   // Session doesn't exist yet (no one has submitted) — show waiting state
