@@ -1,7 +1,23 @@
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 const MAX_ITEMS = 12;
+
+function useIsLandscapeSmall(): boolean {
+  const [land, setLand] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      // Portrait lock on mobile devices (width < 768px) in landscape
+      const isMobile = window.innerWidth < 768;
+      const isLandscape = window.innerWidth > window.innerHeight * 1.1;
+      setLand(isMobile && isLandscape);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return land;
+}
 
 interface RankItem {
   text: string;
@@ -9,6 +25,7 @@ interface RankItem {
 }
 
 export default function BlindRankClient({ username }: { username: string | null }) {
+  const landscape = useIsLandscapeSmall();
   const [topic, setTopic]         = useState("");
   const [itemsText, setItemsText] = useState("");
   const [withImages, setWithImages] = useState(false);
@@ -19,6 +36,17 @@ export default function BlindRankClient({ username }: { username: string | null 
   const [copied, setCopied]       = useState<"play" | "results" | null>(null);
   const [generating, setGenerating] = useState(false);
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Portrait lock on mobile
+  if (landscape) {
+    return (
+      <div style={{ minHeight: "100dvh", background: "#0d0d0d", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 28, textAlign: "center", color: "#e8dcc8", fontFamily: "var(--font-geist-sans, sans-serif)" }}>
+        <div style={{ fontSize: 40 }}>📱</div>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>rotate to portrait</div>
+        <p style={{ color: "#a89878", margin: 0, fontSize: 14 }}>creating rankings works best in portrait mode.</p>
+      </div>
+    );
+  }
 
   const parsedItems = itemsText.split("\n").map(s => s.trim()).filter(Boolean);
   const overLimit = parsedItems.length > MAX_ITEMS;
