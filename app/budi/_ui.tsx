@@ -95,7 +95,13 @@ export function ago(dateStr?: string | null): string {
 export function useIsLandscape(): boolean {
   const [land, setLand] = useState(false);
   useEffect(() => {
-    const check = () => setLand(window.innerWidth > window.innerHeight * 1.1);
+    const check = () => {
+      // Only show landscape prompt on actual mobile devices (small screen width)
+      // Desktop browsers should work normally
+      const isMobile = window.innerWidth < 768;
+      const isLandscape = window.innerWidth > window.innerHeight * 1.1;
+      setLand(isMobile && isLandscape);
+    };
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
