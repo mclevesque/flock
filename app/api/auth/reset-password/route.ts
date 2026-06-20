@@ -1,5 +1,5 @@
 import { getUserByUsername, updateUserPassword } from "@/lib/db";
-import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 export async function POST(req: Request) {
   try {
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    const hashedPassword = crypto.createHash("sha256").update(newPassword).digest("hex");
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
     await updateUserPassword(user.id as string, hashedPassword);
     return Response.json({ success: true });
   } catch (e) {
