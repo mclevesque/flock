@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ffe8f0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Paw Pop — Rhythm Fighter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-top:     #ffe8f0;
+      --bg-mid:     #ffeef7;
+      --bg-bot:     #fff7fa;
+      --hot-pink:   #ff5c9c;
+      --soft-pink:  #ffb6ce;
+      --mint:       #7ae3c4;
+      --butter:     #fff0a8;
+      --lavender:   #c8aaff;
+      --ink:        #3a2645;
+      --ink-soft:   #7a6485;
+      --shadow:     rgba(88, 48, 108, 0.15);
+      --hit-zone:   #ffe089;
+      --perfect:    #7ae3c4;
+      --good:       #7abaff;
+      --ok:         #ffa86a;
+      --miss:       #ff6a7a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      color: var(--ink);
+      font-family: 'Fredoka', 'Inter', system-ui, sans-serif;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      overscroll-behavior: none;
+    }
+    body {
+      position: fixed; inset: 0;
+      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 60%, var(--bg-bot) 100%);
+    }
+    #game {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; display: block;
+      touch-action: none;
+    }
+
+    /* ── HUD ──────────────────────────────────── */
+    #hud {
+      position: absolute;
+      top: env(safe-area-inset-top, 0); left: 0; right: 0;
+      padding: 14px 18px;
+      pointer-events: none;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 12px;
+      z-index: 10;
+    }
+    .hud-block { pointer-events: none; }
+    .hud-label {
+      font-family: 'Fredoka', sans-serif;
+      color: var(--ink-soft); font-size: 10px; font-weight: 600;
+      letter-spacing: 0.18em; text-transform: uppercase;
+    }
+    .hud-score {
+      font-family: 'Fredoka', sans-serif;
+      color: var(--hot-pink); font-size: 34px; font-weight: 700;
+      text-shadow: 0 2px 0 #fff, 0 3px 12px var(--shadow);
+      letter-spacing: 0.02em; font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .hud-combo {
+      font-family: 'Fredoka', sans-serif;
+      color: var(--mint); font-size: 16px; font-weight: 700;
+      letter-spacing: 0.1em;
+      margin-top: 4px;
+      opacity: 0;
+      transition: opacity 0.18s, transform 0.18s;
+      transform: translateY(-4px);
+      text-shadow: 0 1px 0 #fff;
+    }
+    .hud-combo.active { opacity: 1; transform: translateY(0); }
+
+    .super-meter {
+      width: 120px; height: 14px;
+      background: #fff;
+      border: 2px solid var(--lavender);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px var(--shadow);
+      position: relative;
+    }
+    .super-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--butter), var(--lavender), var(--hot-pink));
+      border-radius: 6px;
+      transition: width 0.25s ease-out;
+    }
+    .super-meter.ready {
+      animation: super-glow 0.8s ease-in-out infinite;
+    }
+    @keyframes super-glow {
+      0%,100% { box-shadow: 0 2px 6px var(--shadow), 0 0 0 rgba(255,92,156,0); }
+      50%     { box-shadow: 0 2px 6px var(--shadow), 0 0 24px rgba(255,92,156,0.9); }
+    }
+    .super-label {
+      font-family: 'Fredoka', sans-serif;
+      color: var(--ink-soft); font-size: 9px; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      margin-top: 3px;
+      text-align: center;
+    }
+
+    /* ── Judgment popup (PERFECT / GOOD / OK / MISS) ── */
+    .judge-pop {
+      position: absolute;
+      font-family: 'Fredoka', sans-serif;
+      font-size: 42px; font-weight: 700;
+      pointer-events: none;
+      animation: judge-float 0.6s ease-out forwards;
+      z-index: 12;
+      letter-spacing: 0.06em;
+      text-shadow: 0 3px 0 #fff, 0 4px 12px var(--shadow);
+    }
+    .judge-pop.perfect { color: var(--perfect); }
+    .judge-pop.good    { color: var(--good); }
+    .judge-pop.ok      { color: var(--ok); }
+    .judge-pop.miss    { color: var(--miss); }
+    @keyframes judge-float {
+      0%   { opacity: 0; transform: translate(-50%, 0) scale(0.6); }
+      15%  { opacity: 1; transform: translate(-50%, -10px) scale(1.15); }
+      100% { opacity: 0; transform: translate(-50%, -40px) scale(0.95); }
+    }
+
+    /* ── Overlays (menu + results) ───────────── */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 20;
+      padding: 28px 20px;
+      text-align: center;
+    }
+    .overlay.hidden { display: none; }
+
+    .title {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 52px; font-weight: 700;
+      color: var(--hot-pink);
+      letter-spacing: -0.02em;
+      text-shadow: 0 3px 0 #fff, 0 6px 0 var(--soft-pink), 0 10px 20px var(--shadow);
+      margin-bottom: 2px;
+      line-height: 0.9;
+    }
+    .subtitle {
+      color: var(--ink-soft); font-size: 12px; letter-spacing: 0.25em;
+      text-transform: uppercase; margin-bottom: 28px;
+      font-weight: 600;
+    }
+    .section-label {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--ink-soft); font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .pet-row, .song-row {
+      display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; justify-content: center;
+    }
+    .pet-card, .song-card {
+      background: #fff;
+      border: 3px solid transparent;
+      border-radius: 18px;
+      padding: 10px 6px 8px;
+      min-width: 90px;
+      box-shadow: 0 3px 0 var(--soft-pink), 0 6px 16px var(--shadow);
+      cursor: pointer; touch-action: manipulation;
+      transition: transform 0.12s ease, border-color 0.12s ease;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .pet-card:active, .song-card:active { transform: scale(0.96); }
+    .pet-card.selected, .song-card.selected {
+      border-color: var(--hot-pink);
+      box-shadow: 0 3px 0 var(--hot-pink), 0 0 0 4px rgba(255,92,156,0.15), 0 6px 16px var(--shadow);
+    }
+    .pet-card .avatar {
+      width: 56px; height: 56px;
+      display: grid; place-items: center;
+      font-size: 42px;
+      line-height: 1;
+    }
+    .pet-card .name, .song-card .name {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 13px; font-weight: 600;
+      color: var(--ink);
+    }
+    .song-card {
+      min-width: 110px;
+      padding: 10px 12px;
+    }
+    .song-card .bpm {
+      color: var(--ink-soft); font-size: 10px; letter-spacing: 0.12em;
+    }
+    .song-card .tag {
+      font-size: 18px; line-height: 1;
+    }
+
+    .btn {
+      font-family: 'Fredoka', sans-serif;
+      background: linear-gradient(180deg, var(--hot-pink), #e34b8a);
+      color: #fff; border: none; border-radius: 16px;
+      padding: 15px 44px; font-size: 17px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 4px 0 #c83d76, 0 8px 20px var(--shadow);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      margin-top: 10px;
+    }
+    .btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #c83d76, 0 4px 10px var(--shadow);
+    }
+    .btn:disabled {
+      background: #ddd; color: #fff;
+      box-shadow: 0 4px 0 #bbb, 0 8px 20px var(--shadow);
+      cursor: default;
+    }
+
+    .highscore {
+      font-family: 'Fredoka', sans-serif;
+      color: var(--ink-soft); font-size: 12px; letter-spacing: 0.12em;
+      margin-top: 20px; text-transform: uppercase; font-weight: 600;
+    }
+    .results-grade {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 110px; font-weight: 700;
+      line-height: 1;
+      color: var(--hot-pink);
+      text-shadow: 0 4px 0 #fff, 0 8px 0 var(--soft-pink), 0 14px 28px var(--shadow);
+      margin-bottom: 4px;
+    }
+    .results-score {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 48px; font-weight: 700;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 8px;
+    }
+    .results-breakdown {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 14px 0 20px;
+      background: #fff;
+      padding: 10px 14px;
+      border-radius: 14px;
+      box-shadow: 0 4px 12px var(--shadow);
+      min-width: 280px;
+    }
+    .rb {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .rb .v { font-family: 'Fredoka', sans-serif; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .rb .l { font-size: 9px; letter-spacing: 0.12em; color: var(--ink-soft); font-weight: 600; }
+    .rb.perfect .v { color: var(--perfect); }
+    .rb.good    .v { color: var(--good); }
+    .rb.ok      .v { color: var(--ok); }
+    .rb.miss    .v { color: var(--miss); }
+
+    /* ── Mute button ─────────────────────────── */
+    .mute-btn {
+      pointer-events: auto;
+      background: #fff;
+      border: 2px solid var(--lavender);
+      color: var(--hot-pink); font-size: 16px;
+      width: 36px; height: 36px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 2px 0 var(--lavender), 0 4px 10px var(--shadow);
+    }
+    .mute-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--lavender), 0 2px 6px var(--shadow); }
+    .mute-btn.muted { color: var(--ink-soft); border-color: #ccc; box-shadow: 0 2px 0 #bbb, 0 4px 10px var(--shadow); }
+
+    /* ── Debug HUD (toggle: 5-tap title) ─── */
+    #debug {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0) + 6px);
+      left: 0; right: 0;
+      padding: 6px 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 10px; color: var(--ink-soft);
+      pointer-events: none;
+      display: none;
+      z-index: 15;
+      text-align: center;
+    }
+    #debug.visible { display: block; }
+    #debug .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #debug .good { color: #4caf7d; }
+    #debug .warn { color: #d4a942; }
+    #debug .bad  { color: var(--miss); }
+    #debug .lbl  { color: #aaa; }
+
+    /* Utility */
+    .hp-row {
+      display: flex; gap: 4px;
+      font-size: 18px;
+      pointer-events: none;
+    }
+    .hp-row .heart {
+      transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+      filter: drop-shadow(0 1px 2px var(--shadow));
+    }
+    .hp-row .heart.lost {
+      opacity: 0.2; transform: scale(0.7);
+      filter: grayscale(1);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ── In-game HUD ────────────────────────────────── -->
+  <div id="hud" class="hidden-during-menu">
+    <div class="hud-block">
+      <div class="hud-label">Score</div>
+      <div class="hud-score" id="scoreEl">0</div>
+      <div class="hud-combo" id="comboEl">×2</div>
+    </div>
+    <div class="hud-block" style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+      <button class="mute-btn" id="muteBtn" aria-label="Toggle sound">🔊</button>
+    </div>
+    <div class="hud-block" style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+      <div class="super-meter" id="superMeter"><div class="super-fill" id="superFill"></div></div>
+      <div class="super-label">Big Paw</div>
+    </div>
+  </div>
+
+  <!-- ── Main menu ────────────────────────────────── -->
+  <div class="overlay" id="menu">
+    <div class="title" id="titleEl">PAW POP</div>
+    <div class="subtitle">A RHYTHM DUEL</div>
+
+    <div class="section-label">Pick your pal</div>
+    <div class="pet-row" id="petRow"></div>
+
+    <div class="section-label">Pick a song</div>
+    <div class="song-row" id="songRow"></div>
+
+    <button class="btn" id="startBtn">Tap to play</button>
+    <div class="highscore" id="highEl"></div>
+  </div>
+
+  <!-- ── Results screen ────────────────────────────── -->
+  <div class="overlay hidden" id="results">
+    <div class="subtitle">How you did</div>
+    <div class="results-grade" id="gradeEl">S</div>
+    <div class="results-score" id="finalScoreEl">0</div>
+    <div class="results-breakdown" id="breakdownEl">
+      <div class="rb perfect"><div class="v" id="rbPerfect">0</div><div class="l">Perfect</div></div>
+      <div class="rb good"><div class="v" id="rbGood">0</div><div class="l">Good</div></div>
+      <div class="rb ok"><div class="v" id="rbOk">0</div><div class="l">Ok</div></div>
+      <div class="rb miss"><div class="v" id="rbMiss">0</div><div class="l">Miss</div></div>
+    </div>
+    <div class="highscore" id="finalHighEl"></div>
+    <button class="btn" id="retryBtn">Play again</button>
+  </div>
+
+  <div id="debug"><div class="row" id="debugRow">— init —</div></div>
+
+  <script>
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 2 — AUDIO + SONGS + BEATMAPS (procedural, no assets)
+
+     Song: { id, name, tag, bpm, bars, palette, scale, chords, pattern }
+     Beatmap is generated on start from (bpm × bars × pattern).
+     All music synthesized via Web Audio — no loading, zero assets.
+     ══════════════════════════════════════════════════════════════════ */
+
+  // ── Musical helpers ────────────────────────────────────────────
+  const NOTE_FREQ = (n) => 440 * Math.pow(2, (n - 69) / 12);  // MIDI → Hz
+  const SCALES = {
+    major:  [0, 2, 4, 5, 7, 9, 11],
+    minor:  [0, 2, 3, 5, 7, 8, 10],
+    penta:  [0, 2, 4, 7, 9],            // major pentatonic
+    mixo:   [0, 2, 4, 5, 7, 9, 10],
+  };
+  function scaleNote(root, scale, step) {
+    const pattern = SCALES[scale];
+    const octave  = Math.floor(step / pattern.length);
+    const degree  = ((step % pattern.length) + pattern.length) % pattern.length;
+    return root + pattern[degree] + octave * 12;
+  }
+
+  // ── Songs ─────────────────────────────────────────────────────
+  // pattern: array per bar of beat slots (16 per bar — sixteenth-note grid).
+  //   1 = hit beat (player taps here)
+  //   0 = no beat
+  //   2 = "accent" — worth slightly more if hit perfect (nothing visual yet)
+  const SONGS = [
+    {
+      id:   'meadow',
+      name: 'Sunny Meadow',
+      tag:  '🌻',
+      bpm:  112,
+      bars: 32,
+      root: 60,                 // C4
+      scale: 'penta',
+      chords: [[0,2,4], [-3,-1,1], [-2,0,2], [0,2,4]], // I, vi, IV, I (penta-ish)
+      // Gentle on-beat pulse with occasional offbeat sprinkle
+      pattern: [
+        [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
+        [1,0,0,0, 1,0,0,0, 1,0,1,0, 1,0,0,1],
+        [1,0,1,0, 1,0,0,0, 1,0,0,0, 1,0,1,0],
+        [1,0,0,0, 1,0,1,0, 1,0,1,0, 1,0,1,2],
+      ],
+      pad:  { type: 'triangle', gain: 0.10 },
+      lead: { type: 'sine',     gain: 0.18 },
+    },
+    {
+      id:   'neon',
+      name: 'Neon Nights',
+      tag:  '🌃',
+      bpm:  132,
+      bars: 32,
+      root: 57,                 // A3
+      scale: 'minor',
+      chords: [[0,3,7], [-2,1,5], [3,7,10], [0,3,7]],
+      // Syncopated — more offbeats
+      pattern: [
+        [1,0,1,0, 1,0,1,0, 1,0,1,1, 0,1,0,1],
+        [1,0,1,0, 1,1,0,1, 1,0,1,0, 1,0,1,0],
+        [1,0,1,0, 0,1,0,1, 1,0,1,0, 1,1,0,1],
+        [1,0,1,0, 1,0,1,0, 1,0,1,1, 0,1,0,2],
+      ],
+      pad:  { type: 'sawtooth', gain: 0.07 },
+      lead: { type: 'square',   gain: 0.14 },
+    },
+    {
+      id:   'jungle',
+      name: 'Jungle Drum',
+      tag:  '🌴',
+      bpm:  104,
+      bars: 32,
+      root: 62,                 // D4
+      scale: 'mixo',
+      chords: [[0,4,7], [-5,-2,2], [-3,0,4], [0,4,7]],
+      pattern: [
+        [1,0,0,1, 0,1,1,0, 1,0,0,1, 0,1,0,1],
+        [1,0,1,0, 0,1,1,0, 1,0,0,1, 0,1,1,0],
+        [1,0,0,1, 0,1,1,0, 1,1,0,0, 0,1,0,1],
+        [1,0,1,0, 0,1,1,0, 1,0,1,0, 0,1,1,2],
+      ],
+      pad:  { type: 'triangle', gain: 0.09 },
+      lead: { type: 'triangle', gain: 0.2  },
+    },
+  ];
+
+  // ── Audio engine ──────────────────────────────────────────────
+  const AudioEng = {
+    ctx: null, master: null, musicGain: null, sfxGain: null,
+    muted: localStorage.getItem('pawPop.muted') === '1',
+    song: null,
+    beatmap: [],          // [{ t: seconds-from-start, slot: 0..N, accent: bool, hit: bool, missed: bool }]
+    scheduled: [],        // scheduled oscillator nodes for cleanup
+    startTime: 0,         // ctx.currentTime at song start
+    running: false,
+
+    ensure() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        this.ctx = new AC();
+        this.master    = this.ctx.createGain();
+        this.musicGain = this.ctx.createGain();
+        this.sfxGain   = this.ctx.createGain();
+        this.master.gain.value    = this.muted ? 0 : 0.95;
+        this.musicGain.gain.value = 0.6;
+        this.sfxGain.gain.value   = 1.0;
+        this.musicGain.connect(this.master);
+        this.sfxGain.connect(this.master);
+        this.master.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return true;
+    },
+
+    setMuted(m) {
+      this.muted = !!m;
+      localStorage.setItem('pawPop.muted', m ? '1' : '0');
+      if (this.master) this.master.gain.linearRampToValueAtTime(m ? 0 : 0.95, this.ctx.currentTime + 0.08);
+    },
+
+    // ── Primitive tone — short envelope, for chords + lead + SFX ──
+    tone(freq, type, dur, attack = 0.005, gain = 0.18, destGain = null, atTime = null) {
+      if (!this.ctx) return;
+      const t0 = atTime ?? this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + attack);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      osc.connect(env).connect(destGain ?? this.sfxGain);
+      osc.start(t0); osc.stop(t0 + dur + 0.02);
+      this.scheduled.push(osc);
+      return osc;
+    },
+
+    noise(dur, cutoff, gain = 0.25, atTime = null) {
+      if (!this.ctx) return;
+      const t0 = atTime ?? this.ctx.currentTime;
+      const bufSize = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
+      const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = cutoff;
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(gain, t0);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      src.connect(lp).connect(env).connect(this.sfxGain);
+      src.start(t0);
+      this.scheduled.push(src);
+    },
+
+    // ── Start a song ─────────────────────────────────────────────
+    startSong(song) {
+      if (!this.ctx) this.ensure();
+      this.stopSong();
+      this.song = song;
+      const beatSec = 60 / song.bpm;           // seconds per quarter note
+      const sixteenth = beatSec / 4;
+
+      // Build beatmap — iterate each bar, each slot in pattern.
+      this.beatmap = [];
+      let hitIndex = 0;
+      for (let bar = 0; bar < song.bars; bar++) {
+        const patBar = song.pattern[bar % song.pattern.length];
+        for (let slot = 0; slot < 16; slot++) {
+          const v = patBar[slot];
+          if (v === 1 || v === 2) {
+            this.beatmap.push({
+              index:  hitIndex++,
+              t:      bar * 16 * sixteenth + slot * sixteenth,
+              bar, slot,
+              accent: v === 2,
+              hit: false, missed: false,
+            });
+          }
+        }
+      }
+
+      // Schedule the entire song's music now (drum + chord + lead)
+      const t0 = this.ctx.currentTime + 0.1;
+      this.startTime = t0;
+      this.scheduleMusic(song, t0);
+      this.running = true;
+    },
+
+    scheduleMusic(song, t0) {
+      const beatSec = 60 / song.bpm;
+      const sixteenth = beatSec / 4;
+
+      for (let bar = 0; bar < song.bars; bar++) {
+        const barStart = t0 + bar * 16 * sixteenth;
+        const chord = song.chords[bar % song.chords.length];
+        const chordRootOct = -12;              // down an octave for pads
+
+        // Chord pad — one sustained triad per bar, quiet
+        for (const step of chord) {
+          const n = scaleNote(song.root + chordRootOct, song.scale, step);
+          const f = NOTE_FREQ(n);
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = song.pad.type;
+          osc.frequency.value = f;
+          env.gain.setValueAtTime(0, barStart);
+          env.gain.linearRampToValueAtTime(song.pad.gain * 0.5, barStart + 0.12);
+          env.gain.linearRampToValueAtTime(song.pad.gain * 0.35, barStart + beatSec * 3);
+          env.gain.linearRampToValueAtTime(0.0001, barStart + beatSec * 4);
+          osc.connect(env).connect(this.musicGain);
+          osc.start(barStart);
+          osc.stop(barStart + beatSec * 4 + 0.05);
+          this.scheduled.push(osc);
+        }
+
+        // Kick on beat 1 and 3
+        for (const b of [0, 8]) {
+          const bt = barStart + b * sixteenth;
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(120, bt);
+          osc.frequency.exponentialRampToValueAtTime(40, bt + 0.14);
+          env.gain.setValueAtTime(0.4, bt);
+          env.gain.exponentialRampToValueAtTime(0.001, bt + 0.16);
+          osc.connect(env).connect(this.musicGain);
+          osc.start(bt); osc.stop(bt + 0.18);
+          this.scheduled.push(osc);
+        }
+
+        // Snare-like hit on beat 2 and 4
+        for (const b of [4, 12]) {
+          const bt = barStart + b * sixteenth;
+          const bufSize = Math.floor(this.ctx.sampleRate * 0.08);
+          const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = this.ctx.createBiquadFilter();
+          bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+          const env = this.ctx.createGain();
+          env.gain.setValueAtTime(0.28, bt);
+          env.gain.exponentialRampToValueAtTime(0.001, bt + 0.1);
+          src.connect(bp).connect(env).connect(this.musicGain);
+          src.start(bt);
+          this.scheduled.push(src);
+        }
+
+        // Lead — a melodic note on SOME of the beatmap slots (deterministic pseudo-random)
+        const patBar = song.pattern[bar % song.pattern.length];
+        for (let slot = 0; slot < 16; slot++) {
+          if (patBar[slot] === 1 || patBar[slot] === 2) {
+            // Deterministic-ish melody: step through the scale based on (bar, slot)
+            const step = chord[(slot >> 2) % chord.length] + (slot & 1 ? 2 : 0);
+            const n = scaleNote(song.root, song.scale, step);
+            const f = NOTE_FREQ(n);
+            const bt = barStart + slot * sixteenth;
+            const osc = this.ctx.createOscillator();
+            const env = this.ctx.createGain();
+            osc.type = song.lead.type;
+            osc.frequency.value = f;
+            const g = song.lead.gain * (patBar[slot] === 2 ? 1.25 : 1);
+            env.gain.setValueAtTime(0, bt);
+            env.gain.linearRampToValueAtTime(g, bt + 0.006);
+            env.gain.exponentialRampToValueAtTime(0.001, bt + 0.22);
+            osc.connect(env).connect(this.musicGain);
+            osc.start(bt); osc.stop(bt + 0.25);
+            this.scheduled.push(osc);
+          }
+        }
+      }
+    },
+
+    stopSong() {
+      this.running = false;
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime;
+      for (const n of this.scheduled) { try { n.stop(t + 0.2); } catch {} }
+      this.scheduled = [];
+    },
+
+    // Current playback time in seconds from song start
+    songTime() {
+      if (!this.ctx || !this.running) return 0;
+      return this.ctx.currentTime - this.startTime;
+    },
+
+    // ── Named SFX ─────────────────────────────────────────────────
+    sfx(name, opt = 0) {
+      if (!this.ctx || this.muted) return;
+      const t0 = this.ctx.currentTime;
+      switch (name) {
+        case 'perfect': {
+          // Bright bell + sparkle
+          this.tone(1320, 'triangle', 0.18, 0.002, 0.22);
+          this.tone(1760, 'sine',     0.24, 0.002, 0.14);
+          this.tone(2640, 'sine',     0.15, 0.003, 0.08);
+          break;
+        }
+        case 'good': {
+          this.tone(880, 'triangle', 0.14, 0.003, 0.2);
+          this.tone(1320, 'sine',    0.12, 0.003, 0.1);
+          break;
+        }
+        case 'ok': {
+          this.tone(660, 'triangle', 0.12, 0.004, 0.18);
+          break;
+        }
+        case 'miss': {
+          this.tone(200, 'sawtooth', 0.22, 0.003, 0.2);
+          this.noise(0.12, 800, 0.14);
+          break;
+        }
+        case 'combo': {
+          const pitch = 660 + 60 * Math.min(20, opt);
+          this.tone(pitch, 'sine', 0.08, 0.002, 0.12);
+          break;
+        }
+        case 'super': {
+          // Cinematic rising sweep
+          const osc = this.ctx.createOscillator();
+          const env = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, t0);
+          osc.frequency.exponentialRampToValueAtTime(1760, t0 + 0.7);
+          env.gain.setValueAtTime(0, t0);
+          env.gain.linearRampToValueAtTime(0.32, t0 + 0.05);
+          env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
+          osc.connect(env).connect(this.sfxGain);
+          osc.start(t0); osc.stop(t0 + 0.95);
+          // Sparkles on top
+          [1046, 1318, 1568, 2093].forEach((f, i) => {
+            this.tone(f, 'sine', 0.35, 0.003, 0.16, null, t0 + 0.1 + i * 0.05);
+          });
+          break;
+        }
+        case 'super-hit': {
+          this.tone(110, 'sine', 0.6, 0.005, 0.36);
+          this.tone(220, 'triangle', 0.4, 0.005, 0.2);
+          this.noise(0.3, 3200, 0.22);
+          break;
+        }
+        case 'start': {
+          [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 'triangle', 0.3, 0.005, 0.22, null, t0 + i * 0.04));
+          break;
+        }
+        case 'results': {
+          [440, 554, 659, 880, 1108].forEach((f, i) => this.tone(f, 'triangle', 0.5, 0.005, 0.2, null, t0 + i * 0.07));
+          break;
+        }
+      }
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 3 — ENGINE (canvas, pets, beats, timing, input)
+     ══════════════════════════════════════════════════════════════════ */
+
+  // ── Tunables ────────────────────────────────────────────────────
+  const T = {
+    worldW: 0, worldH: 0, dpr: 1,
+
+    // Beat travel — beats fall from top toward the hit line (below middle).
+    // leadTimeSec: how far in advance a beat becomes visible before it must be hit.
+    leadTimeSec: 1.6,
+    hitZoneFrac: 0.72,          // y-position of hit zone (fraction of worldH)
+
+    // Timing windows (seconds) — how close tap must be to beat.t
+    windowPerfect: 0.055,
+    windowGood:    0.110,
+    windowOk:      0.170,
+
+    // Scoring
+    scorePerfect: 100,
+    scoreGood:    60,
+    scoreOk:      25,
+    accentMul:    1.3,
+    comboPerHit:  0.1,           // combo multiplier step per chain
+    comboMax:     5,
+
+    // Super meter — fills on good/perfect hits; triggers a big score burst
+    superPerPerfect: 10,          // % per hit
+    superPerGood:    5,
+    superMax:        100,
+    superScoreBonus: 400,
+  };
+
+  // ── Canvas setup ────────────────────────────────────────────────
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: true });
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    T.dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width  = Math.floor(w * T.dpr);
+    canvas.height = Math.floor(h * T.dpr);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(T.dpr, 0, 0, T.dpr, 0, 0);
+    T.worldW = w;
+    T.worldH = h;
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', resize, { passive: true });
+  resize();
+
+  // ── Pets ────────────────────────────────────────────────────────
+  const PETS = [
+    {
+      id: 'mochi',   name: 'Mochi',   emoji: '🐱',
+      body:  '#fce7d8',
+      ears:  '#fbc5b0',
+      blush: '#ff9bb5',
+      eye:   '#3a2645',
+      accent:'#ff5c9c',
+    },
+    {
+      id: 'biscuit', name: 'Biscuit', emoji: '🐶',
+      body:  '#ffd28c',
+      ears:  '#e2a35b',
+      blush: '#ff9bb5',
+      eye:   '#3a2645',
+      accent:'#ff8d4a',
+    },
+    {
+      id: 'pickle',  name: 'Pickle',  emoji: '🦎',
+      body:  '#c1dcff',
+      ears:  '#8ab7ff',
+      blush: '#ff9bb5',
+      eye:   '#3a2645',
+      accent:'#7ae3c4',
+    },
+  ];
+
+  // ── Render helpers ──────────────────────────────────────────────
+  function drawBackground() {
+    // Soft pastel gradient
+    const g = ctx.createLinearGradient(0, 0, 0, T.worldH);
+    g.addColorStop(0, '#ffe8f0');
+    g.addColorStop(0.6, '#ffeef7');
+    g.addColorStop(1, '#fff7fa');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, T.worldW, T.worldH);
+
+    // Soft clouds / blobs for depth
+    const t = performance.now() * 0.00015;
+    for (let i = 0; i < 4; i++) {
+      const x = ((i * 0.27 + t) % 1) * T.worldW;
+      const y = (i * 97 + 70) % T.worldH;
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = i % 2 === 0 ? '#ffd7e5' : '#e0d6ff';
+      ctx.beginPath();
+      ctx.arc(x, y, 70 + (i % 2) * 15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Hit line — a thick soft bar
+    const hy = T.worldH * T.hitZoneFrac;
+    const grad = ctx.createLinearGradient(0, hy - 20, 0, hy + 20);
+    grad.addColorStop(0, 'rgba(255,224,137,0)');
+    grad.addColorStop(0.5, 'rgba(255,224,137,0.9)');
+    grad.addColorStop(1, 'rgba(255,224,137,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, hy - 20, T.worldW, 40);
+
+    // Hit line itself
+    ctx.strokeStyle = '#ffb84a';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 10]);
+    ctx.beginPath();
+    ctx.moveTo(0, hy);
+    ctx.lineTo(T.worldW, hy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // ── Pet render (cute vector creature) ───────────────────────────
+  const petState = {
+    x: 0, y: 0,                // computed on resize
+    r: 58,                     // base radius
+    bounce: 0,                 // bounce phase (seconds)
+    tilt: 0,                   // -1..1 current tilt
+    happy: 0,                  // sustained happiness from good hits
+    frown: 0,                  // sustained frown from misses
+    blinkUntil: 0,
+    nextBlink: 0,
+  };
+
+  function layoutPet() {
+    petState.x = T.worldW / 2;
+    petState.y = T.worldH * 0.88;         // below hit line
+  }
+
+  function drawPet(now) {
+    layoutPet();
+    const pet = selectedPet();
+    const r = petState.r;
+
+    // Bounce squash on beat
+    petState.bounce -= 0.05;
+    if (petState.bounce < 0) petState.bounce = 0;
+    const squish = 1 + Math.sin(now * 0.004) * 0.02 - petState.bounce * 0.12;
+    const stretch = 1 - Math.sin(now * 0.004) * 0.02 + petState.bounce * 0.12;
+
+    // Tilt sway eases back
+    petState.tilt *= 0.92;
+
+    // Happy/frown decays
+    petState.happy = Math.max(0, petState.happy - 0.008);
+    petState.frown = Math.max(0, petState.frown - 0.008);
+
+    // Blink
+    if (now > petState.nextBlink) {
+      petState.blinkUntil = now + 130;
+      petState.nextBlink = now + 2500 + Math.random() * 2500;
+    }
+    const blinking = now < petState.blinkUntil;
+
+    ctx.save();
+    ctx.translate(petState.x, petState.y);
+    ctx.rotate(petState.tilt * 0.08);
+    ctx.scale(squish, stretch);
+
+    // Body shadow
+    ctx.fillStyle = 'rgba(88, 48, 108, 0.13)';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 1.05, r * 0.95, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ears (drawn behind body)
+    ctx.fillStyle = pet.ears;
+    if (pet.id === 'mochi') {
+      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.45); ctx.lineTo(-r * 0.35, -r * 1.05); ctx.lineTo(-r * 0.15, -r * 0.55); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo( r * 0.75, -r * 0.45); ctx.lineTo( r * 0.35, -r * 1.05); ctx.lineTo( r * 0.15, -r * 0.55); ctx.closePath(); ctx.fill();
+    } else if (pet.id === 'biscuit') {
+      // Floppy ears
+      ctx.beginPath(); ctx.ellipse(-r * 0.75, -r * 0.1, r * 0.28, r * 0.55, -0.25, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse( r * 0.75, -r * 0.1, r * 0.28, r * 0.55,  0.25, 0, Math.PI * 2); ctx.fill();
+    } else if (pet.id === 'pickle') {
+      // External gills (axolotl)
+      for (const dir of [-1, 1]) {
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.ellipse(dir * (r * 0.85 + i * 4), -r * 0.25 + i * 8, 10, 4, dir * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Main body (soft round blob)
+    ctx.fillStyle = pet.body;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Blush
+    ctx.fillStyle = pet.blush;
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath(); ctx.arc(-r * 0.4, r * 0.15, r * 0.16, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( r * 0.4, r * 0.15, r * 0.16, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Eyes
+    ctx.fillStyle = pet.eye;
+    if (blinking) {
+      ctx.fillRect(-r * 0.32, -r * 0.15, r * 0.2, r * 0.04);
+      ctx.fillRect( r * 0.12, -r * 0.15, r * 0.2, r * 0.04);
+    } else {
+      ctx.beginPath(); ctx.arc(-r * 0.22, -r * 0.12, r * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( r * 0.22, -r * 0.12, r * 0.1, 0, Math.PI * 2); ctx.fill();
+      // Eye shine
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(-r * 0.19, -r * 0.16, r * 0.03, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( r * 0.25, -r * 0.16, r * 0.03, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Mouth — changes with happy/frown
+    ctx.strokeStyle = pet.eye;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    const mouthY = r * 0.15;
+    const frown = petState.frown;
+    const happy = petState.happy;
+    const curve = (happy - frown) * r * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.13, mouthY);
+    ctx.quadraticCurveTo(0, mouthY + curve, r * 0.13, mouthY);
+    ctx.stroke();
+
+    // Accent mark (little heart above head) pulses when super is charging
+    if (game.superPct >= 100) {
+      ctx.fillStyle = pet.accent;
+      ctx.globalAlpha = 0.8 + Math.sin(now * 0.012) * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.25);
+      ctx.bezierCurveTo(-r * 0.3, -r * 1.6, -r * 0.35, -r * 1.15, 0, -r * 0.95);
+      ctx.bezierCurveTo( r * 0.35, -r * 1.15,  r * 0.3, -r * 1.6, 0, -r * 1.25);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+  }
+
+  // ── Beat rendering ──────────────────────────────────────────────
+  // Each upcoming beat is a pastel disc that falls from top toward the hit line.
+  function drawBeats(now, songTimeSec) {
+    const hy = T.worldH * T.hitZoneFrac;
+    const startY = -40;
+    const travel = hy - startY;
+
+    for (const b of AudioEng.beatmap) {
+      if (b.hit || b.missed) continue;
+      const dt = b.t - songTimeSec;               // positive = future, negative = past
+      if (dt > T.leadTimeSec) continue;            // not visible yet
+      if (dt < -0.25) continue;                    // already passed + we've scored it
+      // progress 0..1 from top to hit line
+      const progress = 1 - (dt / T.leadTimeSec);
+      const y = startY + travel * Math.max(0, Math.min(1, progress));
+
+      // Horizontal lane — center column. Subtle wiggle by slot for visual rhythm interest.
+      const x = T.worldW * 0.5 + Math.sin(b.slot * 0.9) * 26;
+
+      // Size swells as it approaches
+      const size = 22 + 12 * Math.min(1, progress);
+      const alpha = Math.max(0.2, Math.min(1, progress * 1.3));
+
+      // Color: butter, accent if accent
+      const baseColor = b.accent ? '#ff5c9c' : '#ffc2de';
+      const glowColor = b.accent ? '#ffd1e5' : '#fff';
+
+      // Outer glow
+      const grad = ctx.createRadialGradient(x, y, size * 0.2, x, y, size * 1.9);
+      grad.addColorStop(0, `rgba(255,194,222,${alpha * 0.5})`);
+      grad.addColorStop(1, 'rgba(255,194,222,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 1.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner disc
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner highlight
+      ctx.fillStyle = glowColor;
+      ctx.beginPath();
+      ctx.arc(x - size * 0.3, y - size * 0.3, size * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Border — slightly darker than base
+      ctx.strokeStyle = b.accent ? '#e34b8a' : '#ff8fbf';
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── Particles (hit feedback) ────────────────────────────────────
+  const particles = [];
+  function spawnParticles(x, y, color, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 80 + Math.random() * 180;
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 120,
+        life: 1, maxLife: 0.55 + Math.random() * 0.3,
+        size: 3 + Math.random() * 3, color,
+      });
+    }
+  }
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 320 * dt;
+      p.vx *= (1 - 1.4 * dt);
+      p.life -= dt / p.maxLife;
+    }
+    for (let i = particles.length - 1; i >= 0; i--)
+      if (particles[i].life <= 0) particles.splice(i, 1);
+  }
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Input ───────────────────────────────────────────────────────
+  function onTap(clientX, clientY) {
+    Clairvoyance.markInput();
+    if (game.state !== 'playing') return;
+    handleTap(clientX, clientY);
+  }
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) onTap(t.clientX, t.clientY);
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', e => onTap(e.clientX, e.clientY));
+
+  /* ══════════════════════════════════════════════════════════════════
+     SECTION 4 — GAME (state machine, juice, menu wiring, Clairvoyance)
+     ══════════════════════════════════════════════════════════════════ */
+
+  // ── Clairvoyance (rhythm-game trim) ─────────────────────────────
+  const Clairvoyance = {
+    enabled: true,
+    pendingInputs: [],
+    latencies: [],
+    frameTimes: [],
+    hitOffsets: [],              // signed ms: negative = early, positive = late
+    profile: {
+      name:           'Rhythm (Paw Pop)',
+      inputLatencyMs: { ideal: 32,  max: 55 },
+      fps:            { ideal: 60,  min: 55 },
+      frameJitterMs:  { ideal: 8,   max: 20 },
+      hitOffsetStdMs: { ideal: 45,  max: 75 },    // tighter = more responsive feeling
+      leadTimeSec:    { min: 1.2,   ideal: 1.6, max: 2.2 },
+      windowPerfect:  { min: 0.04, ideal: 0.055, max: 0.08 },
+    },
+    markInput() { this.pendingInputs.push({ t: performance.now(), resolved: false }); },
+    resolveInputs() {
+      const now = performance.now();
+      for (const p of this.pendingInputs) if (!p.resolved) {
+        p.resolved = true;
+        this.latencies.push(now - p.t);
+        if (this.latencies.length > 60) this.latencies.shift();
+      }
+      this.pendingInputs = this.pendingInputs.filter(p => !p.resolved).slice(-10);
+    },
+    markHit(offsetMs) {
+      this.hitOffsets.push(offsetMs);
+      if (this.hitOffsets.length > 200) this.hitOffsets.shift();
+    },
+    recordFrame(time) {
+      this.frameTimes.push(time);
+      if (this.frameTimes.length > 60) this.frameTimes.shift();
+    },
+    metrics() {
+      if (this.frameTimes.length < 10) return null;
+      const n = this.frameTimes.length;
+      const deltas = [];
+      for (let i = 1; i < n; i++) deltas.push(this.frameTimes[i] - this.frameTimes[i-1]);
+      const avg = deltas.reduce((a,b) => a+b, 0) / Math.max(1, deltas.length);
+      const jitter = deltas.length ? Math.max(...deltas) - Math.min(...deltas) : 0;
+      const lat = this.latencies.length
+        ? this.latencies.reduce((a,b)=>a+b,0) / this.latencies.length : 0;
+      // Standard deviation of hit offsets
+      let offsetStd = 0;
+      if (this.hitOffsets.length >= 5) {
+        const m = this.hitOffsets.reduce((a,b) => a+b, 0) / this.hitOffsets.length;
+        const v = this.hitOffsets.reduce((a,b) => a + (b-m)*(b-m), 0) / this.hitOffsets.length;
+        offsetStd = Math.sqrt(v);
+      }
+      return {
+        fps: Math.round(1000 / avg),
+        jitter: Math.round(jitter),
+        latency: Math.round(lat),
+        offsetStd: Math.round(offsetStd),
+      };
+    },
+    preflightCheck(tunables) {
+      const p = this.profile;
+      const checks = [];
+      checks.push({
+        name: 'Perfect window is reachable',
+        passed: tunables.windowPerfect >= p.windowPerfect.min && tunables.windowPerfect <= p.windowPerfect.max,
+        value: (tunables.windowPerfect * 1000).toFixed(0) + 'ms',
+        expected: (p.windowPerfect.min * 1000) + '-' + (p.windowPerfect.max * 1000) + 'ms',
+      });
+      checks.push({
+        name: 'Good window ≥ 2× Perfect',
+        passed: tunables.windowGood >= tunables.windowPerfect * 2,
+        value: (tunables.windowGood * 1000).toFixed(0) + 'ms',
+        expected: '≥ ' + (tunables.windowPerfect * 2000) + 'ms',
+      });
+      checks.push({
+        name: 'Lead time is readable',
+        passed: tunables.leadTimeSec >= p.leadTimeSec.min && tunables.leadTimeSec <= p.leadTimeSec.max,
+        value: tunables.leadTimeSec.toFixed(2) + 's',
+        expected: p.leadTimeSec.min + '-' + p.leadTimeSec.max + 's',
+      });
+      checks.push({
+        name: 'Hit zone has breathing room below screen middle',
+        passed: tunables.hitZoneFrac >= 0.55 && tunables.hitZoneFrac <= 0.85,
+        value: tunables.hitZoneFrac.toFixed(2),
+        expected: '0.55-0.85',
+      });
+      checks.push({
+        name: 'Accent beats reward properly',
+        passed: tunables.accentMul > 1.0,
+        value: tunables.accentMul.toFixed(2),
+        expected: '> 1.0',
+      });
+      const ok = checks.every(c => c.passed);
+      return { ok, score: checks.filter(c=>c.passed).length + '/' + checks.length, checks };
+    },
+    analyze() {
+      const m = this.metrics();
+      if (!m) return null;
+      const issues = [];
+      const p = this.profile;
+      if (m.fps < p.fps.min)                       issues.push('FPS ' + m.fps);
+      if (m.jitter > p.frameJitterMs.max)          issues.push('jitter ' + m.jitter);
+      if (m.latency > p.inputLatencyMs.max)        issues.push('input ' + m.latency);
+      if (m.offsetStd > p.hitOffsetStdMs.max)      issues.push('tap stddev ' + m.offsetStd);
+      return { metrics: m, issues, healthy: issues.length === 0 };
+    },
+  };
+
+  // ── Game state ──────────────────────────────────────────────────
+  const HS_KEY = (songId, petId) => `pawPop.high.${songId}.${petId}`;
+
+  const game = {
+    state: 'menu',              // 'menu' | 'playing' | 'results'
+    selectedPetIdx: 0,
+    selectedSongIdx: 0,
+    score: 0,
+    combo: 0,
+    comboMul: 1,
+    superPct: 0,
+    hits: { perfect: 0, good: 0, ok: 0, miss: 0 },
+    high: 0,
+  };
+
+  // Exposed helper for pet rendering (Section 3)
+  function selectedPet() { return PETS[game.selectedPetIdx]; }
+  function selectedSong() { return SONGS[game.selectedSongIdx]; }
+
+  // ── DOM refs ────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const menuEl      = $('menu');
+  const resultsEl   = $('results');
+  const scoreEl     = $('scoreEl');
+  const comboEl     = $('comboEl');
+  const superFill   = $('superFill');
+  const superMeter  = $('superMeter');
+  const petRowEl    = $('petRow');
+  const songRowEl   = $('songRow');
+  const startBtn    = $('startBtn');
+  const retryBtn    = $('retryBtn');
+  const muteBtn     = $('muteBtn');
+  const highEl      = $('highEl');
+  const finalHighEl = $('finalHighEl');
+  const gradeEl     = $('gradeEl');
+  const finalScoreEl= $('finalScoreEl');
+  const titleEl     = $('titleEl');
+  const debugEl     = $('debug');
+  const debugRowEl  = $('debugRow');
+  const DEBUG = { visible: false, taps: 0, lastTapAt: 0 };
+
+  // ── Rendering HUD ───────────────────────────────────────────────
+  function renderScore() { scoreEl.textContent = game.score; }
+  function renderCombo() {
+    if (game.combo >= 4) {
+      comboEl.textContent = '×' + game.comboMul.toFixed(1) + '  ' + game.combo;
+      comboEl.classList.add('active');
+    } else {
+      comboEl.classList.remove('active');
+    }
+  }
+  function renderSuper() {
+    superFill.style.width = Math.min(100, game.superPct) + '%';
+    superMeter.classList.toggle('ready', game.superPct >= 100);
+  }
+  function renderHighscore() {
+    const s = selectedSong(), p = selectedPet();
+    const key = HS_KEY(s.id, p.id);
+    game.high = Number(localStorage.getItem(key) || 0);
+    const txt = game.high ? ('BEST — ' + game.high) : '';
+    highEl.textContent = txt;
+    finalHighEl.textContent = txt;
+  }
+
+  // ── Menus ───────────────────────────────────────────────────────
+  function buildPetRow() {
+    petRowEl.innerHTML = '';
+    PETS.forEach((p, i) => {
+      const el = document.createElement('div');
+      el.className = 'pet-card' + (i === game.selectedPetIdx ? ' selected' : '');
+      el.innerHTML = `<div class="avatar" style="color:${p.accent}">${p.emoji}</div><div class="name">${p.name}</div>`;
+      el.addEventListener('click', () => { game.selectedPetIdx = i; buildPetRow(); renderHighscore(); AudioEng.sfx('ok'); });
+      petRowEl.appendChild(el);
+    });
+  }
+  function buildSongRow() {
+    songRowEl.innerHTML = '';
+    SONGS.forEach((s, i) => {
+      const el = document.createElement('div');
+      el.className = 'song-card' + (i === game.selectedSongIdx ? ' selected' : '');
+      el.innerHTML = `<div class="tag">${s.tag}</div><div class="name">${s.name}</div><div class="bpm">${s.bpm} BPM</div>`;
+      el.addEventListener('click', () => { game.selectedSongIdx = i; buildSongRow(); renderHighscore(); AudioEng.sfx('ok'); });
+      songRowEl.appendChild(el);
+    });
+  }
+
+  // ── Tap resolution ──────────────────────────────────────────────
+  function handleTap(clientX, clientY) {
+    const songT = AudioEng.songTime();
+    // Find the closest upcoming/nearby beat within any window
+    let best = null, bestAbs = Infinity;
+    for (const b of AudioEng.beatmap) {
+      if (b.hit || b.missed) continue;
+      const dt = songT - b.t;                // positive = late, negative = early
+      const abs = Math.abs(dt);
+      if (abs > T.windowOk) continue;
+      if (abs < bestAbs) { bestAbs = abs; best = b; }
+    }
+
+    if (!best) {
+      // Stray tap — small cosmetic ripple, no score effect
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left, y = clientY - rect.top;
+      spawnParticles(x, y, '#ffd7e5', 6);
+      AudioEng.sfx('miss');
+      return;
+    }
+
+    const offsetMs = (songT - best.t) * 1000;
+    Clairvoyance.markHit(offsetMs);
+    const abs = Math.abs(offsetMs) / 1000;
+
+    let judge, baseScore, superGain;
+    if (abs <= T.windowPerfect)      { judge = 'perfect'; baseScore = T.scorePerfect; superGain = T.superPerPerfect; }
+    else if (abs <= T.windowGood)    { judge = 'good';    baseScore = T.scoreGood;    superGain = T.superPerGood; }
+    else                              { judge = 'ok';      baseScore = T.scoreOk;      superGain = 0; }
+
+    best.hit = true;
+    game.hits[judge]++;
+    game.combo += 1;
+    game.comboMul = Math.min(T.comboMax, 1 + game.combo * T.comboPerHit);
+    const earned = Math.round(baseScore * (best.accent ? T.accentMul : 1) * game.comboMul);
+    game.score += earned;
+    game.superPct = Math.min(T.superMax, game.superPct + superGain);
+
+    renderScore(); renderCombo(); renderSuper();
+    judgePopup(judge, petState.x, T.worldH * T.hitZoneFrac);
+
+    // Juice on pet
+    petState.bounce = 1;
+    petState.tilt = (Math.random() - 0.5) * 0.6;
+    petState.happy = 1;
+
+    // Particles at hit zone
+    const hy = T.worldH * T.hitZoneFrac;
+    const colorByJudge = { perfect: '#7ae3c4', good: '#7abaff', ok: '#ffa86a' };
+    spawnParticles(petState.x, hy, colorByJudge[judge], judge === 'perfect' ? 18 : judge === 'good' ? 10 : 6);
+
+    AudioEng.sfx(judge);
+    if (game.combo >= 4) AudioEng.sfx('combo', game.combo);
+
+    // Auto-fire super when full
+    if (game.superPct >= 100) triggerSuper();
+  }
+
+  function triggerSuper() {
+    // Cinematic burst — big score bonus, particles everywhere, slow sparkle
+    game.score += T.superScoreBonus;
+    game.superPct = 0;
+    renderScore(); renderSuper();
+    AudioEng.sfx('super');
+    setTimeout(() => AudioEng.sfx('super-hit'), 700);
+    spawnParticles(T.worldW * 0.5, T.worldH * 0.5, '#ff5c9c', 40);
+    spawnParticles(T.worldW * 0.5, T.worldH * 0.5, '#ffd7e5', 20);
+    spawnParticles(T.worldW * 0.5, T.worldH * 0.5, '#7ae3c4', 20);
+    judgePopup('perfect', T.worldW * 0.5, T.worldH * 0.4);
+    setTimeout(() => judgePopup('perfect', T.worldW * 0.5, T.worldH * 0.45), 120);
+    setTimeout(() => judgePopup('perfect', T.worldW * 0.5, T.worldH * 0.5), 240);
+  }
+
+  function judgePopup(judge, x, y) {
+    const el = document.createElement('div');
+    el.className = 'judge-pop ' + judge;
+    el.textContent = judge === 'perfect' ? 'PERFECT!' : judge === 'good' ? 'GOOD' : judge === 'ok' ? 'OK' : 'MISS';
+    el.style.left = x + 'px';
+    el.style.top = (y - 30) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 600);
+  }
+
+  function missBeat(b) {
+    if (b.hit || b.missed) return;
+    b.missed = true;
+    game.hits.miss++;
+    game.combo = 0;
+    game.comboMul = 1;
+    petState.frown = 1;
+    renderCombo();
+    judgePopup('miss', T.worldW * 0.5 + Math.sin(b.slot) * 26, T.worldH * T.hitZoneFrac);
+    AudioEng.sfx('miss');
+  }
+
+  // ── State transitions ───────────────────────────────────────────
+  function startGame() {
+    AudioEng.ensure();
+    AudioEng.sfx('start');
+
+    const pre = Clairvoyance.preflightCheck(T);
+    if (console) console.log('[Clairvoyance] preflight', pre.score, pre.ok ? '✓' : '✗');
+
+    game.state = 'playing';
+    game.score = 0;
+    game.combo = 0;
+    game.comboMul = 1;
+    game.superPct = 0;
+    game.hits = { perfect: 0, good: 0, ok: 0, miss: 0 };
+    Clairvoyance.hitOffsets = [];
+    particles.length = 0;
+    petState.bounce = 0; petState.tilt = 0; petState.happy = 0; petState.frown = 0;
+    renderScore(); renderCombo(); renderSuper();
+
+    menuEl.classList.add('hidden');
+    resultsEl.classList.add('hidden');
+    AudioEng.startSong(selectedSong());
+  }
+
+  function computeGrade() {
+    const total = game.hits.perfect + game.hits.good + game.hits.ok + game.hits.miss;
+    if (total === 0) return '—';
+    const accuracy = (game.hits.perfect * 1.0 + game.hits.good * 0.7 + game.hits.ok * 0.35) / total;
+    if (accuracy >= 0.95) return 'S';
+    if (accuracy >= 0.85) return 'A';
+    if (accuracy >= 0.70) return 'B';
+    if (accuracy >= 0.50) return 'C';
+    return 'D';
+  }
+
+  function gameOver() {
+    game.state = 'results';
+    AudioEng.stopSong();
+    AudioEng.sfx('results');
+
+    const s = selectedSong(), p = selectedPet();
+    const key = HS_KEY(s.id, p.id);
+    const prev = Number(localStorage.getItem(key) || 0);
+    if (game.score > prev) {
+      try { localStorage.setItem(key, String(game.score)); } catch {}
+      game.high = game.score;
+    } else {
+      game.high = prev;
+    }
+
+    finalScoreEl.textContent = game.score;
+    gradeEl.textContent = computeGrade();
+    $('rbPerfect').textContent = game.hits.perfect;
+    $('rbGood').textContent    = game.hits.good;
+    $('rbOk').textContent      = game.hits.ok;
+    $('rbMiss').textContent    = game.hits.miss;
+    finalHighEl.textContent = game.high ? ('BEST — ' + game.high) : '';
+
+    resultsEl.classList.remove('hidden');
+
+    const report = Clairvoyance.analyze();
+    if (report && console) {
+      if (report.healthy) console.log('[Clairvoyance] runtime ✓', report.metrics);
+      else                console.warn('[Clairvoyance] issues', report.issues, report.metrics);
+    }
+  }
+
+  // ── Main loop ───────────────────────────────────────────────────
+  let lastTime = performance.now();
+  function tick(now) {
+    requestAnimationFrame(tick);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    updateParticles(dt);
+
+    // Background + entities always drawn
+    drawBackground();
+
+    if (game.state === 'playing') {
+      const songT = AudioEng.songTime();
+
+      // Mark missed beats that are far past hit line
+      for (const b of AudioEng.beatmap) {
+        if (!b.hit && !b.missed && (songT - b.t) > T.windowOk) missBeat(b);
+      }
+
+      drawBeats(now, songT);
+      drawPet(now);
+
+      // End when song is over (last beat + tail)
+      const last = AudioEng.beatmap[AudioEng.beatmap.length - 1];
+      if (last && songT > last.t + 1.5) gameOver();
+    } else if (game.state === 'menu') {
+      // Idle pet preview on menu screen (drawn under the overlay)
+      drawPet(now);
+    }
+
+    drawParticles();
+
+    Clairvoyance.resolveInputs();
+    Clairvoyance.recordFrame(now);
+    if (DEBUG.visible) updateDebugHud();
+  }
+  requestAnimationFrame(tick);
+
+  // ── Debug HUD ───────────────────────────────────────────────────
+  function updateDebugHud() {
+    const m = Clairvoyance.metrics();
+    if (!m) return;
+    const p = Clairvoyance.profile;
+    const cls = (v, good, warn) => v <= good ? 'good' : v <= warn ? 'warn' : 'bad';
+    const fpsCls = m.fps >= 58 ? 'good' : m.fps >= 45 ? 'warn' : 'bad';
+    debugRowEl.innerHTML =
+      `<span class="lbl">FPS</span> <span class="${fpsCls}">${m.fps}</span>` +
+      ` <span class="lbl">JIT</span> <span class="${cls(m.jitter, p.frameJitterMs.ideal, p.frameJitterMs.max)}">${m.jitter}ms</span>` +
+      ` <span class="lbl">INP</span> <span class="${cls(m.latency, p.inputLatencyMs.ideal, p.inputLatencyMs.max)}">${m.latency}ms</span>` +
+      ` <span class="lbl">σ</span> <span class="${cls(m.offsetStd, p.hitOffsetStdMs.ideal, p.hitOffsetStdMs.max)}">${m.offsetStd}ms</span>` +
+      ` <span class="lbl">SCORE</span> <span>${game.score}</span>`;
+  }
+  titleEl.addEventListener('click', () => {
+    const now = performance.now();
+    if (now - DEBUG.lastTapAt > 600) DEBUG.taps = 0;
+    DEBUG.taps++; DEBUG.lastTapAt = now;
+    if (DEBUG.taps >= 5) { DEBUG.visible = !DEBUG.visible; debugEl.classList.toggle('visible', DEBUG.visible); DEBUG.taps = 0; }
+  });
+
+  // ── Buttons ─────────────────────────────────────────────────────
+  startBtn.addEventListener('click', startGame);
+  retryBtn.addEventListener('click', () => { resultsEl.classList.add('hidden'); menuEl.classList.remove('hidden'); renderHighscore(); });
+
+  ['startBtn','retryBtn'].forEach(id => {
+    $(id).addEventListener('touchend', e => { e.preventDefault(); $(id).click(); }, { passive: false });
+  });
+
+  function renderMute() {
+    muteBtn.textContent = AudioEng.muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', AudioEng.muted);
+  }
+  function toggleMute() {
+    AudioEng.ensure();
+    AudioEng.setMuted(!AudioEng.muted);
+    renderMute();
+  }
+  muteBtn.addEventListener('click', toggleMute);
+  muteBtn.addEventListener('touchend', e => { e.preventDefault(); toggleMute(); }, { passive: false });
+  renderMute();
+
+  // ── Initial render ──────────────────────────────────────────────
+  buildPetRow();
+  buildSongRow();
+  renderHighscore();
+  renderScore();
+  renderCombo();
+  renderSuper();
+  </script>
+</body>
+</html>
