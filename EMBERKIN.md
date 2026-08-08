@@ -69,7 +69,7 @@ move power/cost stay engine-owned, and the model only supplies names and prose.
 | `lib/emberkin-state.ts` | DB row ⇄ engine `Creature` adapters, plus the client-facing projection. Validates loose JSONB before the engine sees it. |
 | `lib/emberkin-progress.ts` | `runEvolution()`. Separate file because both routes trigger it and Next route modules may only export HTTP handlers. |
 | `lib/db.ts` | `ensureEmberkinTables()` + queries, appended at end of file. |
-| `app/api/emberkin/route.ts` | GET state; POST `lay` / `warm` / `hatch` / `feed` / `play` / `rest` / `train` / `speak` / `rename` / `release`. |
+| `app/api/emberkin/route.ts` | GET state; POST `lay` / `stoke` / `hatch` / `feed` / `play` / `rest` / `train` / `speak` / `rename` / `release`. |
 | `app/api/emberkin/battle/route.ts` | GET opponents; POST fight (NPC or async rival duel). |
 | `app/emberkin/EmberkinClient.tsx` | The keeper screen. Server-authoritative — posts an action, re-renders from the response. |
 | `app/emberkin/HatchScene.tsx` | The opening cinematic: stoke → speak → hatch → name. Owns everything before the keeper screen. |
