@@ -5702,3 +5702,15 @@ export async function lastEmberkinEventAt(creatureId: string, kind: string): Pro
   const v = rows[0]?.created_at;
   return v instanceof Date ? v : v ? new Date(String(v)) : null;
 }
+
+/** Stores a generated portrait URL. Also used with null to force a regenerate. */
+export async function setEmberkinImage(id: string, url: string | null) {
+  await ensureEmberkinTables();
+  await sql`UPDATE emberkin_creatures SET image_url = ${url}, updated_at = NOW() WHERE id = ${id}`;
+}
+
+/** The whisper is spoken after the egg exists, so it lands as an update. */
+export async function setEmberkinWhisper(id: string, whisper: string) {
+  await ensureEmberkinTables();
+  await sql`UPDATE emberkin_creatures SET whisper = ${whisper}, updated_at = NOW() WHERE id = ${id}`;
+}

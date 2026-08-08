@@ -4,7 +4,7 @@
  * modules may only export HTTP handlers.
  */
 
-import { addEmberkinEvent, getEmberkinHistory } from "./db";
+import { addEmberkinEvent, getEmberkinHistory, setEmberkinImage } from "./db";
 import { narrateEvolution } from "./emberkin-ai";
 import { type Creature, type Stage, type Trait, proceduralTrait } from "./emberkin-engine";
 
@@ -44,6 +44,10 @@ export async function runEvolution(
   c.def = Math.round(c.def * 1.12);
   c.spd = Math.round(c.spd * 1.12);
   c.focus = Math.round(c.focus * 1.12);
+
+  // Clear the portrait so the new form gets drawn fresh on the next request.
+  c.image_url = null;
+  await setEmberkinImage(c.id, null).catch(() => {});
 
   await addEmberkinEvent(c.id, "evolve", evo.narration, `evolved into a ${evo.species} (${newStage})`);
 

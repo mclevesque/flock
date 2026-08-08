@@ -6,6 +6,13 @@ A Tamagotchi/Neopets-shaped game. You hatch an egg, raise what comes out, and
 fight it against NPCs and other keepers' creatures. Every creature is generated
 from the player's "whisper" plus a hidden rarity roll, so no two are alike.
 
+**Opening cinematic.** The game opens on a large centred egg in the dark, one
+line of prompt, and one button: *Stoke the flames*. Three stokes; the flames
+grow, the fire audio rises and crackles faster, the egg starts shaking. Then
+*Speak to it* — a single text field, whose contents become the whisper. Then the
+hatch: "Your great soul is hatching!" → "Behold, your Emberkin emerges!" → white
+flash → the creature. You name it after you can see it.
+
 ---
 
 ## Run it
@@ -64,7 +71,11 @@ move power/cost stay engine-owned, and the model only supplies names and prose.
 | `lib/db.ts` | `ensureEmberkinTables()` + queries, appended at end of file. |
 | `app/api/emberkin/route.ts` | GET state; POST `lay` / `warm` / `hatch` / `feed` / `play` / `rest` / `train` / `speak` / `rename` / `release`. |
 | `app/api/emberkin/battle/route.ts` | GET opponents; POST fight (NPC or async rival duel). |
-| `app/emberkin/EmberkinClient.tsx` | The whole UI. Server-authoritative — posts an action, re-renders from the response. |
+| `app/emberkin/EmberkinClient.tsx` | The keeper screen. Server-authoritative — posts an action, re-renders from the response. |
+| `app/emberkin/HatchScene.tsx` | The opening cinematic: stoke → speak → hatch → name. Owns everything before the keeper screen. |
+| `app/emberkin/useFireSound.ts` | Procedural fire audio (Web Audio API). No sound files — noise bed + synthesised crackle, driven by intensity. |
+| `lib/emberkin-image.ts` | Creature portraits: HuggingFace FLUX → Pollinations fallback → R2. |
+| `app/api/emberkin/portrait/route.ts` | Generates a portrait on demand. Never called inline with a hatch. |
 | `scripts/emberkin-balance.ts` | Balance harness. The tier difficulty numbers came from this. |
 
 ---
@@ -109,6 +120,20 @@ description from it, then applies a flat stat spike.
 **Costs.** Train −22 energy / −10 hunger. Battle −25 energy / −12 hunger. Rest
 +38 energy on a 20-minute cooldown.
 
+**The egg.** `lay` takes no arguments — the egg exists before anything is said.
+Each `stoke` is a flat +9 bond, so it is always exactly three, and the rhythm is
+predictable. The whisper arrives with the `hatch` call. Rarity is rolled at `lay`
+from a hidden seed and is independent of the whisper, so it can't be rerolled by
+rewording.
+
+**Whisper adherence.** The hatch prompt treats the whisper as a brief, not a
+suggestion: carry its imagery into species/appearance/element/temperament, then
+twist exactly one thing. The move is named after it and its `kind` chosen to
+match. The no-AI path honours it too — `elementFromWhisper`,
+`temperamentFromWhisper` and `moveKindFromText` in the engine map keywords onto
+real mechanics, so "be fast and cruel" and "be gentle" diverge even with GROQ
+down. Training instructions steer new move kinds the same way.
+
 ---
 
 ## Balance
@@ -139,6 +164,27 @@ Four traps the harness caught, all still guarded by assertions:
    losses was optimal. Loss XP is capped at 25.
 
 ---
+
+## Portraits
+
+Generated once per form and stored in R2, so they cost nothing to re-display.
+
+Provider chain, mirroring `app/api/generate-image/route.ts`:
+
+1. **HuggingFace FLUX.1-schnell** — needs `HUGGINGFACE_TOKEN`. Better output, but
+   HF's free hosted-inference allowance has tightened, so this may start
+   returning 402/429 on a free account.
+2. **Pollinations** — keyless, free, no quota. Lower fidelity, but it means
+   portraits keep working regardless of HF.
+
+If both fail, `generatePortrait()` returns null and the creature keeps its emoji
+sprite. **A creature without a portrait is a fully working creature** — nothing
+downstream depends on the image.
+
+Generation takes 10–40s, so it is never inline with a hatch. The creature
+appears immediately with its emoji, the client then POSTs `/api/emberkin/portrait`,
+and the picture swaps in when it lands. Evolution sets `image_url` to null so the
+new form gets drawn fresh.
 
 ## AI cost control
 
@@ -171,9 +217,9 @@ is the genuine smoke test.
   the energy budget spreads that over hours. Fine for a Tamagotchi cadence, bad
   for demoing. Options: lower the first threshold, raise early XP, or add a
   dev-only fast-forward gated to non-production.
-- **No creature art.** `image_url` exists on the table and is plumbed through to
-  the client but is always null; creatures render as an emoji `sprite`. A
-  HuggingFace image gen on hatch/evolve would fill it, cached to R2.
+- **Portrait quality depends on the provider that answered.** If HF is out of
+  free quota every portrait comes from Pollinations, which is noticeably rougher.
+  There is no UI signal for which one drew it.
 - **Rival duels are one-directional.** You fight a snapshot of someone else's
   creature; their record is untouched. No notification to the defender.
 - **Stale domain references elsewhere in the repo** (not Emberkin's doing):

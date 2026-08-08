@@ -14,7 +14,8 @@
 import {
   type Creature, type Move, type Trait, type Rarity, type OutcomeTier,
   type HatchIdentity, type BattleResult, type Combatant, type Stage,
-  TRAIT_EFFECTS, STARTER_MOVE_KINDS, proceduralIdentity, proceduralMove, proceduralTrait,
+  TRAIT_EFFECTS, STARTER_MOVE_KINDS, ALL_MOVE_KINDS,
+  proceduralIdentity, proceduralMove, proceduralTrait,
   makeRng, hashSeed, moodLabel,
 } from "./emberkin-engine";
 
@@ -121,9 +122,9 @@ export async function hatchIdentity(
   ai = true,
 ): Promise<HatchIdentity> {
   const rng = makeRng(seed);
-  const fb = proceduralIdentity(rng, rarity);
+  const fb = proceduralIdentity(rng, rarity, whisper);
   const fbTrait = proceduralTrait(rng, fb.element);
-  const fbMove = proceduralMove(rng, fb.element, "normal", STARTER_MOVE_KINDS);
+  const fbMove = proceduralMove(rng, fb.element, "normal", STARTER_MOVE_KINDS, whisper);
 
   const rarityNote: Record<Rarity, string> = {
     common: "Ordinary stock. Make it endearing, not impressive.",
@@ -139,11 +140,19 @@ export async function hatchIdentity(
     `You invent a newly hatched creature. Respond ONLY with JSON:
 {"species":"<1-3 word invented species name>","element":"<one lowercase word, its material or domain>","temperament":"<one lowercase adjective>","appearance":"<20-35 words, purely physical>","description":"<25-40 words, what it is and how it acts>","sprite":"<ONE emoji that best represents it>","trait":{"name":"<1-3 words>","desc":"<8-15 words>","effect":"<one of: ${TRAIT_EFFECTS.join(", ")}>"},"move":{"name":"<1-3 words>","desc":"<8-15 words>","kind":"<one of: ${STARTER_MOVE_KINDS.join(", ")}>"}}
 The trait "effect" must be chosen to genuinely match the creature you described.`,
-    `The keeper whispered this over the egg before it hatched: "${whisper || "nothing at all"}"
+    `The keeper whispered this over the egg before it hatched:
+
+    "${whisper || "nothing at all"}"
 
 Rarity: ${rarity}. ${rarityNote[rarity]}
 
-Let the whisper shape it, but do NOT take it literally — it is a wish, not an order. Twist it. If the whisper is empty or nonsense, invent freely.`,
+THE WHISPER IS THE BRIEF. The keeper must look at what hatches and recognise what they asked for. Carry its imagery, its mood and its intent directly into the species name, the appearance, the element and the temperament. If they asked for something fast, it is visibly built for speed. If they asked for something with too many eyes, count them.
+
+Then twist EXACTLY ONE thing — give them what they asked for with one unexpected consequence, cost, or detail they did not ask for. Not a reinterpretation of the whole wish; one turn of the knife.
+
+Name the move after what they asked for too, and pick its "kind" to match: strike for force, guile for speed and trickery, surge for will and power.
+
+If the whisper is empty or nonsense, invent freely.`,
     500,
   );
 
@@ -177,7 +186,7 @@ Let the whisper shape it, but do NOT take it literally — it is a wish, not an 
 
 interface TrainJson {
   narration?: string;
-  move?: { name?: string; desc?: string };
+  move?: { name?: string; desc?: string; kind?: string };
   trait?: { name?: string; desc?: string; effect?: string };
 }
 
@@ -207,7 +216,7 @@ export async function narrateTraining(
         : `${c.name} works at ${focusLabel.toLowerCase()} until the light goes. Progress, of a kind.`;
 
   const asks: string[] = [`"narration":"<35-55 words, past tense, concrete>"`];
-  if (newMove) asks.push(`"move":{"name":"<1-3 words>","desc":"<8-15 words>"}`);
+  if (newMove) asks.push(`"move":{"name":"<1-3 words>","desc":"<8-15 words>","kind":"<one of: ${ALL_MOVE_KINDS.join(", ")}>"}`);
   if (newTrait) asks.push(`"trait":{"name":"<1-3 words>","desc":"<8-15 words>","effect":"<one of: ${TRAIT_EFFECTS.join(", ")}>"}`);
 
   if (!ai) return { narration: fallback, move: newMove, trait: newTrait };
@@ -221,14 +230,22 @@ The keeper trained it toward: ${focusLabel}
 The keeper's instruction: "${instruction || "no particular instruction"}"
 
 HOW IT WENT (this is fixed — narrate this outcome, do not change it): ${TIER_BRIEF[tier]}
-${newMove ? `\nIt came away with a NEW MOVE of kind "${newMove.kind}". Name and describe it.` : ""}${newTrait ? `\nIt came away with a NEW TRAIT. Name and describe it, and pick the effect that fits what you wrote.` : ""}`,
+${newMove ? `\nIt came away with a NEW MOVE. Name it, describe it, and choose its "kind" so that BOTH the move and its kind clearly follow from what the keeper asked for above — they should read the name and see their own instruction in it. (strike = force, guile = speed/trickery, surge = will/power, ward = defence/endurance, chaos = unpredictable.)` : ""}${newTrait ? `\nIt came away with a NEW TRAIT. Name and describe it, and pick the effect that fits what you wrote.` : ""}`,
     360,
   );
 
   return {
     narration: str(json?.narration, 500, fallback),
+    // Power and cost stay engine-owned; the model may steer name, prose and kind.
     move: newMove
-      ? { ...newMove, name: str(json?.move?.name, 40, newMove.name), desc: str(json?.move?.desc, 140, newMove.desc) }
+      ? {
+          ...newMove,
+          name: str(json?.move?.name, 40, newMove.name),
+          desc: str(json?.move?.desc, 140, newMove.desc),
+          kind: ALL_MOVE_KINDS.includes(json?.move?.kind as Move["kind"])
+            ? (json!.move!.kind as Move["kind"])
+            : newMove.kind,
+        }
       : null,
     trait: newTrait
       ? {

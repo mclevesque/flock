@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import {
   getEmberkinByOwner, createEmberkinEgg, saveEmberkin, releaseEmberkin,
   addEmberkinEvent, getEmberkinEvents, countEmberkinAiActions, lastEmberkinEventAt,
-  listEmberkinRivals, getEmberkinLeaderboard,
+  listEmberkinRivals, getEmberkinLeaderboard, setEmberkinWhisper,
 } from "@/lib/db";
 import { moderateFields } from "@/lib/moderation";
 import {
@@ -78,8 +78,9 @@ export async function GET(req: NextRequest) {
     authed: true,
     creature: c.stage === "egg"
       ? {
-          id: c.id, name: c.name, stage: "egg", sprite: "🥚",
-          bond: Math.round(c.bond), hatchBond: HATCH_BOND,
+          id: c.id, stage: "egg" as const,
+          stokes: Math.round(c.bond / 9),
+          intensity: Math.min(1, c.bond / HATCH_BOND),
           canHatch: c.bond >= HATCH_BOND,
         }
       : publicCreature(c),
@@ -108,66 +109,79 @@ export async function POST(req: NextRequest) {
   const action = String(body.action ?? "");
 
   // ── lay: create the egg ────────────────────────────────────────────────────
+  // Takes no arguments. The egg exists before the keeper has said anything —
+  // the whisper comes later, once the fire is roaring, so the opening screen is
+  // just an egg and one button.
   if (action === "lay") {
     const existing = await getEmberkinByOwner(userId).catch(() => null);
     if (existing) return NextResponse.json({ error: "You already have an emberkin." }, { status: 400 });
 
-    const name = String(body.name ?? "").trim().slice(0, 24);
-    const whisper = String(body.whisper ?? "").trim().slice(0, 200);
-    if (!name) return NextResponse.json({ error: "Give it a name." }, { status: 400 });
-
-    const mod = moderateFields(name, whisper);
-    if (!mod.ok) return NextResponse.json({ error: mod.reason }, { status: 400 });
-
     // Rarity is rolled now and kept hidden until the shell opens, so nobody can
-    // reroll by re-reading the egg.
+    // reroll by re-reading the egg. It is independent of the whisper.
     const seed = randomSeed();
     const rarity = rollRarity(makeRng(hashSeed(seed, "rarity")));
     const id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-    await createEmberkinEgg(id, userId, name, whisper, seed, rarity);
-    await addEmberkinEvent(id, "egg", `You set the egg by the bonfire and whisper: "${whisper || "…nothing"}"`, `laid an egg, whispered "${whisper}"`);
+    await createEmberkinEgg(id, userId, "the egg", "", seed, rarity);
+    await addEmberkinEvent(id, "egg", "You find it half-buried in the ash, cold as a stone.", "found an egg");
 
-    return NextResponse.json({ ok: true, message: "The egg sits warm in the ash. Keep it close." });
+    return NextResponse.json({ ok: true, stokes: 0, canHatch: false });
   }
 
   const row = await getEmberkinByOwner(userId).catch(() => null);
   if (!row) return NextResponse.json({ error: "You have no emberkin." }, { status: 404 });
   const c = asCreature(row as EmberkinRow);
 
-  // ── warm / hatch: the egg stage ────────────────────────────────────────────
+  // ── stoke / hatch: the egg stage ───────────────────────────────────────────
   if (c.stage === "egg") {
-    if (action === "warm") {
+    if (action === "stoke") {
       if (c.bond >= HATCH_BOND) {
-        return NextResponse.json({ error: "It's ready. Open it." }, { status: 400 });
+        return NextResponse.json({ error: "The fire is as high as it goes." }, { status: 400 });
       }
-      const rng = makeRng(hashSeed(c.id, "warm", Math.floor(c.bond)));
-      c.bond = clamp(c.bond + 8 + rng() * 5, 0, 100);
+      // Fixed +9 so it is always exactly three stokes — the rhythm matters more
+      // than the randomness here.
+      c.bond = clamp(c.bond + 9, 0, HATCH_BOND + 2);
+      const stokes = Math.round(c.bond / 9);
+
       const lines = [
-        "You cup the shell in both hands. Something inside shifts toward the heat.",
-        "A slow tick, tick from under the shell. Not quite a heartbeat.",
-        "The shell is warmer than the fire now. Hairline cracks spread and stop.",
-        "Whatever is in there presses back against your palm.",
+        "The embers catch. Something under the shell shifts toward the heat.",
+        "The fire takes properly now, roaring up around it. A slow tick, tick from inside.",
+        "The flames go white at the edges. The shell is hotter than the fire, and it is moving.",
       ];
-      const line = lines[Math.floor(rng() * lines.length)];
+      const line = lines[Math.min(stokes, lines.length) - 1] ?? lines[0];
+
       await saveEmberkin(toSaveShape(c));
       await addEmberkinEvent(c.id, "egg", line);
+
       return NextResponse.json({
-        ok: true, message: line,
-        bond: Math.round(c.bond), canHatch: c.bond >= HATCH_BOND,
+        ok: true, message: line, stokes,
+        intensity: Math.min(1, c.bond / HATCH_BOND),
+        canHatch: c.bond >= HATCH_BOND,
       });
     }
 
     if (action === "hatch") {
       if (c.bond < HATCH_BOND) {
-        return NextResponse.json({ error: "It isn't ready yet. Keep it warm." }, { status: 400 });
+        return NextResponse.json({ error: "The fire isn't high enough yet." }, { status: 400 });
+      }
+
+      // The whisper arrives with the hatch — the keeper speaks to the egg and it
+      // opens in the same beat.
+      const whisper = String(body.whisper ?? "").trim().slice(0, 200);
+      if (whisper) {
+        const mod = moderateFields(whisper);
+        if (!mod.ok) return NextResponse.json({ error: mod.reason }, { status: 400 });
+        await setEmberkinWhisper(c.id, whisper).catch(() => {});
       }
 
       const seed = row.seed || randomSeed();
-      const identity = await hatchIdentity(row.whisper ?? "", c.rarity, seed, await aiAllowed(c.id));
+      const identity = await hatchIdentity(whisper, c.rarity, seed, await aiAllowed(c.id));
       const stats = baseStatsFor(makeRng(hashSeed(seed, "stats")), c.rarity);
 
       c.species = identity.species;
+      // Named after its species until the keeper names it on the reveal screen —
+      // naming reads better once you can actually see the thing.
+      c.name = identity.species.slice(0, 24);
       c.description = identity.description;
       c.element = identity.element;
       c.temperament = identity.temperament;
@@ -285,7 +299,7 @@ export async function POST(req: NextRequest) {
       }
 
       const { tier } = rollOutcome(rng, c);
-      const res = resolveTraining(rng, c, focus.stat, tier);
+      const res = resolveTraining(rng, c, focus.stat, tier, instruction);
 
       const narrated = await narrateTraining(
         c, instruction, focus.label, tier, res.newMove, res.newTrait, await aiAllowed(c.id),

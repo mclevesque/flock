@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/lib/use-session";
+import HatchScene from "./HatchScene";
 
 // ── Types (mirror of the API projections) ────────────────────────────────────
 
@@ -22,6 +23,7 @@ interface Creature {
   id: string; name: string; species: string; description: string;
   stage: string; rarity: string; rarityColor: string;
   element: string; temperament: string; appearance: string; sprite: string;
+  imageUrl: string | null;
   level: number; xp: number; xpNeeded: number;
   base: { hp: number; atk: number; def: number; spd: number; focus: number };
   effective: { hp: number; atk: number; def: number; spd: number; focus: number; careMult: number };
@@ -29,7 +31,7 @@ interface Creature {
   traits: Trait[]; moves: Move[]; wins: number; losses: number;
 }
 
-interface EggState { id: string; name: string; stage: "egg"; sprite: string; bond: number; hatchBond: number; canHatch: boolean }
+interface EggState { id: string; stage: "egg"; stokes: number; intensity: number; canHatch: boolean }
 interface GameEvent { id: number; kind: string; text: string; createdAt: string }
 interface Rival { id: string; name: string; species: string; sprite: string; level: number; rarity: string; ownerName: string; wins: number; losses: number }
 interface BoardRow { id: string; name: string; species: string; sprite: string; stage: string; rarity: string; level: number; wins: number; losses: number; bond: number; ownerName: string }
@@ -80,10 +82,6 @@ export default function EmberkinClient() {
   const [evolveCard, setEvolveCard] = useState<{ narration: string; species: string; sprite: string } | null>(null);
   const [battle, setBattle] = useState<BattleOutcome | null>(null);
 
-  // Egg creation form
-  const [eggName, setEggName] = useState("");
-  const [whisper, setWhisper] = useState("");
-
   // Action inputs
   const [focusId, setFocusId] = useState("atk");
   const [instruction, setInstruction] = useState("");
@@ -109,6 +107,18 @@ export default function EmberkinClient() {
   }, []);
 
   useEffect(() => { if (status !== "loading") load(); }, [status, load]);
+
+  // A creature that predates portraits — or whose evolution cleared the old one
+  // — gets its picture drawn in the background. Failure is silent by design.
+  const portraitAsked = useRef(false);
+  useEffect(() => {
+    if (!creature || creature.imageUrl || portraitAsked.current) return;
+    portraitAsked.current = true;
+    fetch("/api/emberkin/portrait", { method: "POST" })
+      .then(r => r.json())
+      .then(d => { if (d?.imageUrl) setCreature(c => (c ? { ...c, imageUrl: d.imageUrl } : c)); })
+      .catch(() => {});
+  }, [creature]);
 
   /** Single funnel for every action so busy/error handling stays in one place. */
   const act = useCallback(async (payload: Record<string, unknown>, endpoint = "/api/emberkin") => {
@@ -157,125 +167,19 @@ export default function EmberkinClient() {
     );
   }
 
-  // ── No creature: lay an egg ────────────────────────────────────────────────
+  // ── No creature yet, or still an egg: the hatching cinematic ───────────────
+  // HatchScene owns the whole opening beat (stoke → speak → hatch → name) and
+  // calls back here when the keeper is ready to walk away with the thing.
 
-  if (!creature && !egg) {
+  if (!creature) {
     return (
-      <Shell>
-        <TopBar />
-        <div style={{ maxWidth: 560, margin: "0 auto", padding: "48px 20px 80px" }}>
-          <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <div style={{ fontSize: 72, marginBottom: 12 }}>🥚</div>
-            <h1 style={{ fontFamily: "serif", color: GOLD, fontSize: 30, margin: "0 0 10px", letterSpacing: "0.12em" }}>
-              FIND AN EGG
-            </h1>
-            <p style={{ color: MUTED, lineHeight: 1.65, fontSize: 14 }}>
-              Whatever you whisper over the shell shapes what climbs out of it — but never
-              the way you meant. Nobody gets the same creature twice.
-            </p>
-          </div>
-
-          <Panel>
-            <Label>Name it</Label>
-            <input
-              value={eggName}
-              onChange={e => setEggName(e.target.value.slice(0, 24))}
-              placeholder="Cinder, Mote, Bad Idea…"
-              style={inputStyle}
-            />
-
-            <Label style={{ marginTop: 20 }}>Whisper something over the shell</Label>
-            <textarea
-              value={whisper}
-              onChange={e => setWhisper(e.target.value.slice(0, 200))}
-              placeholder="be fast. be cruel. be something with too many eyes. be gentle, for once."
-              rows={3}
-              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
-            />
-            <div style={{ color: "#5f5a52", fontSize: 11, marginTop: 6 }}>
-              {whisper.length}/200 — it listens, it doesn&apos;t obey.
-            </div>
-
-            {error && <ErrorLine>{error}</ErrorLine>}
-
-            <button
-              disabled={busy || !eggName.trim()}
-              onClick={async () => {
-                const d = await act({ action: "lay", name: eggName.trim(), whisper: whisper.trim() });
-                if (d?.ok) await load();
-              }}
-              style={{ ...btnStyle(true), width: "100%", marginTop: 22, opacity: !eggName.trim() ? 0.45 : 1 }}
-            >
-              {busy ? "…" : "SET IT IN THE ASH"}
-            </button>
-          </Panel>
-
-          {board.length > 0 && <Leaderboard rows={board} />}
-        </div>
-      </Shell>
+      <HatchScene
+        initialStokes={egg?.stokes ?? 0}
+        hasEgg={!!egg}
+        onDone={() => { setEgg(null); setLoading(true); load(); }}
+      />
     );
   }
-
-  // ── Egg stage ──────────────────────────────────────────────────────────────
-
-  if (egg) {
-    const pct = Math.min(100, (egg.bond / egg.hatchBond) * 100);
-    return (
-      <Shell>
-        <TopBar />
-        <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px 80px", textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: 96, marginBottom: 8,
-              animation: egg.canHatch ? "ekShake 0.9s ease-in-out infinite" : "ekBreathe 3.2s ease-in-out infinite",
-            }}
-          >
-            🥚
-          </div>
-          <h1 style={{ fontFamily: "serif", color: GOLD, fontSize: 26, margin: "0 0 4px", letterSpacing: "0.1em" }}>
-            {egg.name}
-          </h1>
-          <p style={{ color: MUTED, fontSize: 13, marginBottom: 28 }}>
-            {egg.canHatch ? "It's pushing against the shell." : "Cold shells don't open. Keep it close."}
-          </p>
-
-          <Meter label="Warmth" value={pct} color={GOLD} showPct />
-
-          {flash && (
-            <p style={{ color: TEXT, fontSize: 14, lineHeight: 1.7, margin: "24px 0 0", fontStyle: "italic" }}>
-              {flash.text}
-            </p>
-          )}
-          {error && <ErrorLine>{error}</ErrorLine>}
-
-          <div style={{ display: "flex", gap: 10, marginTop: 28 }}>
-            <button
-              disabled={busy || egg.canHatch}
-              onClick={async () => {
-                const d = await act({ action: "warm" });
-                if (d?.ok) setEgg(e => e && { ...e, bond: d.bond, canHatch: d.canHatch });
-              }}
-              style={{ ...btnStyle(false), flex: 1, opacity: egg.canHatch ? 0.4 : 1 }}
-            >
-              {busy ? "…" : "🔥 WARM IT"}
-            </button>
-            <button
-              disabled={busy || !egg.canHatch}
-              onClick={async () => {
-                const d = await act({ action: "hatch" });
-                if (d?.hatched) { setEgg(null); await load(); }
-              }}
-              style={{ ...btnStyle(true), flex: 1, opacity: !egg.canHatch ? 0.4 : 1 }}
-            >
-              {busy ? "…" : "OPEN IT"}
-            </button>
-          </div>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (!creature) return <Shell><Centered>…</Centered></Shell>;
 
   const c = creature;
 
@@ -312,12 +216,15 @@ export default function EmberkinClient() {
           <Panel>
             <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
               <div style={{
-                width: 92, height: 92, flexShrink: 0, borderRadius: 12,
+                width: 92, height: 92, flexShrink: 0, borderRadius: 12, overflow: "hidden",
                 border: `1px solid ${c.rarityColor}`, background: "rgba(212,169,66,0.05)",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 46,
-                animation: "ekBreathe 3.6s ease-in-out infinite",
+                animation: c.imageUrl ? "none" : "ekBreathe 3.6s ease-in-out infinite",
+                boxShadow: c.imageUrl ? `0 0 22px ${c.rarityColor}44` : "none",
               }}>
-                {c.sprite}
+                {c.imageUrl
+                  ? <img src={c.imageUrl} alt={c.species} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : c.sprite}
               </div>
 
               <div style={{ minWidth: 0, flex: 1 }}>

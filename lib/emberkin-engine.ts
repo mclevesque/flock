@@ -305,9 +305,77 @@ const SPRITES = [
   "👁️", "🌑", "🪸", "🍄", "🦴", "⚗️", "🕯️", "🪶", "🐚", "🦑", "🐸", "🦔",
 ];
 
-export function proceduralIdentity(rng: () => number, rarity: Rarity) {
-  const element = pick(rng, ELEMENTS);
-  const temperament = pick(rng, TEMPERAMENTS);
+/**
+ * Keyword → element/temperament/move-kind maps.
+ *
+ * These exist so the keeper's whisper still shapes the creature when GROQ is
+ * unavailable. Without them the procedural fallback ignored the whisper
+ * entirely, which made "be fast and cruel" and "be gentle" produce
+ * indistinguishable creatures.
+ */
+const WHISPER_ELEMENTS: [RegExp, string][] = [
+  [/\b(fire|burn|flame|ember|blaz|scorch|heat|ash)/i, "ember"],
+  [/\b(ice|cold|frost|freez|winter|snow|chill)/i, "frost"],
+  [/\b(storm|lightning|thunder|electric|spark|shock)/i, "storm"],
+  [/\b(water|sea|ocean|tide|wave|drown|swim|rain)/i, "tide"],
+  [/\b(dark|shadow|night|black|gloom|void|dusk)/i, "dusk"],
+  [/\b(plant|tree|thorn|vine|forest|root|green|grow)/i, "bramble"],
+  [/\b(stone|rock|crystal|metal|iron|steel|hard)/i, "quartz"],
+  [/\b(rot|rust|decay|corrode|old|ruin|broken)/i, "rust"],
+  [/\b(bone|skull|dead|death|grave|corpse)/i, "hollow"],
+  [/\b(light|bright|sun|glow|shine|holy|gold)/i, "cinder"],
+  [/\b(bug|insect|moth|wing|flutter|silk)/i, "moth"],
+  [/\b(salt|brine|blood|bitter)/i, "brine"],
+];
+
+const WHISPER_TEMPERAMENTS: [RegExp, string][] = [
+  [/\b(fast|quick|swift|speed|nimble|dart)/i, "reckless"],
+  [/\b(cruel|mean|vicious|savage|brutal|kill|violent)/i, "feral"],
+  [/\b(gentle|kind|soft|sweet|calm|peace|love)/i, "devoted"],
+  [/\b(coward|afraid|scared|timid|hide|shy|flinch)/i, "skittish"],
+  [/\b(proud|king|queen|noble|regal|command|rule)/i, "imperious"],
+  [/\b(clever|smart|cunning|wise|think|careful)/i, "meticulous"],
+  [/\b(sad|mourn|grief|lonely|sorrow|quiet)/i, "sullen"],
+  [/\b(funny|joke|laugh|silly|clown|play)/i, "theatrical"],
+  [/\b(watch|guard|patient|wait|still)/i, "watchful"],
+  [/\b(dream|strange|weird|odd|drift)/i, "dreamy"],
+];
+
+const KIND_KEYWORDS: [RegExp, MoveKind][] = [
+  [/\b(hit|punch|strike|smash|bite|claw|tear|slam|attack|hard|strong|violent|brutal)/i, "strike"],
+  [/\b(fast|quick|dodge|sneak|trick|feint|slip|evade|cunning|steal)/i, "guile"],
+  [/\b(mind|will|focus|magic|spell|burn|blast|energy|power|scream|sing)/i, "surge"],
+  [/\b(guard|block|defend|shield|protect|endure|tank|survive|patient|wait)/i, "ward"],
+  [/\b(chaos|wild|random|strange|mad|weird|unpredictable|luck)/i, "chaos"],
+];
+
+function matchKeyword<T>(text: string, table: [RegExp, T][]): T | null {
+  if (!text) return null;
+  for (const [re, val] of table) if (re.test(text)) return val;
+  return null;
+}
+
+export function elementFromWhisper(whisper: string, rng: () => number): string {
+  return matchKeyword(whisper, WHISPER_ELEMENTS) ?? pick(rng, ELEMENTS);
+}
+
+export function temperamentFromWhisper(whisper: string, rng: () => number): string {
+  return matchKeyword(whisper, WHISPER_TEMPERAMENTS) ?? pick(rng, TEMPERAMENTS);
+}
+
+/** Picks a move kind from what the keeper actually typed, falling back to chance. */
+export function moveKindFromText(
+  text: string,
+  allowed: MoveKind[],
+  rng: () => number,
+): MoveKind {
+  const hit = matchKeyword(text, KIND_KEYWORDS);
+  return hit && allowed.includes(hit) ? hit : pick(rng, allowed);
+}
+
+export function proceduralIdentity(rng: () => number, rarity: Rarity, whisper = "") {
+  const element = elementFromWhisper(whisper, rng);
+  const temperament = temperamentFromWhisper(whisper, rng);
   const species = `${pick(rng, PREFIX)}${pick(rng, SUFFIX)}`;
   return {
     species,
@@ -333,8 +401,11 @@ export function proceduralMove(
   element: string,
   tier: OutcomeTier,
   kinds: MoveKind[] = ALL_MOVE_KINDS,
+  hint = "",
 ): Move {
-  const kind = pick(rng, kinds);
+  // `hint` is whatever the keeper typed (a whisper, a training instruction), so
+  // even the no-AI path produces a move that reflects what they asked for.
+  const kind = moveKindFromText(hint, kinds, rng);
   const verbs = ["Lash", "Rend", "Coil", "Sear", "Fracture", "Swallow", "Unmake", "Kindle", "Hush", "Splinter"];
   const power = clamp(
     50 + Math.floor(rng() * 30) + (tier === "crit" ? 25 : tier === "wild" ? 20 : tier === "strong" ? 12 : 0),
@@ -645,6 +716,8 @@ export function resolveTraining(
   c: Creature,
   focusStat: "atk" | "def" | "spd" | "focus",
   tier: OutcomeTier,
+  /** What the keeper typed — steers the kind of move a mutation produces. */
+  hint = "",
 ): {
   deltas: Record<string, number>;
   newMove: Move | null;
@@ -684,7 +757,9 @@ export function resolveTraining(
   const traitChance = tier === "wild" ? 0.5 : tier === "crit" ? 0.15 : 0;
 
   const newMove =
-    rng() < moveChance && c.moves.length < 6 ? proceduralMove(rng, c.element, tier) : null;
+    rng() < moveChance && c.moves.length < 6
+      ? proceduralMove(rng, c.element, tier, ALL_MOVE_KINDS, hint)
+      : null;
   const newTrait =
     rng() < traitChance && c.traits.length < 5 ? proceduralTrait(rng, c.element) : null;
 
