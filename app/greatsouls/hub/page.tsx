@@ -37,6 +37,9 @@ const GAMES: Record<string, GameCard[]> = {
   "ADVENTURE": [
     { id: "moonhaven", title: "Moonhaven", desc: "RPG adventure world", emoji: "🌙", href: "/moonhaven", multiplayer: true },
   ],
+  "SOULBOUND": [
+    { id: "emberkin", title: "Emberkin", desc: "Hatch it. Raise it. Find out what it becomes.", emoji: "🥚", href: "/emberkin", multiplayer: true },
+  ],
   "RETRO": [
     { id: "snes", title: "SNES", desc: "Classic retro games + netplay", emoji: "🕹️", href: "/emulator", multiplayer: true },
   ],
@@ -50,6 +53,7 @@ const SECTION_ICONS: Record<string, string> = {
   "TABLE GAMES": "🎲",
   "PARTY GAMES": "🎉",
   "ADVENTURE": "🗺️",
+  "SOULBOUND": "🥚",
   "RETRO": "🕹️",
   "SOUL CINEMA": "🎬",
 };

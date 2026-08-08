@@ -42,6 +42,10 @@ export const ALL_GAMES: CatalogGame[] = [
     multiplayer: true, launchType: "emulator", href: "/emulator",
   },
   {
+    id: "emberkin", title: "Emberkin", desc: "Hatch it. Raise it. Find out what it becomes.", emoji: "🥚",
+    multiplayer: true, launchType: "nav", href: "/emberkin",
+  },
+  {
     id: "reakt", title: "REAKT", desc: "Co-op 3D FPS with fracture chains", emoji: "💥",
     multiplayer: true, comingSoon: true, launchType: "nav", href: "/reakt",
   },
@@ -55,6 +59,10 @@ export const GAME_SECTIONS = [
   {
     label: "TABLE GAMES", icon: "🎲",
     games: ALL_GAMES.filter(g => ["chess", "pong"].includes(g.id)),
+  },
+  {
+    label: "SOULBOUND", icon: "🥚",
+    games: ALL_GAMES.filter(g => g.id === "emberkin"),
   },
   {
     label: "RETRO", icon: "🕹️",
