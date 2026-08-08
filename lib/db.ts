@@ -5285,6 +5285,7 @@ export async function ensureAllTables() {
   await ensureWaddabiTables().catch(()=>{});
   await ensureDebateTables().catch(()=>{});
   await ensureBlindRankTables().catch(()=>{});
+  await ensureEmberkinTables().catch(()=>{});
 }
 
 // ── BLINDR4NK ─────────────────────────────────────────────────────────────────
@@ -5399,4 +5400,305 @@ export async function getUserBlindRankSessions(createdBy: string) {
     createdAt: (r.created_at as Date).toISOString(),
     resultCount: parseInt(r.result_count as any, 10),
   }));
+}
+
+// ── EMBERKIN ─────────────────────────────────────────────────────────────────
+// Creature-raising game. One live creature per user; released creatures are
+// kept as tombstones so a keeper's history survives.
+
+let _emberkinReady = false;
+export async function ensureEmberkinTables() {
+  if (_emberkinReady) return; _emberkinReady = true;
+  await sql`
+    CREATE TABLE IF NOT EXISTS emberkin_creatures (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      species TEXT NOT NULL DEFAULT 'Unhatched',
+      description TEXT DEFAULT '',
+      stage TEXT NOT NULL DEFAULT 'egg',
+      rarity TEXT NOT NULL DEFAULT 'common',
+      element TEXT DEFAULT 'ember',
+      temperament TEXT DEFAULT 'quiet',
+      appearance TEXT DEFAULT '',
+      sprite TEXT DEFAULT '🥚',
+      image_url TEXT,
+      whisper TEXT DEFAULT '',
+      seed BIGINT DEFAULT 0,
+      hp_max INTEGER DEFAULT 40,
+      atk INTEGER DEFAULT 10,
+      def INTEGER DEFAULT 10,
+      spd INTEGER DEFAULT 10,
+      focus INTEGER DEFAULT 10,
+      level INTEGER DEFAULT 1,
+      xp INTEGER DEFAULT 0,
+      hunger REAL DEFAULT 70,
+      energy REAL DEFAULT 100,
+      mood REAL DEFAULT 60,
+      bond REAL DEFAULT 10,
+      traits JSONB DEFAULT '[]'::jsonb,
+      moves JSONB DEFAULT '[]'::jsonb,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      released BOOLEAN DEFAULT false,
+      hatched_at TIMESTAMPTZ,
+      last_tick TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS emberkin_owner_idx ON emberkin_creatures(owner_id, released)`;
+  await sql`CREATE INDEX IF NOT EXISTS emberkin_rivals_idx ON emberkin_creatures(released, stage, level)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS emberkin_events (
+      id SERIAL PRIMARY KEY,
+      creature_id TEXT REFERENCES emberkin_creatures(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS emberkin_events_idx ON emberkin_events(creature_id, id DESC)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS emberkin_battles (
+      id TEXT PRIMARY KEY,
+      creature_id TEXT REFERENCES emberkin_creatures(id) ON DELETE CASCADE,
+      opponent_id TEXT,
+      opponent_name TEXT NOT NULL,
+      opponent_kind TEXT NOT NULL DEFAULT 'npc',
+      won BOOLEAN NOT NULL,
+      xp_gained INTEGER DEFAULT 0,
+      log JSONB DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS emberkin_battles_idx ON emberkin_battles(creature_id, id)`;
+}
+
+function rowToEmberkin(r: Record<string, unknown>) {
+  const parseJson = <T>(v: unknown, fb: T): T => {
+    if (v == null) return fb;
+    if (typeof v === "string") { try { return JSON.parse(v) as T; } catch { return fb; } }
+    return v as T;
+  };
+  const ts = (v: unknown): string =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+  return {
+    id: r.id as string,
+    owner_id: r.owner_id as string,
+    owner_name: (r.owner_name as string | undefined) ?? undefined,
+    name: r.name as string,
+    species: r.species as string,
+    description: (r.description as string) ?? "",
+    stage: r.stage as string,
+    rarity: r.rarity as string,
+    element: (r.element as string) ?? "ember",
+    temperament: (r.temperament as string) ?? "quiet",
+    appearance: (r.appearance as string) ?? "",
+    sprite: (r.sprite as string) ?? "🥚",
+    image_url: (r.image_url as string | null) ?? null,
+    whisper: (r.whisper as string) ?? "",
+    seed: Number(r.seed ?? 0),
+    hp_max: Number(r.hp_max ?? 40),
+    atk: Number(r.atk ?? 10),
+    def: Number(r.def ?? 10),
+    spd: Number(r.spd ?? 10),
+    focus: Number(r.focus ?? 10),
+    level: Number(r.level ?? 1),
+    xp: Number(r.xp ?? 0),
+    hunger: Number(r.hunger ?? 70),
+    energy: Number(r.energy ?? 100),
+    mood: Number(r.mood ?? 60),
+    bond: Number(r.bond ?? 10),
+    traits: parseJson(r.traits, [] as unknown[]),
+    moves: parseJson(r.moves, [] as unknown[]),
+    wins: Number(r.wins ?? 0),
+    losses: Number(r.losses ?? 0),
+    hatched_at: r.hatched_at ? ts(r.hatched_at) : null,
+    last_tick: ts(r.last_tick),
+  };
+}
+
+export async function getEmberkinByOwner(ownerId: string) {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT c.*, u.username AS owner_name
+    FROM emberkin_creatures c
+    LEFT JOIN users u ON u.id = c.owner_id
+    WHERE c.owner_id = ${ownerId} AND c.released = false
+    ORDER BY c.created_at DESC LIMIT 1
+  `;
+  return rows.length ? rowToEmberkin(rows[0]) : null;
+}
+
+export async function getEmberkinById(id: string) {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT c.*, u.username AS owner_name
+    FROM emberkin_creatures c
+    LEFT JOIN users u ON u.id = c.owner_id
+    WHERE c.id = ${id}
+  `;
+  return rows.length ? rowToEmberkin(rows[0]) : null;
+}
+
+export async function createEmberkinEgg(
+  id: string, ownerId: string, name: string, whisper: string, seed: number, rarity: string,
+) {
+  await ensureEmberkinTables();
+  await sql`
+    INSERT INTO emberkin_creatures (id, owner_id, name, whisper, seed, rarity, stage, sprite, species)
+    VALUES (${id}, ${ownerId}, ${name}, ${whisper}, ${seed}, ${rarity}, 'egg', '🥚', 'Unhatched')
+  `;
+  return getEmberkinById(id);
+}
+
+/** Full-row save. Callers mutate an in-memory creature then persist it once. */
+export async function saveEmberkin(c: {
+  id: string; name: string; species: string; description: string; stage: string;
+  rarity: string; element: string; temperament: string; appearance: string; sprite: string;
+  hp_max: number; atk: number; def: number; spd: number; focus: number;
+  level: number; xp: number; hunger: number; energy: number; mood: number; bond: number;
+  traits: unknown[]; moves: unknown[]; wins: number; losses: number;
+  hatched_at: string | null; last_tick: string;
+}) {
+  await ensureEmberkinTables();
+  await sql`
+    UPDATE emberkin_creatures SET
+      name = ${c.name}, species = ${c.species}, description = ${c.description},
+      stage = ${c.stage}, rarity = ${c.rarity}, element = ${c.element},
+      temperament = ${c.temperament}, appearance = ${c.appearance}, sprite = ${c.sprite},
+      hp_max = ${Math.round(c.hp_max)}, atk = ${Math.round(c.atk)}, def = ${Math.round(c.def)},
+      spd = ${Math.round(c.spd)}, focus = ${Math.round(c.focus)},
+      level = ${c.level}, xp = ${c.xp},
+      hunger = ${c.hunger}, energy = ${c.energy}, mood = ${c.mood}, bond = ${c.bond},
+      traits = ${JSON.stringify(c.traits)}::jsonb, moves = ${JSON.stringify(c.moves)}::jsonb,
+      wins = ${c.wins}, losses = ${c.losses},
+      hatched_at = ${c.hatched_at}, last_tick = ${c.last_tick},
+      updated_at = NOW()
+    WHERE id = ${c.id}
+  `;
+}
+
+export async function releaseEmberkin(id: string, ownerId: string) {
+  await ensureEmberkinTables();
+  await sql`
+    UPDATE emberkin_creatures SET released = true, updated_at = NOW()
+    WHERE id = ${id} AND owner_id = ${ownerId}
+  `;
+}
+
+export async function addEmberkinEvent(
+  creatureId: string, kind: string, text: string, summary = "",
+) {
+  await ensureEmberkinTables();
+  await sql`
+    INSERT INTO emberkin_events (creature_id, kind, text, summary)
+    VALUES (${creatureId}, ${kind}, ${text}, ${summary})
+  `;
+}
+
+export async function getEmberkinEvents(creatureId: string, limit = 30) {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT id, kind, text, summary, created_at
+    FROM emberkin_events WHERE creature_id = ${creatureId}
+    ORDER BY id DESC LIMIT ${limit}
+  `;
+  return rows.map(r => ({
+    id: Number(r.id),
+    kind: r.kind as string,
+    text: r.text as string,
+    summary: (r.summary as string) ?? "",
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+/** Compact "what the keeper actually did" list, oldest first — feeds evolution. */
+export async function getEmberkinHistory(creatureId: string, limit = 40): Promise<string[]> {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT summary, kind FROM emberkin_events
+    WHERE creature_id = ${creatureId} AND summary <> ''
+    ORDER BY id DESC LIMIT ${limit}
+  `;
+  return rows.map(r => `${r.kind as string}: ${r.summary as string}`).reverse();
+}
+
+/** Other players' creatures, for async rival duels. */
+export async function listEmberkinRivals(excludeOwnerId: string, limit = 12) {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT c.*, u.username AS owner_name
+    FROM emberkin_creatures c
+    LEFT JOIN users u ON u.id = c.owner_id
+    WHERE c.released = false AND c.stage <> 'egg' AND c.owner_id <> ${excludeOwnerId}
+    ORDER BY c.updated_at DESC LIMIT ${limit}
+  `;
+  return rows.map(rowToEmberkin);
+}
+
+export async function recordEmberkinBattle(
+  id: string, creatureId: string, opponentId: string | null, opponentName: string,
+  opponentKind: string, won: boolean, xpGained: number, log: unknown,
+) {
+  await ensureEmberkinTables();
+  await sql`
+    INSERT INTO emberkin_battles (id, creature_id, opponent_id, opponent_name, opponent_kind, won, xp_gained, log)
+    VALUES (${id}, ${creatureId}, ${opponentId}, ${opponentName}, ${opponentKind}, ${won}, ${xpGained}, ${JSON.stringify(log)}::jsonb)
+  `;
+}
+
+export async function getEmberkinLeaderboard(limit = 20) {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT c.id, c.name, c.species, c.sprite, c.stage, c.rarity, c.level, c.wins, c.losses, c.bond,
+           u.username AS owner_name
+    FROM emberkin_creatures c
+    LEFT JOIN users u ON u.id = c.owner_id
+    WHERE c.released = false AND c.stage <> 'egg'
+    ORDER BY c.level DESC, c.wins DESC, c.bond DESC LIMIT ${limit}
+  `;
+  return rows.map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    species: r.species as string,
+    sprite: r.sprite as string,
+    stage: r.stage as string,
+    rarity: r.rarity as string,
+    level: Number(r.level),
+    wins: Number(r.wins),
+    losses: Number(r.losses),
+    bond: Math.round(Number(r.bond)),
+    ownerName: (r.owner_name as string) ?? "unknown",
+  }));
+}
+
+/**
+ * How many GROQ-backed Emberkin actions this creature has triggered recently.
+ * Used to cap AI spend per keeper without ever blocking play — past the cap the
+ * routes fall back to the engine's procedural narration.
+ */
+export async function countEmberkinAiActions(creatureId: string, minutes: number): Promise<number> {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT COUNT(*) AS n FROM emberkin_events
+    WHERE creature_id = ${creatureId}
+      AND kind IN ('feed', 'train', 'speak', 'battle', 'evolve', 'hatch')
+      AND created_at > NOW() - (${minutes} * INTERVAL '1 minute')
+  `;
+  return Number(rows[0]?.n ?? 0);
+}
+
+/** Timestamp of the most recent event of a given kind, for action cooldowns. */
+export async function lastEmberkinEventAt(creatureId: string, kind: string): Promise<Date | null> {
+  await ensureEmberkinTables();
+  const rows = await sql`
+    SELECT created_at FROM emberkin_events
+    WHERE creature_id = ${creatureId} AND kind = ${kind}
+    ORDER BY id DESC LIMIT 1
+  `;
+  const v = rows[0]?.created_at;
+  return v instanceof Date ? v : v ? new Date(String(v)) : null;
 }
