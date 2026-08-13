@@ -1,0 +1,10 @@
+node_modules/
+
+# The Capacitor-generated Android project only — `npx cap add android`
+# recreates it. Anchored with a leading slash so it does NOT also swallow
+# plugins/app-usage/android/, which is hand-written source we need to keep.
+/android/
+
+*.apk
+*.aab
+.gradle/

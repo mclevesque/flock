@@ -1,0 +1,21 @@
+{
+  "name": "presence-app-usage",
+  "version": "0.1.0",
+  "description": "Capacitor plugin exposing Android UsageStatsManager foreground time and daily per-app limit alerts.",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/definitions.d.ts",
+  "type": "module",
+  "files": [
+    "android/",
+    "src/"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

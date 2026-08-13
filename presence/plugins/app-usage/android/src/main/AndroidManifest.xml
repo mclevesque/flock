@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      PACKAGE_USAGE_STATS is a "special access" permission. It cannot be
+      granted by a runtime dialog — the user has to flip the switch under
+      Settings > Apps > Special app access > Usage access. The plugin's
+      openPermissionSettings() sends them straight there.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+      Needed on Android 11+ to enumerate the installed apps we report on.
+      Google Play restricts this permission; that is fine for a sideloaded
+      APK, and a screen-time monitor is one of Play's allowed use cases.
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Android 13+ runtime permission for the "limit reached" alerts. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+</manifest>

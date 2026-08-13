@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>Presence</title>
+  <!-- The WebView has no favicon to serve; this stops a stray 404 per launch. -->
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Shown until the user grants Usage access; nothing else can work without it. -->
+  <section id="gate" class="gate" hidden>
+    <div class="gate-inner">
+      <h1 class="gate-title">Presence</h1>
+      <p class="gate-body">
+        Presence needs <strong>Usage access</strong> to see how long you spend in
+        each app. Android keeps this behind a settings switch rather than a
+        pop-up, so it takes one extra tap.
+      </p>
+      <p class="gate-note">
+        Nothing leaves your phone. There is no account and no server — your
+        times and limits are stored on the device only.
+      </p>
+      <button id="gate-grant" class="btn btn-primary" type="button">Open usage access</button>
+      <button id="gate-recheck" class="btn btn-ghost" type="button">I've turned it on</button>
+      <p id="gate-error" class="gate-error" hidden></p>
+    </div>
+  </section>
+
+  <main id="main" hidden>
+    <header class="header">
+      <p class="header-date" id="header-date"></p>
+      <p class="header-total" id="header-total">—</p>
+      <p class="header-sub" id="header-sub"></p>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="today" role="tab" type="button">Today</button>
+      <button class="tab" data-tab="limits" role="tab" type="button">Limits</button>
+    </nav>
+
+    <section id="panel-today" class="panel">
+      <ul id="today-list" class="app-list"></ul>
+      <p id="today-empty" class="empty" hidden>No screen time recorded yet today.</p>
+    </section>
+
+    <section id="panel-limits" class="panel" hidden>
+      <div class="search-wrap">
+        <input id="limit-search" class="search" type="search" placeholder="Search apps" autocomplete="off" />
+      </div>
+      <label class="row-toggle">
+        <span>
+          Notify me when I hit a limit
+          <span class="row-toggle-sub">Checked in the background about every 15 minutes.</span>
+        </span>
+        <input id="alerts-toggle" type="checkbox" />
+      </label>
+      <ul id="limits-list" class="app-list"></ul>
+      <p id="limits-empty" class="empty" hidden>No apps found.</p>
+    </section>
+
+    <p class="footer-note" id="footer-note"></p>
+  </main>
+
+  <!-- Budget picker -->
+  <div id="sheet" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <p class="sheet-app" id="sheet-title"></p>
+      <p class="sheet-sub" id="sheet-sub"></p>
+      <div class="preset-grid" id="preset-grid"></div>
+      <div class="custom-row">
+        <label class="custom-label" for="custom-minutes">Custom</label>
+        <input id="custom-minutes" class="custom-input" type="number" min="1" max="1440" step="5" inputmode="numeric" />
+        <span class="custom-unit">min</span>
+        <button id="custom-apply" class="btn btn-small" type="button">Set</button>
+      </div>
+      <button id="sheet-clear" class="btn btn-ghost btn-danger" type="button">Remove limit</button>
+      <button id="sheet-cancel" class="btn btn-ghost" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
