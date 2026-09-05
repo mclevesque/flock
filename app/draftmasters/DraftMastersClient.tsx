@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   BUDGET_PRESETS,
@@ -8,12 +8,18 @@ import {
   NPC_PERSONALITIES,
   buildLot,
   buildPool,
+  canMatch,
+  canOpen,
+  canRaise,
+  isFull,
   makeRng,
   maxBid,
-  npcDecide,
+  npcMove,
   npcThinkMs,
   npcValuation,
+  otherSide,
   randomSeed,
+  rollDie,
   type NpcPersonality,
   type Rules,
   type Side,
@@ -28,8 +34,10 @@ import { STYLES } from "./styles";
 import {
   EMPTY_VIEW,
   type ChatLine,
+  type DiceState,
   type GameView,
   type PackSummary,
+  type PlayerRecord,
   type PortraitMap,
   type TickerEvent,
   type Verdict,
@@ -41,10 +49,11 @@ import {
  * Two engines, one set of screens. Solo runs the auction locally against an
  * NPC; PvP mirrors an authoritative PartyKit room. Both produce the same
  * GameView, so every screen below is mode-agnostic.
+ *
+ * There are no clocks anywhere. Every lot resolves on a decision, and PvP
+ * progression is client-driven and idempotent, so a phone that drops for ten
+ * seconds resyncs to exactly where the game is.
  */
-
-const SOLD_REVEAL_MS = 3200;
-const OPEN_PASS_SECONDS = 8;
 
 const TOPIC_EXAMPLES = [
   "Game of Thrones warriors",
@@ -55,8 +64,19 @@ const TOPIC_EXAMPLES = [
   "Cursed kitchen appliances",
 ];
 
+const SYNC_INTERVAL_MS = 8000;
+
 type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "verdict";
 type Mode = "solo" | "pvp";
+type Action = { kind: "bid"; amount: number } | { kind: "pass" } | { kind: "match" };
+
+interface Member {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  mic: boolean;
+  cam: boolean;
+}
 
 interface Props {
   sessionUser: { id: string; name: string; avatarUrl: string | null } | null;
@@ -88,29 +108,34 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const [view, setView] = useState<GameView>(EMPTY_VIEW);
   const [prepStep, setPrepStep] = useState(0);
 
-  // ── Verdict ────────────────────────────────────────────────────────────────
+  // ── Verdict + records ──────────────────────────────────────────────────────
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [judging, setJudging] = useState(false);
+  const [record, setRecord] = useState<PlayerRecord | null>(null);
+  const [leaderboard, setLeaderboard] = useState<PlayerRecord[]>([]);
+  const [ratingDelta, setRatingDelta] = useState<number | null>(null);
+  const reportedRef = useRef<string | null>(null);
 
   // ── PvP ────────────────────────────────────────────────────────────────────
   const [roomCode, setRoomCode] = useState<string | null>(null);
-  // The server confirms who hosts, but that round-trip takes a moment — until
-  // then the person who opened the room must not be shown the guest view.
   const [iOpenedRoom, setIOpenedRoom] = useState(false);
   const [hostId, setHostId] = useState<string | null>(null);
-  const [members, setMembers] = useState<
-    { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[]
-  >([]);
+  const [hostConnected, setHostConnected] = useState(true);
+  const [connected, setConnected] = useState(true);
+  const [members, setMembers] = useState<Member[]>([]);
   const [chat, setChat] = useState<ChatLine[]>([]);
+  const matchIdRef = useRef<string>("");
   const wsRef = useRef<{ send: (s: string) => void; close: () => void } | null>(null);
+
+  const send = useCallback((payload: Record<string, unknown>) => {
+    wsRef.current?.send(JSON.stringify(payload));
+  }, []);
 
   const sendSignal = useCallback(
     (toUserId: string, signalType: string, payload: unknown) => {
-      wsRef.current?.send(
-        JSON.stringify({ type: "rtc-signal", toUserId, fromUserId: meId, signalType, payload })
-      );
+      send({ type: "rtc-signal", toUserId, fromUserId: meId, signalType, payload });
     },
-    [meId]
+    [meId, send]
   );
   const media = useDraftMedia(meId, sendSignal);
   const mediaRef = useRef(media);
@@ -129,17 +154,64 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     rules: DEFAULT_RULES,
     npc: NPC_PERSONALITIES[0],
   });
-  const lotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const npcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setAudioMuted(isMuted());
   }, []);
 
+  // ── Records ────────────────────────────────────────────────────────────────
+
+  const loadRecords = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/draftmasters/record?userId=${encodeURIComponent(meId)}`);
+      const data = await res.json();
+      setRecord(data.record ?? null);
+      setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+    } catch {
+      /* records are a nice-to-have; the game doesn't wait on them */
+    }
+  }, [meId]);
+
+  useEffect(() => {
+    if (meId && meId !== "guest") void loadRecords();
+  }, [meId, loadRecords]);
+
+  /** Report a decided game. Keyed by match id, so a room reporting twice counts once. */
+  const reportMatch = useCallback(
+    async (final: Verdict, sides: Side[], matchId: string, gameMode: Mode) => {
+      if (!matchId || reportedRef.current === matchId) return;
+      reportedRef.current = matchId;
+      try {
+        const res = await fetch("/api/draftmasters/record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            matchId,
+            mode: gameMode,
+            roomCode: gameMode === "pvp" ? roomCode : null,
+            topic: pack?.name ?? "Draft",
+            sides,
+            winnerId: final.winnerId,
+            verdict: final,
+            reporterId: meId,
+          }),
+        });
+        const data = await res.json();
+        if (data?.record) setRecord(data.record);
+        if (typeof data?.delta === "number" && !data.duplicate) {
+          const iWon = final.winnerId === meId;
+          setRatingDelta(gameMode === "pvp" ? (iWon ? data.delta : -data.delta) : null);
+        }
+        void loadRecords();
+      } catch {
+        /* recorded next time */
+      }
+    },
+    [loadRecords, meId, pack?.name, roomCode]
+  );
+
   // ── Invite links ───────────────────────────────────────────────────────────
-  // /draftmasters?room=ABCDE drops straight into that room. Autoplay policy
-  // means we can't open a mic before a gesture, so prefill the code and let
-  // them tap Join rather than silently failing to connect.
   useEffect(() => {
     try {
       const invited = new URLSearchParams(window.location.search).get("room");
@@ -151,7 +223,6 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   useEffect(() => {
     return () => {
-      if (lotTimer.current) clearTimeout(lotTimer.current);
       if (npcTimer.current) clearTimeout(npcTimer.current);
       wsRef.current?.close();
     };
@@ -205,7 +276,6 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong building the board.");
-      setScreen("setup");
       return null;
     }
 
@@ -226,6 +296,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       sides: g.sides.map((s) => ({ ...s, roster: [...s.roster] })),
       ticker: [...g.ticker],
       readyIds: [...g.readyIds],
+      passedIds: [...g.passedIds],
+      dice: g.dice ? { ...g.dice, rounds: [...g.dice.rounds] } : null,
     });
   }, []);
 
@@ -235,91 +307,150 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     if (g.ticker.length > 40) g.ticker.shift();
   }, []);
 
-  const clearTimers = useCallback(() => {
-    if (lotTimer.current) clearTimeout(lotTimer.current);
+  const clearNpc = useCallback(() => {
     if (npcTimer.current) clearTimeout(npcTimer.current);
-    lotTimer.current = null;
     npcTimer.current = null;
   }, []);
 
-  // Declared as refs so the mutually recursive steps can call each other.
+  // Mutually recursive steps live in refs so each can reach the others.
   const nominateRef = useRef<() => void>(() => {});
   const closeLotRef = useRef<() => void>(() => {});
-  const passOpeningRef = useRef<() => void>(() => {});
+  const actRef = useRef<(sideId: string, action: Action) => void>(() => {});
+  const startDiceRef = useRef<(reason: DiceState["reason"], ids: [string, string], price: number) => void>(() => {});
+  const rollRoundRef = useRef<() => void>(() => {});
   const scheduleNpcRef = useRef<() => void>(() => {});
+  const finishVerdictRef = useRef<(v: Verdict) => void>(() => {});
+  const verdictRef = useRef<Verdict | null>(null);
+  verdictRef.current = verdict;
 
-  const doBid = useCallback(
-    (sideId: string, amount: number) => {
-      const g = gameRef.current;
-      const S = soloRef.current;
-      if (g.phase !== "bidding" || !g.lot) return;
-
-      const side = g.sides.find((s) => s.id === sideId);
-      if (!side) return;
-      if (g.currentBid === 0 && g.openerId !== sideId) return;
-      if (amount <= g.currentBid || amount > maxBid(side, S.rules)) return;
-      if (g.highBidderId === sideId) return;
-
-      g.currentBid = amount;
-      g.highBidderId = sideId;
-      pushEvent(`${sideId === meId ? "You bid" : `${side.name} bids`} $${amount}`, "bid");
-      if (sideId === meId) sfx.bid(amount);
-      else sfx.outbid(amount);
-
-      g.deadline = Date.now() + S.rules.bidSeconds * 1000;
-      clearTimers();
-      lotTimer.current = setTimeout(() => closeLotRef.current(), S.rules.bidSeconds * 1000);
-      commit();
-      scheduleNpcRef.current();
-    },
-    [clearTimers, commit, meId, pushEvent]
+  const nameOf = useCallback(
+    (id: string) => (id === meId ? "You" : (gameRef.current.sides.find((s) => s.id === id)?.name ?? "—")),
+    [meId]
   );
 
   scheduleNpcRef.current = () => {
-    if (npcTimer.current) clearTimeout(npcTimer.current);
+    clearNpc();
     const g = gameRef.current;
     const S = soloRef.current;
     if (g.phase !== "bidding") return;
-
     const bot = g.sides.find((s) => s.isNpc);
-    if (!bot || g.highBidderId === bot.id) return;
-    if (g.currentBid === 0 && g.openerId !== bot.id) return;
-    if (maxBid(bot, S.rules) < 1) return;
+    if (!bot || g.turnId !== bot.id) return;
 
-    const think = npcThinkMs(S.npcVal, g.currentBid);
-    // Never act after the clock would have expired anyway.
-    const room = Math.max(300, g.deadline - Date.now() - 400);
     npcTimer.current = setTimeout(() => {
       const gg = gameRef.current;
-      if (gg.phase !== "bidding") return;
-      const npcSide = gg.sides.find((s) => s.isNpc);
-      if (!npcSide) return;
+      if (gg.phase !== "bidding" || gg.turnId !== bot.id) return;
+      actRef.current(bot.id, npcMove(S.npcVal, bot, S.rules, gg.currentBid));
+    }, npcThinkMs(S.npcVal, g.currentBid));
+  };
 
-      if (gg.currentBid === 0) {
-        if (gg.openerId !== npcSide.id) return;
-        if (S.npcVal >= 1 && maxBid(npcSide, S.rules) >= 1) doBid(npcSide.id, 1);
-        else passOpeningRef.current();
+  actRef.current = (sideId, action) => {
+    const g = gameRef.current;
+    const S = soloRef.current;
+    if (g.phase !== "bidding" || !g.lot || g.turnId !== sideId) return;
+    const side = g.sides.find((s) => s.id === sideId);
+    if (!side) return;
+    const other = otherSide(g.sides, sideId);
+    const isMe = sideId === meId;
+
+    if (action.kind === "bid") {
+      const amount = action.amount;
+      if (amount <= g.currentBid || amount > maxBid(side, S.rules)) return;
+      g.currentBid = amount;
+      g.highBidderId = sideId;
+      pushEvent(`${isMe ? "You bid" : `${side.name} bids`} $${amount}`, "bid");
+      if (isMe) sfx.bid(amount);
+      else sfx.outbid(amount);
+
+      if (other && (canRaise(other, S.rules, amount) || canMatch(other, S.rules, amount))) {
+        g.turnId = other.id;
+        commit();
+        scheduleNpcRef.current();
       } else {
-        const next = npcDecide(S.npcVal, gg.currentBid, gg.highBidderId === npcSide.id, npcSide, S.rules);
-        if (next !== null) doBid(npcSide.id, next);
+        closeLotRef.current();
       }
-    }, Math.min(think, room));
+      return;
+    }
+
+    if (action.kind === "pass") {
+      if (g.currentBid > 0) {
+        pushEvent(isMe ? "You let it go" : `${side.name} lets it go`, "passed");
+        closeLotRef.current();
+        return;
+      }
+      g.passedIds.push(sideId);
+      if (other && !g.passedIds.includes(other.id) && canOpen(other, S.rules)) {
+        pushEvent(`${isMe ? "You pass" : `${side.name} passes`} — over to ${nameOf(other.id)}`, "passed");
+        g.turnId = other.id;
+        sfx.click();
+        commit();
+        scheduleNpcRef.current();
+      } else {
+        closeLotRef.current();
+      }
+      return;
+    }
+
+    if (action.kind === "match") {
+      if (!g.highBidderId || !canMatch(side, S.rules, g.currentBid)) return;
+      pushEvent(`${isMe ? "You match" : `${side.name} matches`} $${g.currentBid} — dice decide it`, "dice");
+      startDiceRef.current("lot", [g.highBidderId, sideId], g.currentBid);
+    }
+  };
+
+  startDiceRef.current = (reason, ids, price) => {
+    const g = gameRef.current;
+    g.dice = { reason, sideIds: ids, rounds: [], winnerId: null, price };
+    g.phase = "dice";
+    g.turnId = null;
+    rollRoundRef.current();
+  };
+
+  rollRoundRef.current = () => {
+    const g = gameRef.current;
+    if (!g.dice || g.dice.winnerId) return;
+    const a = rollDie();
+    const b = rollDie();
+    g.dice.rounds.push({ a, b });
+    const [idA, idB] = g.dice.sideIds;
+    sfx.click();
+
+    if (a === b) {
+      pushEvent(`Dice: ${a}–${b}, tie — rerolling`, "dice");
+      commit();
+      return; // the stage animates the tie and calls advance
+    }
+
+    const winnerId = a > b ? idA : idB;
+    g.dice.winnerId = winnerId;
+    pushEvent(`Dice: ${a}–${b} — ${nameOf(winnerId)} win${winnerId === meId ? "" : "s"} it`, "dice");
+
+    if (g.dice.reason === "lot") {
+      g.highBidderId = winnerId;
+      g.currentBid = g.dice.price;
+      // Let the winning die sit on screen for a beat before the SOLD stamp.
+      commit();
+      setTimeout(() => closeLotRef.current(), 1400);
+    } else {
+      const current = verdictRef.current;
+      const final: Verdict = current
+        ? { ...current, winnerId, diceBreak: g.dice }
+        : { winnerId, headline: "Dice decide it", reasoning: "", sideNotes: [], judged: "offline", diceBreak: g.dice };
+      commit();
+      setTimeout(() => finishVerdictRef.current(final), 1400);
+    }
   };
 
   closeLotRef.current = () => {
     const g = gameRef.current;
-    if (g.phase !== "bidding" || !g.lot) return;
-    clearTimers();
+    if (!g.lot) return;
+    clearNpc();
 
     if (g.highBidderId && g.currentBid > 0) {
       const side = g.sides.find((s) => s.id === g.highBidderId);
       if (side) {
         side.budget -= g.currentBid;
         side.roster.push({ ...g.lot, price: g.currentBid });
-        pushEvent(
-          `SOLD — ${g.lot.name} to ${side.id === meId ? "you" : side.name} for $${g.currentBid}`,
-          "sold"
-        );
+        pushEvent(`SOLD — ${g.lot.name} to ${nameOf(side.id).toLowerCase()} for $${g.currentBid}`, "sold");
         sfx.sold();
       }
     } else {
@@ -327,42 +458,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       sfx.passed();
     }
 
+    g.turnId = null;
     g.phase = "sold";
     commit();
-    lotTimer.current = setTimeout(() => nominateRef.current(), SOLD_REVEAL_MS);
-  };
-
-  passOpeningRef.current = () => {
-    const g = gameRef.current;
-    const S = soloRef.current;
-    if (g.phase !== "bidding" || g.currentBid !== 0) return;
-
-    if (!g.openerPassed) {
-      const opener = g.sides.find((s) => s.id === g.openerId);
-      const other = g.sides.find((s) => s.id !== g.openerId);
-      pushEvent(
-        `${opener?.id === meId ? "You pass" : `${opener?.name ?? "Opener"} passes`} — over to ${
-          other?.id === meId ? "you" : (other?.name ?? "the other side")
-        }`,
-        "passed"
-      );
-      g.openerPassed = true;
-      g.openerId = other?.id ?? null;
-
-      const nextOpener = g.sides.find((s) => s.id === g.openerId);
-      if (nextOpener && maxBid(nextOpener, S.rules) >= 1) {
-        g.deadline = Date.now() + OPEN_PASS_SECONDS * 1000;
-        clearTimers();
-        lotTimer.current = setTimeout(() => {
-          if (gameRef.current.currentBid === 0) passOpeningRef.current();
-          else closeLotRef.current();
-        }, OPEN_PASS_SECONDS * 1000);
-        commit();
-        scheduleNpcRef.current();
-        return;
-      }
-    }
-    closeLotRef.current();
+    // The stage calls advance after the reveal.
   };
 
   nominateRef.current = () => {
@@ -370,18 +469,17 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     const S = soloRef.current;
     const board = S.pack;
     if (!board) return;
-    clearTimers();
+    clearNpc();
 
-    const allFull = g.sides.every((s) => s.roster.length >= S.rules.rosterSize);
-    const anyoneCanBid = g.sides.some((s) => maxBid(s, S.rules) >= 1);
+    const allFull = g.sides.every((s) => isFull(s, S.rules));
+    const anyoneCanOpen = g.sides.some((s) => canOpen(s, S.rules));
 
-    if (allFull || S.cursor >= S.pool.length || !anyoneCanBid) {
+    if (allFull || S.cursor >= S.pool.length || !anyoneCanOpen) {
       g.phase = "complete";
       g.lot = null;
-      pushEvent(
-        allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner",
-        "system"
-      );
+      g.turnId = null;
+      g.dice = null;
+      pushEvent(allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner", "system");
       commit();
       setScreen("verdict");
       return;
@@ -392,39 +490,33 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     g.lot = buildLot(board.entries[entryIndex], entryIndex, board, rng);
     g.lotsRemaining = Math.max(0, S.pool.length - S.cursor);
 
-    // Opening rights alternate, skipping anyone who can't afford to open.
+    // Opening rights alternate, skipping anyone who can't open.
     const first = g.sides[S.lotIndex % g.sides.length];
     const second = g.sides.find((s) => s.id !== first.id);
-    g.openerId =
-      maxBid(first, S.rules) >= 1
-        ? first.id
-        : second && maxBid(second, S.rules) >= 1
-          ? second.id
-          : null;
-    g.openerPassed = g.openerId !== first.id;
+    g.openerId = canOpen(first, S.rules) ? first.id : second && canOpen(second, S.rules) ? second.id : null;
     S.lotIndex++;
 
+    g.turnId = g.openerId;
     g.currentBid = 0;
     g.highBidderId = null;
+    g.passedIds = [];
+    g.dice = null;
     g.phase = "bidding";
 
     const bot = g.sides.find((s) => s.isNpc);
-    S.npcVal = bot
-      ? npcValuation(g.lot, bot, S.rules, S.npc, g.lotsRemaining, Math.random)
-      : 0;
-
-    const contested = g.sides.filter((s) => maxBid(s, S.rules) >= 1).length > 1;
-    const secs = contested ? S.rules.openSeconds : 4;
-    g.deadline = Date.now() + secs * 1000;
+    S.npcVal = bot ? npcValuation(g.lot, bot, S.rules, S.npc, g.lotsRemaining, Math.random) : 0;
 
     sfx.lotIn();
     commit();
-    lotTimer.current = setTimeout(() => {
-      if (gameRef.current.currentBid === 0) passOpeningRef.current();
-      else closeLotRef.current();
-    }, secs * 1000);
     scheduleNpcRef.current();
   };
+
+  /** Solo progression after a reveal or a tied dice round. */
+  const soloAdvance = useCallback(() => {
+    const g = gameRef.current;
+    if (g.phase === "sold") nominateRef.current();
+    else if (g.phase === "dice" && g.dice && g.dice.winnerId === null) rollRoundRef.current();
+  }, []);
 
   // ── Starting a game ────────────────────────────────────────────────────────
 
@@ -433,29 +525,23 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setMode("solo");
     setScreen("prep");
     setVerdict(null);
+    setRatingDelta(null);
 
     const board = await buildBoard();
-    if (!board) return;
+    if (!board) {
+      setScreen("setup");
+      return;
+    }
 
     const preset = BUDGET_PRESETS[rulesIdx];
-    const nextRules: Rules = {
-      ...DEFAULT_RULES,
-      budget: preset.budget,
-      rosterSize: preset.rosterSize,
-    };
+    const nextRules: Rules = { budget: preset.budget, rosterSize: preset.rosterSize };
     setRules(nextRules);
 
     const seed = randomSeed();
+    matchIdRef.current = `solo-${meId}-${seed}`;
     const sides: Side[] = [
       { id: meId, name: myName, avatarUrl: myAvatar, budget: nextRules.budget, roster: [], isNpc: false },
-      {
-        id: "npc",
-        name: `${npc.emoji} ${npc.name}`,
-        avatarUrl: null,
-        budget: nextRules.budget,
-        roster: [],
-        isNpc: true,
-      },
+      { id: "npc", name: `${npc.emoji} ${npc.name}`, avatarUrl: null, budget: nextRules.budget, roster: [], isNpc: true },
     ];
 
     soloRef.current = {
@@ -473,8 +559,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       ...EMPTY_VIEW,
       phase: "ready",
       sides,
-      // The NPC is always ready — it's a computer.
-      readyIds: ["npc"],
+      readyIds: ["npc"], // the NPC is always ready — it's a computer
       lotsRemaining: board.entries.length,
       ticker: [],
     };
@@ -486,7 +571,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     initAudio();
     sfx.ready();
     if (mode === "pvp") {
-      wsRef.current?.send(JSON.stringify({ type: "ready", ready: true }));
+      send({ type: "ready", ready: true });
       return;
     }
     const g = gameRef.current;
@@ -494,7 +579,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     commit();
     setScreen("auction");
     setTimeout(() => nominateRef.current(), 500);
-  }, [commit, meId, mode]);
+  }, [commit, meId, mode, send]);
 
   // ── PvP ────────────────────────────────────────────────────────────────────
 
@@ -505,24 +590,21 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setRoomCode(code);
       setIOpenedRoom(asHost);
       setError(null);
+      setChat([]);
+      reportedRef.current = null;
 
       const { default: PartySocket } = await import("partysocket");
       const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
       const ws = new PartySocket({ host, room: code, party: "draftmasters" });
       wsRef.current = ws as unknown as { send: (s: string) => void; close: () => void };
 
+      // Every open — first connect or any reconnect — re-joins and resyncs.
       ws.addEventListener("open", () => {
-        ws.send(
-          JSON.stringify({
-            type: "join",
-            userId: meId,
-            name: myName,
-            avatarUrl: myAvatar,
-            mic: true,
-          })
-        );
+        setConnected(true);
+        ws.send(JSON.stringify({ type: "join", userId: meId, name: myName, avatarUrl: myAvatar, mic: true }));
+        ws.send(JSON.stringify({ type: "sync" }));
       });
-
+      ws.addEventListener("close", () => setConnected(false));
       ws.addEventListener("message", (ev: MessageEvent) => {
         let msg: Record<string, unknown>;
         try {
@@ -530,27 +612,39 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         } catch {
           return;
         }
-        // Via ref so the socket always reaches the current handler, not the
-        // one that happened to exist when the room was opened.
         void serverMessageRef.current(msg);
       });
 
       // Mics on by default — arguing about the picks is the game.
       void mediaRef.current.start({ mic: true, cam: false });
-
-      // Straight into the room — code, invite link and live mic — rather than
-      // making the host build a board before their friend can even join.
-      // Picking the topic happens in the room, with both of them talking.
       setScreen("room");
     },
     [meId, myAvatar, myName]
   );
 
+  // Safety net: periodically and whenever the tab comes back, ask for the
+  // authoritative state. Cheap, and it guarantees convergence after any blip.
+  useEffect(() => {
+    if (mode !== "pvp") return;
+    const sync = () => send({ type: "sync" });
+    const id = setInterval(sync, SYNC_INTERVAL_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", sync);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", sync);
+    };
+  }, [mode, send]);
+
   /** Host commits the topic and deals the board. Everyone is already in the room. */
   const startPvpDraft = useCallback(async () => {
     initAudio();
     sfx.click();
-    wsRef.current?.send(JSON.stringify({ type: "preparing" }));
+    send({ type: "preparing" });
     setScreen("prep");
     const board = await buildBoard();
     if (!board) {
@@ -558,15 +652,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       return;
     }
     const preset = BUDGET_PRESETS[rulesIdx];
-    wsRef.current?.send(
-      JSON.stringify({
-        type: "board",
-        pack: board,
-        budget: preset.budget,
-        rosterSize: preset.rosterSize,
-      })
-    );
-  }, [buildBoard, rulesIdx]);
+    send({ type: "board", pack: board, budget: preset.budget, rosterSize: preset.rosterSize });
+  }, [buildBoard, rulesIdx, send]);
 
   const prevPhase = useRef<string>("");
   const prevBid = useRef(0);
@@ -576,7 +663,16 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     async (msg: Record<string, unknown>) => {
       if (msg.type === "chat") {
         setChat((prev) =>
-          [...prev, { userId: String(msg.userId), name: String(msg.name), text: String(msg.text), at: Number(msg.at) }].slice(-60)
+          [
+            ...prev,
+            {
+              userId: String(msg.userId),
+              name: String(msg.name),
+              text: String(msg.text),
+              at: Number(msg.at),
+              system: Boolean(msg.system),
+            },
+          ].slice(-80)
         );
         return;
       }
@@ -600,27 +696,29 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
       const s = msg.state as Record<string, unknown>;
       const serverPack = s.pack as Pack | null;
-      const serverRules = s.rules as Rules;
       const phase = String(s.phase);
 
       setHostId((s.hostId as string) ?? null);
-      setRules(serverRules);
-      setMembers(
-        (s.members as { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[]) ?? []
-      );
+      setHostConnected(Boolean(s.hostConnected));
+      setRules(s.rules as Rules);
+      setMembers((s.members as Member[]) ?? []);
       setVerdict((s.verdict as Verdict | null) ?? null);
+      matchIdRef.current = String(s.matchId ?? "");
 
       // New board arrived — pull its portraits before the first lot drops.
+      // The server stamps a nonce on every board so this fires per deal.
       if (serverPack && serverPack.id !== knownPackId.current) {
         knownPackId.current = serverPack.id;
         setPack(serverPack);
         await prefetchPortraits(serverPack);
         sfx.boardReady();
+      } else if (!serverPack) {
+        knownPackId.current = null;
+        setPack(null);
       }
 
       // Mesh up with everyone already in the room.
-      const memberList = (s.members as { userId: string }[]) ?? [];
-      memberList.forEach((m) => {
+      ((s.members as { userId: string }[]) ?? []).forEach((m) => {
         if (m.userId !== meId) void mediaRef.current.connectTo(m.userId);
       });
 
@@ -629,10 +727,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         lot: (s.lot as GameView["lot"]) ?? null,
         currentBid: Number(s.currentBid) || 0,
         highBidderId: (s.highBidderId as string) ?? null,
+        turnId: (s.turnId as string) ?? null,
         openerId: (s.openerId as string) ?? null,
-        openerPassed: Boolean(s.openerPassed),
-        // Server clock is authoritative; correct for drift against our own.
-        deadline: Number(s.deadline) + (Date.now() - Number(s.serverNow)),
+        passedIds: (s.passedIds as string[]) ?? [],
+        dice: (s.dice as DiceState | null) ?? null,
         lotsRemaining: Number(s.lotsRemaining) || 0,
         sides: (s.sides as Side[]) ?? [],
         ticker: (s.ticker as TickerEvent[]) ?? [],
@@ -646,19 +744,28 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         if (nextView.highBidderId) sfx.sold();
         else sfx.passed();
       }
-      if (phase === "bidding" && nextView.currentBid > prevBid.current) {
-        if (nextView.highBidderId !== meId) sfx.outbid(nextView.currentBid);
+      if (phase === "bidding" && nextView.currentBid > prevBid.current && nextView.highBidderId !== meId) {
+        sfx.outbid(nextView.currentBid);
       }
+      if (phase === "dice" && prevPhase.current !== "dice") sfx.click();
       prevBid.current = phase === "bidding" ? nextView.currentBid : 0;
       prevPhase.current = phase;
 
       if (phase === "ready") setScreen("ready");
-      else if (phase === "bidding" || phase === "sold") setScreen("auction");
+      else if (phase === "bidding" || phase === "sold" || phase === "dice") setScreen("auction");
       else if (phase === "complete") setScreen("verdict");
       else if (phase === "lobby") setScreen("room");
       else setScreen("prep");
+
+      // A decided game gets recorded by whoever sees it decided.
+      const v = s.verdict as Verdict | null;
+      if (phase === "complete" && v?.winnerId && nextView.sides.length === 2 && s.matchId) {
+        if (!v.diceBreak || v.diceBreak.winnerId) {
+          void reportMatch(v, nextView.sides, String(s.matchId), "pvp");
+        }
+      }
     },
-    [meId, prefetchPortraits]
+    [meId, prefetchPortraits, reportMatch]
   );
 
   const serverMessageRef = useRef(handleServerMessage);
@@ -671,20 +778,48 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       initAudio();
       if (mode === "pvp") {
         sfx.bid(amount);
-        wsRef.current?.send(JSON.stringify({ type: "bid", amount }));
+        send({ type: "bid", amount });
       } else {
-        doBid(meId, amount);
+        actRef.current(meId, { kind: "bid", amount });
       }
     },
-    [doBid, meId, mode]
+    [meId, mode, send]
   );
 
   const handlePass = useCallback(() => {
     initAudio();
-    sfx.click();
-    if (mode === "pvp") wsRef.current?.send(JSON.stringify({ type: "pass" }));
-    else passOpeningRef.current();
-  }, [mode]);
+    if (mode === "pvp") {
+      sfx.click();
+      send({ type: "pass" });
+    } else {
+      actRef.current(meId, { kind: "pass" });
+    }
+  }, [meId, mode, send]);
+
+  const handleMatch = useCallback(() => {
+    initAudio();
+    if (mode === "pvp") send({ type: "match" });
+    else actRef.current(meId, { kind: "match" });
+  }, [meId, mode, send]);
+
+  const handleAdvance = useCallback(() => {
+    if (mode === "pvp") {
+      send({ type: "advance", round: view.dice?.rounds.length ?? 0 });
+    } else {
+      soloAdvance();
+    }
+  }, [mode, send, soloAdvance, view.dice?.rounds.length]);
+
+  finishVerdictRef.current = (final: Verdict) => {
+    const g = gameRef.current;
+    g.phase = "complete";
+    g.dice = final.diceBreak ?? null;
+    commit();
+    setVerdict(final);
+    setScreen("verdict");
+    sfx.verdict();
+    void reportMatch(final, g.sides, matchIdRef.current, "solo");
+  };
 
   const handleJudge = useCallback(async () => {
     setJudging(true);
@@ -694,29 +829,42 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          packId: pack?.id,
-          pack: pack
-            ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria }
-            : undefined,
+          packId: pack?.id?.split("#")[0],
+          pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
           sides: view.sides,
         }),
       });
       const data = (await res.json()) as Verdict;
       if (!res.ok) throw new Error("The judge is out to lunch. Try again.");
-      setVerdict(data);
-      sfx.verdict();
-      if (mode === "pvp") wsRef.current?.send(JSON.stringify({ type: "verdict", verdict: data }));
+
+      if (mode === "pvp") {
+        // The room decides whether it's a tie and runs the dice.
+        send({ type: "verdict", verdict: data });
+        return;
+      }
+
+      const notes = data.sideNotes ?? [];
+      if (notes.length === 2 && notes[0].score === notes[1].score) {
+        setVerdict(data);
+        verdictRef.current = data;
+        const g = gameRef.current;
+        setScreen("auction");
+        startDiceRef.current("verdict", [g.sides[0].id, g.sides[1].id], 0);
+        return;
+      }
+      finishVerdictRef.current(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not reach the judge.");
     } finally {
       setJudging(false);
     }
-  }, [mode, pack, view.sides]);
+  }, [mode, pack, send, view.sides]);
 
   const playAgain = useCallback(() => {
     sfx.click();
-    clearTimers();
+    clearNpc();
     setVerdict(null);
+    setRatingDelta(null);
     setError(null);
     setPortraits({});
     setPack(null);
@@ -724,17 +872,19 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     knownPackId.current = null;
     prevPhase.current = "";
     prevBid.current = 0;
-    if (mode === "pvp") {
-      wsRef.current?.send(JSON.stringify({ type: "rematch" }));
-    }
+    reportedRef.current = null;
     gameRef.current = { ...EMPTY_VIEW };
     setView(EMPTY_VIEW);
-    setScreen("setup");
-  }, [clearTimers, mode]);
+    if (mode === "pvp") {
+      // The room goes back to its lobby; the server drives the screen.
+      send({ type: "rematch" });
+      setScreen("room");
+    } else {
+      setScreen("setup");
+    }
+  }, [clearNpc, mode, send]);
 
-  const sendChat = useCallback((text: string) => {
-    wsRef.current?.send(JSON.stringify({ type: "chat", text }));
-  }, []);
+  const sendChat = useCallback((text: string) => send({ type: "chat", text }), [send]);
 
   const toggleAudio = useCallback(() => {
     initAudio();
@@ -746,16 +896,18 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const isHost = mode === "solo" || hostId === meId || (hostId === null && iOpenedRoom);
+  // Mirrors the server's rule: the host drives, unless they're gone.
+  const canDrive =
+    mode === "solo" || hostId === meId || (hostId === null && iOpenedRoom) || (hostId !== null && !hostConnected);
   const topicLabel = customTopic.trim() || packs.find((p) => p.id === presetId)?.name || "a topic";
   const iAmReady = view.readyIds.includes(meId);
-  const seatedSides = view.sides;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="dm">
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+      {mode === "pvp" && !connected && <div className="dm-conn">Reconnecting…</div>}
       <div className="dm-shell">
         <header className="dm-head">
           <div>
@@ -799,6 +951,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             setGuestName={setGuestName}
             signedIn={Boolean(sessionUser)}
             error={error}
+            record={record}
+            leaderboard={leaderboard}
+            meId={meId}
             onSolo={startSolo}
             onCreate={() => void connectRoom(makeRoomCode(), true)}
             onJoin={() => void connectRoom(joinCode.trim().toUpperCase(), false)}
@@ -808,7 +963,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         {screen === "room" && (
           <RoomLobby
             roomCode={roomCode}
-            isHost={isHost}
+            isHost={canDrive}
             members={members}
             meId={meId}
             media={media}
@@ -827,14 +982,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         )}
 
         {screen === "prep" && (
-          <PrepScreen step={prepStep} topic={topicLabel} isHost={isHost} roomCode={roomCode} />
+          <PrepScreen step={prepStep} topic={topicLabel} isHost={canDrive} roomCode={roomCode} />
         )}
 
         {screen === "ready" && (
           <ReadyScreen
             pack={pack}
             rules={rules}
-            sides={seatedSides}
+            sides={view.sides}
             readyIds={view.readyIds}
             meId={meId}
             iAmReady={iAmReady}
@@ -859,16 +1014,12 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               packName={pack?.name ?? "Draft"}
               onBid={handleBid}
               onPass={handlePass}
+              onMatch={handleMatch}
+              onAdvance={handleAdvance}
             />
             {mode === "pvp" && (
               <div style={{ maxWidth: 380, marginLeft: "auto" }}>
-                <MediaRail
-                  media={media}
-                  members={members}
-                  meId={meId}
-                  chat={chat}
-                  onSendChat={sendChat}
-                />
+                <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={sendChat} />
               </div>
             )}
           </>
@@ -884,7 +1035,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             meId={meId}
             portraits={portraits}
             packName={pack?.name ?? "Draft"}
-            canJudge={isHost}
+            canJudge={canDrive}
+            record={record}
+            ratingDelta={ratingDelta}
+            mode={mode}
             onJudge={handleJudge}
             onPlayAgain={playAgain}
           />
@@ -912,6 +1066,9 @@ function SetupScreen({
   setGuestName,
   signedIn,
   error,
+  record,
+  leaderboard,
+  meId,
   onSolo,
   onCreate,
   onJoin,
@@ -931,6 +1088,9 @@ function SetupScreen({
   setGuestName: (s: string) => void;
   signedIn: boolean;
   error: string | null;
+  record: PlayerRecord | null;
+  leaderboard: PlayerRecord[];
+  meId: string;
   onSolo: () => void;
   onCreate: () => void;
   onJoin: () => void;
@@ -949,21 +1109,24 @@ function SetupScreen({
       )}
 
       {joinCode && (
-        <div
-          className="dm-panel"
-          style={{ marginBottom: 22, borderColor: "var(--dm-gold)", textAlign: "center" }}
-        >
+        <div className="dm-panel" style={{ marginBottom: 22, borderColor: "var(--dm-gold)", textAlign: "center" }}>
           <p className="dm-eyebrow" style={{ marginBottom: 6 }}>
             You&apos;ve been invited
           </p>
           <p style={{ margin: "0 0 12px", fontSize: 15, color: "var(--dm-dim)" }}>
-            Room <strong style={{ color: "var(--dm-gold)", letterSpacing: ".12em" }}>{joinCode}</strong> is
-            waiting for you.
+            Room <strong style={{ color: "var(--dm-gold)", letterSpacing: ".12em" }}>{joinCode}</strong> is waiting for
+            you.
           </p>
           <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onJoin}>
             Join room {joinCode}
           </button>
         </div>
+      )}
+
+      {(record || leaderboard.length > 0) && (
+        <section className="dm-section">
+          <RecordPanel record={record} leaderboard={leaderboard} meId={meId} />
+        </section>
       )}
 
       <section className="dm-section">
@@ -986,8 +1149,7 @@ function SetupScreen({
           ))}
         </div>
         <p className="dm-note" style={{ marginTop: 10 }}>
-          The board is built to match your wording — <em>warriors</em> gets you fighters, not
-          schemers.
+          The board is built to match your wording — <em>warriors</em> gets you fighters, not schemers.
         </p>
 
         <p className="dm-eyebrow" style={{ marginTop: 22 }}>
@@ -1016,20 +1178,15 @@ function SetupScreen({
         <p className="dm-eyebrow">2 · Budget</p>
         <div className="dm-seg">
           {BUDGET_PRESETS.map((preset, i) => (
-            <button
-              key={preset.label}
-              className="dm-seg-item"
-              data-on={rulesIdx === i ? "1" : "0"}
-              onClick={() => setRulesIdx(i)}
-            >
+            <button key={preset.label} className="dm-seg-item" data-on={rulesIdx === i ? "1" : "0"} onClick={() => setRulesIdx(i)}>
               <span className="dm-seg-label">{preset.label}</span>
               <span className="dm-seg-note">{preset.note}</span>
             </button>
           ))}
         </div>
         <p className="dm-note" style={{ marginTop: 10 }}>
-          You must keep $1 for every slot you still have to fill — so blowing the bank early leaves
-          you scavenging $1 leftovers.
+          You must keep $1 for every slot you still have to fill — so blowing the bank early leaves you scavenging $1
+          leftovers. No clock: every lot is decided by a bid or a pass, never by a timer.
         </p>
       </section>
 
@@ -1050,7 +1207,7 @@ function SetupScreen({
             <Link href="/signin" style={{ color: "var(--dm-gold)" }}>
               Sign in
             </Link>{" "}
-            to use your Great Souls name and avatar.
+            to use your Great Souls name and keep your record across devices.
           </p>
         </section>
       )}
@@ -1059,12 +1216,7 @@ function SetupScreen({
         <p className="dm-eyebrow">3 · Who are you drafting against?</p>
         <div className="dm-seg" style={{ marginBottom: 12 }}>
           {NPC_PERSONALITIES.map((p) => (
-            <button
-              key={p.id}
-              className="dm-seg-item"
-              data-on={npc.id === p.id ? "1" : "0"}
-              onClick={() => setNpc(p)}
-            >
+            <button key={p.id} className="dm-seg-item" data-on={npc.id === p.id ? "1" : "0"} onClick={() => setNpc(p)}>
               <span className="dm-seg-label">
                 {p.emoji} {p.name}
               </span>
@@ -1103,214 +1255,71 @@ function SetupScreen({
         )}
 
         <p className="dm-note" style={{ marginTop: 12 }}>
-          Drafting with a friend turns mics on by default — cameras stay off until someone asks for
-          them.
+          Drafting with a friend turns mics on by default — cameras stay off until someone asks for them. Ranked play is
+          PvP only; solo games count toward your win/loss.
         </p>
       </section>
     </>
   );
 }
 
-// ── Prep ─────────────────────────────────────────────────────────────────────
+// ── Records ──────────────────────────────────────────────────────────────────
 
-function PrepScreen({
-  step,
-  topic,
-  isHost,
-  roomCode,
-}: {
-  step: number;
-  topic: string;
-  isHost: boolean;
-  roomCode: string | null;
-}) {
-  const steps = [
-    { label: "Building the board", done: "Board built" },
-    { label: "Finding the portraits", done: "Portraits loaded" },
-    { label: "Setting the room", done: "Ready" },
-  ];
-
-  if (!isHost) {
-    return (
-      <div className="dm-prep">
-        <h2 className="dm-h2">Waiting for the host…</h2>
-        <p className="dm-tagline">They&apos;re picking a topic and building the board.</p>
-        {roomCode && <div style={{ marginTop: 20 }}><RoomCode code={roomCode} /></div>}
-      </div>
-    );
-  }
-
+function RecordPanel({ record, leaderboard, meId }: { record: PlayerRecord | null; leaderboard: PlayerRecord[]; meId: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="dm-prep">
-      <p className="dm-eyebrow">Preparing</p>
-      <h2 className="dm-h2" style={{ fontSize: 24 }}>
-        {topic}
-      </h2>
-      <p className="dm-tagline">
-        Nothing starts until the whole board is loaded — no waiting on images mid-auction.
-      </p>
-
-      <div className="dm-prep-steps">
-        {steps.map((s, i) => (
-          <div
-            key={s.label}
-            className="dm-step"
-            data-state={step > i ? "done" : step === i ? "active" : "todo"}
-          >
-            <span className="dm-step-dot">{step > i ? "✓" : ""}</span>
-            <span>{step > i ? s.done : s.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="dm-progress">
-        <div className="dm-progress-fill" style={{ width: `${((step + 0.35) / 3) * 100}%` }} />
-      </div>
-
-      {roomCode && (
-        <>
-          <p className="dm-eyebrow" style={{ marginTop: 26 }}>
-            Room code
-          </p>
-          <RoomCode code={roomCode} />
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Ready check ──────────────────────────────────────────────────────────────
-
-function ReadyScreen({
-  pack,
-  rules,
-  sides,
-  readyIds,
-  meId,
-  iAmReady,
-  mode,
-  roomCode,
-  onReady,
-  media,
-  members,
-  chat,
-  onSendChat,
-}: {
-  pack: Pack | null;
-  rules: Rules;
-  sides: Side[];
-  readyIds: string[];
-  meId: string;
-  iAmReady: boolean;
-  mode: Mode;
-  roomCode: string | null;
-  onReady: () => void;
-  media: ReturnType<typeof useDraftMedia> | null;
-  members: { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[];
-  chat: ChatLine[];
-  onSendChat: (t: string) => void;
-}) {
-  const waitingForOpponent = mode === "pvp" && sides.length < 2;
-
-  return (
-    <div className="dm-prep" style={{ maxWidth: 620 }}>
-      <p className="dm-eyebrow">{pack?.emoji} Board ready</p>
-      <h2 className="dm-wordmark" style={{ fontSize: "clamp(26px, 7vw, 40px)" }}>
-        {pack?.name ?? "Draft"}
-      </h2>
-      <p className="dm-tagline">{pack?.blurb}</p>
-
-      <div
-        className="dm-panel"
-        style={{ marginTop: 18, textAlign: "left", fontSize: 14, lineHeight: 1.6 }}
-      >
-        <strong style={{ color: "var(--dm-gold)" }}>The scenario</strong>
-        <p style={{ margin: "6px 0 0", color: "var(--dm-dim)" }}>{pack?.scenario}</p>
-        <p style={{ margin: "12px 0 0", color: "var(--dm-mute)", fontSize: 13 }}>
-          ${rules.budget} each · {rules.rosterSize} picks · {pack?.entries.length ?? 0} on the board ·
-          opening rights alternate
-        </p>
-      </div>
-
-      {waitingForOpponent && roomCode && (
-        <>
-          <p className="dm-eyebrow" style={{ marginTop: 22 }}>
-            Send this code to your opponent
-          </p>
-          <RoomCode code={roomCode} />
-        </>
-      )}
-
-      <div className="dm-ready-grid">
-        {sides.map((side) => {
-          const ready = readyIds.includes(side.id);
-          return (
-            <div key={side.id} className="dm-ready-card" data-ready={ready ? "1" : "0"}>
-              <div style={{ fontSize: 30 }}>
-                {side.isNpc ? "🤖" : side.id === meId ? "🫵" : "🧑"}
-              </div>
-              <div style={{ fontWeight: 750, marginTop: 6 }}>
-                {side.id === meId ? "You" : side.name}
-              </div>
-              <div
-                className="dm-ready-state"
-                style={{ color: ready ? "var(--dm-green)" : "var(--dm-mute)" }}
-              >
-                {ready ? "Ready" : "Not ready"}
-              </div>
-            </div>
-          );
-        })}
-        {waitingForOpponent && (
-          <div className="dm-ready-card">
-            <div style={{ fontSize: 30 }}>⏳</div>
-            <div style={{ fontWeight: 750, marginTop: 6 }}>Empty seat</div>
-            <div className="dm-ready-state" style={{ color: "var(--dm-mute)" }}>
-              Waiting
-            </div>
-          </div>
+    <div className="dm-panel">
+      <div className="dm-row" style={{ justifyContent: "space-between" }}>
+        <div className="dm-record">
+          {record ? (
+            <>
+              <span>
+                <strong>{record.rating}</strong> rating
+              </span>
+              <span>
+                <strong>
+                  {record.pvpWins}–{record.pvpLosses}
+                </strong>{" "}
+                vs friends
+              </span>
+              <span>
+                <strong>
+                  {record.soloWins}–{record.soloLosses}
+                </strong>{" "}
+                vs the house
+              </span>
+              {record.streak >= 3 && <span>🔥 {record.streak} in a row</span>}
+            </>
+          ) : (
+            <span className="dm-note">No games on record yet — your first draft starts the ledger.</span>
+          )}
+        </div>
+        {leaderboard.length > 0 && (
+          <button className="dm-btn dm-btn-ghost" onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide ladder" : "🏆 Ladder"}
+          </button>
         )}
       </div>
-
-      <div style={{ marginTop: 20 }}>
-        <button
-          className="dm-btn dm-btn-primary dm-btn-lg dm-btn-block"
-          onClick={onReady}
-          disabled={iAmReady || waitingForOpponent}
-        >
-          {waitingForOpponent
-            ? "Waiting for an opponent…"
-            : iAmReady
-              ? "Waiting for the other side…"
-              : "I'm ready — start the draft"}
-        </button>
-      </div>
-
-      {mode === "pvp" && media && (
-        <div style={{ marginTop: 18, textAlign: "left" }}>
-          <MediaRail
-            media={media}
-            members={members}
-            meId={meId}
-            chat={chat}
-            onSendChat={onSendChat}
-          />
+      {open && (
+        <div className="dm-lb">
+          {leaderboard.slice(0, 15).map((p, i) => (
+            <div key={p.userId} className="dm-lb-row" data-me={p.userId === meId ? "1" : "0"}>
+              <span className="dm-lb-rank">{i + 1}</span>
+              <span className="dm-lb-name">{p.userId === meId ? `${p.name} (you)` : p.name}</span>
+              <span className="dm-lb-rating">{p.rating}</span>
+              <span className="dm-lb-wl">
+                {p.pvpWins}–{p.pvpLosses}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Room lobby ───────────────────────────────────────────────────────────────
 
-/**
- * The room itself — where you land the moment you create one.
- *
- * Everything you need to get a friend in is here and nothing else is: the
- * invite link, who's arrived, and a live mic. The host picks the topic from
- * this screen, so the two of you can argue about what to draft before anything
- * is committed.
- */
 function RoomLobby({
   roomCode,
   isHost,
@@ -1331,7 +1340,7 @@ function RoomLobby({
 }: {
   roomCode: string | null;
   isHost: boolean;
-  members: { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[];
+  members: Member[];
   meId: string;
   media: DraftMedia;
   chat: ChatLine[];
@@ -1348,6 +1357,7 @@ function RoomLobby({
 }) {
   const others = members.filter((m) => m.userId !== meId);
   const usingCustom = customTopic.trim().length > 0;
+  const chosen = usingCustom ? customTopic.trim() : (packs.find((p) => p.id === presetId)?.name ?? "topic");
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -1371,13 +1381,7 @@ function RoomLobby({
             Just you so far. Your mic is already live — as soon as they join you can talk.
           </p>
         )}
-        <MediaRail
-          media={media}
-          members={members}
-          meId={meId}
-          chat={chat}
-          onSendChat={onSendChat}
-        />
+        <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={onSendChat} />
       </div>
 
       {isHost ? (
@@ -1414,12 +1418,7 @@ function RoomLobby({
           </p>
           <div className="dm-seg">
             {BUDGET_PRESETS.map((preset, i) => (
-              <button
-                key={preset.label}
-                className="dm-seg-item"
-                data-on={rulesIdx === i ? "1" : "0"}
-                onClick={() => setRulesIdx(i)}
-              >
+              <button key={preset.label} className="dm-seg-item" data-on={rulesIdx === i ? "1" : "0"} onClick={() => setRulesIdx(i)}>
                 <span className="dm-seg-label">{preset.label}</span>
                 <span className="dm-seg-note">{preset.note}</span>
               </button>
@@ -1432,33 +1431,26 @@ function RoomLobby({
             onClick={onStart}
             disabled={others.length === 0}
           >
-            {others.length === 0 ? "Waiting for your opponent…" : "Build the board"}
+            {others.length === 0 ? "Waiting for your opponent…" : `Build the board — ${chosen}`}
           </button>
         </div>
       ) : (
         <div className="dm-panel" style={{ textAlign: "center" }}>
           <p className="dm-eyebrow">You&apos;re in</p>
-          <p className="dm-note">
-            The host is picking a topic. Talk it out — your mic is already on.
-          </p>
+          <p className="dm-note">The host is picking a topic. Talk it out — your mic is already on.</p>
         </div>
       )}
     </div>
   );
 }
 
-/**
- * Room code plus the two ways people actually share one: a link you can paste
- * into any chat, and the code itself for reading out loud over voice.
- * Uses the native share sheet on phones and falls back to the clipboard.
- */
+// ── Room code + invite link ──────────────────────────────────────────────────
+
 function RoomCode({ code }: { code: string }) {
   const [copied, setCopied] = useState<"link" | "code" | null>(null);
 
   const link =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/draftmasters?room=${code}`
-      : `/draftmasters?room=${code}`;
+    typeof window !== "undefined" ? `${window.location.origin}/draftmasters?room=${code}` : `/draftmasters?room=${code}`;
 
   const copy = async (text: string, which: "link" | "code") => {
     sfx.click();
@@ -1467,8 +1459,7 @@ function RoomCode({ code }: { code: string }) {
       setCopied(which);
       setTimeout(() => setCopied(null), 1800);
     } catch {
-      // Clipboard is blocked on insecure origins — the code stays on screen
-      // to be read out, so this isn't worth surfacing as an error.
+      /* clipboard blocked — the code stays on screen to be read out */
     }
   };
 
@@ -1505,6 +1496,153 @@ function RoomCode({ code }: { code: string }) {
     </div>
   );
 }
+
+// ── Prep ─────────────────────────────────────────────────────────────────────
+
+function PrepScreen({ step, topic, isHost, roomCode }: { step: number; topic: string; isHost: boolean; roomCode: string | null }) {
+  const steps = [
+    { label: "Building the board", done: "Board built" },
+    { label: "Finding the portraits", done: "Portraits loaded" },
+    { label: "Setting the room", done: "Ready" },
+  ];
+
+  if (!isHost) {
+    return (
+      <div className="dm-prep">
+        <h2 className="dm-h2">Waiting for the host…</h2>
+        <p className="dm-tagline">They&apos;re building the board.</p>
+        {roomCode && (
+          <div style={{ marginTop: 20 }}>
+            <RoomCode code={roomCode} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dm-prep">
+      <p className="dm-eyebrow">Preparing</p>
+      <h2 className="dm-h2" style={{ fontSize: 24 }}>
+        {topic}
+      </h2>
+      <p className="dm-tagline">Nothing starts until the whole board is loaded — no waiting on images mid-auction.</p>
+
+      <div className="dm-prep-steps">
+        {steps.map((s, i) => (
+          <div key={s.label} className="dm-step" data-state={step > i ? "done" : step === i ? "active" : "todo"}>
+            <span className="dm-step-dot">{step > i ? "✓" : ""}</span>
+            <span>{step > i ? s.done : s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="dm-progress">
+        <div className="dm-progress-fill" style={{ width: `${((step + 0.35) / 3) * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Ready check ──────────────────────────────────────────────────────────────
+
+function ReadyScreen({
+  pack,
+  rules,
+  sides,
+  readyIds,
+  meId,
+  iAmReady,
+  mode,
+  roomCode,
+  onReady,
+  media,
+  members,
+  chat,
+  onSendChat,
+}: {
+  pack: Pack | null;
+  rules: Rules;
+  sides: Side[];
+  readyIds: string[];
+  meId: string;
+  iAmReady: boolean;
+  mode: Mode;
+  roomCode: string | null;
+  onReady: () => void;
+  media: DraftMedia | null;
+  members: Member[];
+  chat: ChatLine[];
+  onSendChat: (t: string) => void;
+}) {
+  const waitingForOpponent = mode === "pvp" && sides.length < 2;
+
+  return (
+    <div className="dm-prep" style={{ maxWidth: 620 }}>
+      <p className="dm-eyebrow">{pack?.emoji} Board ready</p>
+      <h2 className="dm-wordmark" style={{ fontSize: "clamp(26px, 7vw, 40px)" }}>
+        {pack?.name ?? "Draft"}
+      </h2>
+      <p className="dm-tagline">{pack?.blurb}</p>
+
+      <div className="dm-panel" style={{ marginTop: 18, textAlign: "left", fontSize: 14, lineHeight: 1.6 }}>
+        <strong style={{ color: "var(--dm-gold)" }}>The scenario</strong>
+        <p style={{ margin: "6px 0 0", color: "var(--dm-dim)" }}>{pack?.scenario}</p>
+        <p style={{ margin: "12px 0 0", color: "var(--dm-mute)", fontSize: 13 }}>
+          ${rules.budget} each · {rules.rosterSize} picks · {pack?.entries.length ?? 0} on the board · opening rights
+          alternate · no clock
+        </p>
+      </div>
+
+      {waitingForOpponent && roomCode && (
+        <>
+          <p className="dm-eyebrow" style={{ marginTop: 22 }}>
+            Send this code to your opponent
+          </p>
+          <RoomCode code={roomCode} />
+        </>
+      )}
+
+      <div className="dm-ready-grid">
+        {sides.map((side) => {
+          const ready = readyIds.includes(side.id);
+          return (
+            <div key={side.id} className="dm-ready-card" data-ready={ready ? "1" : "0"}>
+              <div style={{ fontSize: 30 }}>{side.isNpc ? "🤖" : side.id === meId ? "🫵" : "🧑"}</div>
+              <div style={{ fontWeight: 750, marginTop: 6 }}>{side.id === meId ? "You" : side.name}</div>
+              <div className="dm-ready-state" style={{ color: ready ? "var(--dm-green)" : "var(--dm-mute)" }}>
+                {ready ? "Ready" : "Not ready"}
+              </div>
+            </div>
+          );
+        })}
+        {waitingForOpponent && (
+          <div className="dm-ready-card">
+            <div style={{ fontSize: 30 }}>⏳</div>
+            <div style={{ fontWeight: 750, marginTop: 6 }}>Empty seat</div>
+            <div className="dm-ready-state" style={{ color: "var(--dm-mute)" }}>
+              Waiting
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <button className="dm-btn dm-btn-primary dm-btn-lg dm-btn-block" onClick={onReady} disabled={iAmReady || waitingForOpponent}>
+          {waitingForOpponent ? "Waiting for an opponent…" : iAmReady ? "Waiting for the other side…" : "I'm ready — start the draft"}
+        </button>
+      </div>
+
+      {mode === "pvp" && media && (
+        <div style={{ marginTop: 18, textAlign: "left" }}>
+          <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={onSendChat} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Stable id for signed-out players so a refresh doesn't lose their seat. */
 function useGuestId(sessionId?: string): string {

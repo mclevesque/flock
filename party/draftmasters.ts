@@ -2,8 +2,14 @@ import type * as Party from "partykit/server";
 import {
   buildLot,
   buildPool,
+  canMatch,
+  canOpen,
+  canRaise,
+  isFull,
   makeRng,
   maxBid,
+  otherSide,
+  rollDie,
   DEFAULT_RULES,
   type Lot,
   type Rules,
@@ -14,22 +20,24 @@ import type { Pack } from "../lib/draftmasters/packs";
 /**
  * DraftMasters PvP room — authoritative auction server.
  *
- * The server owns the clock and the money. Clients render state and send
- * intents ("bid 4"), which keeps two browsers from ever disagreeing about who
- * won a lot when both click in the same millisecond.
+ * Designed around one rule: nothing in here depends on a timer. Every state
+ * change is caused by a message, and every message is idempotent against the
+ * current phase. That is what makes a flaky phone survivable — a client that
+ * drops for ten seconds reconnects, asks for the state, and is exactly where
+ * it should be, because nothing could have expired while it was gone.
  *
- * Flow: lobby -> preparing (host builds the board + prefetches portraits)
- *       -> ready (both players ready up) -> bidding/sold loop -> complete.
+ * Flow: lobby -> preparing -> ready -> (bidding -> [dice] -> sold)* -> complete
  *
- * Opening rights alternate lot by lot. Only the opener may place the first bid;
- * if they pass, the right crosses to the other side; if both pass, the lot goes
- * unsold. After the lot is open, bidding is a normal free ascending auction.
+ * Bidding is strictly alternating. Opening rights alternate lot by lot. On
+ * your turn you bid, pass, or — when you can equal the price but not beat it —
+ * match and roll dice for it. Ties reroll until someone wins.
  *
- * It also relays WebRTC signalling for the shared mics/cams, same wire format
- * as party/voice.ts so the client reuses the pattern the rest of the site uses.
+ * Host authority is soft: the person who opened the room is host, but if they
+ * are not currently connected, any seated player may drive the room. Their
+ * hostship is restored the moment they reconnect. No migration, no timers.
  */
 
-type Phase = "lobby" | "preparing" | "ready" | "bidding" | "sold" | "complete";
+type Phase = "lobby" | "preparing" | "ready" | "bidding" | "dice" | "sold" | "complete";
 
 interface Member {
   conn: Party.Connection;
@@ -45,11 +53,25 @@ interface Member {
 interface TickerEvent {
   id: number;
   text: string;
-  kind: "bid" | "sold" | "passed" | "system";
+  kind: "bid" | "sold" | "passed" | "dice" | "system";
 }
 
-const SOLD_REVEAL_MS = 3200;
-const OPEN_PASS_SECONDS = 8;
+interface DiceState {
+  reason: "lot" | "verdict";
+  sideIds: [string, string];
+  rounds: { a: number; b: number }[];
+  winnerId: string | null;
+  price: number;
+}
+
+interface Verdict {
+  winnerId: string;
+  headline: string;
+  reasoning: string;
+  sideNotes: { sideId: string; score: number; mvp: string; bust: string; note: string }[];
+  judged: "ai" | "offline";
+  diceBreak?: DiceState | null;
+}
 
 export default class DraftMastersParty implements Party.Server {
   private members = new Map<string, Member>();
@@ -59,6 +81,7 @@ export default class DraftMastersParty implements Party.Server {
   private pack: Pack | null = null;
   private rules: Rules = { ...DEFAULT_RULES };
   private seed = Math.floor(Math.random() * 0x7fffffff);
+  private matchId = "";
 
   private pool: number[] = [];
   private cursor = 0;
@@ -66,17 +89,16 @@ export default class DraftMastersParty implements Party.Server {
   private lot: Lot | null = null;
   private currentBid = 0;
   private highBidderId: string | null = null;
+  private turnId: string | null = null;
   private openerId: string | null = null;
-  private openerPassed = false;
-  private deadline = 0;
+  private passedIds = new Set<string>();
+  private dice: DiceState | null = null;
 
   private sides = new Map<string, Side>();
   private readyIds = new Set<string>();
   private ticker: TickerEvent[] = [];
   private eventSeq = 0;
-  private verdict: unknown = null;
-
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private verdict: Verdict | null = null;
 
   constructor(readonly room: Party.Room) {}
 
@@ -91,15 +113,14 @@ export default class DraftMastersParty implements Party.Server {
     this.members.delete(conn.id);
     if (!member) return;
 
-    this.room.broadcast(JSON.stringify({ type: "peer-left", userId: member.userId }));
-    this.readyIds.delete(member.userId);
-
-    // Host migrates to whoever's left so the room doesn't lock up.
-    if (this.hostId === member.userId) {
-      const next = [...this.members.values()].sort((a, b) => a.seat - b.seat)[0];
-      this.hostId = next?.userId ?? null;
+    // A reconnect shows up as a fresh connection before the old one closes,
+    // so only announce a departure if they're actually gone.
+    if (!this.isConnected(member.userId)) {
+      this.room.broadcast(JSON.stringify({ type: "peer-left", userId: member.userId }));
+      // Ready state is a live promise — a dropped player has to re-confirm.
+      if (this.phase === "ready") this.readyIds.delete(member.userId);
+      this.push(`${member.name} disconnected`, "system");
     }
-    this.push(`${member.name} left`, "system");
     this.broadcastState();
   }
 
@@ -120,6 +141,8 @@ export default class DraftMastersParty implements Party.Server {
     switch (msg.type) {
       case "join":
         return this.handleJoin(msg, sender);
+      case "sync":
+        return sender.send(JSON.stringify({ type: "state", state: this.publicState() }));
       case "preparing":
         return this.handlePreparing(sender);
       case "board":
@@ -130,6 +153,10 @@ export default class DraftMastersParty implements Party.Server {
         return this.handleBid(msg, sender);
       case "pass":
         return this.handlePass(sender);
+      case "match":
+        return this.handleMatch(sender);
+      case "advance":
+        return this.handleAdvance(msg);
       case "chat":
         return this.handleChat(msg, sender);
       case "media":
@@ -147,11 +174,17 @@ export default class DraftMastersParty implements Party.Server {
     const userId = String(msg.userId ?? "").slice(0, 64);
     if (!userId) return;
 
+    const wasConnected = this.isConnected(userId);
+
     // Reclaim a seat on reconnect rather than handing out a new one.
-    const existing = [...this.members.values()].find((m) => m.userId === userId);
-    let seat = existing?.seat ?? 0;
-    if (!existing) {
+    const existingSeat = [...this.members.values()].find((m) => m.userId === userId)?.seat;
+    const knownSide = this.sides.get(userId);
+    let seat = existingSeat ?? (knownSide ? [...this.sides.keys()].indexOf(userId) : -1);
+    if (seat < 0) {
       const taken = new Set([...this.members.values()].map((m) => m.seat));
+      // Seated players keep their seat even while disconnected.
+      this.sides.forEach((_, id) => taken.add([...this.sides.keys()].indexOf(id)));
+      seat = 0;
       while (taken.has(seat)) seat++;
     }
 
@@ -178,23 +211,24 @@ export default class DraftMastersParty implements Party.Server {
       });
     }
 
-    this.push(`${member.name} joined`, "system");
-    this.room.broadcast(
-      JSON.stringify({
-        type: "peer-joined",
-        userId: member.userId,
-        name: member.name,
-        avatarUrl: member.avatarUrl,
-      }),
-      [sender.id]
-    );
+    if (!wasConnected) {
+      this.push(`${member.name} ${knownSide ? "reconnected" : "joined"}`, "system");
+      this.room.broadcast(
+        JSON.stringify({
+          type: "peer-joined",
+          userId: member.userId,
+          name: member.name,
+          avatarUrl: member.avatarUrl,
+        }),
+        [sender.id]
+      );
+    }
     this.broadcastState();
   }
 
   /** Host flips the room to the prep screen while it builds the board. */
   private handlePreparing(sender: Party.Connection) {
-    const member = this.members.get(sender.id);
-    if (!member || member.userId !== this.hostId) return;
+    if (!this.canDrive(sender)) return;
     if (this.phase !== "lobby" && this.phase !== "complete") return;
     this.phase = "preparing";
     this.readyIds.clear();
@@ -206,13 +240,19 @@ export default class DraftMastersParty implements Party.Server {
    * portrait-prefetched on its side. The server never generates; it just deals.
    */
   private handleBoard(msg: Record<string, unknown>, sender: Party.Connection) {
-    const member = this.members.get(sender.id);
-    if (!member || member.userId !== this.hostId) return;
+    if (!this.canDrive(sender)) return;
 
     const pack = msg.pack as Pack | undefined;
     if (!pack || !Array.isArray(pack.entries) || pack.entries.length < 6) return;
 
-    this.pack = pack;
+    this.seed = Math.floor(Math.random() * 0x7fffffff);
+    // Stamp every dealt board with a nonce. Two "Marvel villains" boards in a
+    // row have different entries, and clients key their portrait cache on
+    // this id — without the nonce the second board would show stale art.
+    const baseId = String(pack.id).split("#")[0];
+    this.pack = { ...pack, id: `${baseId}#${this.seed}` };
+    this.matchId = `${this.room.id}-${this.seed}`;
+
     if (typeof msg.budget === "number" && msg.budget >= 10 && msg.budget <= 200) {
       this.rules.budget = Math.round(msg.budget);
     }
@@ -220,11 +260,11 @@ export default class DraftMastersParty implements Party.Server {
       this.rules.rosterSize = Math.round(msg.rosterSize);
     }
 
-    this.seed = Math.floor(Math.random() * 0x7fffffff);
-    this.pool = buildPool(pack, makeRng(this.seed));
+    this.pool = buildPool(this.pack, makeRng(this.seed));
     this.cursor = 0;
     this.lotIndex = 0;
     this.verdict = null;
+    this.dice = null;
     this.ticker = [];
     this.readyIds.clear();
     for (const side of this.sides.values()) {
@@ -252,63 +292,208 @@ export default class DraftMastersParty implements Party.Server {
     }
   }
 
-  private handleBid(msg: Record<string, unknown>, sender: Party.Connection) {
+  // ── Turn actions ───────────────────────────────────────────────────────────
+
+  private actor(sender: Party.Connection): Side | null {
     const member = this.members.get(sender.id);
-    if (!member || this.phase !== "bidding" || !this.lot) return;
-
+    if (!member || this.phase !== "bidding" || !this.lot) return null;
     const side = this.sides.get(member.userId);
-    if (!side) return; // spectators can't bid
+    if (!side) return null; // spectators can't act
+    if (this.turnId !== side.id) return null; // not your move
+    return side;
+  }
 
-    // Opening rights: until there's a bid on the board, only the opener may act.
-    if (this.currentBid === 0 && this.openerId !== member.userId) return;
+  private handleBid(msg: Record<string, unknown>, sender: Party.Connection) {
+    const side = this.actor(sender);
+    if (!side) return;
 
     const amount = Math.round(Number(msg.amount));
     if (!Number.isFinite(amount)) return;
     if (amount <= this.currentBid) return;
     if (amount > maxBid(side, this.rules)) return;
-    if (this.highBidderId === member.userId) return; // no bidding against yourself
 
     this.currentBid = amount;
-    this.highBidderId = member.userId;
+    this.highBidderId = side.id;
     this.push(`${side.name} bids $${amount}`, "bid");
 
-    this.deadline = Date.now() + this.rules.bidSeconds * 1000;
-    this.arm(this.rules.bidSeconds * 1000, () => this.closeLot());
-    this.broadcastState();
+    // The other side answers — unless they can't do anything at all, in which
+    // case the lot closes rather than making them click Pass to lose.
+    const other = otherSide(this.sidesList(), side.id);
+    if (
+      other &&
+      (canRaise(other, this.rules, this.currentBid) || canMatch(other, this.rules, this.currentBid))
+    ) {
+      this.turnId = other.id;
+      this.broadcastState();
+    } else {
+      this.closeLot();
+    }
+  }
+
+  private handlePass(sender: Party.Connection) {
+    const side = this.actor(sender);
+    if (!side) return;
+
+    if (this.currentBid > 0) {
+      // Declining to raise hands it to the high bidder.
+      this.push(`${side.name} lets it go`, "passed");
+      this.closeLot();
+      return;
+    }
+
+    // Declining to open. Offer it to the other side if they can take it.
+    this.passedIds.add(side.id);
+    const other = otherSide(this.sidesList(), side.id);
+    if (other && !this.passedIds.has(other.id) && canOpen(other, this.rules)) {
+      this.push(`${side.name} passes — over to ${other.name}`, "passed");
+      this.turnId = other.id;
+      this.broadcastState();
+    } else {
+      this.closeLot();
+    }
+  }
+
+  /** Equal the standing bid and roll for it. */
+  private handleMatch(sender: Party.Connection) {
+    const side = this.actor(sender);
+    if (!side || !this.highBidderId) return;
+    if (!canMatch(side, this.rules, this.currentBid)) return;
+
+    this.push(`${side.name} matches $${this.currentBid} — dice decide it`, "dice");
+    this.startDice("lot", [this.highBidderId, side.id], this.currentBid);
   }
 
   /**
-   * Declining to open. Only meaningful before the first bid — after that,
-   * simply not bidding is the pass.
+   * Client-driven progression. After a "sold" reveal or a tied dice round,
+   * clients send advance once their animation is done. Idempotent: the phase
+   * (and dice round count) has to match what the client saw, so two clients
+   * advancing at once produce one step, not two.
    */
-  private handlePass(sender: Party.Connection) {
-    const member = this.members.get(sender.id);
-    if (!member || this.phase !== "bidding" || !this.lot) return;
-    if (this.currentBid !== 0) return;
-    if (this.openerId !== member.userId) return;
-    this.passOpening();
-  }
-
-  private passOpening() {
-    const opener = this.openerId ? this.sides.get(this.openerId) : null;
-
-    if (!this.openerPassed) {
-      // Opening right crosses to the other side with a fresh, shorter window.
-      const other = [...this.sides.values()].find((s) => s.id !== this.openerId);
-      this.push(`${opener?.name ?? "Opener"} passes — over to ${other?.name ?? "the other side"}`, "passed");
-      this.openerPassed = true;
-      this.openerId = other?.id ?? null;
-
-      if (this.openerId && maxBid(this.sides.get(this.openerId)!, this.rules) >= 1) {
-        this.deadline = Date.now() + OPEN_PASS_SECONDS * 1000;
-        this.arm(OPEN_PASS_SECONDS * 1000, () => this.closeLot());
-        this.broadcastState();
-        return;
-      }
+  private handleAdvance(msg: Record<string, unknown>) {
+    if (this.phase === "sold") {
+      this.nominate();
+      return;
     }
-    // Both sides declined.
-    this.closeLot();
+    if (this.phase === "dice" && this.dice && this.dice.winnerId === null) {
+      const seen = Number(msg.round);
+      if (seen !== this.dice.rounds.length) return; // stale or duplicate
+      this.rollRound();
+    }
   }
+
+  // ── Dice ───────────────────────────────────────────────────────────────────
+
+  private startDice(reason: DiceState["reason"], sideIds: [string, string], price: number) {
+    this.dice = { reason, sideIds, rounds: [], winnerId: null, price };
+    this.phase = "dice";
+    this.rollRound();
+  }
+
+  private rollRound() {
+    if (!this.dice) return;
+    const a = rollDie();
+    const b = rollDie();
+    this.dice.rounds.push({ a, b });
+
+    const [idA, idB] = this.dice.sideIds;
+    const nameA = this.sides.get(idA)?.name ?? "A";
+    const nameB = this.sides.get(idB)?.name ?? "B";
+    const round = this.dice.rounds.length;
+    const label = round > 1 ? ` (reroll ${round - 1})` : "";
+
+    if (a === b) {
+      this.say(`🎲 ${nameA} rolls ${a}, ${nameB} rolls ${b} — tie! Rolling again…${label}`);
+      this.push(`Dice: ${a}–${b}, tie — rerolling`, "dice");
+      this.broadcastState();
+      return; // clients animate, then send advance to reroll
+    }
+
+    const winnerId = a > b ? idA : idB;
+    const winnerName = a > b ? nameA : nameB;
+    this.dice.winnerId = winnerId;
+    this.say(`🎲 ${nameA} rolls ${a}, ${nameB} rolls ${b} — ${winnerName} wins the roll!${label}`);
+    this.push(`Dice: ${a}–${b} — ${winnerName} wins it`, "dice");
+
+    if (this.dice.reason === "lot") {
+      this.highBidderId = winnerId;
+      this.currentBid = this.dice.price;
+      this.closeLot();
+    } else {
+      if (this.verdict) {
+        this.verdict = { ...this.verdict, winnerId, diceBreak: this.dice };
+      }
+      this.phase = "complete";
+      this.broadcastState();
+    }
+  }
+
+  // ── Auction flow ───────────────────────────────────────────────────────────
+
+  private nominate() {
+    if (!this.pack) return;
+    const sides = this.sidesList();
+
+    const allFull = sides.every((s) => isFull(s, this.rules));
+    const anyoneCanOpen = sides.some((s) => canOpen(s, this.rules));
+
+    if (allFull || this.cursor >= this.pool.length || !anyoneCanOpen) {
+      this.phase = "complete";
+      this.lot = null;
+      this.turnId = null;
+      this.dice = null;
+      this.push(
+        allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner",
+        "system"
+      );
+      this.broadcastState();
+      return;
+    }
+
+    const entryIndex = this.pool[this.cursor++];
+    const rng = makeRng(this.seed + entryIndex * 7919 + this.cursor);
+    this.lot = buildLot(this.pack.entries[entryIndex], entryIndex, this.pack, rng);
+
+    // Opening rights alternate lot by lot, skipping anyone who can't open.
+    const ordered = [...sides].sort((a, b) => this.seatOf(a.id) - this.seatOf(b.id));
+    const first = ordered[this.lotIndex % ordered.length];
+    const second = ordered.find((s) => s.id !== first.id);
+    this.openerId = canOpen(first, this.rules)
+      ? first.id
+      : second && canOpen(second, this.rules)
+        ? second.id
+        : null;
+    this.lotIndex++;
+
+    this.turnId = this.openerId;
+    this.currentBid = 0;
+    this.highBidderId = null;
+    this.passedIds.clear();
+    this.dice = null;
+    this.phase = "bidding";
+    this.broadcastState();
+  }
+
+  private closeLot() {
+    if (!this.lot) return;
+
+    if (this.highBidderId && this.currentBid > 0) {
+      const side = this.sides.get(this.highBidderId);
+      if (side) {
+        side.budget -= this.currentBid;
+        side.roster.push({ ...this.lot, price: this.currentBid });
+        this.push(`SOLD — ${this.lot.name} to ${side.name} for $${this.currentBid}`, "sold");
+      }
+    } else {
+      this.push(`PASSED — nobody wanted ${this.lot.name}`, "passed");
+    }
+
+    this.turnId = null;
+    this.phase = "sold";
+    this.broadcastState();
+    // Clients send `advance` after the reveal; nothing here waits on a clock.
+  }
+
+  // ── Room messages ──────────────────────────────────────────────────────────
 
   private handleChat(msg: Record<string, unknown>, sender: Party.Connection) {
     const member = this.members.get(sender.id);
@@ -327,6 +512,13 @@ export default class DraftMastersParty implements Party.Server {
     );
   }
 
+  /** A line from the room itself — dice rolls land in chat where everyone sees them. */
+  private say(text: string) {
+    this.room.broadcast(
+      JSON.stringify({ type: "chat", userId: "room", name: "Dice", text, at: Date.now(), system: true })
+    );
+  }
+
   private handleMedia(msg: Record<string, unknown>, sender: Party.Connection) {
     const member = this.members.get(sender.id);
     if (!member) return;
@@ -337,24 +529,42 @@ export default class DraftMastersParty implements Party.Server {
     );
   }
 
-  /** The host runs the judge call and posts the result so both sides see one verdict. */
+  /**
+   * The driver runs the judge call and posts the result so both sides see one
+   * verdict. If the judge scored it even, the dice settle it.
+   */
   private handleVerdict(msg: Record<string, unknown>, sender: Party.Connection) {
-    const member = this.members.get(sender.id);
-    if (!member || member.userId !== this.hostId) return;
-    this.verdict = msg.verdict ?? null;
+    if (!this.canDrive(sender)) return;
+    if (this.phase !== "complete") return;
+    const verdict = msg.verdict as Verdict | null;
+    if (!verdict) return;
+    this.verdict = verdict;
+
+    const notes = verdict.sideNotes ?? [];
+    const sides = this.sidesList();
+    if (notes.length === 2 && notes[0].score === notes[1].score && sides.length === 2) {
+      this.push("The judge has it even — dice decide it", "dice");
+      this.startDice("verdict", [sides[0].id, sides[1].id], 0);
+      return;
+    }
     this.broadcastState();
   }
 
   private handleRematch(sender: Party.Connection) {
-    const member = this.members.get(sender.id);
-    if (!member || member.userId !== this.hostId) return;
-    this.clearTimer();
+    if (!this.canDrive(sender)) return;
     this.phase = "lobby";
+    // Drop the old board entirely — leaving it here is how a rematch kept
+    // dealing the previous topic.
+    this.pack = null;
+    this.pool = [];
     this.lot = null;
     this.verdict = null;
+    this.dice = null;
     this.currentBid = 0;
     this.highBidderId = null;
+    this.turnId = null;
     this.openerId = null;
+    this.passedIds.clear();
     this.readyIds.clear();
     for (const side of this.sides.values()) {
       side.budget = this.rules.budget;
@@ -376,100 +586,34 @@ export default class DraftMastersParty implements Party.Server {
     }
   }
 
-  // ── Auction flow ───────────────────────────────────────────────────────────
-
-  private nominate() {
-    if (!this.pack) return;
-
-    const allFull = [...this.sides.values()].every(
-      (s) => s.roster.length >= this.rules.rosterSize
-    );
-    const anyoneCanBid = [...this.sides.values()].some((s) => maxBid(s, this.rules) >= 1);
-
-    if (allFull || this.cursor >= this.pool.length || !anyoneCanBid) {
-      this.phase = "complete";
-      this.lot = null;
-      this.clearTimer();
-      this.push(
-        allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner",
-        "system"
-      );
-      this.broadcastState();
-      return;
-    }
-
-    const entryIndex = this.pool[this.cursor++];
-    const rng = makeRng(this.seed + entryIndex * 7919 + this.cursor);
-    this.lot = buildLot(this.pack.entries[entryIndex], entryIndex, this.pack, rng);
-
-    // Opening rights alternate lot by lot, skipping anyone who can't afford to open.
-    const seated = [...this.sides.values()].sort((a, b) => this.seatOf(a.id) - this.seatOf(b.id));
-    const first = seated[this.lotIndex % seated.length];
-    const second = seated.find((s) => s.id !== first.id);
-    this.openerId =
-      maxBid(first, this.rules) >= 1
-        ? first.id
-        : second && maxBid(second, this.rules) >= 1
-          ? second.id
-          : null;
-    this.openerPassed = this.openerId !== first.id;
-    this.lotIndex++;
-
-    this.currentBid = 0;
-    this.highBidderId = null;
-    this.phase = "bidding";
-
-    // If only one side can still bid (the other is full or reduced to nothing),
-    // there's no auction left to run — don't make them sit through a full clock
-    // on every remaining lot just to buy it for $1.
-    const contested = [...this.sides.values()].filter((s) => maxBid(s, this.rules) >= 1).length > 1;
-    const seconds = contested ? this.rules.openSeconds : 4;
-    this.deadline = Date.now() + seconds * 1000;
-    this.arm(seconds * 1000, () => this.onOpenTimeout());
-    this.broadcastState();
-  }
-
-  /** Clock ran out with no bid — treat it as the opener declining. */
-  private onOpenTimeout() {
-    if (this.phase !== "bidding") return;
-    if (this.currentBid === 0) return this.passOpening();
-    this.closeLot();
-  }
-
-  private closeLot() {
-    if (this.phase !== "bidding" || !this.lot) return;
-
-    if (this.highBidderId && this.currentBid > 0) {
-      const side = this.sides.get(this.highBidderId);
-      if (side) {
-        side.budget -= this.currentBid;
-        side.roster.push({ ...this.lot, price: this.currentBid });
-        this.push(`SOLD — ${this.lot.name} to ${side.name} for $${this.currentBid}`, "sold");
-      }
-    } else {
-      this.push(`PASSED — nobody wanted ${this.lot.name}`, "passed");
-    }
-
-    this.phase = "sold";
-    this.broadcastState();
-    this.arm(SOLD_REVEAL_MS, () => this.nominate());
-  }
-
   // ── Plumbing ───────────────────────────────────────────────────────────────
+
+  private sidesList(): Side[] {
+    return [...this.sides.values()];
+  }
+
+  private isConnected(userId: string): boolean {
+    for (const m of this.members.values()) if (m.userId === userId) return true;
+    return false;
+  }
+
+  /**
+   * May this connection drive the room (build boards, judge, rematch)?
+   * The host always can. If the host is not connected, any seated player can —
+   * the room must never lock up waiting for someone who dropped.
+   */
+  private canDrive(sender: Party.Connection): boolean {
+    const member = this.members.get(sender.id);
+    if (!member) return false;
+    if (member.userId === this.hostId) return true;
+    if (this.hostId && this.isConnected(this.hostId)) return false;
+    return this.sides.has(member.userId);
+  }
 
   private seatOf(userId: string): number {
     for (const m of this.members.values()) if (m.userId === userId) return m.seat;
-    return 99;
-  }
-
-  private arm(ms: number, fn: () => void) {
-    this.clearTimer();
-    this.timer = setTimeout(fn, ms);
-  }
-
-  private clearTimer() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    const idx = [...this.sides.keys()].indexOf(userId);
+    return idx >= 0 ? idx : 99;
   }
 
   private push(text: string, kind: TickerEvent["kind"]) {
@@ -483,16 +627,17 @@ export default class DraftMastersParty implements Party.Server {
       pack: this.pack,
       rules: this.rules,
       hostId: this.hostId,
+      hostConnected: this.hostId ? this.isConnected(this.hostId) : false,
+      matchId: this.matchId,
       lot: this.lot,
       currentBid: this.currentBid,
       highBidderId: this.highBidderId,
+      turnId: this.turnId,
       openerId: this.openerId,
-      openerPassed: this.openerPassed,
-      /** Absolute ms — clients render their own countdown off this */
-      deadline: this.deadline,
-      serverNow: Date.now(),
+      passedIds: [...this.passedIds],
+      dice: this.dice,
       lotsRemaining: Math.max(0, this.pool.length - this.cursor),
-      sides: [...this.sides.values()],
+      sides: this.sidesList(),
       readyIds: [...this.readyIds],
       members: [...this.members.values()].map((m) => ({
         userId: m.userId,
@@ -502,7 +647,7 @@ export default class DraftMastersParty implements Party.Server {
         cam: m.cam,
         seat: m.seat,
       })),
-      ticker: this.ticker.slice(-12),
+      ticker: this.ticker.slice(-14),
       verdict: this.verdict,
     };
   }

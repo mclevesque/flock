@@ -1,7 +1,7 @@
 "use client";
 
 import type { Rules, Side } from "@/lib/draftmasters/engine";
-import type { PortraitMap, Verdict } from "./types";
+import type { PlayerRecord, PortraitMap, Verdict } from "./types";
 
 /**
  * The payoff screen. The judge has to commit to a winner and justify it, so
@@ -19,6 +19,9 @@ interface Props {
   portraits: PortraitMap;
   packName: string;
   canJudge: boolean;
+  record: PlayerRecord | null;
+  ratingDelta: number | null;
+  mode: "solo" | "pvp";
   onJudge: () => void;
   onPlayAgain: () => void;
 }
@@ -33,6 +36,9 @@ export default function VerdictScreen({
   portraits,
   packName,
   canJudge,
+  record,
+  ratingDelta,
+  mode,
   onJudge,
   onPlayAgain,
 }: Props) {
@@ -93,6 +99,48 @@ export default function VerdictScreen({
         {winner?.id === meId ? "You win." : `${winner?.name ?? "Winner"} wins.`}
       </p>
       <p className="dm-verdict-reasoning">{verdict.reasoning}</p>
+
+      {verdict.diceBreak?.winnerId && (
+        <p className="dm-note" style={{ marginTop: 10, color: "var(--dm-gold)" }}>
+          🎲 The judge scored it even — settled on the dice
+          {verdict.diceBreak.rounds.length > 1
+            ? ` after ${verdict.diceBreak.rounds.length - 1} tie${verdict.diceBreak.rounds.length > 2 ? "s" : ""}`
+            : ""}
+          : {verdict.diceBreak.rounds[verdict.diceBreak.rounds.length - 1].a}–
+          {verdict.diceBreak.rounds[verdict.diceBreak.rounds.length - 1].b}
+        </p>
+      )}
+
+      {record && (
+        <div className="dm-panel" style={{ marginTop: 18, display: "inline-block" }}>
+          <div className="dm-record" style={{ justifyContent: "center" }}>
+            {mode === "pvp" && (
+              <span>
+                <strong>{record.rating}</strong> rating
+                {ratingDelta !== null && ratingDelta !== 0 && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      color: ratingDelta > 0 ? "var(--dm-green)" : "var(--dm-red)",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {ratingDelta > 0 ? "+" : ""}
+                    {ratingDelta}
+                  </span>
+                )}
+              </span>
+            )}
+            <span>
+              <strong>
+                {mode === "pvp" ? `${record.pvpWins}–${record.pvpLosses}` : `${record.soloWins}–${record.soloLosses}`}
+              </strong>{" "}
+              {mode === "pvp" ? "vs friends" : "vs the house"}
+            </span>
+            {record.streak >= 3 && <span>🔥 {record.streak} straight</span>}
+          </div>
+        </div>
+      )}
 
       <div className="dm-verdict-sides">
         {sides.map((side) => {

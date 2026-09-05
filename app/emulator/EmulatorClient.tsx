@@ -260,6 +260,8 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
   const [npPing, setNpPing] = useState<number | null>(null);
   const [npConnected, setNpConnected] = useState(false);
   const npStateSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const npReconnectRef = useRef<number>(0); // reconnect attempt count
+  const npReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Invite dropdown toggle
   const [showInviteDropdown, setShowInviteDropdown] = useState(false);
@@ -580,9 +582,96 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     }
   }
 
+  // ── Auto-join EmulatorJS native netplay room ─────────────────────────────────
+  // EmulatorJS netplay is host-streaming: host runs emulation + streams video,
+  // guest sees video feed + sends inputs back. API: openRoom / joinRoom.
+  const autoJoinNetplay = useCallback(() => {
+    const roomId = netplayRoomRef.current;
+    const role   = netplayRoleRef.current;
+    if (!roomId) return;
+    const w = window as unknown as Record<string, unknown>;
+    const ejs = w.EJS_emulator as Record<string, unknown> | undefined;
+    if (!ejs) return;
+    const np = ejs.netplay as Record<string, unknown> | undefined;
+    if (!np) return;
+
+    // Set player name
+    np.name = sessionUsername ?? "Player";
+
+    if (role === "host") {
+      // Host opens a room — roomId as room name, max 2 players
+      if (typeof np.openRoom === "function") {
+        (np.openRoom as (name: string, max: number, pw: string) => void)(roomId, 2, "");
+        setNetplayStatus("connected");
+        return;
+      }
+    } else {
+      // Guest needs to find the host's session ID, then join
+      // Poll the relay's /list endpoint to find the room by name
+      const netplayUrl = (process.env.NEXT_PUBLIC_NETPLAY_SERVER ?? "https://netplay.greatsouls.net").replace(/\/$/, "");
+      const gameId = w.EJS_gameID as number;
+      const pollForRoom = async () => {
+        for (let i = 0; i < 15; i++) { // retry up to 15 times (30s)
+          try {
+            const r = await fetch(`${netplayUrl}/list?domain=${window.location.host}&game_id=${gameId}`);
+            if (r.ok) {
+              const rooms = await r.json() as Record<string, { room_name: string }>;
+              for (const [sessionId, info] of Object.entries(rooms)) {
+                if (info.room_name === roomId) {
+                  if (typeof np.joinRoom === "function") {
+                    (np.joinRoom as (sid: string, name: string, max: number, pw: string) => void)(sessionId, roomId, 2, "");
+                    setNetplayStatus("connected");
+                    return;
+                  }
+                }
+              }
+            }
+          } catch { /* retry */ }
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        setNetplayStatus("error");
+      };
+      pollForRoom();
+      return;
+    }
+
+    // Fallback: click the Netplay button in the emulator UI
+    const selectors = ['[title="Netplay"]', '[title="netplay"]', 'button[data-id="netplay"]', '.netplay-btn', '[data-type="netplay"]'];
+    for (const sel of selectors) {
+      const btn = document.querySelector(sel) as HTMLElement | null;
+      if (btn) { btn.click(); return; }
+    }
+  }, [sessionUsername]);
+
   // ── Track B helpers ──────────────────────────────────────────────────────────
   // SNES button order matches EmulatorJS setInput names
   const SNES_BTNS = ["b","y","select","start","up","down","left","right","a","x","l","r"];
+
+  // Keyboard → SNES bitmask (matches EmulatorJS defaults)
+  // Bit order: b(0) y(1) select(2) start(3) up(4) down(5) left(6) right(7) a(8) x(9) l(10) r(11)
+  const kbMaskRef = useRef<number>(0);
+  useEffect(() => {
+    const KB_MAP: Record<string, number> = {
+      KeyZ: 0, // B
+      KeyA: 1, // Y
+      ShiftRight: 2, ShiftLeft: 2, // Select
+      Enter: 3, // Start
+      ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
+      KeyX: 8, // A
+      KeyS: 9, // X
+      KeyQ: 10, // L
+      KeyW: 11, // R
+    };
+    function onKey(e: KeyboardEvent) {
+      const bit = KB_MAP[e.code];
+      if (bit === undefined) return;
+      if (e.type === "keydown") kbMaskRef.current |= (1 << bit);
+      else kbMaskRef.current &= ~(1 << bit);
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKey); };
+  }, []);
 
   function readGamepadMask(gpIdx: number): number {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -637,6 +726,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
   // Tear down Track B
   function destroyCustomNetplay() {
     if (npStateSyncRef.current) { clearInterval(npStateSyncRef.current); npStateSyncRef.current = null; }
+    if (npReconnectTimer.current) { clearTimeout(npReconnectTimer.current); npReconnectTimer.current = null; }
     npChannelRef.current?.close();
     npRTCRef.current?.close();
     npWsRef.current?.close();
@@ -662,7 +752,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     let iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
     try {
       const r = await fetch("/api/ice-servers");
-      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) iceServers = d; }
+      if (r.ok) { const d = await r.json(); if (Array.isArray(d?.iceServers)) iceServers = d.iceServers; else if (Array.isArray(d)) iceServers = d; }
     } catch { /* use stun-only fallback */ }
 
     const pc = new RTCPeerConnection({ iceServers });
@@ -677,17 +767,27 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       ch.binaryType = "arraybuffer";
       ch.onopen = () => {
         setNpConnected(true);
-        // Start state sync (host → guest every 8s)
+        npReconnectRef.current = 0; // reset on success
+        // Start state sync (host → guest every 2.5s for desync recovery)
         if (role === "host") {
           npStateSyncRef.current = setInterval(() => {
+            if (ch.readyState !== "open" || (ch.bufferedAmount ?? 0) > 256 * 1024) return;
             const st = emsSaveState();
-            if (st && ch.readyState === "open") {
-              ch.send(JSON.stringify({ type: "np-state", state: st }));
+            if (st) {
+              ch.send(JSON.stringify({ type: "np-state", state: st, t: Date.now() }));
             }
-          }, 8000);
+          }, 2500);
         }
       };
-      ch.onclose = () => { setNpConnected(false); };
+      ch.onclose = () => {
+        setNpConnected(false);
+        // Auto-reconnect (max 5 attempts, exponential backoff)
+        if (npReconnectRef.current < 5 && netplayRoomRef.current) {
+          const delay = Math.min(1000 * Math.pow(2, npReconnectRef.current), 16000);
+          npReconnectRef.current++;
+          npReconnectTimer.current = setTimeout(() => initCustomNetplay(), delay);
+        }
+      };
       ch.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as Record<string,unknown>;
@@ -712,6 +812,18 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       pc.ondatachannel = (e) => setupChannel(e.channel);
     }
 
+    // Reconnect on connection failure
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        setNpConnected(false);
+        if (npReconnectRef.current < 5 && netplayRoomRef.current) {
+          const delay = Math.min(1000 * Math.pow(2, npReconnectRef.current), 16000);
+          npReconnectRef.current++;
+          npReconnectTimer.current = setTimeout(() => initCustomNetplay(), delay);
+        }
+      }
+    };
+
     // ICE candidates → relay via PartyKit
     pc.onicecandidate = (e) => {
       if (e.candidate && ws.readyState === WebSocket.OPEN) {
@@ -719,19 +831,26 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       }
     };
 
-    ws.onopen = async () => {
+    let offerSent = false;
+    async function sendOffer() {
+      if (offerSent || role !== "host") return;
+      offerSent = true;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: "np-offer", sdp: offer }));
+    }
+
+    ws.onopen = () => {
       ws.send(JSON.stringify({ type: "np-join", role, userId: sessionUserId ?? "" }));
-      if (role === "host") {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: "np-offer", sdp: offer }));
-      }
     };
 
     ws.onmessage = async (e) => {
       try {
         const msg = JSON.parse(e.data as string) as Record<string,unknown>;
-        if (msg.type === "np-offer" && role === "join") {
+        if (msg.type === "np-peer-count") {
+          // Both players present — host sends offer now
+          if ((msg.count as number) >= 2 && role === "host") sendOffer();
+        } else if (msg.type === "np-offer" && role === "join") {
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp as RTCSessionDescriptionInit));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -741,13 +860,10 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
         } else if (msg.type === "np-ice") {
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate as RTCIceCandidateInit));
         } else if (msg.type === "np-disconnect") {
-          // Peer disconnected — they left the game → auto-show result modal
           setNpConnected(false);
           if (isRanked && !roomCompleted) {
             setReportModal(true);
           }
-        } else if (msg.type === "np-peer-count") {
-          // Both players present
         }
       } catch { /* ignore */ }
     };
@@ -770,6 +886,24 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
   useEffect(() => {
     if (!activeRom || !emulatorContainerRef.current) return;
     const container = emulatorContainerRef.current;
+
+    // Clean up previous EmulatorJS instance + globals before reinit
+    const w = window as unknown as Record<string, unknown>;
+    try {
+      const oldGm = w.EJS_gameManager as Record<string, unknown> | undefined;
+      if (oldGm) {
+        if (typeof oldGm.pause === "function") (oldGm.pause as () => void)();
+        if (typeof oldGm.stop === "function") (oldGm.stop as () => void)();
+      }
+      // Nuke all EJS globals so loader.js can re-declare them cleanly
+      const ejsKeys = Object.keys(w).filter(k => k.startsWith("EJS_") || k === "EmulatorJS");
+      for (const k of ejsKeys) { try { delete w[k]; } catch { w[k] = undefined; } }
+    } catch { /* ignore */ }
+    // Remove ALL previous EJS script tags (loader + emulator)
+    document.querySelectorAll('script[src*="emulatorjs"]').forEach(s => s.remove());
+    const existingEjs = document.getElementById("ejs-script");
+    if (existingEjs) existingEjs.remove();
+
     container.innerHTML = "";
     setEmuLoading(true);
     setNetplayStatus("idle");
@@ -778,8 +912,6 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     emuDiv.id = "game";
     emuDiv.style.cssText = "width:100%;height:100%;";
     container.appendChild(emuDiv);
-
-    const w = window as unknown as Record<string, unknown>;
     w.EJS_player = "#game";
     w.EJS_core = "snes9x";
     w.EJS_gameUrl = activeRom.url;
@@ -787,33 +919,27 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     w.EJS_startOnLoaded = true;
     w.EJS_color = "#7c5cbf";
 
-    // Use refs (not searchParams) so game-start from lobby correctly enables netplay
+    // EmulatorJS netplay config (real API — host-streaming model)
     const activeNetplayRoom = netplayRoomRef.current;
     const activeNetplayRole = netplayRoleRef.current;
     if (activeNetplayRoom) {
-      w.EJS_Netplay = true;
-      // Track A: self-hosted relay (falls back to official if env not set)
-      w.EJS_netplayServer = process.env.NEXT_PUBLIC_NETPLAY_SERVER ?? "https://netplay.emulatorjs.org";
-      w.EJS_netplayFrameDelay = 2; // 2-frame delay (33ms) — stable for most connections
-      // P1 = host, P2 = guest — tells EmulatorJS which controller slot to assign
-      w.EJS_netplayPlayer = activeNetplayRole === "host" ? 1 : 2;
+      // EJS_gameID is required for room filtering — hash game name to a number
+      const gameName = activeRom.name;
+      let gameId = 0;
+      for (let i = 0; i < gameName.length; i++) gameId = ((gameId << 5) - gameId + gameName.charCodeAt(i)) | 0;
+      w.EJS_gameID = Math.abs(gameId);
+      w.EJS_netplayServer = process.env.NEXT_PUBLIC_NETPLAY_SERVER ?? "https://netplay.greatsouls.net";
     }
-
-    const autoJoinNetplay = () => { /* stub — netplay auto-join handled by EJS */ };
-    const initCustomNetplay = () => { /* stub — custom netplay layer */ };
 
     w.EJS_onGameStart = () => {
       setEmuLoading(false);
       if (activeNetplayRoom) {
         setNetplayStatus("waiting");
+        // Auto-join EmulatorJS netplay room (host opens, guest joins)
         setTimeout(() => autoJoinNetplay(), 1500);
-        // Track B: start custom layer alongside EJS netplay
-        setTimeout(() => initCustomNetplay(), 2000);
       }
     };
 
-    const existing = document.getElementById("ejs-script");
-    if (existing) existing.remove();
     const script = document.createElement("script");
     script.id = "ejs-script";
     script.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
@@ -834,8 +960,9 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       .catch(() => {});
   }, [netplayRoom]);
 
-  // Auto-load game from ?game= query param
+  // Auto-load game from ?game= query param (skip if joining via lobby — lobby poll handles it)
   useEffect(() => {
+    if (joinRoomParam) return; // lobby flow will load the ROM when game_started fires
     const gameName = searchParams?.get("game");
     if (!gameName) return;
     const entry = CATALOG.find(g => g.name === gameName);
@@ -922,8 +1049,8 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
       // Track B: send local inputs + inject peer inputs every frame
       const frame = npFrameRef.current++;
       if (npChannelRef.current?.readyState === "open") {
-        // Read local gamepad index 0 (the player's own gamepad)
-        const localMask = readGamepadMask(0);
+        // Read local inputs: gamepad OR keyboard
+        const localMask = readGamepadMask(0) | kbMaskRef.current;
         if (localMask !== localInputRef.current || frame % 4 === 0) {
           localInputRef.current = localMask;
           npChannelRef.current.send(JSON.stringify({ type: "np-input", mask: localMask }));

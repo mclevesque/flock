@@ -567,4 +567,45 @@ export const STYLES = `
     transition-duration: .01ms !important;
   }
 }
+
+/* ── Dice ─────────────────────────────────────────────────────────────── */
+
+.dm-sold-stamp[data-dice="1"] { background: rgba(8,8,10,.78); }
+.dm-dice-row {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  margin: 12px 0 6px;
+  animation: dm-dice-in .45s cubic-bezier(.2,1.4,.4,1);
+}
+@keyframes dm-dice-in { from { transform: scale(.6) rotate(-12deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.dm-die { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dm-die-face { font-size: clamp(56px, 16vw, 84px); line-height: 1; color: var(--dm-gold-hot); filter: drop-shadow(0 6px 14px rgba(0,0,0,.7)); }
+.dm-die-name { font-size: 12.5px; font-weight: 700; color: var(--dm-dim); }
+.dm-die-vs { font-size: 13px; color: var(--dm-mute); font-weight: 700; letter-spacing: .1em; }
+
+.dm-turn-pill {
+  margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; padding: 3px 7px; border-radius: 6px;
+  background: rgba(212,169,66,.18); color: var(--dm-gold); white-space: nowrap;
+}
+
+/* ── Connection + records ─────────────────────────────────────────────── */
+
+.dm-conn {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 50;
+  padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  background: rgba(196,83,26,.95); color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  animation: dm-pulse 1s ease-in-out infinite;
+}
+.dm-record { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; font-size: 13.5px; color: var(--dm-dim); }
+.dm-record strong { color: var(--dm-gold); font-size: 19px; font-variant-numeric: tabular-nums; }
+.dm-lb { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.dm-lb-row {
+  display: grid; grid-template-columns: 26px 1fr auto auto; gap: 10px; align-items: center;
+  padding: 8px 10px; border-radius: 9px; background: var(--dm-panel-2); font-size: 13.5px;
+}
+.dm-lb-row[data-me="1"] { outline: 1px solid var(--dm-gold); }
+.dm-lb-rank { color: var(--dm-mute); font-weight: 800; font-variant-numeric: tabular-nums; }
+.dm-lb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 650; }
+.dm-lb-rating { color: var(--dm-gold); font-weight: 800; font-variant-numeric: tabular-nums; }
+.dm-lb-wl { color: var(--dm-mute); font-variant-numeric: tabular-nums; font-size: 12.5px; }
 `;

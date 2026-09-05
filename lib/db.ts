@@ -5345,10 +5345,15 @@ export async function getBlindRankSession(id: string) {
   const rows = await sql`SELECT * FROM blindrank_sessions WHERE id = ${id}`;
   if (!rows.length) return null;
   const r = rows[0];
+  const rawItems = typeof r.items === "string" ? JSON.parse(r.items) : (r.items as unknown[]);
+  // Normalize: items may be plain strings (new) or {text, image} objects (legacy/with images)
+  const items = (Array.isArray(rawItems) ? rawItems : []).map((it: any) =>
+    typeof it === "string" ? { text: it } : { text: String(it?.text ?? ""), image: it?.image }
+  );
   return {
     id: r.id as string,
     topic: r.topic as string,
-    items: typeof r.items === "string" ? JSON.parse(r.items) : r.items as string[],
+    items,
     useImages: r.use_images as boolean,
     createdBy: r.created_by as string | null,
   };

@@ -6,7 +6,22 @@ export type { Lot, Rules, Side, Pack };
 export interface TickerEvent {
   id: number;
   text: string;
-  kind: "bid" | "sold" | "passed" | "system";
+  kind: "bid" | "sold" | "passed" | "dice" | "system";
+}
+
+/**
+ * A dice-off in progress or just resolved. Rolled when two sides are even —
+ * a matched bid on a lot, or a tied verdict. Ties reroll until someone wins.
+ */
+export interface DiceState {
+  reason: "lot" | "verdict";
+  /** Both contestants, in roll order */
+  sideIds: [string, string];
+  /** Every round rolled so far; the last entry is the current one */
+  rounds: { a: number; b: number }[];
+  winnerId: string | null;
+  /** Price the lot sells for if this is a lot dice-off */
+  price: number;
 }
 
 /**
@@ -14,14 +29,16 @@ export interface TickerEvent {
  * one set of screens — the auction stage never needs to know which mode it's in.
  */
 export interface GameView {
-  phase: "ready" | "bidding" | "sold" | "complete";
+  phase: "ready" | "bidding" | "dice" | "sold" | "complete";
   lot: Lot | null;
   currentBid: number;
   highBidderId: string | null;
+  /** Whose decision it is right now — bidding is strictly alternating */
+  turnId: string | null;
   openerId: string | null;
-  openerPassed: boolean;
-  /** Absolute epoch ms the current window closes */
-  deadline: number;
+  /** Sides that have declined to open this lot */
+  passedIds: string[];
+  dice: DiceState | null;
   lotsRemaining: number;
   sides: Side[];
   ticker: TickerEvent[];
@@ -42,6 +59,8 @@ export interface Verdict {
   reasoning: string;
   sideNotes: SideNote[];
   judged: "ai" | "offline";
+  /** Set when the judge scored it even and dice decided it */
+  diceBreak?: DiceState | null;
 }
 
 export interface ChatLine {
@@ -49,6 +68,8 @@ export interface ChatLine {
   name: string;
   text: string;
   at: number;
+  /** Server-generated lines (dice rolls) render differently */
+  system?: boolean;
 }
 
 export interface PackSummary {
@@ -56,6 +77,18 @@ export interface PackSummary {
   name: string;
   emoji: string;
   blurb: string;
+}
+
+export interface PlayerRecord {
+  userId: string;
+  name: string;
+  rating: number;
+  pvpWins: number;
+  pvpLosses: number;
+  soloWins: number;
+  soloLosses: number;
+  streak: number;
+  bestStreak: number;
 }
 
 /** imgQuery -> resolved portrait URL (null when nothing was found) */
@@ -66,9 +99,10 @@ export const EMPTY_VIEW: GameView = {
   lot: null,
   currentBid: 0,
   highBidderId: null,
+  turnId: null,
   openerId: null,
-  openerPassed: false,
-  deadline: 0,
+  passedIds: [],
+  dice: null,
   lotsRemaining: 0,
   sides: [],
   ticker: [],

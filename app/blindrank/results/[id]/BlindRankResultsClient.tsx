@@ -8,10 +8,12 @@ interface Result {
   submittedAt: string;
 }
 
+interface RankItem { text: string; image?: string; }
+
 interface Props {
   sessionId: string;
   topic: string;
-  items: string[];
+  items: RankItem[];
   createdBy: string | null;
   initialResults: Result[];
 }
@@ -39,18 +41,22 @@ export default function BlindRankResultsClient({ sessionId, topic, items, create
     setTimeout(() => setLinkCopied(false), 2500);
   };
 
-  // Build consensus ranking: score each item by average position
+  // Build consensus ranking: score each item by average position (keyed on text)
   const consensus = (() => {
     if (!results.length) return [];
     const scores: Record<string, number[]> = {};
-    items.forEach(item => { scores[item] = []; });
+    items.forEach(item => { scores[item.text] = []; });
     results.forEach(r => {
-      r.ranking.forEach((item, i) => {
-        if (scores[item]) scores[item].push(i + 1);
+      r.ranking.forEach((text, i) => {
+        if (scores[text]) scores[text].push(i + 1);
       });
     });
     return items
-      .map(item => ({ item, avg: scores[item].length ? scores[item].reduce((a, b) => a + b, 0) / scores[item].length : Infinity }))
+      .map(item => ({
+        text: item.text,
+        image: item.image,
+        avg: scores[item.text].length ? scores[item.text].reduce((a, b) => a + b, 0) / scores[item.text].length : Infinity,
+      }))
       .sort((a, b) => a.avg - b.avg);
   })();
 
@@ -132,8 +138,8 @@ export default function BlindRankResultsClient({ sessionId, topic, items, create
                 Consensus ({results.length} voters)
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {consensus.map(({ item, avg }, i) => (
-                  <div key={item} style={{
+                {consensus.map(({ text, image, avg }, i) => (
+                  <div key={text} style={{
                     display: "flex", alignItems: "center", gap: 10,
                     background: i === 0 ? "rgba(212,169,66,0.08)" : "#111",
                     border: `1px solid ${i === 0 ? "#d4a942" : "#1e1e1e"}`,
@@ -149,8 +155,11 @@ export default function BlindRankResultsClient({ sessionId, topic, items, create
                     }}>
                       {i === 0 ? "👑" : i + 1}
                     </div>
+                    {image && (
+                      <img src={image} alt={text} style={{ width: 30, height: 30, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} loading="lazy" />
+                    )}
                     <span style={{ flex: 1, fontSize: 13, fontWeight: i < 3 ? 600 : 400, color: i === 0 ? "#d4a942" : "#ccc", lineHeight: 1.2 }}>
-                      {item}
+                      {text}
                     </span>
                     <span style={{ color: "#444", fontSize: 10, flexShrink: 0 }}>
                       {avg === Infinity ? "—" : avg.toFixed(1)}

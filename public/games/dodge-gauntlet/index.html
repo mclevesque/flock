@@ -340,10 +340,10 @@ function resetGame() {
 // ============================================================
 // PROJECTILE PATTERNS
 // ============================================================
-function speedMult() { return (1 + elapsed * 0.002) * MOBILE_SPEED_MULT; }
+function speedMult() { return (1 + elapsed * 0.0012) * MOBILE_SPEED_MULT; }
 
 function patternRingBurst() {
-  const n = Math.min(8 + Math.floor(elapsed / 15) * 2, 28);
+  const n = Math.min(6 + Math.floor(elapsed / 20) * 2, 24);
   // Spawn from random edge point
   const side = Math.floor(Math.random() * 4);
   let ox, oy;
@@ -351,7 +351,7 @@ function patternRingBurst() {
   else if (side === 1) { ox = ARENA.x + Math.random() * ARENA.w; oy = ARENA.y + ARENA.h; }
   else if (side === 2) { ox = ARENA.x; oy = ARENA.y + Math.random() * ARENA.h; }
   else { ox = ARENA.x + ARENA.w; oy = ARENA.y + Math.random() * ARENA.h; }
-  const spd = (120 + Math.random() * 80) * speedMult();
+  const spd = (100 + Math.random() * 70) * speedMult();
   for (let i = 0; i < n; i++) {
     const a = (Math.PI * 2 / n) * i;
     spawnProj(ox, oy, Math.cos(a) * spd, Math.sin(a) * spd, 4, COL.cyan, 8);
@@ -527,38 +527,38 @@ function schedulePattern(name, fn, interval) {
 
 function updateWaves() {
   const t = elapsed;
-  const newWave = Math.floor(t / 15) + 1;
+  const newWave = Math.floor(t / 20) + 1;
   if (newWave > wave) { wave = newWave; sfxWave(); }
 
-  // Ring Burst: always active, frequency increases
-  schedulePattern('ring', patternRingBurst, Math.max(3 - t * 0.008, 1.0));
+  // Ring Burst: always active, starts gentle, ramps slower
+  schedulePattern('ring', patternRingBurst, Math.max(4.5 - t * 0.006, 1.2));
 
-  // Spiral: 15s+
-  if (t >= 15) schedulePattern('spiral', patternSpiral, 0.12);
+  // Spiral: 25s+
+  if (t >= 25) schedulePattern('spiral', patternSpiral, 0.15);
 
-  // Wall Sweep: 25s+
-  if (t >= 25) schedulePattern('wall', patternWallSweep, Math.max(5 - t * 0.01, 2.0));
+  // Wall Sweep: 40s+
+  if (t >= 40) schedulePattern('wall', patternWallSweep, Math.max(6 - t * 0.008, 2.5));
 
-  // Aimed Burst: 40s+
-  if (t >= 40) schedulePattern('aimed', patternAimedBurst, Math.max(4 - t * 0.008, 1.5));
+  // Aimed Burst: 60s+
+  if (t >= 60) schedulePattern('aimed', patternAimedBurst, Math.max(5 - t * 0.006, 1.8));
 
-  // Cross: 55s+
-  if (t >= 55) schedulePattern('cross', patternCross, Math.max(6 - t * 0.01, 2.5));
+  // Cross: 80s+
+  if (t >= 80) schedulePattern('cross', patternCross, Math.max(7 - t * 0.008, 3.0));
 
-  // Homing: 70s+
-  if (t >= 70) schedulePattern('homing', patternHoming, Math.max(5 - t * 0.005, 2.5));
+  // Homing: 100s+
+  if (t >= 100) schedulePattern('homing', patternHoming, Math.max(6 - t * 0.004, 3.0));
 
-  // Shotgun: 90s+
-  if (t >= 90) schedulePattern('shotgun', patternShotgun, Math.max(4 - t * 0.005, 2.0));
+  // Shotgun: 120s+
+  if (t >= 120) schedulePattern('shotgun', patternShotgun, Math.max(5 - t * 0.004, 2.5));
 
-  // Bouncing: 90s+ (less frequent)
-  if (t >= 90) schedulePattern('bounce', patternBouncing, Math.max(6 - t * 0.008, 2.5));
+  // Bouncing: 130s+
+  if (t >= 130) schedulePattern('bounce', patternBouncing, Math.max(7 - t * 0.006, 3.0));
 
-  // Closing Ring: 130s+
-  if (t >= 130) schedulePattern('closing', patternClosingRing, Math.max(6 - t * 0.005, 3.0));
+  // Closing Ring: 160s+
+  if (t >= 160) schedulePattern('closing', patternClosingRing, Math.max(7 - t * 0.004, 3.5));
 
-  // Chaos Rain: 150s+ (continuous)
-  if (t >= 150) schedulePattern('rain', patternChaosRain, 0.15);
+  // Chaos Rain: 180s+ (continuous)
+  if (t >= 180) schedulePattern('rain', patternChaosRain, 0.18);
 }
 
 // ============================================================

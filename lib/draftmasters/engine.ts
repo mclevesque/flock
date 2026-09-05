@@ -1,27 +1,28 @@
 /**
  * DraftMasters — auction draft engine.
  *
- * The format is a straight ascending-bid auction draft (the "salary cap draft"
- * used in fantasy sports, and the one every $20 draft video on the internet
- * is really running):
+ * A straight ascending-bid auction draft, played as alternating turns with
+ * no clock. Every lot is resolved by a decision, never by a timer running
+ * out — which is what makes it survive a flaky phone connection: there is
+ * nothing to miss.
  *
  *   • Everyone starts with the same budget.
  *   • Lots are nominated one at a time from a shuffled pool.
- *   • Bidding is open and ascending, minimum increment $1.
- *   • The clock resets on every bid. When it expires, high bidder buys the lot
- *     at their bid. If nobody opened, the lot passes unsold.
- *   • You must reserve $1 for every roster slot you still have to fill —
- *     so max bid = budget − (slotsRemaining − 1). This is the rule that stops
- *     someone blowing $20 on pick one and drafting four empty chairs.
+ *   • Opening rights alternate lot by lot. The opener bids or passes.
+ *   • After a bid, the other side may RAISE, PASS (high bidder wins), or —
+ *     if they can match the price but not beat it — MATCH and roll dice for it.
+ *   • Passing an unbid lot hands the opening to the other side if they have a
+ *     slot to fill; if both decline, the lot goes unsold.
+ *   • Reserve rule: you must keep $1 for every roster slot still open, so
+ *     max bid = budget − (slotsRemaining − 1). Blowing the bank on pick one
+ *     leaves you scavenging $1 leftovers, not drafting empty chairs.
  *   • The draft ends when every roster is full, or the pool runs dry.
  *
- * All of this is pure and deterministic given a seed, so the solo game and the
- * PartyKit room can run the same code and never disagree.
+ * Pure and deterministic given a seed, so the solo game and the PartyKit
+ * room run the same code and never disagree.
  */
 
 import type { Entry, Pack, Variant } from "./packs";
-
-export type Phase = "setup" | "nominating" | "bidding" | "sold" | "complete";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -51,17 +52,11 @@ export interface Side {
 export interface Rules {
   budget: number;
   rosterSize: number;
-  /** Seconds on the clock when a lot opens */
-  openSeconds: number;
-  /** Seconds the clock resets to after each bid */
-  bidSeconds: number;
 }
 
 export const DEFAULT_RULES: Rules = {
   budget: 20,
   rosterSize: 5,
-  openSeconds: 15,
-  bidSeconds: 8,
 };
 
 export const BUDGET_PRESETS = [
@@ -87,6 +82,11 @@ export function makeRng(seed: number): () => number {
 
 export function randomSeed(): number {
   return Math.floor(Math.random() * 0x7fffffff);
+}
+
+/** One six-sided die. */
+export function rollDie(): number {
+  return 1 + Math.floor(Math.random() * 6);
 }
 
 // ── Lot construction ─────────────────────────────────────────────────────────
@@ -132,12 +132,30 @@ export function maxBid(side: Side, rules: Rules): number {
   return Math.max(0, side.budget - (slotsLeft - 1));
 }
 
-export function canBid(side: Side, rules: Rules, currentBid: number): boolean {
-  return maxBid(side, rules) >= currentBid + 1;
-}
-
 export function isFull(side: Side, rules: Rules): boolean {
   return side.roster.length >= rules.rosterSize;
+}
+
+/** Can put the first dollar on an unbid lot. */
+export function canOpen(side: Side, rules: Rules): boolean {
+  return !isFull(side, rules) && maxBid(side, rules) >= 1;
+}
+
+/** Can beat the standing bid. */
+export function canRaise(side: Side, rules: Rules, currentBid: number): boolean {
+  return !isFull(side, rules) && maxBid(side, rules) > currentBid;
+}
+
+/**
+ * Can equal the standing bid but not beat it — the "even" case. Rather than
+ * letting turn order decide, the matching side may roll dice for the lot.
+ */
+export function canMatch(side: Side, rules: Rules, currentBid: number): boolean {
+  return currentBid > 0 && !isFull(side, rules) && maxBid(side, rules) === currentBid;
+}
+
+export function otherSide(sides: Side[], id: string | null): Side | undefined {
+  return sides.find((s) => s.id !== id);
 }
 
 export function draftComplete(sides: Side[], rules: Rules, lotsRemaining: number): boolean {
@@ -172,7 +190,7 @@ function baseValue(tier: number, rules: Rules): number {
 }
 
 /**
- * The most this NPC is willing to pay for this lot right now.
+ * The most this NPC is willing to pay for this lot.
  * Cached per-lot by the caller so the NPC doesn't re-roll its nerve mid-auction.
  */
 export function npcValuation(
@@ -207,25 +225,21 @@ export function npcValuation(
   return Math.max(1, Math.round(Math.min(value, maxBid(side, rules))));
 }
 
-/**
- * Decide the NPC's next action against a standing bid.
- * Returns the amount to bid, or null to pass.
- */
-export function npcDecide(
-  valuation: number,
-  currentBid: number,
-  npcHoldsHighBid: boolean,
-  side: Side,
-  rules: Rules
-): number | null {
-  if (npcHoldsHighBid) return null;
-  const ceiling = Math.min(valuation, maxBid(side, rules));
+export type NpcMove = { kind: "bid"; amount: number } | { kind: "match" } | { kind: "pass" };
+
+/** What the NPC does on its turn. */
+export function npcMove(valuation: number, side: Side, rules: Rules, currentBid: number): NpcMove {
+  if (currentBid === 0) {
+    return canOpen(side, rules) && valuation >= 1 ? { kind: "bid", amount: 1 } : { kind: "pass" };
+  }
   const next = currentBid + 1;
-  if (next > ceiling) return null;
-  return next;
+  if (next <= valuation && canRaise(side, rules, currentBid)) return { kind: "bid", amount: next };
+  // Would pay this much but can't outbid — roll for it.
+  if (valuation >= currentBid && canMatch(side, rules, currentBid)) return { kind: "match" };
+  return { kind: "pass" };
 }
 
-/** How long the NPC "thinks" before bidding — closer to its ceiling, longer it stalls. */
+/** How long the NPC "thinks" — closer to its ceiling, longer it stalls. */
 export function npcThinkMs(valuation: number, currentBid: number): number {
   const headroom = valuation - currentBid;
   if (headroom >= 4) return 700 + Math.random() * 700;
@@ -269,4 +283,15 @@ export function offlineVerdict(sides: Side[]): { winnerId: string; scores: SideS
     scores,
     reasoning: `Top-end power decided it — ${winner.power} to ${loser.power}. ${closeness}`,
   };
+}
+
+// ── Ratings ──────────────────────────────────────────────────────────────────
+
+export const STARTING_RATING = 1000;
+
+/** Standard Elo, K=32. Returns the new ratings for (winner, loser). */
+export function eloUpdate(winner: number, loser: number, k = 32): [number, number] {
+  const expectedWin = 1 / (1 + Math.pow(10, (loser - winner) / 400));
+  const delta = Math.round(k * (1 - expectedWin));
+  return [winner + delta, loser - delta];
 }

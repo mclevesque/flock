@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { maxBid, type Rules, type Side } from "@/lib/draftmasters/engine";
-import { sfx } from "@/lib/draftmasters/sfx";
-import type { GameView, PortraitMap } from "./types";
+import { canMatch, canOpen, canRaise, maxBid, type Rules, type Side } from "@/lib/draftmasters/engine";
+import type { DiceState, GameView, PortraitMap } from "./types";
 
 /**
- * The auction stage — one lot under a spotlight, a draining clock, and the
- * two things a bidder actually needs to see: what it costs right now, and the
- * most they're allowed to spend.
+ * The auction stage — one lot under a spotlight and the two things a bidder
+ * needs: what it costs right now, and whose move it is. No clock. A lot only
+ * resolves when someone decides, so a dropped connection can't cost you a pick.
  */
+
+const SOLD_REVEAL_MS = 3000;
+const DICE_TIE_MS = 1900;
 
 interface Props {
   view: GameView;
@@ -20,6 +22,9 @@ interface Props {
   packName: string;
   onBid: (amount: number) => void;
   onPass: () => void;
+  onMatch: () => void;
+  /** Called once the sold reveal or a tied dice round has played out */
+  onAdvance: () => void;
 }
 
 export default function AuctionStage({
@@ -31,40 +36,42 @@ export default function AuctionStage({
   packName,
   onBid,
   onPass,
+  onMatch,
+  onAdvance,
 }: Props) {
   const me = view.sides.find((s) => s.id === meId) ?? null;
-  const others = view.sides.filter((s) => s.id !== meId);
+  const other = view.sides.find((s) => s.id !== meId) ?? null;
   const lot = view.lot;
 
-  const remaining = useCountdown(view.deadline, view.phase === "bidding");
-  const total = view.currentBid > 0 ? rules.bidSeconds : rules.openSeconds;
-  const pct = Math.max(0, Math.min(100, (remaining / (total * 1000)) * 100));
-  const urgent = remaining <= 3200 && view.phase === "bidding";
-
-  // Quiet countdown ticks over the last few seconds only.
-  const lastTickRef = useRef(-1);
-  useEffect(() => {
-    if (view.phase !== "bidding") {
-      lastTickRef.current = -1;
-      return;
-    }
-    const secs = Math.ceil(remaining / 1000);
-    if (secs <= 5 && secs > 0 && secs !== lastTickRef.current) {
-      lastTickRef.current = secs;
-      sfx.tick(secs <= 3);
-    }
-  }, [remaining, view.phase]);
-
+  const myTurn = view.phase === "bidding" && view.turnId === meId;
   const myMax = me ? maxBid(me, rules) : 0;
   const iAmFull = me ? me.roster.length >= rules.rosterSize : false;
   const iHoldBid = view.highBidderId === meId;
   const isOpening = view.currentBid === 0;
-  const iCanOpen = isOpening && view.openerId === meId && myMax >= 1;
-  const iCanRaise = !isOpening && !iHoldBid && myMax >= view.currentBid + 1;
-  const openerName = view.sides.find((s) => s.id === view.openerId)?.name ?? "the other side";
   const holderName = view.sides.find((s) => s.id === view.highBidderId)?.name ?? "";
+  const turnName = view.sides.find((s) => s.id === view.turnId)?.name ?? "the other side";
 
-  const lastPick = lastSoldId(view);
+  const iCanOpen = me ? canOpen(me, rules) : false;
+  const iCanRaise = me ? canRaise(me, rules, view.currentBid) : false;
+  const iCanMatch = me ? canMatch(me, rules, view.currentBid) : false;
+
+  // Client-driven progression. The reveal is cosmetic; when it's done we tell
+  // the game to move on. In PvP both clients do this and the server takes the
+  // first, so a client that never sees the reveal can't stall the room.
+  const advanceRef = useRef(onAdvance);
+  advanceRef.current = onAdvance;
+  useEffect(() => {
+    if (view.phase === "sold") {
+      const t = setTimeout(() => advanceRef.current(), SOLD_REVEAL_MS);
+      return () => clearTimeout(t);
+    }
+    if (view.phase === "dice" && view.dice && view.dice.winnerId === null) {
+      const t = setTimeout(() => advanceRef.current(), DICE_TIE_MS);
+      return () => clearTimeout(t);
+    }
+  }, [view.phase, view.dice, view.lot?.id]);
+
+  const lastPick = view.phase === "sold" && lot ? lot.id : null;
 
   return (
     <div className="dm-stage">
@@ -98,37 +105,16 @@ export default function AuctionStage({
                   {view.highBidderId ? "Sold" : "Passed"}
                 </div>
                 <div className="dm-sold-sub">
-                  {view.highBidderId
-                    ? `${holderName} — $${view.currentBid}`
-                    : "Nobody wanted them"}
+                  {view.highBidderId ? `${holderName} — $${view.currentBid}` : "Nobody wanted them"}
                 </div>
               </div>
             </div>
           )}
-        </div>
 
-        {/* ── Clock ────────────────────────────────────────────────────── */}
-        {view.phase === "bidding" && (
-          <div className="dm-timer">
-            <div className="dm-timer-track">
-              <div
-                className="dm-timer-fill"
-                data-urgent={urgent ? "1" : "0"}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <div className="dm-timer-label">
-              <span>
-                {isOpening
-                  ? view.openerPassed
-                    ? "Last chance to open"
-                    : "Opening rights"
-                  : "Going once…"}
-              </span>
-              <span className="dm-money">{Math.ceil(remaining / 1000)}s</span>
-            </div>
-          </div>
-        )}
+          {view.phase === "dice" && view.dice && (
+            <DiceOverlay dice={view.dice} sides={view.sides} meId={meId} />
+          )}
+        </div>
 
         {/* ── Money readout ────────────────────────────────────────────── */}
         <div className="dm-bidbar">
@@ -149,11 +135,13 @@ export default function AuctionStage({
             </>
           ) : (
             <div className="dm-bid-open">
-              {view.phase === "sold"
-                ? " "
-                : iCanOpen
-                  ? "Your call — open the bidding or pass"
-                  : `${openerName} has the opening bid`}
+              {view.phase !== "bidding"
+                ? " "
+                : myTurn
+                  ? view.passedIds.length
+                    ? "They passed — it's yours for $1 if you want it"
+                    : "Your call — open the bidding or pass"
+                  : `${turnName} has the opening bid`}
             </div>
           )}
         </div>
@@ -163,9 +151,20 @@ export default function AuctionStage({
           <div className="dm-controls">
             {iAmFull ? (
               <div className="dm-waiting">Your roster is full — you&apos;re out of the bidding.</div>
-            ) : iCanOpen ? (
+            ) : !myTurn ? (
+              <div className="dm-waiting">
+                {iHoldBid ? (
+                  <>
+                    You hold the bid at <strong className="dm-money">${view.currentBid}</strong> —{" "}
+                    {other?.name ?? "they"} decide.
+                  </>
+                ) : (
+                  <>Waiting for {turnName}…</>
+                )}
+              </div>
+            ) : isOpening ? (
               <div className="dm-quickbids">
-                <button className="dm-quickbid" onClick={() => onBid(1)}>
+                <button className="dm-quickbid" onClick={() => onBid(1)} disabled={!iCanOpen}>
                   $1<small>Open</small>
                 </button>
                 <button
@@ -179,19 +178,16 @@ export default function AuctionStage({
                   Pass<small>Let it go</small>
                 </button>
               </div>
-            ) : iCanRaise ? (
-              <RaiseControls currentBid={view.currentBid} myMax={myMax} onBid={onBid} />
-            ) : iHoldBid ? (
-              <div className="dm-waiting">
-                You hold the bid at <strong className="dm-money">${view.currentBid}</strong> — waiting
-                on {others[0]?.name ?? "the other side"}.
-              </div>
-            ) : isOpening ? (
-              <div className="dm-waiting">Waiting for {openerName} to open…</div>
             ) : (
-              <div className="dm-waiting">
-                ${view.currentBid} is past your limit of ${myMax}. They&apos;ve got this one.
-              </div>
+              <RaiseControls
+                currentBid={view.currentBid}
+                myMax={myMax}
+                canRaise={iCanRaise}
+                canMatch={iCanMatch}
+                onBid={onBid}
+                onPass={onPass}
+                onMatch={onMatch}
+              />
             )}
           </div>
         )}
@@ -212,7 +208,7 @@ export default function AuctionStage({
               side={side}
               rules={rules}
               isMe={side.id === meId}
-              isOpener={view.openerId === side.id && view.currentBid === 0 && view.phase === "bidding"}
+              isTurn={view.phase === "bidding" && view.turnId === side.id}
               holdsBid={view.highBidderId === side.id}
               speaking={speaking.has(side.id)}
               portraits={portraits}
@@ -238,39 +234,107 @@ export default function AuctionStage({
 function RaiseControls({
   currentBid,
   myMax,
+  canRaise,
+  canMatch,
   onBid,
+  onPass,
+  onMatch,
 }: {
   currentBid: number;
   myMax: number;
+  canRaise: boolean;
+  canMatch: boolean;
   onBid: (n: number) => void;
+  onPass: () => void;
+  onMatch: () => void;
 }) {
   const steps = [1, 2, 5];
   return (
     <>
-      <div className="dm-quickbids">
-        {steps.map((step) => {
-          const amount = currentBid + step;
-          return (
-            <button
-              key={step}
-              className="dm-quickbid"
-              disabled={amount > myMax}
-              onClick={() => onBid(amount)}
-            >
-              ${amount}
-              <small>+{step}</small>
-            </button>
-          );
-        })}
-      </div>
-      <button
-        className="dm-btn dm-btn-primary dm-btn-block"
-        disabled={myMax <= currentBid}
-        onClick={() => onBid(myMax)}
-      >
-        All in — ${myMax}
+      {canRaise && (
+        <>
+          <div className="dm-quickbids">
+            {steps.map((step) => {
+              const amount = currentBid + step;
+              return (
+                <button
+                  key={step}
+                  className="dm-quickbid"
+                  disabled={amount > myMax}
+                  onClick={() => onBid(amount)}
+                >
+                  ${amount}
+                  <small>+{step}</small>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            className="dm-btn dm-btn-primary dm-btn-block"
+            disabled={myMax <= currentBid}
+            onClick={() => onBid(myMax)}
+          >
+            All in — ${myMax}
+          </button>
+        </>
+      )}
+
+      {canMatch && (
+        <button className="dm-btn dm-btn-primary dm-btn-block dm-btn-lg" onClick={onMatch}>
+          🎲 Match ${currentBid} and roll for it
+        </button>
+      )}
+
+      {!canRaise && !canMatch && (
+        <div className="dm-waiting">
+          ${currentBid} is past your limit of ${myMax}. Pass to let them have it.
+        </div>
+      )}
+
+      <button className="dm-btn dm-btn-ghost dm-btn-block" onClick={onPass}>
+        Pass — let them have it
       </button>
     </>
+  );
+}
+
+// ── Dice overlay ─────────────────────────────────────────────────────────────
+
+const DIE = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+
+function DiceOverlay({ dice, sides, meId }: { dice: DiceState; sides: Side[]; meId: string }) {
+  const round = dice.rounds[dice.rounds.length - 1];
+  const [a, b] = dice.sideIds;
+  const nameOf = (id: string) => (id === meId ? "You" : (sides.find((s) => s.id === id)?.name ?? "—"));
+  const tie = round && round.a === round.b;
+  const winner = dice.winnerId ? nameOf(dice.winnerId) : null;
+
+  return (
+    <div className="dm-sold-stamp" data-dice="1">
+      <div style={{ textAlign: "center", padding: 12 }}>
+        <div className="dm-eyebrow" style={{ color: "var(--dm-gold)" }}>
+          {dice.reason === "verdict" ? "Judge has it even — dice decide" : `Even at $${dice.price} — dice decide`}
+        </div>
+        <div className="dm-dice-row" key={dice.rounds.length}>
+          <div className="dm-die">
+            <span className="dm-die-face">{round ? DIE[round.a] : "🎲"}</span>
+            <span className="dm-die-name">{nameOf(a)}</span>
+          </div>
+          <span className="dm-die-vs">vs</span>
+          <div className="dm-die">
+            <span className="dm-die-face">{round ? DIE[round.b] : "🎲"}</span>
+            <span className="dm-die-name">{nameOf(b)}</span>
+          </div>
+        </div>
+        <div className="dm-sold-sub">
+          {winner
+            ? `${winner} ${winner === "You" ? "win" : "wins"} the roll${dice.rounds.length > 1 ? ` (after ${dice.rounds.length - 1} tie${dice.rounds.length > 2 ? "s" : ""})` : ""}`
+            : tie
+              ? `${round.a}–${round.b} — tie! Rolling again…`
+              : "Rolling…"}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -280,7 +344,7 @@ function ScoreCard({
   side,
   rules,
   isMe,
-  isOpener,
+  isTurn,
   holdsBid,
   speaking,
   portraits,
@@ -289,7 +353,7 @@ function ScoreCard({
   side: Side;
   rules: Rules;
   isMe: boolean;
-  isOpener: boolean;
+  isTurn: boolean;
   holdsBid: boolean;
   speaking: boolean;
   portraits: PortraitMap;
@@ -299,30 +363,25 @@ function ScoreCard({
   const slotsLeft = rules.rosterSize - side.roster.length;
 
   return (
-    <div className="dm-score" data-turn={isOpener ? "1" : "0"} data-high={holdsBid ? "1" : "0"}>
+    <div className="dm-score" data-turn={isTurn ? "1" : "0"} data-high={holdsBid ? "1" : "0"}>
       <div className="dm-score-top">
         {side.avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            className="dm-avatar"
-            data-speaking={speaking ? "1" : "0"}
-            src={side.avatarUrl}
-            alt=""
-          />
+          <img className="dm-avatar" data-speaking={speaking ? "1" : "0"} src={side.avatarUrl} alt="" />
         ) : (
           <div className="dm-avatar" data-speaking={speaking ? "1" : "0"}>
             {side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}
           </div>
         )}
         <div className="dm-score-name">{isMe ? "You" : side.name}</div>
+        {isTurn && <span className="dm-turn-pill">{isMe ? "Your move" : "Deciding…"}</span>}
       </div>
 
       <div className="dm-score-budget dm-money">${side.budget}</div>
       <div className="dm-score-meta">
         {slotsLeft > 0 ? (
           <>
-            max bid <span className="dm-money">${cap}</span> · {slotsLeft} slot
-            {slotsLeft === 1 ? "" : "s"} left
+            max bid <span className="dm-money">${cap}</span> · {slotsLeft} slot{slotsLeft === 1 ? "" : "s"} left
           </>
         ) : (
           "roster full"
@@ -357,17 +416,8 @@ function ScoreCard({
   );
 }
 
-// ── Portrait with graceful failure ───────────────────────────────────────────
+// ── Portrait with adaptive framing ───────────────────────────────────────────
 
-/**
- * Portraits come from the open web, so their shapes are unpredictable.
- *
- *  • Portrait-ish (roughly 0.6–1.05) fills the card edge to edge, biased
- *    upward — heads sit in the top third of almost every photo, so a centred
- *    crop is what cuts them off.
- *  • Anything else (wide stills, tall strips) is letterboxed onto a blurred
- *    copy of itself. Nothing gets cropped, and the card still looks filled.
- */
 function Portrait({ url, name }: { url: string | null; name: string }) {
   const [broken, setBroken] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
@@ -381,15 +431,11 @@ function Portrait({ url, name }: { url: string | null; name: string }) {
     return <div className="dm-portrait-fallback">{name.charAt(0).toUpperCase()}</div>;
   }
 
-  // Assume a good crop until the image reports otherwise — avoids a visible
-  // reflow on the common case.
   const letterbox = ratio !== null && (ratio > 1.05 || ratio < 0.6);
 
   const onLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    if (img.naturalWidth && img.naturalHeight) {
-      setRatio(img.naturalWidth / img.naturalHeight);
-    }
+    if (img.naturalWidth && img.naturalHeight) setRatio(img.naturalWidth / img.naturalHeight);
   };
 
   return (
@@ -410,45 +456,4 @@ function Portrait({ url, name }: { url: string | null; name: string }) {
       />
     </>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Counts down to an absolute deadline.
- *
- * Deliberately an interval rather than requestAnimationFrame: rAF is suspended
- * whenever the browser stops compositing, which includes an occluded window
- * that still reports `visibilityState === "visible"`. That froze the clock on
- * screen while the auction kept running underneath. Timers keep firing, and
- * reading the deadline rather than accumulating elapsed time means a throttled
- * tab snaps straight back to the right number instead of drifting.
- */
-function useCountdown(deadline: number, active: boolean): number {
-  const [remaining, setRemaining] = useState(() => Math.max(0, deadline - Date.now()));
-
-  useEffect(() => {
-    const tick = () => setRemaining(Math.max(0, deadline - Date.now()));
-    tick();
-    if (!active) return;
-    const id = setInterval(tick, 100);
-    // Repaint immediately on return rather than waiting for the next tick.
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [deadline, active]);
-
-  return remaining;
-}
-
-/**
- * The pick that just landed, so its roster slot can pop in.
- * During the "sold" reveal that's the lot on the block — which is exactly the
- * one that was added to somebody's shelf a moment ago.
- */
-function lastSoldId(view: GameView): string | null {
-  if (view.phase !== "sold" || !view.lot) return null;
-  return view.lot.id;
 }

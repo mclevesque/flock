@@ -25,12 +25,20 @@ export default class NetplayParty implements Party.Server {
     try {
       const data = JSON.parse(msg) as Record<string, unknown>;
 
-      // ── Register peer ──────────────────────────────────────────────────────
+      // ── Register peer (supports reconnection — replaces old conn for same userId) ──
       if (data.type === "np-join") {
+        const userId = data.userId as string;
+        // Remove stale entry for same userId (reconnection scenario)
+        for (const [id, peer] of this.peers) {
+          if (peer.userId === userId && id !== sender.id) {
+            this.peers.delete(id);
+            break;
+          }
+        }
         this.peers.set(sender.id, {
           conn: sender,
           role: data.role as "host" | "join",
-          userId: data.userId as string,
+          userId,
         });
         // Tell both sides how many players are in the room
         this.room.broadcast(JSON.stringify({ type: "np-peer-count", count: this.peers.size }));
