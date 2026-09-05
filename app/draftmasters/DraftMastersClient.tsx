@@ -23,7 +23,7 @@ import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
 import MediaRail from "./MediaRail";
 import VerdictScreen from "./VerdictScreen";
-import { useDraftMedia } from "./useDraftMedia";
+import { useDraftMedia, type DraftMedia } from "./useDraftMedia";
 import { STYLES } from "./styles";
 import {
   EMPTY_VIEW,
@@ -55,7 +55,7 @@ const TOPIC_EXAMPLES = [
   "Cursed kitchen appliances",
 ];
 
-type Screen = "setup" | "prep" | "ready" | "auction" | "verdict";
+type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "verdict";
 type Mode = "solo" | "pvp";
 
 interface Props {
@@ -94,6 +94,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   // ── PvP ────────────────────────────────────────────────────────────────────
   const [roomCode, setRoomCode] = useState<string | null>(null);
+  // The server confirms who hosts, but that round-trip takes a moment — until
+  // then the person who opened the room must not be shown the guest view.
+  const [iOpenedRoom, setIOpenedRoom] = useState(false);
   const [hostId, setHostId] = useState<string | null>(null);
   const [members, setMembers] = useState<
     { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[]
@@ -500,6 +503,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       initAudio();
       setMode("pvp");
       setRoomCode(code);
+      setIOpenedRoom(asHost);
       setError(null);
 
       const { default: PartySocket } = await import("partysocket");
@@ -534,26 +538,35 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       // Mics on by default — arguing about the picks is the game.
       void mediaRef.current.start({ mic: true, cam: false });
 
-      if (asHost) {
-        ws.send(JSON.stringify({ type: "preparing" }));
-        setScreen("prep");
-        const board = await buildBoard();
-        if (!board) return;
-        const preset = BUDGET_PRESETS[rulesIdx];
-        ws.send(
-          JSON.stringify({
-            type: "board",
-            pack: board,
-            budget: preset.budget,
-            rosterSize: preset.rosterSize,
-          })
-        );
-      } else {
-        setScreen("prep");
-      }
+      // Straight into the room — code, invite link and live mic — rather than
+      // making the host build a board before their friend can even join.
+      // Picking the topic happens in the room, with both of them talking.
+      setScreen("room");
     },
-    [buildBoard, meId, myAvatar, myName, rulesIdx]
+    [meId, myAvatar, myName]
   );
+
+  /** Host commits the topic and deals the board. Everyone is already in the room. */
+  const startPvpDraft = useCallback(async () => {
+    initAudio();
+    sfx.click();
+    wsRef.current?.send(JSON.stringify({ type: "preparing" }));
+    setScreen("prep");
+    const board = await buildBoard();
+    if (!board) {
+      setScreen("room");
+      return;
+    }
+    const preset = BUDGET_PRESETS[rulesIdx];
+    wsRef.current?.send(
+      JSON.stringify({
+        type: "board",
+        pack: board,
+        budget: preset.budget,
+        rosterSize: preset.rosterSize,
+      })
+    );
+  }, [buildBoard, rulesIdx]);
 
   const prevPhase = useRef<string>("");
   const prevBid = useRef(0);
@@ -642,6 +655,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       if (phase === "ready") setScreen("ready");
       else if (phase === "bidding" || phase === "sold") setScreen("auction");
       else if (phase === "complete") setScreen("verdict");
+      else if (phase === "lobby") setScreen("room");
       else setScreen("prep");
     },
     [meId, prefetchPortraits]
@@ -732,7 +746,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const isHost = mode === "solo" || hostId === meId;
+  const isHost = mode === "solo" || hostId === meId || (hostId === null && iOpenedRoom);
   const topicLabel = customTopic.trim() || packs.find((p) => p.id === presetId)?.name || "a topic";
   const iAmReady = view.readyIds.includes(meId);
   const seatedSides = view.sides;
@@ -788,6 +802,27 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             onSolo={startSolo}
             onCreate={() => void connectRoom(makeRoomCode(), true)}
             onJoin={() => void connectRoom(joinCode.trim().toUpperCase(), false)}
+          />
+        )}
+
+        {screen === "room" && (
+          <RoomLobby
+            roomCode={roomCode}
+            isHost={isHost}
+            members={members}
+            meId={meId}
+            media={media}
+            chat={chat}
+            onSendChat={sendChat}
+            packs={packs}
+            presetId={presetId}
+            setPresetId={setPresetId}
+            customTopic={customTopic}
+            setCustomTopic={setCustomTopic}
+            rulesIdx={rulesIdx}
+            setRulesIdx={setRulesIdx}
+            error={error}
+            onStart={() => void startPvpDraft()}
           />
         )}
 
@@ -1267,6 +1302,150 @@ function ReadyScreen({
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * The room itself — where you land the moment you create one.
+ *
+ * Everything you need to get a friend in is here and nothing else is: the
+ * invite link, who's arrived, and a live mic. The host picks the topic from
+ * this screen, so the two of you can argue about what to draft before anything
+ * is committed.
+ */
+function RoomLobby({
+  roomCode,
+  isHost,
+  members,
+  meId,
+  media,
+  chat,
+  onSendChat,
+  packs,
+  presetId,
+  setPresetId,
+  customTopic,
+  setCustomTopic,
+  rulesIdx,
+  setRulesIdx,
+  error,
+  onStart,
+}: {
+  roomCode: string | null;
+  isHost: boolean;
+  members: { userId: string; name: string; avatarUrl: string | null; mic: boolean; cam: boolean }[];
+  meId: string;
+  media: DraftMedia;
+  chat: ChatLine[];
+  onSendChat: (t: string) => void;
+  packs: PackSummary[];
+  presetId: string | null;
+  setPresetId: (id: string | null) => void;
+  customTopic: string;
+  setCustomTopic: (s: string) => void;
+  rulesIdx: number;
+  setRulesIdx: (n: number) => void;
+  error: string | null;
+  onStart: () => void;
+}) {
+  const others = members.filter((m) => m.userId !== meId);
+  const usingCustom = customTopic.trim().length > 0;
+
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto" }}>
+      {error && (
+        <div className="dm-error" style={{ marginBottom: 18 }}>
+          {error}
+        </div>
+      )}
+
+      <div className="dm-panel" style={{ marginBottom: 18 }}>
+        <p className="dm-eyebrow">Invite your opponent</p>
+        {roomCode ? <RoomCode code={roomCode} /> : <p className="dm-note">Opening room…</p>}
+      </div>
+
+      <div className="dm-panel" style={{ marginBottom: 18 }}>
+        <p className="dm-eyebrow">
+          In the room · {members.length} {members.length === 1 ? "person" : "people"}
+        </p>
+        {others.length === 0 && (
+          <p className="dm-note" style={{ marginBottom: 12 }}>
+            Just you so far. Your mic is already live — as soon as they join you can talk.
+          </p>
+        )}
+        <MediaRail
+          media={media}
+          members={members}
+          meId={meId}
+          chat={chat}
+          onSendChat={onSendChat}
+        />
+      </div>
+
+      {isHost ? (
+        <div className="dm-panel">
+          <p className="dm-eyebrow">Pick the topic</p>
+          <input
+            className="dm-input"
+            value={customTopic}
+            onChange={(e) => setCustomTopic(e.target.value)}
+            placeholder="Type any topic — “Game of Thrones warriors”…"
+            maxLength={120}
+            aria-label="Custom topic"
+            style={{ width: "100%" }}
+          />
+          <div className="dm-topics" style={{ marginTop: 12 }}>
+            {packs.map((p) => (
+              <button
+                key={p.id}
+                className="dm-topic"
+                data-on={!usingCustom && presetId === p.id ? "1" : "0"}
+                onClick={() => {
+                  setCustomTopic("");
+                  setPresetId(p.id);
+                }}
+              >
+                <span className="dm-topic-emoji">{p.emoji}</span>
+                <span className="dm-topic-name">{p.name}</span>
+              </button>
+            ))}
+          </div>
+
+          <p className="dm-eyebrow" style={{ marginTop: 20 }}>
+            Budget
+          </p>
+          <div className="dm-seg">
+            {BUDGET_PRESETS.map((preset, i) => (
+              <button
+                key={preset.label}
+                className="dm-seg-item"
+                data-on={rulesIdx === i ? "1" : "0"}
+                onClick={() => setRulesIdx(i)}
+              >
+                <span className="dm-seg-label">{preset.label}</span>
+                <span className="dm-seg-note">{preset.note}</span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="dm-btn dm-btn-primary dm-btn-lg dm-btn-block"
+            style={{ marginTop: 18 }}
+            onClick={onStart}
+            disabled={others.length === 0}
+          >
+            {others.length === 0 ? "Waiting for your opponent…" : "Build the board"}
+          </button>
+        </div>
+      ) : (
+        <div className="dm-panel" style={{ textAlign: "center" }}>
+          <p className="dm-eyebrow">You&apos;re in</p>
+          <p className="dm-note">
+            The host is picking a topic. Talk it out — your mic is already on.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Room code plus the two ways people actually share one: a link you can paste
