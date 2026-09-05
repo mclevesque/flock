@@ -133,6 +133,19 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setAudioMuted(isMuted());
   }, []);
 
+  // ── Invite links ───────────────────────────────────────────────────────────
+  // /draftmasters?room=ABCDE drops straight into that room. Autoplay policy
+  // means we can't open a mic before a gesture, so prefill the code and let
+  // them tap Join rather than silently failing to connect.
+  useEffect(() => {
+    try {
+      const invited = new URLSearchParams(window.location.search).get("room");
+      if (invited) setJoinCode(invited.toUpperCase().slice(0, 6));
+    } catch {
+      /* no search params to read */
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       if (lotTimer.current) clearTimeout(lotTimer.current);
@@ -887,7 +900,9 @@ function SetupScreen({
   onCreate: () => void;
   onJoin: () => void;
 }) {
-  const [showJoin, setShowJoin] = useState(false);
+  // Arriving on an invite link prefills the code, so open the join panel
+  // rather than hiding the one thing they came here to do.
+  const [showJoin, setShowJoin] = useState(Boolean(joinCode));
   const usingCustom = customTopic.trim().length > 0;
 
   return (
@@ -895,6 +910,24 @@ function SetupScreen({
       {error && (
         <div className="dm-error" style={{ marginBottom: 20 }}>
           {error}
+        </div>
+      )}
+
+      {joinCode && (
+        <div
+          className="dm-panel"
+          style={{ marginBottom: 22, borderColor: "var(--dm-gold)", textAlign: "center" }}
+        >
+          <p className="dm-eyebrow" style={{ marginBottom: 6 }}>
+            You&apos;ve been invited
+          </p>
+          <p style={{ margin: "0 0 12px", fontSize: 15, color: "var(--dm-dim)" }}>
+            Room <strong style={{ color: "var(--dm-gold)", letterSpacing: ".12em" }}>{joinCode}</strong> is
+            waiting for you.
+          </p>
+          <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onJoin}>
+            Join room {joinCode}
+          </button>
         </div>
       )}
 
@@ -1067,7 +1100,7 @@ function PrepScreen({
       <div className="dm-prep">
         <h2 className="dm-h2">Waiting for the host…</h2>
         <p className="dm-tagline">They&apos;re picking a topic and building the board.</p>
-        {roomCode && <div className="dm-room-code" style={{ marginTop: 20 }}>{roomCode}</div>}
+        {roomCode && <div style={{ marginTop: 20 }}><RoomCode code={roomCode} /></div>}
       </div>
     );
   }
@@ -1104,7 +1137,7 @@ function PrepScreen({
           <p className="dm-eyebrow" style={{ marginTop: 26 }}>
             Room code
           </p>
-          <div className="dm-room-code">{roomCode}</div>
+          <RoomCode code={roomCode} />
         </>
       )}
     </div>
@@ -1169,7 +1202,7 @@ function ReadyScreen({
           <p className="dm-eyebrow" style={{ marginTop: 22 }}>
             Send this code to your opponent
           </p>
-          <div className="dm-room-code">{roomCode}</div>
+          <RoomCode code={roomCode} />
         </>
       )}
 
@@ -1234,6 +1267,65 @@ function ReadyScreen({
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Room code plus the two ways people actually share one: a link you can paste
+ * into any chat, and the code itself for reading out loud over voice.
+ * Uses the native share sheet on phones and falls back to the clipboard.
+ */
+function RoomCode({ code }: { code: string }) {
+  const [copied, setCopied] = useState<"link" | "code" | null>(null);
+
+  const link =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/draftmasters?room=${code}`
+      : `/draftmasters?room=${code}`;
+
+  const copy = async (text: string, which: "link" | "code") => {
+    sfx.click();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+      setTimeout(() => setCopied(null), 1800);
+    } catch {
+      // Clipboard is blocked on insecure origins — the code stays on screen
+      // to be read out, so this isn't worth surfacing as an error.
+    }
+  };
+
+  const share = async () => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "DraftMasters", text: "Draft against me:", url: link });
+        return;
+      } catch {
+        /* dismissed — fall through to copying */
+      }
+    }
+    void copy(link, "link");
+  };
+
+  return (
+    <div>
+      <button
+        className="dm-room-code"
+        onClick={() => void copy(code, "code")}
+        title="Copy the code"
+        style={{ width: "100%", cursor: "pointer", fontFamily: "inherit" }}
+      >
+        {copied === "code" ? "COPIED" : code}
+      </button>
+      <div className="dm-row" style={{ marginTop: 8 }}>
+        <button className="dm-btn dm-btn-primary" style={{ flex: 1 }} onClick={() => void share()}>
+          {copied === "link" ? "✓  Link copied" : "🔗  Copy invite link"}
+        </button>
+      </div>
+      <p className="dm-note" style={{ marginTop: 8 }}>
+        Send them the link and they drop straight into this room — no code to type.
+      </p>
+    </div>
+  );
+}
 
 /** Stable id for signed-out players so a refresh doesn't lose their seat. */
 function useGuestId(sessionId?: string): string {
