@@ -38,11 +38,22 @@ export interface GameView {
   openerId: string | null;
   /** Sides that have declined to open this lot */
   passedIds: string[];
+  /**
+   * Sides that have used their one free pass while drafting unopposed —
+   * their next lot must fill a slot.
+   */
+  passLocked: string[];
   dice: DiceState | null;
   lotsRemaining: number;
   sides: Side[];
   ticker: TickerEvent[];
   readyIds: string[];
+}
+
+/** How much one drafted pick mattered to the result, 0–10. */
+export interface PickContribution {
+  name: string;
+  contribution: number;
 }
 
 export interface SideNote {
@@ -51,6 +62,7 @@ export interface SideNote {
   mvp: string;
   bust: string;
   note: string;
+  picks?: PickContribution[];
 }
 
 export interface Verdict {
@@ -102,6 +114,7 @@ export const EMPTY_VIEW: GameView = {
   turnId: null,
   openerId: null,
   passedIds: [],
+  passLocked: [],
   dice: null,
   lotsRemaining: 0,
   sides: [],

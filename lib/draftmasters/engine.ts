@@ -13,9 +13,11 @@
  *     if they can match the price but not beat it — MATCH and roll dice for it.
  *   • Passing an unbid lot hands the opening to the other side if they have a
  *     slot to fill; if both decline, the lot goes unsold.
- *   • Reserve rule: you must keep $1 for every roster slot still open, so
- *     max bid = budget − (slotsRemaining − 1). Blowing the bank on pick one
- *     leaves you scavenging $1 leftovers, not drafting empty chairs.
+ *   • You can always bid your whole wallet. Blowing it on pick one is legal;
+ *     the empty chairs you finish with are the judge's problem with you.
+ *   • Once the other side is full (or broke) you're drafting alone: you may
+ *     pass ONE lot, then the next one fills your slot — no farming the board
+ *     for the perfect leftover.
  *   • The draft ends when every roster is full, or the pool runs dry.
  *
  * Pure and deterministic given a seed, so the solo game and the PartyKit
@@ -122,14 +124,15 @@ export function buildPool(pack: Pack, rng: () => number): number[] {
 // ── Budget rules ─────────────────────────────────────────────────────────────
 
 /**
- * Most a side can legally bid right now.
- * Reserves $1 for every slot they'd still need to fill after winning this lot.
- * Returns 0 when the side is full (and therefore out of the bidding).
+ * Most a side can legally bid right now: their whole wallet.
+ *
+ * There is deliberately no reserve rule. You can put every dollar on one
+ * pick; the cost is finishing with empty slots, which the judge holds
+ * against you. Returns 0 when the side is full (out of the bidding).
  */
 export function maxBid(side: Side, rules: Rules): number {
-  const slotsLeft = rules.rosterSize - side.roster.length;
-  if (slotsLeft <= 0) return 0;
-  return Math.max(0, side.budget - (slotsLeft - 1));
+  if (isFull(side, rules)) return 0;
+  return Math.max(0, side.budget);
 }
 
 export function isFull(side: Side, rules: Rules): boolean {

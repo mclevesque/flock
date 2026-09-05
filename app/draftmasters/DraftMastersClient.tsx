@@ -65,6 +65,8 @@ const TOPIC_EXAMPLES = [
 ];
 
 const SYNC_INTERVAL_MS = 8000;
+/** Room to describe a board properly — qualifiers, exclusions, the lot. Mirrors the API cap. */
+const TOPIC_MAX_CHARS = 600;
 
 type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "verdict";
 type Mode = "solo" | "pvp";
@@ -301,6 +303,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       ticker: [...g.ticker],
       readyIds: [...g.readyIds],
       passedIds: [...g.passedIds],
+      passLocked: [...g.passLocked],
       dice: g.dice ? { ...g.dice, rounds: [...g.dice.rounds] } : null,
     });
   }, []);
@@ -343,7 +346,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     npcTimer.current = setTimeout(() => {
       const gg = gameRef.current;
       if (gg.phase !== "bidding" || gg.turnId !== bot.id) return;
-      actRef.current(bot.id, npcMove(S.npcVal, bot, S.rules, gg.currentBid));
+      const move = npcMove(S.npcVal, bot, S.rules, gg.currentBid);
+      // A locked bot has used its free pass — it has to fill the slot.
+      const forced = move.kind === "pass" && gg.currentBid === 0 && gg.passLocked.includes(bot.id);
+      actRef.current(bot.id, forced ? { kind: "bid", amount: 1 } : move);
     }, npcThinkMs(S.npcVal, g.currentBid));
   };
 
@@ -388,9 +394,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         sfx.click();
         commit();
         scheduleNpcRef.current();
-      } else {
-        closeLotRef.current();
+        return;
       }
+      // Unopposed: one free pass, then the next lot must fill a slot.
+      if (!other || !canOpen(other, S.rules)) {
+        if (g.passLocked.includes(sideId)) return;
+        g.passLocked.push(sideId);
+        pushEvent(`${isMe ? "You pass" : `${side.name} passes`} — the next one fills ${isMe ? "your" : "their"} slot`, "passed");
+      }
+      closeLotRef.current();
       return;
     }
 
@@ -459,6 +471,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       if (side) {
         side.budget -= g.currentBid;
         side.roster.push({ ...g.lot, price: g.currentBid });
+        g.passLocked = g.passLocked.filter((id) => id !== side.id);
         pushEvent(`SOLD — ${g.lot.name} to ${nameOf(side.id).toLowerCase()} for $${g.currentBid}`, "sold");
         sfx.sold();
       }
@@ -742,6 +755,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         turnId: (s.turnId as string) ?? null,
         openerId: (s.openerId as string) ?? null,
         passedIds: (s.passedIds as string[]) ?? [],
+        passLocked: (s.passLocked as string[]) ?? [],
         dice: (s.dice as DiceState | null) ?? null,
         lotsRemaining: Number(s.lotsRemaining) || 0,
         sides: (s.sides as Side[]) ?? [],
@@ -1151,12 +1165,13 @@ function SetupScreen({
       <section className="dm-section">
         <p className="dm-eyebrow">1 · Pick a topic</p>
         <div className="dm-custom">
-          <input
-            className="dm-input"
+          <textarea
+            className="dm-input dm-textarea"
             value={customTopic}
             onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — “Game of Thrones warriors”…"
-            maxLength={120}
+            placeholder="Type any topic — as specific as you like. “Game of Thrones warriors, each at their prime and their lowest point, no dragons”…"
+            maxLength={TOPIC_MAX_CHARS}
+            rows={2}
             aria-label="Custom topic"
           />
         </div>
@@ -1204,8 +1219,8 @@ function SetupScreen({
           ))}
         </div>
         <p className="dm-note" style={{ marginTop: 10 }}>
-          You must keep $1 for every slot you still have to fill — so blowing the bank early leaves you scavenging $1
-          leftovers. No clock: every lot is decided by a bid or a pass, never by a timer.
+          You can always bid your whole wallet — go all-in on one pick if you dare, but empty slots count against
+          you with the judge. No clock: every lot is decided by a bid or a pass, never by a timer.
         </p>
       </section>
 
@@ -1407,12 +1422,13 @@ function RoomLobby({
       {isHost ? (
         <div className="dm-panel">
           <p className="dm-eyebrow">Pick the topic</p>
-          <input
-            className="dm-input"
+          <textarea
+            className="dm-input dm-textarea"
             value={customTopic}
             onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — “Game of Thrones warriors”…"
-            maxLength={120}
+            placeholder="Type any topic — as specific as you like. “Game of Thrones warriors, each at their prime and their lowest point, no dragons”…"
+            maxLength={TOPIC_MAX_CHARS}
+            rows={2}
             aria-label="Custom topic"
             style={{ width: "100%" }}
           />

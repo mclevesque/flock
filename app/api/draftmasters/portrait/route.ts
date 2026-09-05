@@ -163,6 +163,13 @@ async function fromWikipedia(term: string): Promise<Portrait | null> {
 
 const STOPWORDS = new Set(["the", "a", "an", "of", "and", "in", "at", "de", "von"]);
 
+/**
+ * Broad wikis tried after a board's own wiki misses. "villains" and "hero"
+ * cover most fiction between them; "deathbattle" has clean art for anything
+ * that has ever been in a versus argument, which is most of what gets drafted.
+ */
+const FALLBACK_WIKIS = ["villains", "hero", "deathbattle"];
+
 /** Significant, lowercased tokens of a subject name. */
 function tokens(name: string): string[] {
   return name
@@ -415,17 +422,30 @@ async function resolve(q: string, name: string, wiki?: string): Promise<Portrait
   if (google) return google;
 
   // Franchise wiki next — the only keyless source that covers fictional characters.
+  // The board names its wiki; if that misses, a few broad wikis catch
+  // crossovers and anyone the board's wiki doesn't have a page for.
   if (wiki && name) {
     const fandom = await fromFandom(wiki, name);
     if (fandom) return fandom;
+    // The fuller query carries the board's disambiguation hint ("Gulo gulo
+    // animal", "Red Viper") — a second shot at the board's own wiki with it.
+    if (q && q !== name) {
+      const hinted = await fromFandom(wiki, q);
+      if (hinted) return hinted;
+    }
+    for (const fallbackWiki of FALLBACK_WIKIS) {
+      if (fallbackWiki === wiki) continue;
+      const hit = await fromFandom(fallbackWiki, name);
+      if (hit) return hit;
+    }
   }
 
   // Wikipedia: bare name first (cleaner hit rate), then the full query.
   const article = (await fromWikipedia(name || q)) ?? (name && q ? await fromWikipedia(q) : null);
   if (article) return article;
 
-  // Commons picks up everything without its own article.
-  const commons = await fromCommons(q || name);
+  // Commons picks up everything without its own article — full query, then bare name.
+  const commons = (await fromCommons(q || name)) ?? (name && q ? await fromCommons(name) : null);
   if (commons) return commons;
 
   // Last resort that still produces a picture: draw one.

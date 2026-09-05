@@ -55,6 +55,8 @@ export default function AuctionStage({
   const iCanOpen = me ? canOpen(me, rules) : false;
   const iCanRaise = me ? canRaise(me, rules, view.currentBid) : false;
   const iCanMatch = me ? canMatch(me, rules, view.currentBid) : false;
+  // Used the one free pass while drafting unopposed — this lot must fill a slot.
+  const passLocked = view.passLocked.includes(meId);
 
   // Client-driven progression. The reveal is cosmetic; when it's done we tell
   // the game to move on. In PvP both clients do this and the server takes the
@@ -144,9 +146,11 @@ export default function AuctionStage({
               {view.phase !== "bidding"
                 ? " "
                 : myTurn
-                  ? view.passedIds.length
-                    ? "They passed — it's yours for $1 if you want it"
-                    : "Your call — open the bidding or pass"
+                  ? passLocked
+                    ? "You used your pass — this one fills your slot"
+                    : view.passedIds.length
+                      ? "They passed — it's yours for $1 if you want it"
+                      : "Your call — open the bidding or pass"
                   : `${turnName} has the opening bid`}
             </div>
           )}
@@ -180,8 +184,8 @@ export default function AuctionStage({
                 >
                   $3<small>Open strong</small>
                 </button>
-                <button className="dm-quickbid" onClick={onPass}>
-                  Pass<small>Let it go</small>
+                <button className="dm-quickbid" onClick={onPass} disabled={passLocked}>
+                  Pass<small>{passLocked ? "Must fill a slot" : "Let it go"}</small>
                 </button>
               </div>
             ) : (
@@ -407,18 +411,26 @@ function ScoreCard({
               data-new={pick.id === newPickId ? "1" : "0"}
               title={`${pick.name}${pick.variant ? ` (${pick.variant})` : ""} — $${pick.price}`}
             >
-              {url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={url} alt={pick.name} />
-              ) : (
-                <span className="dm-slot-initial">{pick.name.charAt(0)}</span>
-              )}
+              <Thumb url={url ?? null} name={pick.name} />
               <span className="dm-slot-price dm-money">${pick.price}</span>
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ── Roster thumbnail with graceful failure ───────────────────────────────────
+
+/** Small portrait that falls back to a lettered tile if the image 404s. */
+export function Thumb({ url, name }: { url: string | null; name: string }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [url]);
+  if (!url || broken) return <span className="dm-slot-initial">{name.charAt(0).toUpperCase()}</span>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="" onError={() => setBroken(true)} referrerPolicy="no-referrer" />
   );
 }
 

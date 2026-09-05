@@ -73,8 +73,10 @@ export async function POST(req: Request) {
                 "You are the judge of a live auction draft show. You are decisive, funny, and you commit to a winner — never a tie. " +
                 "You care about the scenario, not about who spent more. A cheap roster that fits the scenario beats an expensive one that doesn't. " +
                 "Note when a team overpaid or found a steal. Be specific about the actual names drafted; never be generic. " +
+                "A condition in parentheses is binding, but weigh it proportionately: a mild one (a wound, fatigue, age) makes them only slightly worse; only a crippling one (missing sword hand, sealed away, dying) changes who they are. " +
                 'Reply with ONLY JSON: {"winnerId": string, "headline": string (max 8 words, no period), "reasoning": string (3-4 sentences), ' +
-                '"sideNotes": [{"sideId": string, "score": number 0-100, "mvp": string (a drafted name), "bust": string (a drafted name), "note": string (one sentence)}]}',
+                '"sideNotes": [{"sideId": string, "score": number 0-100, "mvp": string (a drafted name), "bust": string (a drafted name), "note": string (one sentence), ' +
+                '"picks": [{"name": string (exact drafted name), "contribution": number 0-10 (how much THIS pick mattered to the team\'s result in the scenario — 10 carried it, 0 was dead weight)}] (one entry per drafted pick, in roster order)}]}',
             },
             {
               role: "user",
@@ -110,6 +112,12 @@ export async function POST(req: Request) {
                     mvp: String(n.mvp ?? "").slice(0, 60),
                     bust: String(n.bust ?? "").slice(0, 60),
                     note: String(n.note ?? "").slice(0, 200),
+                    picks: Array.isArray(n.picks)
+                      ? (n.picks as Record<string, unknown>[]).slice(0, 12).map((p) => ({
+                          name: String(p.name ?? "").slice(0, 60),
+                          contribution: Math.max(0, Math.min(10, Math.round(Number(p.contribution) || 0))),
+                        }))
+                      : [],
                   }))
               : [],
             judged: "ai",
@@ -138,6 +146,8 @@ export async function POST(req: Request) {
         mvp: sorted[0]?.name ?? "—",
         bust: sorted[sorted.length - 1]?.name ?? "—",
         note: `${sc.power} power for $${sc.spent} spent.`,
+        // Offline: contribution tracks tier — a 5 carried, a 1 rode the bench.
+        picks: side.roster.map((p) => ({ name: p.name, contribution: Math.max(0, Math.min(10, p.tier * 2)) })),
       };
     }),
     judged: "offline",

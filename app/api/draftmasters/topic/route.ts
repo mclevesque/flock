@@ -43,7 +43,8 @@ interface TopicRequest {
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as TopicRequest | null;
-  const topic = (body?.topic ?? "").trim().slice(0, 120);
+  // Long enough to say what you actually mean — qualifiers, exclusions, eras.
+  const topic = (body?.topic ?? "").trim().slice(0, 600);
   if (!topic) return NextResponse.json({ error: "topic required" }, { status: 400 });
 
   const count = Math.max(16, Math.min(32, body?.count ?? 26));
@@ -69,8 +70,11 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: DRAFT_MODEL,
-          max_tokens: 9000,
-          reasoning_effort: "low",
+          max_tokens: 12000,
+          // Medium, not low: the board is built once behind a loading screen,
+          // and the extra think-time buys sharper qualifier filtering and
+          // variants people actually quote. Worth a few more seconds.
+          reasoning_effort: "medium",
           temperature: attempt.temperature,
           response_format: { type: "json_object" },
           messages: [
@@ -131,11 +135,16 @@ An auction is only fun when prices differ. Aim for roughly:
 Never make everything a 4 or 5. The cheap picks are the joke and the strategy.
 
 VARIANTS — the "(two hands)" mechanic:
-Give roughly a third of entries a "variants" array: the same subject in different conditions, each with its own tier. This is the signature of the game. Examples:
+Give roughly a third of entries a "variants" array: the same subject in different iconic states, each with its own tier. This is the signature of the game and the part people quote to each other, so every variant must be FUNNY, COOL, or MEANINGFUL — a specific moment, form, era, piece of gear, or crossover fans would recognise:
 - Jaime Lannister -> [{"v":"two hands","t":5},{"v":"one hand","t":3},{"v":"gold hand, drunk","t":2}]
-- Charizard -> [{"v":"Mega Charizard X","t":5},{"v":"standard","t":4},{"v":"still a level 5 Charmander","t":1}]
+- Ser Barristan Selmy -> [{"v":"prime, Barristan the Bold","t":5},{"v":"old man","t":3}]
+- Pikachu -> [{"v":"Ash's Pikachu","t":4},{"v":"wild, level 3","t":1}]
+- Master Chief -> [{"v":"on a dragon","t":5},{"v":"no shields","t":3}]
+- Charizard -> [{"v":"Mega Charizard X","t":5},{"v":"still a level 5 Charmander","t":1}]
 - Dracula -> [{"v":"at night","t":5},{"v":"at high noon","t":1}]
-Variants must be short (under 6 words), concrete, and genuinely change how good the subject is. One variant is rolled at random when the lot comes up. Only add variants where a real condition exists — don't invent nonsense.
+NEVER use a bare generic state as a variant: not "wounded", "injured", "tired", "weak", "angry", "old", "young", "damaged" on their own. If a condition matters, name the specific one ("burned leg, feverish", "post-Mustafar", "hand cut off by Vader").
+TIER DELTAS MUST BE PROPORTIONATE. A mild or cosmetic condition costs AT MOST one tier — a wounded Aragorn is still Aragorn, only slightly worse. Only genuinely crippling states (missing sword hand, sealed away, dying, stripped of the thing that makes them powerful) drop two or more tiers. Upside variants (prime, mega form, with their signature weapon) can add one or two.
+MIX LENGTHS. Some variants are two words ("two hands", "prime"); some are a whole vivid situation, up to about a dozen words — "with one dragon, furious after losing the other two", "Old Ben, decades in hiding, sabre still under the bed". A long one should read like a moment fans would picture instantly. One is rolled at random when the lot comes up. Only add variants where a real, recognisable state exists — don't invent nonsense.
 
 OUTPUT — JSON only, this exact shape:
 {
@@ -181,7 +190,7 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
     if (Array.isArray(item.variants)) {
       const variants = (item.variants as Record<string, unknown>[])
         .map((v) => ({
-          v: String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 40),
+          v: String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 90),
           t: clampTier(v?.t),
         }))
         .filter((v) => v.v.length > 0)

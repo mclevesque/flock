@@ -92,6 +92,8 @@ export default class DraftMastersParty implements Party.Server {
   private turnId: string | null = null;
   private openerId: string | null = null;
   private passedIds = new Set<string>();
+  /** Sides that used their one free pass while drafting unopposed */
+  private passLocked = new Set<string>();
   private dice: DiceState | null = null;
 
   private sides = new Map<string, Side>();
@@ -267,6 +269,7 @@ export default class DraftMastersParty implements Party.Server {
     this.dice = null;
     this.ticker = [];
     this.readyIds.clear();
+    this.passLocked.clear();
     for (const side of this.sides.values()) {
       side.budget = this.rules.budget;
       side.roster = [];
@@ -348,9 +351,18 @@ export default class DraftMastersParty implements Party.Server {
       this.push(`${side.name} passes — over to ${other.name}`, "passed");
       this.turnId = other.id;
       this.broadcastState();
-    } else {
-      this.closeLot();
+      return;
     }
+
+    // Nobody else can take it, so this side is drafting unopposed. One free
+    // pass, then the next lot has to fill a slot — otherwise you could sift
+    // the whole board for the perfect leftover.
+    if (!other || !canOpen(other, this.rules)) {
+      if (this.passLocked.has(side.id)) return; // must buy; the UI disables Pass, this is the backstop
+      this.passLocked.add(side.id);
+      this.push(`${side.name} passes — the next one fills their slot`, "passed");
+    }
+    this.closeLot();
   }
 
   /** Equal the standing bid and roll for it. */
@@ -498,6 +510,7 @@ export default class DraftMastersParty implements Party.Server {
       if (side) {
         side.budget -= this.currentBid;
         side.roster.push({ ...this.lot, price: this.currentBid });
+        this.passLocked.delete(side.id); // a filled slot earns the free pass back
         this.push(`SOLD — ${this.lot.name} to ${side.name} for $${this.currentBid}`, "sold");
       }
     } else {
@@ -582,6 +595,7 @@ export default class DraftMastersParty implements Party.Server {
     this.turnId = null;
     this.openerId = null;
     this.passedIds.clear();
+    this.passLocked.clear();
     this.readyIds.clear();
     for (const side of this.sides.values()) {
       side.budget = this.rules.budget;
@@ -652,6 +666,7 @@ export default class DraftMastersParty implements Party.Server {
       turnId: this.turnId,
       openerId: this.openerId,
       passedIds: [...this.passedIds],
+      passLocked: [...this.passLocked],
       dice: this.dice,
       lotsRemaining: Math.max(0, this.pool.length - this.cursor),
       sides: this.sidesList(),

@@ -2,6 +2,7 @@
 
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
+import { Thumb } from "./AuctionStage";
 
 /**
  * The payoff screen. The judge has to commit to a winner and justify it, so
@@ -175,26 +176,9 @@ export default function VerdictScreen({
                   const url = portraits[pick.imgQuery];
                   return (
                     <div key={pick.id} className="dm-verdict-pick">
-                      {url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={url} alt="" />
-                      ) : (
-                        <div
-                          style={{
-                            width: 30,
-                            height: 34,
-                            borderRadius: 5,
-                            display: "grid",
-                            placeItems: "center",
-                            background: "var(--dm-panel)",
-                            color: "var(--dm-mute)",
-                            fontWeight: 800,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {pick.name.charAt(0)}
-                        </div>
-                      )}
+                      <span className="dm-verdict-thumb">
+                        <Thumb url={url ?? null} name={pick.name} />
+                      </span>
                       <div className="dm-verdict-pick-name">
                         {pick.name}
                         {isMvp && (
@@ -210,6 +194,18 @@ export default function VerdictScreen({
                         {pick.variant && <span>{pick.variant}</span>}
                       </div>
                       <div className="dm-verdict-pick-price dm-money">${pick.price}</div>
+                      {(() => {
+                        // How much this pick mattered, 0–10, from the judge.
+                        const c = note?.picks?.find((p) => matches(pick.name, p.name));
+                        return c ? (
+                          <span className="dm-contrib" title={`Contribution ${c.contribution}/10`}>
+                            <span className="dm-contrib-bar">
+                              <i style={{ width: `${c.contribution * 10}%` }} />
+                            </span>
+                            <span className="dm-contrib-n">{c.contribution}/10</span>
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   );
                 })}
@@ -263,26 +259,9 @@ function RosterCard({
           const url = portraits[pick.imgQuery];
           return (
             <div key={pick.id} className="dm-verdict-pick">
-              {url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={url} alt="" />
-              ) : (
-                <div
-                  style={{
-                    width: 30,
-                    height: 34,
-                    borderRadius: 5,
-                    display: "grid",
-                    placeItems: "center",
-                    background: "var(--dm-panel)",
-                    color: "var(--dm-mute)",
-                    fontWeight: 800,
-                    flexShrink: 0,
-                  }}
-                >
-                  {pick.name.charAt(0)}
-                </div>
-              )}
+              <span className="dm-verdict-thumb">
+                <Thumb url={url ?? null} name={pick.name} />
+              </span>
               <div className="dm-verdict-pick-name">
                 {pick.name}
                 {pick.variant && <span>{pick.variant}</span>}

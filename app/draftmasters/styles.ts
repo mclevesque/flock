@@ -608,4 +608,18 @@ export const STYLES = `
 .dm-lb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 650; }
 .dm-lb-rating { color: var(--dm-gold); font-weight: 800; font-variant-numeric: tabular-nums; }
 .dm-lb-wl { color: var(--dm-mute); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+
+/* ── Contribution scale (verdict) ─────────────────────────────────────── */
+
+.dm-contrib { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 88px; }
+.dm-contrib-bar { flex: 1; height: 5px; border-radius: 999px; background: var(--dm-line); overflow: hidden; min-width: 44px; }
+.dm-contrib-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--dm-gold-dim, #8a6d2b), var(--dm-gold-hot)); }
+.dm-contrib-n { font-size: 11.5px; font-weight: 800; color: var(--dm-gold); font-variant-numeric: tabular-nums; width: 30px; text-align: right; }
+
+.dm-textarea { resize: vertical; min-height: 58px; line-height: 1.45; width: 100%; }
+
+.dm-verdict-thumb { width: 30px; height: 34px; border-radius: 5px; overflow: hidden; flex-shrink: 0; display: grid; place-items: center; background: var(--dm-panel); }
+.dm-verdict-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; display: block; }
+.dm-verdict-thumb .dm-slot-initial { font-size: 13px; }
+.dm-lot-variant { max-width: 100%; white-space: normal; line-height: 1.3; text-align: left; }
 `;
