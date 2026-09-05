@@ -272,17 +272,20 @@ export const STYLES = `
 .dm-portrait-wrap {
   position: relative;
   aspect-ratio: 4 / 5;
-  max-height: 46dvh;
+  /* Height drives the box and aspect-ratio derives the width. Setting width
+     first and capping height instead lets a short viewport squash the card
+     into a landscape rectangle, which is not the shape of a portrait. */
+  height: min(46dvh, 420px);
+  width: auto;
+  max-width: min(340px, 86vw);
   margin: 0 auto;
-  width: 100%;
-  max-width: 340px;
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid var(--dm-line-hot);
   background: linear-gradient(160deg, #23232a, #131316);
   box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(212,169,66,.12) inset;
 }
-@media (min-width: 900px) { .dm-portrait-wrap { max-height: 400px; } }
+@media (min-width: 900px) { .dm-portrait-wrap { height: min(52dvh, 430px); } }
 
 .dm-portrait-wrap[data-in="1"] { animation: dm-lot-in .45s cubic-bezier(.2,.8,.25,1); }
 @keyframes dm-lot-in {

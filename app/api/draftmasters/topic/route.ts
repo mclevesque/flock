@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPack, type Entry, type Pack } from "@/lib/draftmasters/packs";
+import { DRAFT_MODEL } from "@/lib/draftmasters/model";
 
 /**
  * GET /api/draftmasters/topic?packId=got
@@ -51,48 +52,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Topic generation is unavailable right now." }, { status: 503 });
   }
 
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: 3600,
-        temperature: 0.85,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT,
-          },
-          {
-            role: "user",
-            content: `Build a draft board of exactly ${count} entries for this topic:\n\n"${topic}"\n\nRemember: every single entry must satisfy the topic AS WORDED, including any qualifier in it.`,
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(40000),
-    });
+  // A board this long occasionally comes back as malformed JSON, which Groq
+  // rejects outright. That's a dice roll, not a bad topic — so re-roll once at
+  // a lower temperature before telling the player their topic didn't work.
+  const attempts: { temperature: number; count: number }[] = [
+    { temperature: 0.85, count },
+    { temperature: 0.5, count: Math.max(16, count - 4) },
+  ];
 
-    if (!res.ok) {
-      return NextResponse.json({ error: "Could not build that board. Try rewording it." }, { status: 502 });
+  let lastError = "Could not build that board. Try rewording it.";
+
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: DRAFT_MODEL,
+          max_tokens: 9000,
+          reasoning_effort: "low",
+          temperature: attempt.temperature,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `Build a draft board of exactly ${attempt.count} entries for this topic:\n\n"${topic}"\n\nRemember: every single entry must satisfy the topic AS WORDED, including any qualifier in it.`,
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(40000),
+      });
+
+      if (!res.ok) {
+        lastError = "Could not build that board. Try rewording it.";
+        continue;
+      }
+
+      const data = await res.json();
+      const raw = data?.choices?.[0]?.message?.content;
+      if (!raw) {
+        lastError = "The board came back empty. Try again.";
+        continue;
+      }
+
+      const pack = sanitize(JSON.parse(raw), topic);
+      if (!pack || pack.entries.length < 10) {
+        lastError = "That topic came back too thin. Try something with more names in it.";
+        continue;
+      }
+      return NextResponse.json({ pack });
+    } catch {
+      lastError = "Topic generation hit a snag. Try again.";
     }
-
-    const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content;
-    if (!raw) return NextResponse.json({ error: "Empty response" }, { status: 502 });
-
-    const pack = sanitize(JSON.parse(raw), topic);
-    if (!pack || pack.entries.length < 10) {
-      return NextResponse.json(
-        { error: "That topic came back too thin. Try something with more names in it." },
-        { status: 422 }
-      );
-    }
-    return NextResponse.json({ pack });
-  } catch {
-    return NextResponse.json({ error: "Topic generation timed out. Try again." }, { status: 504 });
   }
+
+  return NextResponse.json({ error: lastError }, { status: 502 });
 }
 
 const SYSTEM_PROMPT = `You build draft boards for DraftMasters, a live auction draft game.

@@ -414,26 +414,30 @@ function Portrait({ url, name }: { url: string | null; name: string }) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Ticks at ~15fps off an absolute deadline so tab-throttling can't desync it. */
+/**
+ * Counts down to an absolute deadline.
+ *
+ * Deliberately an interval rather than requestAnimationFrame: rAF is suspended
+ * whenever the browser stops compositing, which includes an occluded window
+ * that still reports `visibilityState === "visible"`. That froze the clock on
+ * screen while the auction kept running underneath. Timers keep firing, and
+ * reading the deadline rather than accumulating elapsed time means a throttled
+ * tab snaps straight back to the right number instead of drifting.
+ */
 function useCountdown(deadline: number, active: boolean): number {
   const [remaining, setRemaining] = useState(() => Math.max(0, deadline - Date.now()));
 
   useEffect(() => {
-    if (!active) {
-      setRemaining(Math.max(0, deadline - Date.now()));
-      return;
-    }
-    let raf = 0;
-    let last = 0;
-    const loop = (t: number) => {
-      if (t - last > 66) {
-        last = t;
-        setRemaining(Math.max(0, deadline - Date.now()));
-      }
-      raf = requestAnimationFrame(loop);
+    const tick = () => setRemaining(Math.max(0, deadline - Date.now()));
+    tick();
+    if (!active) return;
+    const id = setInterval(tick, 100);
+    // Repaint immediately on return rather than waiting for the next tick.
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
   }, [deadline, active]);
 
   return remaining;

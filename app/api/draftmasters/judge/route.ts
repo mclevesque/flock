@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPack } from "@/lib/draftmasters/packs";
 import { offlineVerdict, type Side } from "@/lib/draftmasters/engine";
+import { DRAFT_MODEL } from "@/lib/draftmasters/model";
 
 /**
  * POST /api/draftmasters/judge
@@ -60,8 +61,9 @@ export async function POST(req: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 700,
+          model: DRAFT_MODEL,
+          max_tokens: 3000,
+          reasoning_effort: "low",
           temperature: 0.75,
           response_format: { type: "json_object" },
           messages: [
