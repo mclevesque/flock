@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { canMatch, canOpen, canRaise, maxBid, type Rules, type Side } from "@/lib/draftmasters/engine";
+import { canMatch, canOpen, canRaise, maxBid, openingBid, priceLabel, type Rules, type Side } from "@/lib/draftmasters/engine";
 import type { DiceState, GameView, PortraitMap } from "./types";
 
 /**
@@ -54,7 +54,9 @@ export default function AuctionStage({
   const myMax = me ? maxBid(me, rules) : 0;
   const iAmFull = me ? me.roster.length >= rules.rosterSize : false;
   const iHoldBid = view.highBidderId === meId;
-  const isOpening = view.currentBid === 0;
+  // "Opening" means nobody has claimed it yet — a $0 claim still counts as a bid.
+  const isOpening = !view.highBidderId;
+  const openAmt = me ? openingBid(me, rules) : 1;
   const holderName = view.sides.find((s) => s.id === view.highBidderId)?.name ?? "";
   const turnName = view.sides.find((s) => s.id === view.turnId)?.name ?? "the other side";
 
@@ -119,7 +121,7 @@ export default function AuctionStage({
                   {view.highBidderId ? "Sold" : "Passed"}
                 </div>
                 <div className="dm-sold-sub">
-                  {view.highBidderId ? `${holderName} — $${view.currentBid}` : "Nobody wanted them"}
+                  {view.highBidderId ? `${holderName} — ${priceLabel(view.currentBid)}` : "Nobody wanted them"}
                 </div>
               </div>
             </div>
@@ -147,9 +149,9 @@ export default function AuctionStage({
 
         {/* ── Money readout ────────────────────────────────────────────── */}
         <div className="dm-bidbar">
-          {view.currentBid > 0 ? (
+          {view.highBidderId ? (
             <>
-              <div className="dm-bid-amount dm-money">${view.currentBid}</div>
+              <div className="dm-bid-amount dm-money">{view.currentBid > 0 ? `$${view.currentBid}` : "Free"}</div>
               <div className="dm-bid-holder">
                 {iHoldBid ? (
                   <>
@@ -169,9 +171,11 @@ export default function AuctionStage({
                 : myTurn
                   ? passLocked
                     ? "You used your pass — this one fills your slot"
-                    : view.passedIds.length
-                      ? "They passed — it's yours for $1 if you want it"
-                      : "Your call — open the bidding or pass"
+                    : openAmt === 0
+                      ? "You're out of money — claim it for free, or pass"
+                      : view.passedIds.length
+                        ? "They passed — it's yours for $1 if you want it"
+                        : "Your call — open the bidding or pass"
                   : `${turnName} has the opening bid`}
             </div>
           )}
@@ -195,8 +199,9 @@ export default function AuctionStage({
               </div>
             ) : isOpening ? (
               <div className="dm-quickbids">
-                <button className="dm-quickbid" onClick={() => onBid(1)} disabled={!iCanOpen}>
-                  $1<small>Open</small>
+                <button className="dm-quickbid" onClick={() => onBid(openAmt)} disabled={!iCanOpen}>
+                  {openAmt === 0 ? "Free" : "$1"}
+                  <small>{openAmt === 0 ? "Claim" : "Open"}</small>
                 </button>
                 <button
                   className="dm-quickbid"

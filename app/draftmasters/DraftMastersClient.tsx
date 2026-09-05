@@ -17,7 +17,9 @@ import {
   npcMove,
   npcThinkMs,
   npcValuation,
+  openingBid,
   otherSide,
+  priceLabel,
   randomSeed,
   rollDie,
   type NpcPersonality,
@@ -152,6 +154,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     pool: [] as number[],
     cursor: 0,
     lotIndex: 0,
+    /** Entry index on the block, so a passed lot can come back around */
+    lotEntryIndex: -1,
+    /** Lots nobody took — dealt again if the pool runs dry with chairs empty */
+    unsold: [] as number[],
     seed: 0,
     seq: 0,
     npcVal: 0,
@@ -407,10 +413,11 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     npcTimer.current = setTimeout(() => {
       const gg = gameRef.current;
       if (gg.phase !== "bidding" || gg.turnId !== bot.id) return;
-      const move = npcMove(S.npcVal, bot, S.rules, gg.currentBid);
+      const opening = !gg.highBidderId;
+      const move = npcMove(S.npcVal, bot, S.rules, gg.currentBid, opening);
       // A locked bot has used its free pass — it has to fill the slot.
-      const forced = move.kind === "pass" && gg.currentBid === 0 && gg.passLocked.includes(bot.id);
-      actRef.current(bot.id, forced ? { kind: "bid", amount: 1 } : move);
+      const forced = move.kind === "pass" && opening && gg.passLocked.includes(bot.id);
+      actRef.current(bot.id, forced ? { kind: "bid", amount: openingBid(bot, S.rules) } : move);
     }, npcThinkMs(S.npcVal, g.currentBid));
   };
 
@@ -425,10 +432,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
     if (action.kind === "bid") {
       const amount = action.amount;
-      if (amount <= g.currentBid || amount > maxBid(side, S.rules)) return;
+      if (amount < 0 || amount > maxBid(side, S.rules)) return;
+      if (g.highBidderId ? amount <= g.currentBid : amount < openingBid(side, S.rules)) return;
       g.currentBid = amount;
       g.highBidderId = sideId;
-      pushEvent(`${isMe ? "You bid" : `${side.name} bids`} $${amount}`, "bid");
+      pushEvent(
+        amount > 0 ? `${isMe ? "You bid" : `${side.name} bids`} $${amount}` : `${isMe ? "You claim" : `${side.name} claims`} it for free`,
+        "bid"
+      );
       if (isMe) sfx.bid(amount);
       else sfx.outbid(amount);
 
@@ -443,7 +454,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     }
 
     if (action.kind === "pass") {
-      if (g.currentBid > 0) {
+      if (g.highBidderId) {
         pushEvent(isMe ? "You let it go" : `${side.name} lets it go`, "passed");
         closeLotRef.current();
         return;
@@ -524,19 +535,21 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   closeLotRef.current = () => {
     const g = gameRef.current;
+    const S = soloRef.current;
     if (!g.lot) return;
     clearNpc();
 
-    if (g.highBidderId && g.currentBid > 0) {
+    if (g.highBidderId) {
       const side = g.sides.find((s) => s.id === g.highBidderId);
       if (side) {
         side.budget -= g.currentBid;
         side.roster.push({ ...g.lot, price: g.currentBid });
         g.passLocked = g.passLocked.filter((id) => id !== side.id);
-        pushEvent(`SOLD — ${g.lot.name} to ${nameOf(side.id).toLowerCase()} for $${g.currentBid}`, "sold");
+        pushEvent(`SOLD — ${g.lot.name} to ${nameOf(side.id).toLowerCase()} for ${priceLabel(g.currentBid)}`, "sold");
         sfx.sold();
       }
     } else {
+      if (S.lotEntryIndex >= 0) S.unsold.push(S.lotEntryIndex);
       pushEvent(`PASSED — nobody wanted ${g.lot.name}`, "passed");
       sfx.passed();
     }
@@ -555,9 +568,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     clearNpc();
 
     const allFull = g.sides.every((s) => isFull(s, S.rules));
-    const anyoneCanOpen = g.sides.some((s) => canOpen(s, S.rules));
 
-    if (allFull || S.cursor >= S.pool.length || !anyoneCanOpen) {
+    // Chairs still empty but the board's run dry: deal the passed lots again.
+    if (!allFull && S.cursor >= S.pool.length && S.unsold.length) {
+      S.pool.push(...S.unsold);
+      S.unsold = [];
+      pushEvent("Bringing back the lots nobody took", "system");
+    }
+
+    if (allFull || S.cursor >= S.pool.length) {
       g.phase = "complete";
       g.lot = null;
       g.turnId = null;
@@ -569,6 +588,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     }
 
     const entryIndex = S.pool[S.cursor++];
+    S.lotEntryIndex = entryIndex;
     const rng = makeRng(S.seed + entryIndex * 7919 + S.cursor);
     g.lot = buildLot(board.entries[entryIndex], entryIndex, board, rng);
     g.lotsRemaining = Math.max(0, S.pool.length - S.cursor);
@@ -634,6 +654,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       pool: buildPool(board, makeRng(seed)),
       cursor: 0,
       lotIndex: 0,
+      lotEntryIndex: -1,
+      unsold: [],
       seed,
       seq: 0,
       npcVal: 0,
@@ -1282,8 +1304,9 @@ function SetupScreen({
           ))}
         </div>
         <p className="dm-note" style={{ marginTop: 10 }}>
-          You can always bid your whole wallet — go all-in on one pick if you dare, but empty slots count against
-          you with the judge. No clock: every lot is decided by a bid or a pass, never by a timer.
+          You can always bid your whole wallet — go all-in on one pick if you dare. Everyone still finishes with a
+          full roster: go broke and you&apos;ll be claiming leftovers for free. No clock: every lot is decided by a
+          bid or a pass, never by a timer.
         </p>
       </section>
 

@@ -15,10 +15,12 @@
  *     slot to fill; if both decline, the lot goes unsold.
  *   • You can always bid your whole wallet. Blowing it on pick one is legal;
  *     the empty chairs you finish with are the judge's problem with you.
- *   • Once the other side is full (or broke) you're drafting alone: you may
- *     pass ONE lot, then the next one fills your slot — no farming the board
- *     for the perfect leftover.
- *   • The draft ends when every roster is full, or the pool runs dry.
+ *   • Once the other side is full you're drafting alone: you may pass ONE
+ *     lot, then the next one fills your slot — no farming the board for the
+ *     perfect leftover.
+ *   • Every roster gets filled. A broke player claims unclaimed lots for $0;
+ *     two broke players roll dice for one. If the pool runs dry with chairs
+ *     still empty, the lots nobody took come back around.
  *
  * Pure and deterministic given a seed, so the solo game and the PartyKit
  * room run the same code and never disagree.
@@ -139,9 +141,18 @@ export function isFull(side: Side, rules: Rules): boolean {
   return side.roster.length >= rules.rosterSize;
 }
 
-/** Can put the first dollar on an unbid lot. */
+/**
+ * Can open the bidding on an unclaimed lot. Money is irrelevant — a broke
+ * player opens at $0 (a free claim). Every roster gets filled; the only thing
+ * going broke costs you is the ability to outbid anyone.
+ */
 export function canOpen(side: Side, rules: Rules): boolean {
-  return !isFull(side, rules) && maxBid(side, rules) >= 1;
+  return !isFull(side, rules);
+}
+
+/** The opening bid this side puts down: $1, or $0 if that's all they have. */
+export function openingBid(side: Side, rules: Rules): number {
+  return Math.min(1, maxBid(side, rules));
 }
 
 /** Can beat the standing bid. */
@@ -150,11 +161,17 @@ export function canRaise(side: Side, rules: Rules, currentBid: number): boolean 
 }
 
 /**
- * Can equal the standing bid but not beat it — the "even" case. Rather than
- * letting turn order decide, the matching side may roll dice for the lot.
+ * Can equal the standing bid but not beat it — the "even" case, including
+ * two broke players both wanting a free lot. Rather than letting turn order
+ * decide, the matching side may roll dice for it.
  */
 export function canMatch(side: Side, rules: Rules, currentBid: number): boolean {
-  return currentBid > 0 && !isFull(side, rules) && maxBid(side, rules) === currentBid;
+  return !isFull(side, rules) && maxBid(side, rules) === currentBid;
+}
+
+/** "$4", or "free" for a $0 claim — used in tickers and stamps. */
+export function priceLabel(n: number): string {
+  return n > 0 ? `$${n}` : "free";
 }
 
 export function otherSide(sides: Side[], id: string | null): Side | undefined {
@@ -231,9 +248,9 @@ export function npcValuation(
 export type NpcMove = { kind: "bid"; amount: number } | { kind: "match" } | { kind: "pass" };
 
 /** What the NPC does on its turn. */
-export function npcMove(valuation: number, side: Side, rules: Rules, currentBid: number): NpcMove {
-  if (currentBid === 0) {
-    return canOpen(side, rules) && valuation >= 1 ? { kind: "bid", amount: 1 } : { kind: "pass" };
+export function npcMove(valuation: number, side: Side, rules: Rules, currentBid: number, opening = currentBid === 0): NpcMove {
+  if (opening) {
+    return canOpen(side, rules) && valuation >= 1 ? { kind: "bid", amount: openingBid(side, rules) } : { kind: "pass" };
   }
   const next = currentBid + 1;
   if (next <= valuation && canRaise(side, rules, currentBid)) return { kind: "bid", amount: next };

@@ -8,7 +8,9 @@ import {
   isFull,
   makeRng,
   maxBid,
+  openingBid,
   otherSide,
+  priceLabel,
   rollDie,
   DEFAULT_RULES,
   type Lot,
@@ -86,6 +88,10 @@ export default class DraftMastersParty implements Party.Server {
   private pool: number[] = [];
   private cursor = 0;
   private lotIndex = 0;
+  /** Entry index of the lot on the block, so a passed lot can be recycled */
+  private lotEntryIndex = -1;
+  /** Lots nobody took — dealt again if the pool runs dry with chairs empty */
+  private unsold: number[] = [];
   private lot: Lot | null = null;
   private currentBid = 0;
   private highBidderId: string | null = null;
@@ -265,6 +271,8 @@ export default class DraftMastersParty implements Party.Server {
     this.pool = buildPool(this.pack, makeRng(this.seed));
     this.cursor = 0;
     this.lotIndex = 0;
+    this.unsold = [];
+    this.lotEntryIndex = -1;
     this.verdict = null;
     this.dice = null;
     this.ticker = [];
@@ -311,13 +319,17 @@ export default class DraftMastersParty implements Party.Server {
     if (!side) return;
 
     const amount = Math.round(Number(msg.amount));
-    if (!Number.isFinite(amount)) return;
-    if (amount <= this.currentBid) return;
+    if (!Number.isFinite(amount) || amount < 0) return;
     if (amount > maxBid(side, this.rules)) return;
+    if (this.highBidderId) {
+      if (amount <= this.currentBid) return; // a raise must beat the bid
+    } else if (amount < openingBid(side, this.rules)) {
+      return; // opening is $1 — or a $0 claim if that's all you have
+    }
 
     this.currentBid = amount;
     this.highBidderId = side.id;
-    this.push(`${side.name} bids $${amount}`, "bid");
+    this.push(amount > 0 ? `${side.name} bids $${amount}` : `${side.name} claims it for free`, "bid");
 
     // The other side answers — unless they can't do anything at all, in which
     // case the lot closes rather than making them click Pass to lose.
@@ -337,7 +349,7 @@ export default class DraftMastersParty implements Party.Server {
     const side = this.actor(sender);
     if (!side) return;
 
-    if (this.currentBid > 0) {
+    if (this.highBidderId) {
       // Declining to raise hands it to the high bidder.
       this.push(`${side.name} lets it go`, "passed");
       this.closeLot();
@@ -463,9 +475,16 @@ export default class DraftMastersParty implements Party.Server {
     const sides = this.sidesList();
 
     const allFull = sides.every((s) => isFull(s, this.rules));
-    const anyoneCanOpen = sides.some((s) => canOpen(s, this.rules));
 
-    if (allFull || this.cursor >= this.pool.length || !anyoneCanOpen) {
+    // Chairs still empty but the board's run dry: deal the passed lots again.
+    // Nobody finishes short-handed because they were picky early.
+    if (!allFull && this.cursor >= this.pool.length && this.unsold.length) {
+      this.pool.push(...this.unsold);
+      this.unsold = [];
+      this.push("Bringing back the lots nobody took", "system");
+    }
+
+    if (allFull || this.cursor >= this.pool.length) {
       this.phase = "complete";
       this.lot = null;
       this.turnId = null;
@@ -479,6 +498,7 @@ export default class DraftMastersParty implements Party.Server {
     }
 
     const entryIndex = this.pool[this.cursor++];
+    this.lotEntryIndex = entryIndex;
     const rng = makeRng(this.seed + entryIndex * 7919 + this.cursor);
     this.lot = buildLot(this.pack.entries[entryIndex], entryIndex, this.pack, rng);
 
@@ -505,15 +525,16 @@ export default class DraftMastersParty implements Party.Server {
   private closeLot() {
     if (!this.lot) return;
 
-    if (this.highBidderId && this.currentBid > 0) {
+    if (this.highBidderId) {
       const side = this.sides.get(this.highBidderId);
       if (side) {
         side.budget -= this.currentBid;
         side.roster.push({ ...this.lot, price: this.currentBid });
         this.passLocked.delete(side.id); // a filled slot earns the free pass back
-        this.push(`SOLD — ${this.lot.name} to ${side.name} for $${this.currentBid}`, "sold");
+        this.push(`SOLD — ${this.lot.name} to ${side.name} for ${priceLabel(this.currentBid)}`, "sold");
       }
     } else {
+      if (this.lotEntryIndex >= 0) this.unsold.push(this.lotEntryIndex);
       this.push(`PASSED — nobody wanted ${this.lot.name}`, "passed");
     }
 
@@ -587,6 +608,8 @@ export default class DraftMastersParty implements Party.Server {
     // dealing the previous topic.
     this.pack = null;
     this.pool = [];
+    this.unsold = [];
+    this.lotEntryIndex = -1;
     this.lot = null;
     this.verdict = null;
     this.dice = null;
