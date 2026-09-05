@@ -622,4 +622,10 @@ export const STYLES = `
 .dm-verdict-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; display: block; }
 .dm-verdict-thumb .dm-slot-initial { font-size: 13px; }
 .dm-lot-variant { max-width: 100%; white-space: normal; line-height: 1.3; text-align: left; }
+
+/* ── Photo feedback ───────────────────────────────────────────────────── */
+
+.dm-photo-fb { display: flex; gap: 6px; justify-content: center; margin: 8px auto 0; max-width: 340px; }
+.dm-photo-fb .dm-btn { min-height: 34px; padding: 6px 12px; font-size: 12.5px; }
+.dm-photo-note { text-align: center; font-size: 12px; color: var(--dm-dim); margin-top: 6px; }
 `;

@@ -25,6 +25,12 @@ export interface Entry {
   t: number;
   /** Extra words to disambiguate the portrait search */
   s?: string;
+  /**
+   * This entry's own Fandom wiki, for crossover boards where one board-level
+   * wiki can't cover everyone — Jon Snow on an "epic clash" board still needs
+   * gameofthrones, or Wikipedia hands you the newsreader.
+   */
+  wiki?: string;
   /** Conditions — one is rolled at nomination time */
   variants?: Variant[];
 }

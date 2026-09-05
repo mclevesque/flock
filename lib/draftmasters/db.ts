@@ -180,3 +180,106 @@ export async function recordMatch(m: MatchInput): Promise<{ delta: number; dupli
 
   return { delta, duplicate: false };
 }
+
+// ── Portraits: curated overrides + feedback ──────────────────────────────────
+// A human "this is the right photo" beats any API guess, so the resolver checks
+// overrides first. Every 👍/👎 is kept with its source, which is how we learn
+// which lookups actually work.
+
+let portraitsReady = false;
+
+export async function ensurePortraitTables() {
+  if (portraitsReady) return;
+  portraitsReady = true;
+  await sql`
+    CREATE TABLE IF NOT EXISTS draftmasters_portraits (
+      img_query  TEXT PRIMARY KEY,
+      url        TEXT NOT NULL,
+      source     TEXT,
+      chosen_by  TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS draftmasters_portrait_feedback (
+      id         BIGSERIAL PRIMARY KEY,
+      img_query  TEXT NOT NULL,
+      url        TEXT NOT NULL,
+      source     TEXT,
+      verdict    TEXT NOT NULL,            -- 'good' | 'bad'
+      user_id    TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS dm_pfb_query_idx ON draftmasters_portrait_feedback (img_query)`;
+  await sql`CREATE INDEX IF NOT EXISTS dm_pfb_verdict_idx ON draftmasters_portrait_feedback (verdict, created_at DESC)`;
+}
+
+export async function getPortraitOverrides(queries: string[]): Promise<Map<string, { url: string; source: string }>> {
+  const out = new Map<string, { url: string; source: string }>();
+  if (!queries.length) return out;
+  await ensurePortraitTables();
+  const rows = await sql`SELECT img_query, url, source FROM draftmasters_portraits WHERE img_query = ANY(${queries})`;
+  for (const r of rows) out.set(String(r.img_query), { url: String(r.url), source: String(r.source ?? "curated") });
+  return out;
+}
+
+/** URLs voted 👎 for each query — the resolver skips these. */
+export async function getBlockedPortraitUrls(queries: string[]): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (!queries.length) return out;
+  await ensurePortraitTables();
+  const rows = await sql`
+    SELECT img_query, url FROM draftmasters_portrait_feedback
+    WHERE verdict = 'bad' AND img_query = ANY(${queries})
+  `;
+  for (const r of rows) {
+    const q = String(r.img_query);
+    if (!out.has(q)) out.set(q, new Set());
+    out.get(q)!.add(String(r.url));
+  }
+  return out;
+}
+
+export async function recordPortraitFeedback(f: {
+  imgQuery: string;
+  url: string;
+  source: string;
+  verdict: "good" | "bad";
+  userId: string;
+}) {
+  await ensurePortraitTables();
+  await sql`
+    INSERT INTO draftmasters_portrait_feedback (img_query, url, source, verdict, user_id)
+    VALUES (${f.imgQuery}, ${f.url}, ${f.source}, ${f.verdict}, ${f.userId})
+  `;
+  if (f.verdict === "good") {
+    await sql`
+      INSERT INTO draftmasters_portraits (img_query, url, source, chosen_by)
+      VALUES (${f.imgQuery}, ${f.url}, ${f.source}, ${f.userId})
+      ON CONFLICT (img_query) DO UPDATE SET url = EXCLUDED.url, source = EXCLUDED.source,
+        chosen_by = EXCLUDED.chosen_by, updated_at = NOW()
+    `;
+  } else {
+    // A 👎 on the currently-kept photo un-keeps it.
+    await sql`DELETE FROM draftmasters_portraits WHERE img_query = ${f.imgQuery} AND url = ${f.url}`;
+  }
+}
+
+/** What worked and what didn't, by source. */
+export async function getPortraitStats() {
+  await ensurePortraitTables();
+  const bySource = await sql`
+    SELECT COALESCE(source, 'unknown') AS source,
+           COUNT(*) FILTER (WHERE verdict = 'good')::int AS good,
+           COUNT(*) FILTER (WHERE verdict = 'bad')::int  AS bad
+    FROM draftmasters_portrait_feedback
+    GROUP BY 1 ORDER BY (COUNT(*) FILTER (WHERE verdict = 'bad')) DESC
+  `;
+  const recentBad = await sql`
+    SELECT img_query, url, source, created_at FROM draftmasters_portrait_feedback
+    WHERE verdict = 'bad' ORDER BY created_at DESC LIMIT 40
+  `;
+  const overrides = await sql`SELECT COUNT(*)::int AS n FROM draftmasters_portraits`;
+  return { bySource, recentBad, overrides: Number(overrides[0]?.n ?? 0) };
+}

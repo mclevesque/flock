@@ -158,7 +158,8 @@ OUTPUT — JSON only, this exact shape:
   "entries": [
     { "n": string (the name, no parentheses in it),
       "t": number 1-5 (base tier),
-      "s": string (OPTIONAL, extra words to disambiguate an image search — use for common names, e.g. "Gulo gulo animal"),
+      "s": string (REQUIRED whenever the name could be a real person or someone from another franchise — put the franchise here: Jon Snow -> "Game of Thrones", Jin -> "Samurai Champloo", Wolverine the animal -> "Gulo gulo animal". A bare "Jon Snow" image search returns a British newsreader.),
+      "wiki": string (REQUIRED on crossover/mixed boards — this entry's own Fandom subdomain, e.g. "gameofthrones", "samuraichamploo", "marvel". Omit only when the board-level wiki already covers this entry, or the entry is real-world.),
       "variants": [ {"v": string, "t": number 1-5} ]  (OPTIONAL) }
   ]
 }
@@ -186,6 +187,9 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
 
     const s = typeof item.s === "string" ? item.s.trim().slice(0, 60) : "";
     if (s) entry.s = s;
+
+    const entryWiki = String(item.wiki ?? "").trim().toLowerCase().replace(/\.fandom\.com.*$/, "");
+    if (/^[a-z0-9-]{2,40}$/.test(entryWiki)) entry.wiki = entryWiki;
 
     if (Array.isArray(item.variants)) {
       const variants = (item.variants as Record<string, unknown>[])

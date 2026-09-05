@@ -26,6 +26,10 @@ interface Props {
   onMatch: () => void;
   /** Called once the sold reveal or a tied dice round has played out */
   onAdvance: () => void;
+  /** Status line under the photo-feedback buttons */
+  portraitNote: string | null;
+  /** 👍 keep this photo / 👎 wrong person — swaps in another */
+  onPortraitFeedback: (verdict: "good" | "bad") => void;
 }
 
 export default function AuctionStage({
@@ -39,6 +43,8 @@ export default function AuctionStage({
   onPass,
   onMatch,
   onAdvance,
+  portraitNote,
+  onPortraitFeedback,
 }: Props) {
   const me = view.sides.find((s) => s.id === meId) ?? null;
   const other = view.sides.find((s) => s.id !== meId) ?? null;
@@ -123,6 +129,21 @@ export default function AuctionStage({
             <DiceOverlay dice={view.dice} sides={view.sides} meId={meId} />
           )}
         </div>
+
+        {/* ── Photo feedback ────────────────────────────────────────────── */}
+        {lot && view.phase === "bidding" && (
+          <>
+            <div className="dm-photo-fb">
+              <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("good")} title="Keep this photo for them">
+                👍 Good photo
+              </button>
+              <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Wrong person — find another">
+                👎 Wrong photo
+              </button>
+            </div>
+            {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
+          </>
+        )}
 
         {/* ── Money readout ────────────────────────────────────────────── */}
         <div className="dm-bidbar">

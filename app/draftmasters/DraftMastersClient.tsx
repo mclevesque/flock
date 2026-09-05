@@ -107,6 +107,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const [pack, setPack] = useState<Pack | null>(null);
   const [rules, setRules] = useState<Rules>(DEFAULT_RULES);
   const [portraits, setPortraits] = useState<PortraitMap>({});
+  /** imgQuery -> which lookup produced it; reported with 👍/👎 */
+  const [portraitSources, setPortraitSources] = useState<Record<string, string>>({});
+  const [portraitNote, setPortraitNote] = useState<string | null>(null);
   const [view, setView] = useState<GameView>(EMPTY_VIEW);
   const [prepStep, setPrepStep] = useState(0);
 
@@ -236,6 +239,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     const queries = board.entries.map((e) => ({
       q: `${e.s ? `${e.n} ${e.s}` : e.n} ${board.imgContext}`.trim(),
       name: e.n,
+      // Crossover boards tag each entry with its own wiki.
+      wiki: e.wiki ?? board.wiki,
     }));
     try {
       const res = await fetch("/api/draftmasters/portrait", {
@@ -245,14 +250,70 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       });
       const data = await res.json();
       const map: PortraitMap = {};
+      const sources: Record<string, string> = {};
       queries.forEach((q, i) => {
         map[q.q] = data?.portraits?.[i]?.url ?? null;
+        sources[q.q] = data?.portraits?.[i]?.source ?? "none";
       });
       setPortraits(map);
+      setPortraitSources(sources);
     } catch {
       setPortraits({}); // lettered cards are a fine fallback
     }
   }, []);
+
+  /**
+   * 👍 keeps this photo for the character from now on; 👎 blocks it (with its
+   * source recorded, so we learn which lookups fail) and swaps in the next
+   * candidate right away.
+   */
+  const handlePortraitFeedback = useCallback(
+    async (verdict: "good" | "bad") => {
+      const lot = view.lot;
+      if (!lot) return;
+      const url = portraits[lot.imgQuery];
+      if (!url) {
+        setPortraitNote("No photo to rate — it's a lettered card.");
+        return;
+      }
+      initAudio();
+      sfx.click();
+      setPortraitNote(verdict === "good" ? "Saved — this photo is theirs from now on." : "Finding another…");
+      try {
+        await fetch("/api/draftmasters/portrait/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imgQuery: lot.imgQuery,
+            url,
+            source: portraitSources[lot.imgQuery] ?? "unknown",
+            verdict,
+            userId: meId,
+          }),
+        });
+        if (verdict === "bad") {
+          const entry = pack?.entries.find((e) => e.n === lot.name);
+          const wiki = entry?.wiki ?? pack?.wiki ?? "";
+          const res = await fetch(
+            `/api/draftmasters/portrait?q=${encodeURIComponent(lot.imgQuery)}&name=${encodeURIComponent(lot.name)}` +
+              `&wiki=${encodeURIComponent(wiki)}&fresh=1&t=${Date.now()}`,
+            { cache: "no-store" }
+          );
+          const data = await res.json();
+          setPortraits((p) => ({ ...p, [lot.imgQuery]: data?.url ?? null }));
+          setPortraitSources((p) => ({ ...p, [lot.imgQuery]: data?.source ?? "none" }));
+          setPortraitNote(data?.url ? `Swapped in another (${data.source}).` : "Nothing better found — lettered card for now.");
+        }
+      } catch {
+        setPortraitNote("Couldn't save that — try again.");
+      }
+    },
+    [meId, pack, portraits, portraitSources, view.lot]
+  );
+
+  useEffect(() => {
+    setPortraitNote(null);
+  }, [view.lot?.id]);
 
   /** Resolve the chosen topic into a full board, portraits and all. */
   const buildBoard = useCallback(async (): Promise<Pack | null> => {
@@ -1048,6 +1109,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               onPass={handlePass}
               onMatch={handleMatch}
               onAdvance={handleAdvance}
+              portraitNote={portraitNote}
+              onPortraitFeedback={handlePortraitFeedback}
             />
             {mode === "pvp" && (
               <div style={{ maxWidth: 380, marginLeft: "auto" }}>
