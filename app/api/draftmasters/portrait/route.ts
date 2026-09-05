@@ -440,7 +440,12 @@ async function resolve(q: string, name: string, wiki?: string): Promise<Portrait
 function cachedJson(key: string, portrait: Portrait) {
   remember(key, portrait);
   return NextResponse.json(portrait, {
-    headers: { "Cache-Control": "public, max-age=86400, s-maxage=604800" },
+    headers: {
+      "Cache-Control": "public, max-age=86400, s-maxage=604800",
+      // Netlify's CDN keys on path only unless told to vary — without this,
+      // one portrait would be served for every ?q=.
+      "Netlify-Vary": "query",
+    },
   });
 }
 

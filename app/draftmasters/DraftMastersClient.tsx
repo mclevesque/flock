@@ -269,7 +269,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         if (!res.ok) throw new Error(data?.error ?? "Could not build that board.");
         board = data.pack as Pack;
       } else if (presetId) {
-        const res = await fetch(`/api/draftmasters/topic?packId=${presetId}`);
+        // Path-addressed and no-store: the CDN can't serve a different board.
+        const res = await fetch(`/api/draftmasters/pack/${encodeURIComponent(presetId)}`, { cache: "no-store" });
         const data = await res.json();
         if (!res.ok) throw new Error("Could not load that topic.");
         board = data.pack as Pack;

@@ -14,10 +14,10 @@ export async function GET(req: Request) {
   const packId = searchParams.get("packId") ?? "";
   const pack = getPack(packId);
   if (!pack) return NextResponse.json({ error: "unknown pack" }, { status: 404 });
-  return NextResponse.json(
-    { pack },
-    { headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" } }
-  );
+  // Kept for old clients only. The CDN ignores ?packId in its cache key, which
+  // is how one board got served for every topic — so this must never be cached.
+  // New clients use /api/draftmasters/pack/:packId.
+  return NextResponse.json({ pack }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
