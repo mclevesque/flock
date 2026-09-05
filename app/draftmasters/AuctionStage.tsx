@@ -60,7 +60,7 @@ export default function AuctionStage({
   const holderName = view.sides.find((s) => s.id === view.highBidderId)?.name ?? "";
   const turnName = view.sides.find((s) => s.id === view.turnId)?.name ?? "the other side";
 
-  const iCanOpen = me ? canOpen(me, rules) : false;
+  const iCanOpen = me ? canOpen(me, rules, other ?? undefined) : false;
   const iCanRaise = me ? canRaise(me, rules, view.currentBid) : false;
   const iCanMatch = me ? canMatch(me, rules, view.currentBid) : false;
   // Used the one free pass while drafting unopposed — this lot must fill a slot.
@@ -190,9 +190,11 @@ export default function AuctionStage({
               <div className="dm-waiting">
                 {iHoldBid ? (
                   <>
-                    You hold the bid at <strong className="dm-money">${view.currentBid}</strong> —{" "}
+                    You hold the bid at <strong className="dm-money">{priceLabel(view.currentBid)}</strong> —{" "}
                     {other?.name ?? "they"} decide.
                   </>
+                ) : myMax === 0 ? (
+                  <>You&apos;re out of money — you&apos;ll claim leftovers for free once {other?.name ?? "they"} can&apos;t bid.</>
                 ) : (
                   <>Waiting for {turnName}…</>
                 )}

@@ -414,7 +414,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       const gg = gameRef.current;
       if (gg.phase !== "bidding" || gg.turnId !== bot.id) return;
       const opening = !gg.highBidderId;
-      const move = npcMove(S.npcVal, bot, S.rules, gg.currentBid, opening);
+      const move = npcMove(S.npcVal, bot, S.rules, gg.currentBid, opening, otherSide(gg.sides, bot.id));
       // A locked bot has used its free pass — it has to fill the slot.
       const forced = move.kind === "pass" && opening && gg.passLocked.includes(bot.id);
       actRef.current(bot.id, forced ? { kind: "bid", amount: openingBid(bot, S.rules) } : move);
@@ -460,7 +460,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         return;
       }
       g.passedIds.push(sideId);
-      if (other && !g.passedIds.includes(other.id) && canOpen(other, S.rules)) {
+      if (other && !g.passedIds.includes(other.id) && canOpen(other, S.rules, side)) {
         pushEvent(`${isMe ? "You pass" : `${side.name} passes`} — over to ${nameOf(other.id)}`, "passed");
         g.turnId = other.id;
         sfx.click();
@@ -469,7 +469,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         return;
       }
       // Unopposed: one free pass, then the next lot must fill a slot.
-      if (!other || !canOpen(other, S.rules)) {
+      if (!other || !canOpen(other, S.rules, side)) {
         if (g.passLocked.includes(sideId)) return;
         g.passLocked.push(sideId);
         pushEvent(`${isMe ? "You pass" : `${side.name} passes`} — the next one fills ${isMe ? "your" : "their"} slot`, "passed");
@@ -596,7 +596,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     // Opening rights alternate, skipping anyone who can't open.
     const first = g.sides[S.lotIndex % g.sides.length];
     const second = g.sides.find((s) => s.id !== first.id);
-    g.openerId = canOpen(first, S.rules) ? first.id : second && canOpen(second, S.rules) ? second.id : null;
+    g.openerId = canOpen(first, S.rules, second) ? first.id : second && canOpen(second, S.rules, first) ? second.id : null;
     S.lotIndex++;
 
     g.turnId = g.openerId;

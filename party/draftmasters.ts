@@ -359,7 +359,7 @@ export default class DraftMastersParty implements Party.Server {
     // Declining to open. Offer it to the other side if they can take it.
     this.passedIds.add(side.id);
     const other = otherSide(this.sidesList(), side.id);
-    if (other && !this.passedIds.has(other.id) && canOpen(other, this.rules)) {
+    if (other && !this.passedIds.has(other.id) && canOpen(other, this.rules, side)) {
       this.push(`${side.name} passes — over to ${other.name}`, "passed");
       this.turnId = other.id;
       this.broadcastState();
@@ -369,7 +369,7 @@ export default class DraftMastersParty implements Party.Server {
     // Nobody else can take it, so this side is drafting unopposed. One free
     // pass, then the next lot has to fill a slot — otherwise you could sift
     // the whole board for the perfect leftover.
-    if (!other || !canOpen(other, this.rules)) {
+    if (!other || !canOpen(other, this.rules, side)) {
       if (this.passLocked.has(side.id)) return; // must buy; the UI disables Pass, this is the backstop
       this.passLocked.add(side.id);
       this.push(`${side.name} passes — the next one fills their slot`, "passed");
@@ -506,9 +506,11 @@ export default class DraftMastersParty implements Party.Server {
     const ordered = [...sides].sort((a, b) => this.seatOf(a.id) - this.seatOf(b.id));
     const first = ordered[this.lotIndex % ordered.length];
     const second = ordered.find((s) => s.id !== first.id);
-    this.openerId = canOpen(first, this.rules)
+    // A broke side can't open while the other still has money — the opener
+    // alternation skips them until free claims are legitimately unlocked.
+    this.openerId = canOpen(first, this.rules, second)
       ? first.id
-      : second && canOpen(second, this.rules)
+      : second && canOpen(second, this.rules, first)
         ? second.id
         : null;
     this.lotIndex++;

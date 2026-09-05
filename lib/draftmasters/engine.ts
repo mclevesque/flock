@@ -141,13 +141,23 @@ export function isFull(side: Side, rules: Rules): boolean {
   return side.roster.length >= rules.rosterSize;
 }
 
+/** Has a slot and at least $1 — could actually contest a lot. */
+export function canBidAtAll(side: Side, rules: Rules): boolean {
+  return !isFull(side, rules) && maxBid(side, rules) >= 1;
+}
+
 /**
- * Can open the bidding on an unclaimed lot. Money is irrelevant — a broke
- * player opens at $0 (a free claim). Every roster gets filled; the only thing
- * going broke costs you is the ability to outbid anyone.
+ * Can open the bidding on an unclaimed lot.
+ *
+ * With money, always. Broke, only when nobody could outbid a free claim —
+ * the opponent is full or broke too. While the other side still has cash,
+ * a broke player can't open at all; they scavenge once the money's gone.
+ * That's what keeps "$0 claim" from being a hack against a live wallet.
  */
-export function canOpen(side: Side, rules: Rules): boolean {
-  return !isFull(side, rules);
+export function canOpen(side: Side, rules: Rules, opponent?: Side): boolean {
+  if (isFull(side, rules)) return false;
+  if (maxBid(side, rules) >= 1) return true;
+  return !opponent || !canBidAtAll(opponent, rules);
 }
 
 /** The opening bid this side puts down: $1, or $0 if that's all they have. */
@@ -248,9 +258,18 @@ export function npcValuation(
 export type NpcMove = { kind: "bid"; amount: number } | { kind: "match" } | { kind: "pass" };
 
 /** What the NPC does on its turn. */
-export function npcMove(valuation: number, side: Side, rules: Rules, currentBid: number, opening = currentBid === 0): NpcMove {
+export function npcMove(
+  valuation: number,
+  side: Side,
+  rules: Rules,
+  currentBid: number,
+  opening = currentBid === 0,
+  opponent?: Side
+): NpcMove {
   if (opening) {
-    return canOpen(side, rules) && valuation >= 1 ? { kind: "bid", amount: openingBid(side, rules) } : { kind: "pass" };
+    return canOpen(side, rules, opponent) && valuation >= 1
+      ? { kind: "bid", amount: openingBid(side, rules) }
+      : { kind: "pass" };
   }
   const next = currentBid + 1;
   if (next <= valuation && canRaise(side, rules, currentBid)) return { kind: "bid", amount: next };
