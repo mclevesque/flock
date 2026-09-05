@@ -18,7 +18,7 @@ export async function ensureDraftMastersTables() {
     CREATE TABLE IF NOT EXISTS draftmasters_players (
       user_id      TEXT PRIMARY KEY,
       name         TEXT NOT NULL DEFAULT 'Drafter',
-      rating       INTEGER NOT NULL DEFAULT ${STARTING_RATING},
+      rating       INTEGER NOT NULL DEFAULT 1000,  -- STARTING_RATING; DDL can't take a bound parameter
       pvp_wins     INTEGER NOT NULL DEFAULT 0,
       pvp_losses   INTEGER NOT NULL DEFAULT 0,
       solo_wins    INTEGER NOT NULL DEFAULT 0,

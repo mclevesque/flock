@@ -12,6 +12,7 @@ import type { DiceState, GameView, PortraitMap } from "./types";
 
 const SOLD_REVEAL_MS = 3000;
 const DICE_TIE_MS = 1900;
+const DICE_WIN_MS = 1700;
 
 interface Props {
   view: GameView;
@@ -65,8 +66,13 @@ export default function AuctionStage({
       const t = setTimeout(() => advanceRef.current(), SOLD_REVEAL_MS);
       return () => clearTimeout(t);
     }
-    if (view.phase === "dice" && view.dice && view.dice.winnerId === null) {
-      const t = setTimeout(() => advanceRef.current(), DICE_TIE_MS);
+    if (view.phase === "dice" && view.dice) {
+      // Tie: reroll once the tie has been seen. Winner: let the die sit,
+      // then finish. Either way the game only moves when a client says so.
+      const t = setTimeout(
+        () => advanceRef.current(),
+        view.dice.winnerId === null ? DICE_TIE_MS : DICE_WIN_MS
+      );
       return () => clearTimeout(t);
     }
   }, [view.phase, view.dice, view.lot?.id]);

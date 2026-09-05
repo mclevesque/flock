@@ -423,22 +423,27 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     const winnerId = a > b ? idA : idB;
     g.dice.winnerId = winnerId;
     pushEvent(`Dice: ${a}–${b} — ${nameOf(winnerId)} win${winnerId === meId ? "" : "s"} it`, "dice");
+    // The stage shows the winning die, then calls advance — same rule as PvP.
+    commit();
+  };
 
+  /** Apply a decided dice-off: award the lot, or crown the verdict winner. */
+  const finishDice = useCallback(() => {
+    const g = gameRef.current;
+    if (!g.dice || g.dice.winnerId === null) return;
+    const winnerId = g.dice.winnerId;
     if (g.dice.reason === "lot") {
       g.highBidderId = winnerId;
       g.currentBid = g.dice.price;
-      // Let the winning die sit on screen for a beat before the SOLD stamp.
-      commit();
-      setTimeout(() => closeLotRef.current(), 1400);
-    } else {
-      const current = verdictRef.current;
-      const final: Verdict = current
-        ? { ...current, winnerId, diceBreak: g.dice }
-        : { winnerId, headline: "Dice decide it", reasoning: "", sideNotes: [], judged: "offline", diceBreak: g.dice };
-      commit();
-      setTimeout(() => finishVerdictRef.current(final), 1400);
+      closeLotRef.current();
+      return;
     }
-  };
+    const current = verdictRef.current;
+    const final: Verdict = current
+      ? { ...current, winnerId, diceBreak: g.dice }
+      : { winnerId, headline: "Dice decide it", reasoning: "", sideNotes: [], judged: "offline", diceBreak: g.dice };
+    finishVerdictRef.current(final);
+  }, []);
 
   closeLotRef.current = () => {
     const g = gameRef.current;
@@ -511,12 +516,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     scheduleNpcRef.current();
   };
 
-  /** Solo progression after a reveal or a tied dice round. */
+  /** Solo progression after a reveal or a dice round — mirrors the server's advance. */
   const soloAdvance = useCallback(() => {
     const g = gameRef.current;
     if (g.phase === "sold") nominateRef.current();
-    else if (g.phase === "dice" && g.dice && g.dice.winnerId === null) rollRoundRef.current();
-  }, []);
+    else if (g.phase === "dice" && g.dice) {
+      if (g.dice.winnerId !== null) finishDice();
+      else rollRoundRef.current();
+    }
+  }, [finishDice]);
 
   // ── Starting a game ────────────────────────────────────────────────────────
 
@@ -804,11 +812,13 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   const handleAdvance = useCallback(() => {
     if (mode === "pvp") {
-      send({ type: "advance", round: view.dice?.rounds.length ?? 0 });
+      // Name the phase we're advancing from so a late duplicate can't push
+      // the room through two steps.
+      send({ type: "advance", from: view.phase, round: view.dice?.rounds.length ?? 0 });
     } else {
       soloAdvance();
     }
-  }, [mode, send, soloAdvance, view.dice?.rounds.length]);
+  }, [mode, send, soloAdvance, view.phase, view.dice?.rounds.length]);
 
   finishVerdictRef.current = (final: Verdict) => {
     const g = gameRef.current;

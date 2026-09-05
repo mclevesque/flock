@@ -370,11 +370,22 @@ export default class DraftMastersParty implements Party.Server {
    * advancing at once produce one step, not two.
    */
   private handleAdvance(msg: Record<string, unknown>) {
+    // An advance names the phase the client saw. Both clients advance a
+    // decided roll; the first awards the lot (-> sold) and the second must NOT
+    // then be read as "advance the sold reveal" — that skipped the reveal.
+    if (msg.from !== this.phase) return;
+
     if (this.phase === "sold") {
       this.nominate();
       return;
     }
-    if (this.phase === "dice" && this.dice && this.dice.winnerId === null) {
+    if (this.phase === "dice" && this.dice) {
+      // A decided roll stays on screen until a client says it has been seen —
+      // otherwise a first-roll winner would flash for zero frames before SOLD.
+      if (this.dice.winnerId !== null) {
+        this.finishDice();
+        return;
+      }
       const seen = Number(msg.round);
       if (seen !== this.dice.rounds.length) return; // stale or duplicate
       this.rollRound();
@@ -413,15 +424,21 @@ export default class DraftMastersParty implements Party.Server {
     this.dice.winnerId = winnerId;
     this.say(`🎲 ${nameA} rolls ${a}, ${nameB} rolls ${b} — ${winnerName} wins the roll!${label}`);
     this.push(`Dice: ${a}–${b} — ${winnerName} wins it`, "dice");
+    // Phase stays "dice" so the winning roll is actually seen; a client
+    // `advance` finishes it. Same idempotent step as the tie reroll.
+    this.broadcastState();
+  }
 
+  /** Apply a decided dice-off: award the lot, or crown the verdict winner. */
+  private finishDice() {
+    if (!this.dice || this.dice.winnerId === null) return;
+    const winnerId = this.dice.winnerId;
     if (this.dice.reason === "lot") {
       this.highBidderId = winnerId;
       this.currentBid = this.dice.price;
       this.closeLot();
     } else {
-      if (this.verdict) {
-        this.verdict = { ...this.verdict, winnerId, diceBreak: this.dice };
-      }
+      if (this.verdict) this.verdict = { ...this.verdict, winnerId, diceBreak: this.dice };
       this.phase = "complete";
       this.broadcastState();
     }

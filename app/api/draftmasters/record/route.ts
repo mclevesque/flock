@@ -67,7 +67,10 @@ export async function POST(req: Request) {
     });
     const record = await getRecord(session?.user?.id ?? body.reporterId ?? winner.id);
     return NextResponse.json({ ...result, record });
-  } catch {
+  } catch (err) {
+    // Records failing must never be silent — a ladder that quietly stops
+    // counting is worse than one that errors.
+    console.error("[draftmasters/record]", err);
     return NextResponse.json({ error: "could not record" }, { status: 500 });
   }
 }
