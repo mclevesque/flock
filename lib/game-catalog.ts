@@ -49,6 +49,10 @@ export const ALL_GAMES: CatalogGame[] = [
     id: "reakt", title: "REAKT", desc: "Co-op 3D FPS with fracture chains", emoji: "💥",
     multiplayer: true, comingSoon: true, launchType: "nav", href: "/reakt",
   },
+  {
+    id: "draftmasters", title: "DraftMasters", desc: "Auction draft anything — $20, five picks, one winner", emoji: "🔨",
+    multiplayer: true, launchType: "nav", href: "/draftmasters",
+  },
 ];
 
 export const GAME_SECTIONS = [
@@ -58,7 +62,7 @@ export const GAME_SECTIONS = [
   },
   {
     label: "TABLE GAMES", icon: "🎲",
-    games: ALL_GAMES.filter(g => ["chess", "pong"].includes(g.id)),
+    games: ALL_GAMES.filter(g => ["chess", "pong", "draftmasters"].includes(g.id)),
   },
   {
     label: "SOULBOUND", icon: "🥚",
