@@ -9,7 +9,9 @@
     "presence": "party/presence.ts",
     "notifications": "party/notifications.ts",
     "voice": "party/voice.ts",
-    "netplay": "party/netplay.ts"
+    "netplay": "party/netplay.ts",
+    "nerdalert": "party/nerdalert.ts",
+    "draftmasters": "party/draftmasters.ts"
   },
   "compatibilityDate": "2024-09-23"
 }
