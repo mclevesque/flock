@@ -268,11 +268,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error ?? "Could not build that board.");
         board = data.pack as Pack;
-      } else {
-        const res = await fetch(`/api/draftmasters/topic?packId=${presetId ?? "got"}`);
+      } else if (presetId) {
+        const res = await fetch(`/api/draftmasters/topic?packId=${presetId}`);
         const data = await res.json();
         if (!res.ok) throw new Error("Could not load that topic.");
         board = data.pack as Pack;
+      } else {
+        // Never default to a board the host didn't choose.
+        throw new Error("Pick a topic first.");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong building the board.");
@@ -878,7 +881,11 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setError(null);
     setPortraits({});
     setPack(null);
+    // Clear BOTH topic inputs. Leaving presetId set is why a rematch kept
+    // dealing the previous board — the old pick was still "selected", and the
+    // host could hit Build without noticing.
     setCustomTopic("");
+    setPresetId(null);
     knownPackId.current = null;
     prevPhase.current = "";
     prevBid.current = 0;
@@ -1109,6 +1116,7 @@ function SetupScreen({
   // rather than hiding the one thing they came here to do.
   const [showJoin, setShowJoin] = useState(Boolean(joinCode));
   const usingCustom = customTopic.trim().length > 0;
+  const hasTopic = usingCustom || Boolean(presetId);
 
   return (
     <>
@@ -1236,8 +1244,8 @@ function SetupScreen({
         </div>
 
         <div className="dm-row" style={{ marginTop: 16 }}>
-          <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onSolo}>
-            Start draft vs {npc.name}
+          <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onSolo} disabled={!hasTopic}>
+            {hasTopic ? `Start draft vs ${npc.name}` : "Pick a topic to start"}
           </button>
           <button className="dm-btn dm-btn-lg" onClick={onCreate}>
             🎙️ Draft with a friend
@@ -1367,6 +1375,7 @@ function RoomLobby({
 }) {
   const others = members.filter((m) => m.userId !== meId);
   const usingCustom = customTopic.trim().length > 0;
+  const hasTopic = usingCustom || Boolean(presetId);
   const chosen = usingCustom ? customTopic.trim() : (packs.find((p) => p.id === presetId)?.name ?? "topic");
 
   return (
@@ -1439,9 +1448,13 @@ function RoomLobby({
             className="dm-btn dm-btn-primary dm-btn-lg dm-btn-block"
             style={{ marginTop: 18 }}
             onClick={onStart}
-            disabled={others.length === 0}
+            disabled={others.length === 0 || !hasTopic}
           >
-            {others.length === 0 ? "Waiting for your opponent…" : `Build the board — ${chosen}`}
+            {others.length === 0
+              ? "Waiting for your opponent…"
+              : !hasTopic
+                ? "Pick a topic to build the board"
+                : `Build the board — ${chosen}`}
           </button>
         </div>
       ) : (
