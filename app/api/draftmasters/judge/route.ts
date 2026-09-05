@@ -62,15 +62,18 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: DRAFT_MODEL,
-          max_tokens: 3000,
-          reasoning_effort: "low",
-          temperature: 0.75,
+          max_tokens: 6000,
+          // Medium, not low: a verdict people argue about deserves an actual
+          // war-game of the matchup, not a vibe. Costs a few seconds once.
+          reasoning_effort: "medium",
+          temperature: 0.6,
           response_format: { type: "json_object" },
           messages: [
             {
               role: "system",
               content:
                 "You are the judge of a live auction draft show. You are decisive, funny, and you commit to a winner — never a tie. " +
+                "Before deciding, actually play the scenario out: who on each side handles whom, what each roster lacks, where it breaks. Use what is widely known about these characters' feats and weaknesses — the verdict should survive a fan's cross-examination. " +
                 "You care about the scenario, not about who spent more. A cheap roster that fits the scenario beats an expensive one that doesn't. " +
                 "Note when a team overpaid or found a steal. Be specific about the actual names drafted; never be generic. " +
                 "A condition in parentheses is binding, but weigh it proportionately: a mild one (a wound, fatigue, age) makes them only slightly worse; only a crippling one (missing sword hand, sealed away, dying) changes who they are. " +
