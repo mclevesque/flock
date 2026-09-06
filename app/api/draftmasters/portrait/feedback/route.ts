@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getPortraitStats, recordPortraitFeedback } from "@/lib/draftmasters/db";
-import { forget } from "@/lib/draftmasters/portrait-memo";
+import { forget, nameKeys } from "@/lib/draftmasters/portrait-memo";
 
 /**
  * POST /api/draftmasters/portrait/feedback  { imgQuery, url, source, verdict, userId }
@@ -15,6 +15,7 @@ import { forget } from "@/lib/draftmasters/portrait-memo";
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as {
     imgQuery?: string;
+    name?: string;
     url?: string;
     source?: string;
     verdict?: string;
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
   } | null;
 
   const imgQuery = String(body?.imgQuery ?? "").trim().slice(0, 200);
+  const name = String(body?.name ?? "").trim().slice(0, 120);
   const url = String(body?.url ?? "").trim().slice(0, 2000);
   const verdict = body?.verdict === "good" ? "good" : body?.verdict === "bad" ? "bad" : null;
   if (!imgQuery || !url || !verdict || !/^https?:\/\//.test(url)) {
@@ -38,6 +40,8 @@ export async function POST(req: Request) {
       source: String(body?.source ?? "unknown").slice(0, 32),
       verdict,
       userId,
+      // A vote is about the character, not this board's phrasing of them.
+      alsoKeys: name ? nameKeys(name) : [],
     });
     forget(imgQuery);
     return NextResponse.json({ ok: true, verdict });

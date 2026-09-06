@@ -291,6 +291,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             imgQuery: lot.imgQuery,
+            name: lot.name,
             url,
             source: portraitSources[lot.imgQuery] ?? "unknown",
             verdict,

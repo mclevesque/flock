@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBlockedPortraitUrls, getPortraitOverrides } from "@/lib/draftmasters/db";
-import { memo, remember, type Portrait } from "@/lib/draftmasters/portrait-memo";
+import { memo, nameKeys, remember, type Portrait } from "@/lib/draftmasters/portrait-memo";
 
 /**
  * GET  /api/draftmasters/portrait?q=<search query>&name=<bare name>&wiki=<fandom>
@@ -284,14 +284,34 @@ async function lookup(
   return remember(key, await resolve(q, name, wiki, blocked));
 }
 
-async function curation(queries: string[]) {
+type Overrides = Map<string, { url: string; source: string }>;
+type Blocked = Map<string, Set<string>>;
+
+/**
+ * Curation is looked up under the exact query AND the character's name keys,
+ * so an imported photo of Jon Snow wins on any board, whatever its context.
+ */
+async function curation(queries: string[], names: string[]) {
+  const keys = [...new Set([...queries, ...names.flatMap(nameKeys)])];
   // Records are a nice-to-have; a DB hiccup must never blank a board.
   try {
-    const [overrides, blocked] = await Promise.all([getPortraitOverrides(queries), getBlockedPortraitUrls(queries)]);
+    const [overrides, blocked] = await Promise.all([getPortraitOverrides(keys), getBlockedPortraitUrls(keys)]);
     return { overrides, blocked };
   } catch {
-    return { overrides: new Map<string, { url: string; source: string }>(), blocked: new Map<string, Set<string>>() };
+    return { overrides: new Map() as Overrides, blocked: new Map() as Blocked };
   }
+}
+
+/** The override for this lot: exact query first, then the character's name. */
+function pickOverride(overrides: Overrides, key: string, name: string) {
+  return overrides.get(key) ?? nameKeys(name).map((k) => overrides.get(k)).find(Boolean);
+}
+
+/** Everything 👎'd for this lot under any of its keys. */
+function pickBlocked(blocked: Blocked, key: string, name: string): Set<string> {
+  const out = new Set<string>(blocked.get(key) ?? []);
+  for (const k of nameKeys(name)) for (const u of blocked.get(k) ?? []) out.add(u);
+  return out;
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -306,8 +326,8 @@ export async function GET(req: Request) {
   if (!q && !name) return NextResponse.json({ url: null, source: "none" } satisfies Portrait);
 
   const key = q || name;
-  const { overrides, blocked } = await curation([key]);
-  const portrait = await lookup(q, name, wiki, overrides.get(key), blocked.get(key) ?? new Set());
+  const { overrides, blocked } = await curation([key], name ? [name] : []);
+  const portrait = await lookup(q, name, wiki, pickOverride(overrides, key, name), pickBlocked(blocked, key, name));
 
   return NextResponse.json(portrait, {
     headers: fresh
@@ -331,7 +351,8 @@ export async function POST(req: Request) {
   if (!queries.length) return NextResponse.json({ portraits: [] });
 
   const keys = queries.map((x) => (x.q || x.name || "").trim()).filter(Boolean);
-  const { overrides, blocked } = await curation(keys);
+  const names = queries.map((x) => (x.name ?? "").trim()).filter(Boolean);
+  const { overrides, blocked } = await curation(keys, names);
 
   const results: Portrait[] = new Array(queries.length);
   const CONCURRENCY = 6;
@@ -347,7 +368,7 @@ export async function POST(req: Request) {
         continue;
       }
       const key = q || name;
-      results[i] = await lookup(q, name, wiki, overrides.get(key), blocked.get(key) ?? new Set());
+      results[i] = await lookup(q, name, wiki, pickOverride(overrides, key, name), pickBlocked(blocked, key, name));
     }
   }
 

@@ -247,22 +247,30 @@ export async function recordPortraitFeedback(f: {
   source: string;
   verdict: "good" | "bad";
   userId: string;
+  /** Extra keys the vote applies under — the character's name keys */
+  alsoKeys?: string[];
 }) {
   await ensurePortraitTables();
-  await sql`
-    INSERT INTO draftmasters_portrait_feedback (img_query, url, source, verdict, user_id)
-    VALUES (${f.imgQuery}, ${f.url}, ${f.source}, ${f.verdict}, ${f.userId})
-  `;
-  if (f.verdict === "good") {
+  const keys = [...new Set([f.imgQuery, ...(f.alsoKeys ?? [])])];
+  for (const key of keys) {
     await sql`
-      INSERT INTO draftmasters_portraits (img_query, url, source, chosen_by)
-      VALUES (${f.imgQuery}, ${f.url}, ${f.source}, ${f.userId})
-      ON CONFLICT (img_query) DO UPDATE SET url = EXCLUDED.url, source = EXCLUDED.source,
-        chosen_by = EXCLUDED.chosen_by, updated_at = NOW()
+      INSERT INTO draftmasters_portrait_feedback (img_query, url, source, verdict, user_id)
+      VALUES (${key}, ${f.url}, ${f.source}, ${f.verdict}, ${f.userId})
     `;
+  }
+  if (f.verdict === "good") {
+    // Keep it under every key, so it applies on any board this character is on.
+    for (const key of keys) {
+      await sql`
+        INSERT INTO draftmasters_portraits (img_query, url, source, chosen_by)
+        VALUES (${key}, ${f.url}, ${f.source}, ${f.userId})
+        ON CONFLICT (img_query) DO UPDATE SET url = EXCLUDED.url, source = EXCLUDED.source,
+          chosen_by = EXCLUDED.chosen_by, updated_at = NOW()
+      `;
+    }
   } else {
-    // A 👎 on the currently-kept photo un-keeps it.
-    await sql`DELETE FROM draftmasters_portraits WHERE img_query = ${f.imgQuery} AND url = ${f.url}`;
+    // A 👎 on the currently-kept photo un-keeps it everywhere.
+    await sql`DELETE FROM draftmasters_portraits WHERE img_query = ANY(${keys}) AND url = ${f.url}`;
   }
 }
 
