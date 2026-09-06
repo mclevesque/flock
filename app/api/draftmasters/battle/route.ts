@@ -1,23 +1,39 @@
 import { NextResponse } from "next/server";
 import { getPack } from "@/lib/draftmasters/packs";
 import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { getFormat, planBriefing, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
 import type { Side } from "@/lib/draftmasters/engine";
 
 /**
  * POST /api/draftmasters/battle
  *
- * Turns a decided draft into a beat-by-beat fight to watch. The winner is
+ * Turns a decided draft into a beat-by-beat show to watch. The winner is
  * handed IN and is not up for debate — this dramatises the judge's verdict,
  * it doesn't re-decide it, so "Battle!" and "Calculate Winner" can never
  * disagree.
+ *
+ * It also inherits the judge's `plan`: what kind of contest this is, who the
+ * judges are and what they want, the matchups already called, and the twists
+ * that decided it. That's what stops every board being staged as the same
+ * melee — a Pokémon board comes back as turns and type matchups, a pageant
+ * comes back as rounds and scorecards with nobody throwing a punch.
  *
  * Falls back to a scripted fight built from tiers when Groq is unreachable,
  * so the button always does something.
  */
 
-export const maxDuration = 45;
+export const maxDuration = 60;
 
-export type BeatKind = "entrance" | "clash" | "kill" | "standoff" | "heroic" | "comic" | "turn" | "final";
+export type BeatKind =
+  | "entrance"
+  | "clash"
+  | "kill"
+  | "standoff"
+  | "heroic"
+  | "comic"
+  | "turn"
+  | "judgment"
+  | "final";
 
 export interface BattleBeat {
   /** Drafted names involved, in the order they act */
@@ -36,10 +52,12 @@ export interface BattleBeat {
 
 interface BattleRequest {
   packId?: string;
-  pack?: { name: string; scenario: string; criteria: string };
+  pack?: { name: string; scenario: string; criteria: string; format?: string };
   sides: Side[];
   winnerId: string;
   reasoning?: string;
+  /** The judge's read on the contest — see /api/draftmasters/judge */
+  plan?: ContestPlan;
 }
 
 export async function POST(req: Request) {
@@ -55,13 +73,19 @@ export async function POST(req: Request) {
 
   const preset = body.packId ? getPack(body.packId) : undefined;
   const pack = body.pack ?? preset;
+
+  // No plan means an old client or an offline verdict — fall back to the
+  // board's declared format, then to a melee.
+  const plan = body.plan ? sanitizePlan(body.plan) : null;
+  const format = getFormat(plan?.format ?? body.pack?.format ?? preset?.format);
+
   const apiKey = process.env.GROQ_API_KEY;
 
   if (apiKey && pack) {
     try {
       const roster = (s: Side) =>
         s.roster.length
-          ? s.roster.map((p) => `  - ${p.name}${p.variant ? ` (${p.variant})` : ""}`).join("\n")
+          ? s.roster.map(pickLine).join("\n")
           : "  - (nobody)";
 
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -69,68 +93,139 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: DRAFT_MODEL,
-          max_tokens: 8000,
-          reasoning_effort: "low",
-          temperature: 1.0,
+          max_tokens: 9000,
+          // Low was fine when every board was a melee. Staging an unfamiliar
+          // format correctly — turn order, a scorecard, a heist going wrong —
+          // needs a little actual thought, and it happens once behind a bar.
+          reasoning_effort: "medium",
+          temperature: 0.95,
           response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: systemPrompt(format.id) },
             {
               role: "user",
               content:
                 `SCENARIO: ${pack.scenario}\n\n` +
+                `${plan ? `${planBriefing(plan)}\n\n` : `FORMAT: ${format.id} — ${format.label}\n\n`}` +
+                `HOW TO STAGE A "${format.id}" CONTEST:\n${format.staging}\n` +
+                `When someone goes out, they are ${format.outLabel.toLowerCase()} — never describe it as anything else.\n\n` +
                 `TEAM "${winner.name}" [id: ${winner.id}] — THIS TEAM WINS:\n${roster(winner)}\n\n` +
                 `TEAM "${loser.name}" [id: ${loser.id}] — this team loses:\n${roster(loser)}\n\n` +
-                (body.reasoning ? `The judge's reasoning, which your fight must agree with: ${body.reasoning}\n\n` : "") +
-                `Write the fight. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
+                (body.reasoning ? `The judge's reasoning, which your show must agree with: ${body.reasoning}\n\n` : "") +
+                `Write it. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
             },
           ],
         }),
-        signal: AbortSignal.timeout(40000),
+        signal: AbortSignal.timeout(50000),
       });
 
+      if (!res.ok) console.error("[draftmasters/battle] Groq said", res.status);
       if (res.ok) {
         const data = await res.json();
         const raw = data?.choices?.[0]?.message?.content;
         if (raw) {
           const beats = sanitize(JSON.parse(raw), sides, winner.id);
-          if (beats.length >= 3) return NextResponse.json({ beats, winnerId: winner.id, scripted: "ai" });
+          if (beats.length >= 3) {
+            return NextResponse.json({
+              beats,
+              winnerId: winner.id,
+              scripted: "ai",
+              format: format.id,
+              formatLabel: plan?.formatLabel || format.label,
+              outLabel: format.outLabel,
+            });
+          }
         }
       }
-    } catch {
-      /* fall through to the offline script */
+    } catch (err) {
+      console.error("[draftmasters/battle] falling back to the offline script", err);
     }
   }
 
-  return NextResponse.json({ beats: offlineBeats(winner, loser), winnerId: winner.id, scripted: "offline" });
+  return NextResponse.json({
+    beats: offlineBeats(winner, loser),
+    winnerId: winner.id,
+    scripted: "offline",
+    format: format.id,
+    formatLabel: format.label,
+    outLabel: format.outLabel,
+  });
 }
 
-const SYSTEM_PROMPT = `You are the ringside commentator for DraftMasters, narrating a fight between two drafted teams.
 
-VOICE: breathless, funny, a little unhinged — like a wrestling commentator who genuinely cares. Vary the rhythm. Some beats are short and punchy ("Gollum bites his ankle. It does nothing."). Others run long and build. Use CAPS for genuine shock, not constantly. Example of the register:
+/**
+ * How a drafted pick reads to the model.
+ *
+ * The grade goes in because the colour on the player's card is a promise: a
+ * mythic is supposed to be nearly unbeatable and a crippling is supposed to
+ * gut them, and a model that treats every parenthetical as equally important
+ * breaks that promise.
+ */
+const GRADE_NOTE: Record<string, string> = {
+  crippling: "CRIPPLING - this guts them",
+  weakening: "weakened, but still themselves",
+  neutral: "flavour only, changes little",
+  boon: "a small edge",
+  major: "MAJOR - a big upgrade",
+  mythic: "MYTHIC - game changing, should only lose to another mythic or two majors stacked against it",
+};
+
+function pickLine(p: { name: string; variant: string | null; variantGrade: string | null }): string {
+  if (!p.variant) return `  - ${p.name}`;
+  const note = GRADE_NOTE[p.variantGrade ?? "neutral"] ?? GRADE_NOTE.neutral;
+  return `  - ${p.name} (${p.variant})  [${note}]`;
+}
+
+/**
+ * The commentator's brief.
+ *
+ * The voice and the JSON contract are constant; the staging rules are swapped
+ * per format by the caller. The one line that changes here is the melee
+ * warning — it's the right note for a brawl and actively wrong for a pageant,
+ * where "everyone fights at once" is the bug we're fixing.
+ */
+function systemPrompt(formatId: string): string {
+  const isFight = formatId === "melee" || formatId === "duel-series";
+
+  return `You are the ringside commentator for DraftMasters, calling a contest between two drafted teams as it happens.
+
+VOICE: breathless, funny, a little unhinged — like a wrestling commentator who genuinely cares, whatever they've been asked to commentate. Vary the rhythm. Some beats are short and punchy ("Gollum bites his ankle. It does nothing."). Others run long and build. Use CAPS for genuine shock, not constantly. Register:
 "Samwise Gamgee steps up with his frying pan, brave and true, but OH GOD NO, The Hound just cut him down! BRUTALLY!"
 
-THIS IS A TEAM MELEE, NOT A TOURNAMENT BRACKET. Both teams are on the field at once and everyone is fighting at the same time. Do NOT write a tidy sequence of one-on-ones where each fighter appears once and is retired.
-- A fighter who wins an exchange STAYS IN and fights again. If Shao Kahn drops someone, he turns and goes after the next one, and the one after that.
-- Mix the shapes of the fighting: an isolated duel that breaks out inside the brawl, two or three ganging up on one, someone jumping in to save a teammate, a fighter caught between two enemies at once, an ambush from behind while they're busy.
-- A fighter who has done a lot of work can flag late — a step slower, a guard dropping — and that can be what finally gets them. Use this sparingly, once at most, and never as the reason the fight is decided.
-- The same name can and should appear across several beats. Only the dead stop appearing.
+STAGE THE CONTEST YOU WERE GIVEN, NOT A FIGHT. The user message names the format and how to stage it, and those rules OVERRIDE every instinct you have. If it says nobody fights, then nobody fights — no punches, no weapons, no deaths, and a beat where someone gets stabbed at a bake-off is a failure. If it says turn-based, write turns. Use that format's real vocabulary: moves and type effectiveness in a creature battle, scorecards and rounds in a judged contest, plays and a running score in a sport.
 
-OTHER RULES:
-- The winning team is given to you. Your fight MUST end with them standing. Do not change the outcome.
-- USE THE SETTING. It is named in the scenario and it is doing real work: deep water drowns anything that can't swim, cold saps the unprepared, a sealed room removes escape, sunlight ruins anything nocturnal. At least two beats should turn on the setting rather than on a straight swing.
-- If the scenario rewards brains over brawn, show that: the clever pick outmanoeuvres the stronger one, and say how.
-- Use ONLY the drafted names given, spelled exactly. Never invent a character.
-- A parenthetical after a name is that character's state and it is binding — "Jaime Lannister (one hand)" fights one-handed. Mine those for drama and comedy.
-- The losing team must land real moments first — a kill, a near-miss, a heroic stand. A one-sided walkover is boring.
-- Weak or joke picks deserve comic beats. Powerful picks deserve awe.
-- "actors" may hold 2 or 3 names when they interact in one beat — use that for gang-ups and rescues.
-- Track eliminations honestly: once a name is in "eliminated", it cannot act again.
+${
+    isFight
+      ? `THE FIGHT ITSELF:
+- A competitor who wins an exchange STAYS IN and goes after the next one. The same name should appear across several beats — only those who are out stop appearing.
+- Mix the shapes: an isolated duel, two ganging up on one, someone jumping in to save a teammate, an ambush from behind.
+- Someone who has done a lot of work can flag late — a step slower, a guard dropping — and that can be what finally gets them. Once at most, and never as the reason the contest is decided.`
+      : `KEEPING IT HONEST TO THE FORMAT:
+- Competitors are not retired after one beat. Someone who does well early comes back and does more.
+- The tension comes from the format's own stakes — a scorecard, a clock, a rising alarm, a lead changing hands — not from violence.
+- Show the moment a competitor realises they are out of their depth. Show the moment one of them nearly steals it.`
+  }
+
+WHAT MUST BE ON SCREEN:
+- USE THE SETTING. It is named in the scenario and it is doing real work: deep water, killing cold, a sealed room, no sunlight, a hostile crowd. At least two beats should turn on the setting rather than on a straight swing.
+- If a PANEL, judges or a crowd were given to you, they are characters: show their faces, their bias, who they are clearly rooting for and why. A biased judge deciding it is a great beat, not a cheat.
+- If TWISTS were given to you, each one MUST happen on screen. They are the best moments you have — build to them and let them land.
+- Your beats must agree with the KEY MATCHUPS you were given. If the judge said one pick handles another, that is what happens.
+- If the contest rewards brains, show the clever pick outmanoeuvring the stronger one and say exactly how.
+
+HARD RULES:
+- The winning team is given to you. Your show MUST end with them on top. Do not change the outcome.
+- Use ONLY the drafted names given, spelled exactly. Never invent a competitor. Judges and officials named in the briefing may be spoken about but must NOT appear in "actors".
+- A parenthetical after a name is that competitor's state and it is binding — "Jaime Lannister (one hand)" really does only have one hand. Mine those for drama and comedy.
+- The losing team must land real moments first — a lead, a near-miss, a moment where they look like they have it. A one-sided walkover is boring.
+- Weak or joke picks deserve comic beats. Great picks deserve awe.
+- "actors" may hold 2 or 3 names when they interact in one beat.
+- Track eliminations honestly: once a name is in "eliminated", it cannot act again. Only put someone in "eliminated" if they are genuinely finished — in a creature battle that means fainted, in a judged contest it means cut, and someone merely hurt or marked down is STILL IN.
 
 STRUCTURE: 8-14 beats.
-- Open with 1-2 "entrance" beats setting the scene.
-- Middle: "clash", "kill", "standoff", "heroic", "comic", "turn" beats. At least one "turn" where the losing team looks like it might actually win. Let your strongest fighters rack up more than one kill across these.
-- End with exactly one "final" beat where the winning team takes it.
+- Open with 1-2 "entrance" beats setting the scene and the stakes. Cover several competitors in ONE beat — do not give every name its own entrance, that burns the whole show on introductions.
+- Middle: "clash", "kill", "standoff", "heroic", "comic", "turn", "judgment" beats. Use "judgment" for a scorecard, a ruling, an official's call or the panel reacting. At least one "turn" where the losing team looks like it might actually take it.
+- End with exactly one "final" beat where the winning team seals it.
 
 OUTPUT — JSON only:
 {
@@ -139,15 +234,26 @@ OUTPUT — JSON only:
       "sideId": string (exact id of the acting team),
       "targetSideId": string (OPTIONAL, exact id of the team on the receiving end),
       "text": string (the commentary, max 220 chars),
-      "kind": "entrance" | "clash" | "kill" | "standoff" | "heroic" | "comic" | "turn" | "final",
-      "intensity": number 0-3 (0 calm, 3 the biggest moment of the fight),
-      "eliminated": [string] (OPTIONAL, exact names knocked out by this beat) }
+      "kind": "entrance" | "clash" | "kill" | "standoff" | "heroic" | "comic" | "turn" | "judgment" | "final",
+      "intensity": number 0-3 (0 calm, 3 the biggest moment of the contest),
+      "eliminated": [string] (OPTIONAL, exact names knocked out for good by this beat) }
   ]
 }`;
+}
 
 // ── Sanitising ───────────────────────────────────────────────────────────────
 
-const KINDS: BeatKind[] = ["entrance", "clash", "kill", "standoff", "heroic", "comic", "turn", "final"];
+const KINDS: BeatKind[] = [
+  "entrance",
+  "clash",
+  "kill",
+  "standoff",
+  "heroic",
+  "comic",
+  "turn",
+  "judgment",
+  "final",
+];
 
 function sanitize(raw: Record<string, unknown>, sides: Side[], winnerId: string): BattleBeat[] {
   if (!raw || !Array.isArray(raw.beats)) return [];
@@ -213,19 +319,19 @@ function sanitize(raw: Record<string, unknown>, sides: Side[], winnerId: string)
 // ── Offline script ───────────────────────────────────────────────────────────
 
 const OPENERS = [
-  (a: string) => `${a} steps onto the field first. No hesitation.`,
+  (a: string) => `${a} steps out first. No hesitation.`,
   (a: string) => `Here comes ${a}, and the crowd knows exactly what that means.`,
-  (a: string) => `${a} walks out slowly. Deliberately. This is going to hurt someone.`,
+  (a: string) => `${a} walks out slowly. Deliberately. Somebody is about to have a bad time.`,
 ];
 const CLASHES = [
-  (a: string, b: string) => `${a} and ${b} collide in the middle — neither one giving an inch!`,
-  (a: string, b: string) => `${b} swings at ${a}. Blocked! They're trading blows now!`,
-  (a: string, b: string) => `${a} tests ${b}, and ${b} answers. This is a proper fight.`,
+  (a: string, b: string) => `${a} and ${b} go at it — neither one giving an inch!`,
+  (a: string, b: string) => `${b} comes at ${a}. Answered! They're trading now!`,
+  (a: string, b: string) => `${a} tests ${b}, and ${b} answers. This is a proper contest.`,
 ];
 const KILLS = [
-  (a: string, b: string) => `${a} goes straight through ${b}. BRUTALLY. That's one down.`,
+  (a: string, b: string) => `${a} goes straight through ${b}. That's one gone.`,
   (a: string, b: string) => `OH NO — ${b} never saw ${a} coming. It's over for them.`,
-  (a: string, b: string) => `${b} steps up brave and true, and ${a} CUTS THEM DOWN.`,
+  (a: string, b: string) => `${b} steps up brave and true, and ${a} PUTS THEM OUT.`,
 ];
 const COMIC = [
   (a: string) => `${a} tries something. It does not work. It was never going to work.`,
@@ -236,7 +342,7 @@ function pick<T>(arr: T[], i: number): T {
   return arr[i % arr.length];
 }
 
-/** A fight built from tiers when Groq is unreachable. Still ends with the winner. */
+/** A show built from tiers when Groq is unreachable. Still ends with the winner. */
 function offlineBeats(winner: Side, loser: Side): BattleBeat[] {
   const w = [...winner.roster].sort((a, b) => b.tier - a.tier);
   const l = [...loser.roster].sort((a, b) => b.tier - a.tier);

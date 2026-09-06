@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
 import { Thumb } from "./AuctionStage";
@@ -24,6 +25,12 @@ interface Props {
   ratingDelta: number | null;
   mode: "solo" | "pvp";
   battleLoading: boolean;
+  /**
+   * What the room is waiting on, if anything. Set for BOTH players, not just
+   * whoever pressed the button — the one who didn't press it used to get a
+   * bare "waiting for the host" with no sign that anything was happening.
+   */
+  busy: "judging" | "staging" | null;
   onBattle: () => void;
   onJudge: () => void;
   onPlayAgain: () => void;
@@ -43,6 +50,7 @@ export default function VerdictScreen({
   ratingDelta,
   mode,
   battleLoading,
+  busy,
   onBattle,
   onJudge,
   onPlayAgain,
@@ -76,8 +84,10 @@ export default function VerdictScreen({
           </div>
         )}
 
+        {busy && <StagingBar key={busy} kind={busy} />}
+
         <div style={{ marginTop: 24 }}>
-          {canJudge ? (
+          {busy ? null : canJudge ? (
             <>
               <div className="dm-row" style={{ justifyContent: "center" }}>
                 <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={loading || battleLoading}>
@@ -110,6 +120,8 @@ export default function VerdictScreen({
         {winner?.id === meId ? "You win." : `${winner?.name ?? "Winner"} wins.`}
       </p>
       <p className="dm-verdict-reasoning">{verdict.reasoning}</p>
+
+      {verdict.plan && <PlanPanel plan={verdict.plan} />}
 
       {verdict.diceBreak?.winnerId && (
         <p className="dm-note" style={{ marginTop: 10, color: "var(--dm-gold)" }}>
@@ -201,7 +213,11 @@ export default function VerdictScreen({
                             Bust
                           </span>
                         )}
-                        {pick.variant && <span>{pick.variant}</span>}
+                        {pick.variant && (
+                  <span className="dm-variant-note" data-grade={pick.variantGrade ?? "neutral"}>
+                    {pick.variant}
+                  </span>
+                )}
                       </div>
                       <div className="dm-verdict-pick-price dm-money">${pick.price}</div>
                       {(() => {
@@ -252,6 +268,147 @@ export default function VerdictScreen({
   );
 }
 
+// ── Staging bar ──────────────────────────────────────────────────────────────
+
+/**
+ * The wait, made watchable — and shown to BOTH players.
+ *
+ * The endgame does real work now: it reads every pick's wiki page, decides
+ * what kind of contest the scenario actually is, war-games the matchups, then
+ * writes the show. That's twenty to forty seconds, and the player who didn't
+ * press the button used to sit on a blank "waiting for the host". So the room
+ * gets a bar and a running commentary of what's happening.
+ *
+ * The bar is honest about being an estimate: it eases toward 95% and parks
+ * there until the real thing lands, rather than pretending to know.
+ */
+const STAGES: Record<"judging" | "staging", string[]> = {
+  judging: [
+    "Looking every pick up…",
+    "Working out what kind of contest this even is…",
+    "Reading the room — who's biased, and toward whom…",
+    "War-gaming the matchups…",
+    "Hunting for the technicality that decides it…",
+    "Writing the verdict…",
+  ],
+  staging: [
+    "Reading the judge's notes…",
+    "Setting the scene…",
+    "Blocking out the contest…",
+    "Finding the moment it turns…",
+    "Rolling the cameras…",
+  ],
+};
+
+/** Roughly how long the whole thing takes, per kind. */
+const EXPECTED_MS: Record<"judging" | "staging", number> = { judging: 26000, staging: 34000 };
+
+function StagingBar({ kind }: { kind: "judging" | "staging" }) {
+  // Keyed on `kind` by the caller, so a fresh bar means a fresh clock and this
+  // never has to reset itself mid-flight.
+  const [started] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Date.now() - started), 220);
+    return () => clearInterval(t);
+  }, [started]);
+
+  const lines = STAGES[kind];
+  const expected = EXPECTED_MS[kind];
+  // Ease out toward 95% — fast at first, then visibly patient.
+  const pct = Math.min(95, 95 * (1 - Math.pow(1 - Math.min(1, elapsed / expected), 2)));
+  const line = lines[Math.min(lines.length - 1, Math.floor((elapsed / expected) * lines.length))];
+
+  return (
+    <div className="dm-staging" role="status" aria-live="polite">
+      <div className="dm-staging-head">
+        <span>{kind === "judging" ? "⚖️ The judge is working" : "⚔️ Staging the show"}</span>
+        <span className="dm-staging-pct">{Math.round(pct)}%</span>
+      </div>
+      <div className="dm-staging-track">
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      <p className="dm-staging-line" key={line}>
+        {line}
+      </p>
+    </div>
+  );
+}
+
+// ── How it was decided ───────────────────────────────────────────────────────
+
+/**
+ * The judge's working, shown under the verdict.
+ *
+ * This is the part people argue about, so it's worth showing: what kind of
+ * contest it decided this was, who on the panel was in the tank for whom, and
+ * the rules-lawyer detail that settled it.
+ */
+function PlanPanel({ plan }: { plan: NonNullable<Verdict["plan"]> }) {
+  const hasBody = plan.howItWorks || plan.panel.length || plan.matchups.length || plan.twists.length;
+  if (!hasBody) return null;
+
+  return (
+    <div className="dm-plan">
+      <p className="dm-eyebrow">
+        How it was decided · <span className="dm-plan-format">{plan.formatLabel}</span>
+      </p>
+      {plan.howItWorks && <p className="dm-plan-how">{plan.howItWorks}</p>}
+
+      {plan.decidedBy.length > 0 && (
+        <div className="dm-plan-tags">
+          {plan.decidedBy.map((d) => (
+            <span key={d} className="dm-plan-tag">
+              {d}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {plan.panel.length > 0 && (
+        <div className="dm-plan-block">
+          <h4>On the panel</h4>
+          <ul>
+            {plan.panel.map((j) => (
+              <li key={j.name}>
+                <strong>{j.name}</strong> — {j.bias}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {plan.matchups.length > 0 && (
+        <div className="dm-plan-block">
+          <h4>The matchups</h4>
+          <ul>
+            {plan.matchups.map((m) => (
+              <li key={`${m.a}-${m.b}`}>
+                <strong>
+                  {m.a} vs {m.b}
+                </strong>{" "}
+                — {m.note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {plan.twists.length > 0 && (
+        <div className="dm-plan-block" data-twist="1">
+          <h4>The detail that did it</h4>
+          <ul>
+            {plan.twists.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RosterCard({
   side,
   rules,
@@ -279,7 +436,11 @@ function RosterCard({
               </span>
               <div className="dm-verdict-pick-name">
                 {pick.name}
-                {pick.variant && <span>{pick.variant}</span>}
+                {pick.variant && (
+                  <span className="dm-variant-note" data-grade={pick.variantGrade ?? "neutral"}>
+                    {pick.variant}
+                  </span>
+                )}
               </div>
               <div className="dm-verdict-pick-price dm-money">${pick.price}</div>
             </div>

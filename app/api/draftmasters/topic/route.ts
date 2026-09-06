@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
-import { getPack, type Entry, type Pack } from "@/lib/draftmasters/packs";
+import {
+  GRADES,
+  clampTierValue,
+  gradedTier,
+  getPack,
+  type Entry,
+  type Pack,
+  type Variant,
+  type VariantGrade,
+} from "@/lib/draftmasters/packs";
 import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { formatMenu, getFormat } from "@/lib/draftmasters/contest";
 
 /**
  * GET /api/draftmasters/topic?packId=got
@@ -39,6 +49,16 @@ export const maxDuration = 45;
 interface TopicRequest {
   topic?: string;
   count?: number;
+  /** 0-10 — how many entries get variants at all */
+  variantRate?: number;
+  /** 0-10 — how wild the variants are allowed to get */
+  variantWild?: number;
+}
+
+/** The two dials, clamped. 5 is the house default on both. */
+function dial(v: unknown): number {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : 5;
 }
 
 export async function POST(req: Request) {
@@ -48,6 +68,8 @@ export async function POST(req: Request) {
   if (!topic) return NextResponse.json({ error: "topic required" }, { status: 400 });
 
   const count = Math.max(16, Math.min(32, body?.count ?? 26));
+  const rate = dial(body?.variantRate);
+  const wild = dial(body?.variantWild);
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "Topic generation is unavailable right now." }, { status: 503 });
@@ -78,7 +100,7 @@ export async function POST(req: Request) {
           temperature: attempt.temperature,
           response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: systemPrompt(rate, wild) },
             {
               role: "user",
               content: `Build a draft board of exactly ${attempt.count} entries for this topic:\n\n"${topic}"\n\nRemember: every single entry must satisfy the topic AS WORDED, including any qualifier in it.`,
@@ -100,7 +122,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const pack = sanitize(JSON.parse(raw), topic);
+      const pack = sanitize(JSON.parse(raw), topic, wild);
       if (!pack || pack.entries.length < 10) {
         lastError = "That topic came back too thin. Try something with more names in it.";
         continue;
@@ -114,7 +136,13 @@ export async function POST(req: Request) {
   return NextResponse.json({ error: lastError }, { status: 502 });
 }
 
-const SYSTEM_PROMPT = `You build draft boards for DraftMasters, a live auction draft game.
+function systemPrompt(rate: number, wild: number): string {
+  return `You build draft boards for DraftMasters, a live auction draft game.
+
+DECIDE THE CONTEST BEFORE YOU LIST ANYBODY. Write the scenario and pick the format first, then build the entries and their variants to fit it. A board whose variants are all about combat power is broken if the contest turns out to be a bake-off.
+
+THE FORMATS — pick the one the topic actually describes:
+${formatMenu()}
 
 THE ONE RULE THAT MATTERS — OBEY THE QUALIFIER:
 The topic is a filter, not a theme. Read it literally and exclude anything that fails it.
@@ -134,8 +162,33 @@ An auction is only fun when prices differ. Aim for roughly:
 - 15% tier 1 (the punchlines and the traps — genuinely weak picks that still fit the topic)
 Never make everything a 4 or 5. The cheap picks are the joke and the strategy.
 
+THE TWO DIALS — the player set these, and they are not suggestions:
+
+VARIANT FREQUENCY: ${rate}/10. ${
+    rate === 0
+      ? "ZERO — give NO entry a variants array at all. Every pick is its plain self."
+      : `About ${Math.round(rate * 8.5)}% of entries should have a variants array. ${
+          rate <= 3
+            ? "Keep it rare: only the handful of entries with a genuinely famous alternate state."
+            : rate >= 8
+              ? "Almost everybody gets one — hunt for a real alternate state even on the minor entries."
+              : "A healthy sprinkle."
+        }`
+  }
+
+VARIANT WILDNESS: ${wild}/10. This is the tone dial, not a quota — the wildest setting still produces plenty of straight, canonical states, it just reaches further and more often.
+${
+    wild <= 2
+      ? "GROUNDED. Stick to states the source material actually shows: an era, an injury, a piece of gear, a famous night. Nothing invented."
+      : wild <= 5
+        ? "MOSTLY GROUNDED, with the occasional swing — a legendary what-if or a beloved joke state slipping in every so often."
+        : wild <= 8
+          ? "PLAYFUL. Reach for the mythic and the ridiculous often: prophesied forms, crossover gear, cursed timelines, humiliating what-ifs. Still anchored to something fans recognise."
+          : "UNHINGED. Go big and go often — prophesied god-forms, crossover crimes, absurd handicaps, alternate-timeline nonsense (\"Azor Ahai reborn, flaming sword and all\", \"has just eaten an entire wedding cake\"). Silly and EPIC in the same breath. Keep a decent share of straight canonical states anyway; the contrast is what makes the wild ones land."
+  }
+
 VARIANTS — the "(two hands)" mechanic:
-Give roughly a third of entries a "variants" array: the same subject in different iconic states, each with its own tier. This is the signature of the game and the part people quote to each other, so every variant must be FUNNY, COOL, or MEANINGFUL — a specific moment, form, era, piece of gear, or crossover fans would recognise:
+Give the chosen entries a "variants" array: the same subject in different iconic states, each with its own tier. This is the signature of the game and the part people quote to each other, so every variant must be FUNNY, COOL, or MEANINGFUL — a specific moment, form, era, piece of gear, or crossover fans would recognise:
 - Jaime Lannister -> [{"v":"two hands","t":5},{"v":"one hand","t":3},{"v":"gold hand, drunk","t":2}]
 - Ser Barristan Selmy -> [{"v":"prime, Barristan the Bold","t":5},{"v":"old man","t":3}]
 - Pikachu -> [{"v":"Ash's Pikachu","t":4},{"v":"wild, level 3","t":1}]
@@ -144,6 +197,26 @@ Give roughly a third of entries a "variants" array: the same subject in differen
 - Dracula -> [{"v":"at night","t":5},{"v":"at high noon","t":1}]
 NEVER use a bare generic state as a variant: not "wounded", "injured", "tired", "weak", "angry", "old", "young", "damaged" on their own. If a condition matters, name the specific one ("burned leg, feverish", "post-Mustafar", "hand cut off by Vader").
 TIER DELTAS MUST BE PROPORTIONATE. A mild or cosmetic condition costs AT MOST one tier — a wounded Aragorn is still Aragorn, only slightly worse. Only genuinely crippling states (missing sword hand, sealed away, dying, stripped of the thing that makes them powerful) drop two or more tiers. Upside variants (prime, mega form, with their signature weapon) can add one or two.
+VARIANTS MUST MAKE SENSE IN *THIS* CONTEST. Before you write one, ask what it changes about the thing you decided the format was — a variant that changes nothing is wasted, and a variant about swordsmanship on a cook-off board is a bug.
+- A fight / melee / duel board: variants are about power, gear, injuries, forms. "one hand", "Mega Charizard X", "no shields".
+- A pokemon board: variants are about the creature's competitive state. "shiny, fully EV-trained", "level 3 and wild", "holding a Focus Sash", "asleep on turn one" — never a knife wound.
+- A judged board (pageant, talent, cook-off, fashion): variants are about presentation and nerve. "in the red dress that stopped the room", "hungover, glitter everywhere", "coached for six months by a former winner", "refuses to smile on principle" — NOT combat injuries, which no judge would score.
+- A heist, debate or battle-of-wits board: variants are about preparation, information and composure. "with the blueprints memorised", "improvising, no plan at all", "three drinks in".
+- A race or sport board: variants are about condition and equipment. "on fresh tyres", "playing through a torn hamstring", "rookie season".
+The tier delta must reflect what the variant does IN THIS CONTEST: a wound that ends a fighter barely dents a pageant contestant, and stage fright that means nothing in a brawl is devastating in front of a panel.
+
+EVERY VARIANT NEEDS A GRADE. "g" says how hard it hits, and it is what the player sees as a colour on the card. Do NOT set "t" — the grade sets the tier for you, so a colour can never lie about what it does.
+- "crippling" (red): guts them. Missing sword hand, sealed away, dying, stripped of the one thing that makes them powerful.
+- "weakening" (light red): hurts, but they're still themselves. A bad leg, a hangover, out of practice.
+- "neutral" (grey): changes little. Usually just funny — a bad outfit, a terrible mood, the wrong hat.
+- "boon" (green): helps a bit. Well-rested, properly armed, home crowd.
+- "major" (orange): helps a lot. Prime years, signature weapon, a serious upgrade.
+- "mythic" (gold): GAME CHANGING. The prophesied form, the mega evolution, the god-mode moment — it should only lose to another mythic, or to two or three oranges stacked against it.
+OFFER THE BIG ONES FREELY; THE GAME DECIDES HOW OFTEN THEY LAND. You are writing a menu, not a rolled game. Give a "mythic" option to any entry that genuinely has a legendary form, and a "major" to any that has a real upgrade — roughly a quarter of your variant entries should carry one. The draft itself rations them: mythics are budgeted to about one per game and a lot of games see none at all, so a generous menu does NOT make them common in play. What it does do is make the one that lands feel earned.
+Still: never invent a legendary form that doesn't exist. If a character has no mythic state, they don't get one.
+GRADE BY WHAT IT DOES IN *THIS* CONTEST, not in the abstract. Stage fright is neutral in a brawl and crippling in front of a panel; a broken arm is crippling in a race and weakening at a bake-off.
+Most variants should still be weakening, neutral or boon — those are the everyday rolls.
+
 MIX LENGTHS. Some variants are two words ("two hands", "prime"); some are a whole vivid situation, up to about a dozen words — "with one dragon, furious after losing the other two", "Old Ben, decades in hiding, sabre still under the bed". A long one should read like a moment fans would picture instantly. One is rolled at random when the lot comes up. Only add variants where a real, recognisable state exists — don't invent nonsense.
 
 OUTPUT — JSON only, this exact shape:
@@ -154,6 +227,7 @@ OUTPUT — JSON only, this exact shape:
   "imgContext": string (2-4 words appended to each name for an image search, e.g. "Game of Thrones character", "NBA player", "animal", "anime character"),
   "wiki": string (OPTIONAL but IMPORTANT for fictional topics — the Fandom wiki subdomain where these characters have pages, lowercase, no ".fandom.com". Examples: "gameofthrones", "marvel", "dc", "starwars", "pokemon", "villains" (horror/villain topics), "deathbattle" (anime/versus topics), "harrypotter", "lotr", "zelda", "residentevil", "onepiece", "naruto". Wikipedia has NO usable image for fictional characters, so getting this right is the difference between real character art and a blank card. OMIT it entirely for real-world topics — real people, animals, places, food, history, sports — where Wikipedia is better.),
   "scenario": string (1-2 sentences: the situation both drafted rosters are thrown into — make it concrete and specific to this topic. If the player's topic already names a setting or a contest, USE THEIRS and don't invent a different one),
+  "format": string (exactly one of the format ids listed at the top — the one this scenario actually is),
   "criteria": string (1 sentence: what actually decides the winner in that scenario. Be honest about it — if the scenario rewards planning, knowledge or invention, say that intelligence and ingenuity outweigh raw strength),
   "arenas": [ { "name": string (3-5 words, e.g. "An open grass field"), "desc": string (1 sentence appended to the scenario, describing what this setting does to the contest), "weight": number } ]
     (3-5 settings this topic could be played in, ONE is rolled per game. The ordinary, expected setting gets weight 10; genuine twists that flip the board — deep water, killing cold, no sunlight, powers suppressed, a sealed room — get weight 2-4 so they show up occasionally and surprise people. Make each one actually change who wins.),
@@ -162,17 +236,18 @@ OUTPUT — JSON only, this exact shape:
       "t": number 1-5 (base tier),
       "s": string (REQUIRED whenever the name could be a real person or someone from another franchise — put the franchise here: Jon Snow -> "Game of Thrones", Jin -> "Samurai Champloo", Wolverine the animal -> "Gulo gulo animal". A bare "Jon Snow" image search returns a British newsreader.),
       "wiki": string (REQUIRED on crossover/mixed boards — this entry's own Fandom subdomain, e.g. "gameofthrones", "samuraichamploo", "marvel". Omit only when the board-level wiki already covers this entry, or the entry is real-world.),
-      "variants": [ {"v": string, "t": number 1-5} ]  (OPTIONAL) }
+      "variants": [ {"v": string, "g": "crippling" | "weakening" | "neutral" | "boon" | "major" | "mythic"} ]  (OPTIONAL — no "t", the grade sets it) }
   ]
 }
 
 No duplicate names. No commentary outside the JSON.`;
+}
 
 // ── Sanitising ───────────────────────────────────────────────────────────────
 // The model is good but not trusted — everything gets clamped and de-duped
 // before it reaches the auction engine.
 
-function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
+function sanitize(raw: Record<string, unknown>, topic: string, wild: number): Pack | null {
   if (!raw || !Array.isArray(raw.entries)) return null;
 
   const seen = new Set<string>();
@@ -195,10 +270,16 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
 
     if (Array.isArray(item.variants)) {
       const variants = (item.variants as Record<string, unknown>[])
-        .map((v) => ({
-          v: String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 90),
-          t: clampTier(v?.t),
-        }))
+        .map((v): Variant => {
+          const g = grade(v?.g, v?.t, entry.t);
+          return {
+            v: String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 90),
+            // The grade is the source of truth: whatever tier the model felt
+            // like attaching, the colour and the number must agree.
+            t: gradedTier(entry.t, g),
+            g,
+          };
+        })
         .filter((v) => v.v.length > 0)
         .slice(0, 4);
       if (variants.length >= 2) entry.variants = variants;
@@ -224,9 +305,14 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
   const rawWiki = String(raw.wiki ?? "").trim().toLowerCase().replace(/\.fandom\.com.*$/, "");
   const wiki = /^[a-z0-9-]{2,40}$/.test(rawWiki) ? rawWiki : undefined;
 
+  // Unknown or missing falls back to a melee, same as the judge does.
+  const format = getFormat(raw.format).id;
+
   return {
     ...(wiki ? { wiki } : {}),
     ...(arenas.length ? { arenas } : {}),
+    format,
+    variantWild: wild,
     id: `custom:${slug(topic)}`,
     name: title,
     emoji: firstEmoji(String(raw.emoji ?? "")) ?? "🎲",
@@ -245,7 +331,28 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
 function clampTier(t: unknown): number {
   const n = Math.round(Number(t));
   if (!Number.isFinite(n)) return 3;
+  // Base tiers stay on the 1-5 scale a board is written on; only a graded
+  // variant is allowed above that.
   return Math.max(1, Math.min(5, n));
+}
+
+/**
+ * The variant's grade. Normally the model just says; a model that ignored the
+ * instruction and sent a bare tier still gets graded, from how far it moved.
+ */
+function grade(g: unknown, t: unknown, baseTier: number): VariantGrade {
+  const named = String(g ?? "").trim().toLowerCase() as VariantGrade;
+  if (GRADES.includes(named)) return named;
+
+  const tier = Number(t);
+  if (!Number.isFinite(tier)) return "neutral";
+  const delta = clampTierValue(tier) - baseTier;
+  if (delta <= -2) return "crippling";
+  if (delta === -1) return "weakening";
+  if (delta === 0) return "neutral";
+  if (delta === 1) return "boon";
+  if (delta === 2) return "major";
+  return "mythic";
 }
 
 function slug(s: string): string {

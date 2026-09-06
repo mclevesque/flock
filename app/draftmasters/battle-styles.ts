@@ -281,4 +281,11 @@ export const BATTLE_STYLES = `
   pointer-events: none; white-space: nowrap;
 }
 .dm-bt-actor[data-dead="1"] .dm-bt-actor-shot img { filter: grayscale(.9) brightness(.55); }
+
+.dm-bt-topic { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dm-bt-format {
+  font-style: normal; font-size: 11px; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dm-gold); opacity: .85;
+}
 `;

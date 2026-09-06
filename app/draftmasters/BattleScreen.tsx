@@ -54,6 +54,9 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
 
   const left = sides[0];
   const right = sides[1];
+  // "DEAD" is right for a melee and wrong for everything else — a Pokémon
+  // faints, a pageant contestant is cut, a thief gets caught.
+  const outLabel = script.outLabel ?? "DEAD";
   const winner = sides.find((s) => s.id === script.winnerId);
 
   // Name -> portrait, so a beat's actors can be shown without another lookup.
@@ -144,7 +147,10 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
     >
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="dm-bt-top" onClick={(e) => e.stopPropagation()}>
-        <span className="dm-bt-topic">{packName}</span>
+        <span className="dm-bt-topic">
+          {packName}
+          {script.formatLabel && <em className="dm-bt-format">{script.formatLabel}</em>}
+        </span>
         <div className="dm-bt-top-actions">
           <button
             className="dm-btn dm-btn-ghost dm-bt-mini"
@@ -181,7 +187,7 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
                 >
                   <span className="dm-bt-actor-shot">
                     <ActorPortrait url={portraitOf.get(name) ?? null} name={name} />
-                    {justDied && <span className="dm-bt-dead">DEAD</span>}
+                    {justDied && <span className="dm-bt-dead">{outLabel}</span>}
                   </span>
                   <figcaption>{name}</figcaption>
                 </figure>

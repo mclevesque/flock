@@ -8,6 +8,7 @@ import {
   NPC_PERSONALITIES,
   applyArena,
   buildLot,
+  newVariantBudget,
   buildPool,
   canMatch,
   canOpen,
@@ -104,6 +105,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const [presetId, setPresetId] = useState<string | null>("got");
   const [customTopic, setCustomTopic] = useState("");
   const [rulesIdx, setRulesIdx] = useState(0);
+  /**
+   * The variant dials, 0-10 each. Frequency is how many entries get a
+   * condition rolled on them at all; wildness is how far the conditions are
+   * allowed to reach — 10 still produces plenty of straight canonical states,
+   * it just also produces "Azor Ahai reborn". Custom boards only.
+   */
+  const [variantRate, setVariantRate] = useState(5);
+  const [variantWild, setVariantWild] = useState(5);
   const [npc, setNpc] = useState<NpcPersonality>(NPC_PERSONALITIES[0]);
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +139,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
    * the winner spoiled while the other one waits on the script.
    */
   const [peerStaging, setPeerStaging] = useState(false);
+  /** Whether that hold is the judge deliberating or the show being staged */
+  const [peerStagingKind, setPeerStagingKind] = useState<"judging" | "staging">("staging");
   /** Cleared when the cinematic is dismissed, so the verdict shows underneath */
   const [watchedBattle, setWatchedBattle] = useState(false);
   const [record, setRecord] = useState<PlayerRecord | null>(null);
@@ -178,6 +189,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     pack: null as Pack | null,
     rules: DEFAULT_RULES,
     npc: NPC_PERSONALITIES[0],
+    /** This draft's allowance of the rarest variant grades — spent as lots roll */
+    variants: newVariantBudget(),
   });
   const npcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -409,7 +422,11 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         const res = await fetch("/api/draftmasters/topic", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic: customTopic.trim() }),
+          body: JSON.stringify({
+            topic: customTopic.trim(),
+            variantRate,
+            variantWild,
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error ?? "Could not build that board.");
@@ -439,7 +456,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setPrepStep(2);
     sfx.boardReady();
     return board;
-  }, [customTopic, presetId, prefetchPortraits]);
+  }, [customTopic, presetId, prefetchPortraits, variantRate, variantWild]);
 
   /** Names drafted in recent games on this board, so they get demoted. */
   const recentKey = (id: string) => `dm_recent_${id.split("#")[0]}`;
@@ -699,7 +716,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     const entryIndex = S.pool[S.cursor++];
     S.lotEntryIndex = entryIndex;
     const rng = makeRng(S.seed + entryIndex * 7919 + S.cursor);
-    g.lot = buildLot(board.entries[entryIndex], entryIndex, board, rng);
+    g.lot = buildLot(board.entries[entryIndex], entryIndex, board, rng, S.variants);
     g.lotsRemaining = Math.max(0, S.pool.length - S.cursor);
 
     // Opening rights alternate, skipping anyone who can't open.
@@ -771,6 +788,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       pack: board,
       rules: nextRules,
       npc,
+      // Fresh allowance every draft, at the board's own wildness.
+      variants: newVariantBudget(Math.random, board.variantWild),
     };
     gameRef.current = {
       ...EMPTY_VIEW,
@@ -937,6 +956,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setMembers((s.members as Member[]) ?? []);
       setVerdict((s.verdict as Verdict | null) ?? null);
       setPeerStaging(Boolean(s.battleStaging));
+      setPeerStagingKind(s.stagingKind === "judging" ? "judging" : "staging");
       matchIdRef.current = String(s.matchId ?? "");
 
       // The driver posts the battle script; everyone else watches the same one.
@@ -1069,13 +1089,26 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const handleJudge = useCallback(async () => {
     setJudging(true);
     setError(null);
+    // Hold the room while the judge works, so the player who didn't press the
+    // button gets the same bar instead of a blank "waiting for the host".
+    if (mode === "pvp") send({ type: "battle", staging: true, stage: "judging" });
     try {
       const res = await fetch("/api/draftmasters/judge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           packId: pack?.id?.split("#")[0],
-          pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
+          pack: pack
+            ? {
+                name: pack.name,
+                scenario: pack.scenario,
+                criteria: pack.criteria,
+                // Lets the judge pull scouting notes off the right wiki, and
+                // tells it what kind of contest the board was written as.
+                wiki: pack.wiki,
+                format: pack.format,
+              }
+            : undefined,
           sides: view.sides,
         }),
       });
@@ -1084,6 +1117,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
       if (mode === "pvp") {
         // The room decides whether it's a tie and runs the dice.
+        send({ type: "battle", staging: false });
         send({ type: "verdict", verdict: data });
         return;
       }
@@ -1099,6 +1133,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       }
       finishVerdictRef.current(data);
     } catch (e) {
+      if (mode === "pvp") send({ type: "battle", staging: false });
       setError(e instanceof Error ? e.message : "Could not reach the judge.");
     } finally {
       setJudging(false);
@@ -1125,7 +1160,17 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             packId: pack?.id?.split("#")[0],
-            pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
+            pack: pack
+            ? {
+                name: pack.name,
+                scenario: pack.scenario,
+                criteria: pack.criteria,
+                // Lets the judge pull scouting notes off the right wiki, and
+                // tells it what kind of contest the board was written as.
+                wiki: pack.wiki,
+                format: pack.format,
+              }
+            : undefined,
             sides: view.sides,
           }),
         });
@@ -1158,10 +1203,23 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           packId: pack?.id?.split("#")[0],
-          pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
+          pack: pack
+            ? {
+                name: pack.name,
+                scenario: pack.scenario,
+                criteria: pack.criteria,
+                // Lets the judge pull scouting notes off the right wiki, and
+                // tells it what kind of contest the board was written as.
+                wiki: pack.wiki,
+                format: pack.format,
+              }
+            : undefined,
           sides: view.sides,
           winnerId: decided.winnerId,
           reasoning: decided.reasoning,
+          // The judge already worked out the format, the panel's biases and
+          // the twists — the fight is staged from that, not re-derived.
+          plan: decided.plan,
         }),
       });
       if (!res.ok) throw new Error("Couldn't stage the battle. Try again.");
@@ -1199,6 +1257,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setBattle(null);
     setWatchedBattle(false);
     setPeerStaging(false);
+    setPeerStagingKind("staging");
     setVerdict(null);
     setRatingDelta(null);
     setError(null);
@@ -1281,6 +1340,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             setPresetId={setPresetId}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
+            variantRate={variantRate}
+            setVariantRate={setVariantRate}
+            variantWild={variantWild}
+            setVariantWild={setVariantWild}
             rulesIdx={rulesIdx}
             setRulesIdx={setRulesIdx}
             npc={npc}
@@ -1314,6 +1377,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             setPresetId={setPresetId}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
+            variantRate={variantRate}
+            setVariantRate={setVariantRate}
+            variantWild={variantWild}
+            setVariantWild={setVariantWild}
             rulesIdx={rulesIdx}
             setRulesIdx={setRulesIdx}
             error={error}
@@ -1384,6 +1451,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             ratingDelta={ratingDelta}
             mode={mode}
             battleLoading={battleLoading}
+            busy={judging ? "judging" : battleLoading ? "staging" : peerStaging ? peerStagingKind : null}
             onBattle={() => void handleBattle()}
             onJudge={handleJudge}
             onPlayAgain={playAgain}
@@ -1406,6 +1474,114 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   );
 }
 
+// ── Variant dials ────────────────────────────────────────────────────────────
+
+const RATE_WORDS = [
+  "Off — no variants at all",
+  "Barely any",
+  "Rare",
+  "Sparse",
+  "A light sprinkle",
+  "The house default",
+  "Common",
+  "Most of the board",
+  "Nearly everyone",
+  "Almost every pick",
+  "Everyone who could have one",
+];
+
+const WILD_WORDS = [
+  "Strictly canon",
+  "Straight-faced",
+  "Grounded",
+  "Grounded, with a wink",
+  "Mostly sensible",
+  "The house default",
+  "Playful",
+  "Getting silly",
+  "Mythic and ridiculous",
+  "Off the leash",
+  "Unhinged — gods and punchlines",
+];
+
+/**
+ * The two knobs on the variant mechanic, for custom boards.
+ *
+ * Deliberately not a preset picker: the interesting settings are the corners
+ * (frequent but grounded, rare but unhinged), and a slider is the only control
+ * that makes those obvious. Presets ship with their variants already written,
+ * so this is hidden unless a topic is being typed.
+ */
+function VariantDials({
+  rate,
+  setRate,
+  wild,
+  setWild,
+}: {
+  rate: number;
+  setRate: (n: number) => void;
+  wild: number;
+  setWild: (n: number) => void;
+}) {
+  return (
+    <div className="dm-dials">
+      <Dial
+        id="dm-dial-rate"
+        label="How often variants show up"
+        value={rate}
+        onChange={setRate}
+        word={RATE_WORDS[rate]}
+      />
+      <Dial
+        id="dm-dial-wild"
+        label="How wild they get"
+        value={wild}
+        onChange={setWild}
+        word={WILD_WORDS[wild]}
+      />
+      <p className="dm-note" style={{ marginTop: 4 }}>
+        Variants are the conditions rolled onto a pick — <em>Jaime Lannister (one hand)</em>. Each one is colour-coded
+        by how hard it hits, from <span className="dm-grade-swatch" data-grade="crippling">crippling</span> up to{" "}
+        <span className="dm-grade-swatch" data-grade="mythic">mythic</span>.
+      </p>
+    </div>
+  );
+}
+
+function Dial({
+  id,
+  label,
+  value,
+  onChange,
+  word,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  word: string;
+}) {
+  return (
+    <div className="dm-dial">
+      <label className="dm-dial-head" htmlFor={id}>
+        <span>{label}</span>
+        <span className="dm-dial-value">{value}/10</span>
+      </label>
+      <input
+        id={id}
+        className="dm-range"
+        type="range"
+        min={0}
+        max={10}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="dm-dial-word">{word}</span>
+    </div>
+  );
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 function SetupScreen({
@@ -1414,6 +1590,10 @@ function SetupScreen({
   setPresetId,
   customTopic,
   setCustomTopic,
+  variantRate,
+  setVariantRate,
+  variantWild,
+  setVariantWild,
   rulesIdx,
   setRulesIdx,
   npc,
@@ -1436,6 +1616,10 @@ function SetupScreen({
   setPresetId: (id: string | null) => void;
   customTopic: string;
   setCustomTopic: (s: string) => void;
+  variantRate: number;
+  setVariantRate: (n: number) => void;
+  variantWild: number;
+  setVariantWild: (n: number) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   npc: NpcPersonality;
@@ -1511,6 +1695,10 @@ function SetupScreen({
         <p className="dm-note" style={{ marginTop: 10 }}>
           The board is built to match your wording — <em>warriors</em> gets you fighters, not schemers.
         </p>
+
+        {usingCustom && (
+          <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
+        )}
 
         <p className="dm-eyebrow" style={{ marginTop: 22 }}>
           …or start from a ready-made board
@@ -1694,6 +1882,10 @@ function RoomLobby({
   setPresetId,
   customTopic,
   setCustomTopic,
+  variantRate,
+  setVariantRate,
+  variantWild,
+  setVariantWild,
   rulesIdx,
   setRulesIdx,
   error,
@@ -1711,6 +1903,10 @@ function RoomLobby({
   setPresetId: (id: string | null) => void;
   customTopic: string;
   setCustomTopic: (s: string) => void;
+  variantRate: number;
+  setVariantRate: (n: number) => void;
+  variantWild: number;
+  setVariantWild: (n: number) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   error: string | null;
@@ -1775,6 +1971,10 @@ function RoomLobby({
               </button>
             ))}
           </div>
+
+          {usingCustom && (
+            <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
+          )}
 
           <p className="dm-eyebrow" style={{ marginTop: 20 }}>
             Budget

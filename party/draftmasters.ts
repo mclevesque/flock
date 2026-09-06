@@ -8,6 +8,7 @@ import {
   isFull,
   makeRng,
   maxBid,
+  newVariantBudget,
   openingBid,
   otherSide,
   priceLabel,
@@ -16,6 +17,7 @@ import {
   type Lot,
   type Rules,
   type Side,
+  type VariantBudget,
 } from "../lib/draftmasters/engine";
 import type { Pack } from "../lib/draftmasters/packs";
 
@@ -87,6 +89,12 @@ export default class DraftMastersParty implements Party.Server {
 
   private pool: number[] = [];
   private cursor = 0;
+  /**
+   * This draft's allowance of the rarest variant grades. Lives on the room so
+   * both players see the same mythic land in the same game — and see it only
+   * once.
+   */
+  private variants: VariantBudget = newVariantBudget();
   private lotIndex = 0;
   /** Entry index of the lot on the block, so a passed lot can be recycled */
   private lotEntryIndex = -1;
@@ -115,6 +123,12 @@ export default class DraftMastersParty implements Party.Server {
    * the fight it exists to pay off.
    */
   private battleStaging = false;
+  /**
+   * What the hold is for. Both players get a loading bar during the endgame,
+   * and "the judge is working" and "staging the show" are different waits with
+   * different things to say.
+   */
+  private stagingKind: "judging" | "staging" = "staging";
   private battleStagerId: string | null = null;
 
   constructor(readonly room: Party.Room) {}
@@ -297,6 +311,8 @@ export default class DraftMastersParty implements Party.Server {
       ? new Set((msg.recent as string[]).slice(0, 60).map((n) => String(n).toLowerCase()))
       : undefined;
     this.pool = buildPool(this.pack, makeRng(this.seed), { recent });
+    // Fresh allowance each draft, at the wildness the host built the board at.
+    this.variants = newVariantBudget(Math.random, this.pack.variantWild);
     this.cursor = 0;
     this.lotIndex = 0;
     this.unsold = [];
@@ -530,7 +546,7 @@ export default class DraftMastersParty implements Party.Server {
     const entryIndex = this.pool[this.cursor++];
     this.lotEntryIndex = entryIndex;
     const rng = makeRng(this.seed + entryIndex * 7919 + this.cursor);
-    this.lot = buildLot(this.pack.entries[entryIndex], entryIndex, this.pack, rng);
+    this.lot = buildLot(this.pack.entries[entryIndex], entryIndex, this.pack, rng, this.variants);
 
     // Opening rights alternate lot by lot, skipping anyone who can't open.
     const ordered = [...sides].sort((a, b) => this.seatOf(a.id) - this.seatOf(b.id));
@@ -646,6 +662,7 @@ export default class DraftMastersParty implements Party.Server {
     if (msg.staging !== undefined) {
       if (msg.staging) {
         this.battleStaging = true;
+        this.stagingKind = msg.stage === "judging" ? "judging" : "staging";
         this.battleStagerId = this.members.get(sender.id)?.userId ?? null;
       } else {
         this.clearStaging();
@@ -661,6 +678,7 @@ export default class DraftMastersParty implements Party.Server {
 
   private clearStaging() {
     this.battleStaging = false;
+    this.stagingKind = "staging";
     this.battleStagerId = null;
   }
 
@@ -671,6 +689,7 @@ export default class DraftMastersParty implements Party.Server {
     // dealing the previous topic.
     this.pack = null;
     this.pool = [];
+    this.variants = newVariantBudget();
     this.unsold = [];
     this.lotEntryIndex = -1;
     this.lot = null;
@@ -771,6 +790,7 @@ export default class DraftMastersParty implements Party.Server {
       verdict: this.verdict,
       battle: this.battle,
       battleStaging: this.battleStaging,
+      stagingKind: this.stagingKind,
     };
   }
 

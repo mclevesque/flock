@@ -26,7 +26,7 @@
  * room run the same code and never disagree.
  */
 
-import type { Arena, Entry, Pack, Variant } from "./packs";
+import { variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -34,6 +34,11 @@ export interface Lot {
   name: string;
   /** Rolled condition, e.g. "two hands" — null when the entry has no variants */
   variant: string | null;
+  /**
+   * How hard that condition hits, which is also its colour on the card.
+   * Null when no variant was rolled.
+   */
+  variantGrade: VariantGrade | null;
   /** Effective tier after the variant is applied */
   tier: number;
   /** Query used for the portrait lookup */
@@ -93,14 +98,159 @@ export function rollDie(): number {
   return 1 + Math.floor(Math.random() * 6);
 }
 
+// ── Variant rarity ───────────────────────────────────────────────────────────
+
+/**
+ * How likely each grade is to be the one rolled, when an entry offers several.
+ *
+ * The rule of thumb is distance from neutral: the further a variant swings the
+ * pick, the rarer it is. A middling condition is the everyday case, a
+ * crippling one is a genuine event, and a mythic form is the thing people talk
+ * about afterwards.
+ *
+ * Mythic's number here looks high because it isn't the gate — the per-game
+ * slot below is. Most games never open the slot at all, so this weight only
+ * decides whether a mythic that IS available actually lands when its character
+ * comes up.
+ */
+const GRADE_WEIGHT: Record<VariantGrade, number> = {
+  neutral: 26,
+  weakening: 18,
+  boon: 18,
+  crippling: 7, // rare
+  major: 4, // very rare, and capped per game
+  mythic: 20, // super rare — see mythicSlots()
+};
+
+/**
+ * The wildness dial (0-10) doesn't just change what the board is written
+ * with — it changes what actually gets rolled. Cranking it to 10 is a request
+ * for the big swings to turn up, so the good ones get commoner and the
+ * do-nothing ones get rarer. 5 is neutral and leaves every weight as written.
+ */
+function wildnessTilt(grade: VariantGrade, wild: number): number {
+  switch (grade) {
+    case "mythic":
+    case "major":
+      return 0.35 + wild * 0.13; // 0 -> 0.35x, 5 -> 1x, 10 -> 1.65x
+    case "crippling":
+      return 0.6 + wild * 0.08; // big swing, but not one anybody is hoping for
+    case "neutral":
+      return 1.4 - wild * 0.08; // the "just funny" ones give way at high wildness
+    default:
+      return 1;
+  }
+}
+
+/**
+ * Mythic slots for one draft — roughly one every 1.5 games at the default
+ * wildness, none at all at the bottom of the dial, and better than guaranteed
+ * at the top.
+ *
+ * Rolled once when the game starts rather than per lot, which is what makes
+ * the rate predictable: the slot can only be spent once, and a game that
+ * didn't open one never shows a mythic however many legendary forms the board
+ * happens to carry.
+ */
+function mythicSlots(rng: () => number, wild: number): number {
+  const expected = 0.01 + wild * 0.13; // 0 -> ~0, 5 -> 0.66, 10 -> 1.31
+  return Math.floor(expected) + (rng() < expected % 1 ? 1 : 0);
+}
+
+/**
+ * Per-game allowance for the rarest grades. Created once per draft and passed
+ * to every `buildLot` call, which spends it.
+ */
+export interface VariantBudget {
+  mythicsLeft: number;
+  majorsLeft: number;
+  /** The board's wildness dial, 0-10 — tilts every roll */
+  wild: number;
+}
+
+export const DEFAULT_WILDNESS = 5;
+
+export function newVariantBudget(rng: () => number = Math.random, wild = DEFAULT_WILDNESS): VariantBudget {
+  const w = Math.max(0, Math.min(10, Math.round(wild)));
+  return {
+    mythicsLeft: mythicSlots(rng, w),
+    // Very rare by default; the dial can open it up to four.
+    majorsLeft: Math.max(1, Math.round(w * 0.4)),
+    wild: w,
+  };
+}
+
+function affordable(grade: VariantGrade, budget: VariantBudget | undefined): boolean {
+  if (!budget) return true;
+  if (grade === "mythic") return budget.mythicsLeft > 0;
+  if (grade === "major") return budget.majorsLeft > 0;
+  return true;
+}
+
+function spend(grade: VariantGrade, budget: VariantBudget | undefined) {
+  if (!budget) return;
+  if (grade === "mythic") budget.mythicsLeft -= 1;
+  else if (grade === "major") budget.majorsLeft -= 1;
+}
+
+/**
+ * Choose which of an entry's variants gets rolled. Weighted by grade and
+ * filtered by what the draft can still afford; if the budget rules everything
+ * out, the mildest option on offer is used rather than no variant at all.
+ */
+function rollVariant(
+  variants: Variant[],
+  baseTier: number,
+  rng: () => number,
+  budget: VariantBudget | undefined
+): number {
+  const graded = variants.map((v, i) => ({ i, grade: variantGrade(v, baseTier) }));
+  const eligible = graded.filter((g) => affordable(g.grade, budget));
+  const pool = eligible.length ? eligible : graded.filter((g) => g.grade === "neutral" || g.grade === "weakening");
+
+  if (!pool.length) {
+    // Everything this entry offers is priced out — take the least extreme.
+    const order: VariantGrade[] = ["neutral", "weakening", "boon", "crippling", "major", "mythic"];
+    return graded.sort((a, b) => order.indexOf(a.grade) - order.indexOf(b.grade))[0].i;
+  }
+
+  const wild = budget?.wild ?? DEFAULT_WILDNESS;
+  const weight = (g: VariantGrade) => GRADE_WEIGHT[g] * wildnessTilt(g, wild);
+
+  const total = pool.reduce((sum, g) => sum + weight(g.grade), 0);
+  let roll = rng() * total;
+  for (const g of pool) {
+    roll -= weight(g.grade);
+    if (roll <= 0) {
+      spend(g.grade, budget);
+      return g.i;
+    }
+  }
+  const last = pool[pool.length - 1];
+  spend(last.grade, budget);
+  return last.i;
+}
+
 // ── Lot construction ─────────────────────────────────────────────────────────
 
-/** Roll one entry into a concrete lot, picking a variant if it has any. */
-export function buildLot(entry: Entry, entryIndex: number, pack: Pack, rng: () => number): Lot {
+/**
+ * Roll one entry into a concrete lot, picking a variant if it has any.
+ *
+ * `budget` is the draft's allowance for the rarest grades. Pass the same
+ * object for the whole game — without it every roll is independent and mythics
+ * turn up far too often.
+ */
+export function buildLot(
+  entry: Entry,
+  entryIndex: number,
+  pack: Pack,
+  rng: () => number,
+  budget?: VariantBudget
+): Lot {
   let variant: Variant | null = null;
   let variantIndex = -1;
   if (entry.variants && entry.variants.length > 0) {
-    variantIndex = Math.floor(rng() * entry.variants.length);
+    variantIndex = rollVariant(entry.variants, entry.t, rng, budget);
     variant = entry.variants[variantIndex];
   }
   const searchBase = entry.s ? `${entry.n} ${entry.s}` : entry.n;
@@ -108,6 +258,7 @@ export function buildLot(entry: Entry, entryIndex: number, pack: Pack, rng: () =
     id: `${pack.id}:${entryIndex}:${variantIndex}`,
     name: entry.n,
     variant: variant ? variant.v : null,
+    variantGrade: variant ? variantGrade(variant, entry.t) : null,
     tier: variant ? variant.t : entry.t,
     imgQuery: `${searchBase} ${pack.imgContext}`.trim(),
   };
@@ -267,7 +418,7 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
 /** Rough "fair" price for a tier, before personality and situation. */
 function baseValue(tier: number, rules: Rules): number {
   const fairShare = rules.budget / rules.rosterSize;
-  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2][Math.max(1, Math.min(5, Math.round(tier)))];
+  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2, 3.1, 4.2, 5.5][Math.max(1, Math.min(8, Math.round(tier)))];
   return fairShare * mult;
 }
 

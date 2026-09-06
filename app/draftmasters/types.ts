@@ -1,7 +1,8 @@
 import type { Lot, Rules, Side } from "@/lib/draftmasters/engine";
 import type { Pack } from "@/lib/draftmasters/packs";
+import type { ContestPlan } from "@/lib/draftmasters/contest";
 
-export type { Lot, Rules, Side, Pack };
+export type { Lot, Rules, Side, Pack, ContestPlan };
 
 export interface TickerEvent {
   id: number;
@@ -50,7 +51,17 @@ export interface GameView {
   readyIds: string[];
 }
 
-export type BeatKind = "entrance" | "clash" | "kill" | "standoff" | "heroic" | "comic" | "turn" | "final";
+export type BeatKind =
+  | "entrance"
+  | "clash"
+  | "kill"
+  | "standoff"
+  | "heroic"
+  | "comic"
+  | "turn"
+  /** A scorecard, a ruling, an official's call — the beat a judged contest turns on */
+  | "judgment"
+  | "final";
 
 /** One moment of the battle cinematic. */
 export interface BattleBeat {
@@ -68,6 +79,15 @@ export interface BattleScript {
   beats: BattleBeat[];
   winnerId: string;
   scripted: "ai" | "offline";
+  /** FormatId the contest was staged as — see lib/draftmasters/contest */
+  format?: string;
+  /** Shown on the cinematic's top bar, e.g. "Judged beauty pageant" */
+  formatLabel?: string;
+  /**
+   * What gets stamped on a competitor who is out. "DEAD" is wrong for a
+   * pageant and wrong for a Pokemon battle — this is the one-word fix.
+   */
+  outLabel?: string;
 }
 
 /** How much one drafted pick mattered to the result, 0–10. */
@@ -91,6 +111,12 @@ export interface Verdict {
   reasoning: string;
   sideNotes: SideNote[];
   judged: "ai" | "offline";
+  /**
+   * The judge's read on what kind of contest this was, who was biased and
+   * what technicality decided it. Handed straight to the battle writer so the
+   * show is staged the same way the verdict was reasoned.
+   */
+  plan?: ContestPlan;
   /** Set when the judge scored it even and dice decided it */
   diceBreak?: DiceState | null;
 }

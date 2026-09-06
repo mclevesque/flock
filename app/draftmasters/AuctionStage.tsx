@@ -2,7 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { canMatch, canOpen, canRaise, maxBid, openingBid, priceLabel, type Rules, type Side } from "@/lib/draftmasters/engine";
+import type { VariantGrade } from "@/lib/draftmasters/packs";
 import type { DiceState, GameView, PortraitMap } from "./types";
+
+/** What each variant colour means, in one word and in a sentence. */
+const GRADE_LABEL: Record<VariantGrade, string> = {
+  crippling: "crippling",
+  weakening: "weakened",
+  neutral: "flavour",
+  boon: "boosted",
+  major: "major",
+  mythic: "MYTHIC",
+};
+
+const GRADE_HINT: Record<VariantGrade, string> = {
+  crippling: "Crippling — this guts them.",
+  weakening: "Weakened — it hurts, but they're still themselves.",
+  neutral: "Flavour — changes little. Probably just funny.",
+  boon: "Boosted — helps a bit.",
+  major: "Major — helps a lot.",
+  mythic: "MYTHIC — game changing. Beats almost anything.",
+};
 
 /**
  * The auction stage — one lot under a spotlight and the two things a bidder
@@ -137,7 +157,16 @@ export default function AuctionStage({
           {lot && (
             <div className="dm-portrait-caption">
               <h2 className="dm-lot-name">{lot.name}</h2>
-              {lot.variant && <span className="dm-lot-variant">{lot.variant}</span>}
+              {lot.variant && (
+                <span
+                  className="dm-lot-variant"
+                  data-grade={lot.variantGrade ?? "neutral"}
+                  title={GRADE_HINT[lot.variantGrade ?? "neutral"]}
+                >
+                  {lot.variant}
+                  <em className="dm-grade-tag">{GRADE_LABEL[lot.variantGrade ?? "neutral"]}</em>
+                </span>
+              )}
             </div>
           )}
 
@@ -160,7 +189,7 @@ export default function AuctionStage({
         </div>
 
         {/* ── Photo feedback ────────────────────────────────────────────── */}
-        {lot && view.phase === "bidding" && (
+        {lot && (view.phase === "bidding" || view.phase === "sold") && (
           <>
             <input
               ref={fileRef}
@@ -173,6 +202,9 @@ export default function AuctionStage({
                 e.target.value = ""; // let the same file be picked again
               }}
             />
+            {/* Upload is ALWAYS on the row, photo or no photo. A picture that
+                resolved isn't necessarily the right one, and either player
+                should be able to just hand us the correct one on the spot. */}
             <div className="dm-photo-fb">
               {hasPhoto ? (
                 <>
@@ -184,16 +216,14 @@ export default function AuctionStage({
                   </button>
                 </>
               ) : (
-                <>
-                  {/* A lettered card is exactly when another search is worth it. */}
-                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Look again for a photo">
-                    🔍 Search again
-                  </button>
-                  <button className="dm-btn dm-btn-ghost" onClick={() => fileRef.current?.click()} title="Upload your own">
-                    📷 Upload a photo
-                  </button>
-                </>
+                /* A lettered card is exactly when another search is worth it. */
+                <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Look again for a photo">
+                  🔍 Search again
+                </button>
               )}
+              <button className="dm-btn dm-btn-ghost" onClick={() => fileRef.current?.click()} title={`Upload your own photo for ${lot.name}`}>
+                📷 {hasPhoto ? "Use my own" : "Upload a photo"}
+              </button>
             </div>
             {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
           </>
@@ -268,7 +298,11 @@ export default function AuctionStage({
                   Pass<small>{passLocked ? "Must fill a slot" : "Let it go"}</small>
                 </button>
               </div>
-            ) : (
+            ) : null}
+            {myTurn && !iAmFull && isOpening && iCanOpen && myMax >= 1 && (
+              <CustomBid min={Math.max(1, openAmt)} max={myMax} onBid={onBid} verb="Open at" />
+            )}
+            {!iAmFull && myTurn && !isOpening && (
               <RaiseControls
                 currentBid={view.currentBid}
                 myMax={myMax}
@@ -381,10 +415,73 @@ function RaiseControls({
         </div>
       )}
 
+      {canRaise && <CustomBid min={currentBid + 1} max={myMax} onBid={onBid} verb="Bid" />}
+
       <button className="dm-btn dm-btn-ghost dm-btn-block" onClick={onPass}>
         Pass — let them have it
       </button>
     </>
+  );
+}
+
+// ── Custom bid ───────────────────────────────────────────────────────────────
+
+/**
+ * Name your own number.
+ *
+ * The +1/+2/+5 buttons cover the common raises, but an auction where you can
+ * only nudge in fixed steps isn't really an auction — sometimes the move is to
+ * jump straight to $14 and end the conversation. Clamped to the same range the
+ * engine and the room server enforce, so this can only ever produce a bid they
+ * would have accepted anyway.
+ */
+function CustomBid({
+  min,
+  max,
+  onBid,
+  verb,
+}: {
+  min: number;
+  max: number;
+  onBid: (n: number) => void;
+  verb: string;
+}) {
+  const [raw, setRaw] = useState("");
+  const lo = Math.max(0, min);
+  // Nothing to name when the only legal bid is the minimum.
+  if (max < lo) return null;
+
+  const parsed = Math.round(Number(raw));
+  const valid = raw.trim() !== "" && Number.isFinite(parsed) && parsed >= lo && parsed <= max;
+
+  const submit = () => {
+    if (!valid) return;
+    onBid(parsed);
+    setRaw("");
+  };
+
+  return (
+    <form
+      className="dm-custombid"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <span className="dm-custombid-sign">$</span>
+      <input
+        className="dm-custombid-input"
+        value={raw}
+        onChange={(e) => setRaw(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+        inputMode="numeric"
+        pattern="[0-9]*"
+        placeholder={`${lo}–${max}`}
+        aria-label={`Custom bid between $${lo} and $${max}`}
+      />
+      <button type="submit" className="dm-btn dm-btn-primary dm-custombid-go" disabled={!valid}>
+        {verb} {valid ? `$${parsed}` : "…"}
+      </button>
+    </form>
   );
 }
 
@@ -488,6 +585,7 @@ function ScoreCard({
               key={i}
               className="dm-slot"
               data-filled="1"
+              data-grade={pick.variantGrade ?? ""}
               data-new={pick.id === newPickId ? "1" : "0"}
               title={`${pick.name}${pick.variant ? ` (${pick.variant})` : ""} — $${pick.price}`}
             >

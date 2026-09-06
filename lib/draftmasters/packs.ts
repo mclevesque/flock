@@ -11,11 +11,74 @@
  * scoring. The AI judge sees the roster, not the tiers, so verdicts stay fresh.
  */
 
+/**
+ * How much a variant swings the pick — and what colour its chip is.
+ *
+ * The grade IS the mechanic: it sets the tier the variant lands on, relative
+ * to the entry's base tier, so a colour never lies about what it does.
+ *
+ *   crippling  red          guts them
+ *   weakening  light red    hurts, but they're still themselves
+ *   neutral    grey         changes little — usually just funny
+ *   boon       green        helps a bit
+ *   major      orange       helps a lot
+ *   mythic     gold         GAME CHANGING — loses only to another mythic,
+ *                           or to a couple of oranges on the other side
+ */
+export type VariantGrade = "crippling" | "weakening" | "neutral" | "boon" | "major" | "mythic";
+
+/** Tier movement each grade is worth, applied to the entry's base tier. */
+export const GRADE_DELTA: Record<VariantGrade, number> = {
+  crippling: -3,
+  weakening: -1,
+  neutral: 0,
+  boon: 1,
+  major: 2,
+  mythic: 3,
+};
+
+export const GRADES = Object.keys(GRADE_DELTA) as VariantGrade[];
+
+/**
+ * Tiers run 1-8, not 1-5.
+ *
+ * 1-5 is the base scale a board is written on; 6-8 only exist because a
+ * mythic or major variant on an already-huge pick has to actually be worth
+ * more at auction than the plain version. Nothing hand-authored uses them.
+ */
+export const MAX_TIER = 8;
+
+export function clampTierValue(n: number): number {
+  return Math.max(1, Math.min(MAX_TIER, Math.round(n)));
+}
+
+/** Where a variant of this grade lands, given the entry's base tier. */
+export function gradedTier(baseTier: number, grade: VariantGrade): number {
+  return clampTierValue(baseTier + GRADE_DELTA[grade]);
+}
+
+/**
+ * The grade for a variant, from its declared grade or — for the hand-authored
+ * boards below, which predate grades — from how far its tier moved.
+ */
+export function variantGrade(variant: Variant, baseTier: number): VariantGrade {
+  if (variant.g && GRADE_DELTA[variant.g] !== undefined) return variant.g;
+  const delta = variant.t - baseTier;
+  if (delta <= -2) return "crippling";
+  if (delta === -1) return "weakening";
+  if (delta === 0) return "neutral";
+  if (delta === 1) return "boon";
+  if (delta === 2) return "major";
+  return "mythic";
+}
+
 export interface Variant {
   /** Parenthetical shown after the name, e.g. "two hands" */
   v: string;
   /** Tier override for this condition */
   t: number;
+  /** Impact grade — drives the chip colour and, on generated boards, `t` itself */
+  g?: VariantGrade;
 }
 
 export interface Entry {
@@ -75,6 +138,23 @@ export interface Pack {
   scenario: string;
   /** What "winning" means — feeds the AI judge */
   criteria: string;
+  /**
+   * The kind of contest this board is — a `FormatId` from ./contest.
+   *
+   * A hint, not a ruling: the judge reads the scenario and decides for itself,
+   * because the rolled arena can change what the contest even is. Setting it
+   * keeps a Pokémon board from being judged as a knife fight on the occasions
+   * the scenario reads ambiguously.
+   */
+  format?: string;
+  /**
+   * The wildness dial (0-10) this board was generated at.
+   *
+   * Kept on the board rather than in game setup so it travels: a PvP room gets
+   * the host's setting for free when the pack is broadcast, and a rematch on
+   * the same board keeps the same temperament.
+   */
+  variantWild?: number;
   /** Settings this board can be played in; one is rolled per game */
   arenas?: Arena[];
   /** The arena actually rolled for this game, baked in when the board is dealt */

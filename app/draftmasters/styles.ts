@@ -643,4 +643,192 @@ export const STYLES = `
 .dm-portrait-upload strong { font-size: 14px; color: var(--dm-gold); font-weight: 750; white-space: nowrap; }
 .dm-portrait-upload small { font-size: 11.5px; color: var(--dm-dim); line-height: 1.3; }
 .dm-portrait-wrap[data-uploadable="1"]:hover .dm-portrait-upload { border-color: var(--dm-gold); }
+
+/* ── Variant grades ───────────────────────────────────────────────────────
+   The colour is a promise about what the condition does, so it has to be
+   readable at a glance and consistent everywhere a variant is shown. */
+
+.dm {
+  --dm-g-crippling: #d0342c;
+  --dm-g-weakening: #e8918c;
+  --dm-g-neutral:   #8d8778;
+  --dm-g-boon:      #4caf7d;
+  --dm-g-major:     #f0872e;
+  --dm-g-mythic:    #d9a3ff;
+}
+
+.dm-lot-variant[data-grade] {
+  display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border: 1px solid currentColor;
+}
+.dm-lot-variant[data-grade="crippling"] { background: rgba(208,52,44,.94);  color: #fff; }
+.dm-lot-variant[data-grade="weakening"] { background: rgba(232,145,140,.9); color: #2a0e0d; }
+.dm-lot-variant[data-grade="neutral"]   { background: rgba(141,135,120,.85); color: #14130f; }
+.dm-lot-variant[data-grade="boon"]      { background: rgba(76,175,125,.92); color: #05170f; }
+.dm-lot-variant[data-grade="major"]     { background: rgba(240,135,46,.95); color: #1d0d02; }
+.dm-lot-variant[data-grade="mythic"] {
+  background: linear-gradient(100deg, #7a3bd6 0%, #c05bff 40%, #f0c860 100%);
+  color: #17061f;
+  border-color: #ffe9a8;
+  box-shadow: 0 0 0 1px rgba(255,233,168,.5), 0 4px 22px rgba(192,91,255,.45);
+  animation: dm-mythic 2.6s ease-in-out infinite;
+}
+@keyframes dm-mythic {
+  0%, 100% { filter: saturate(1) brightness(1); }
+  50%      { filter: saturate(1.35) brightness(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-lot-variant[data-grade="mythic"] { animation: none; }
+}
+
+.dm-grade-tag {
+  font-style: normal; font-size: 10px; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase; opacity: .82;
+}
+
+.dm-grade-swatch {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; color: #14130f;
+}
+.dm-grade-swatch[data-grade="crippling"] { background: var(--dm-g-crippling); color: #fff; }
+.dm-grade-swatch[data-grade="mythic"] {
+  background: linear-gradient(100deg, #c05bff, #f0c860); color: #17061f;
+}
+
+/* ── Custom bid ───────────────────────────────────────────────────────────
+   Sits under the quick steps. 16px input so iOS doesn't zoom on focus. */
+
+.dm-custombid {
+  display: flex; align-items: stretch; gap: 8px; margin-top: 10px;
+}
+.dm-custombid-sign {
+  display: grid; place-items: center; width: 34px; flex: none;
+  border-radius: 12px; border: 1px solid var(--dm-line);
+  background: var(--dm-panel-2); color: var(--dm-dim);
+  font-weight: 800; font-size: 16px;
+}
+.dm-custombid-input {
+  flex: 1 1 auto; min-width: 0; min-height: 46px;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel-2);
+  color: var(--dm-text); font-size: 16px; font-weight: 800;
+  letter-spacing: .02em; text-align: center;
+}
+.dm-custombid-input:focus { outline: none; border-color: var(--dm-gold); }
+.dm-custombid-input::placeholder { color: var(--dm-mute); font-weight: 600; letter-spacing: 0; }
+.dm-custombid-go { flex: 0 0 auto; min-height: 46px; padding: 0 16px; white-space: nowrap; }
+.dm-custombid-go:disabled { opacity: .4; }
+
+/* ── Variant dials ────────────────────────────────────────────────────── */
+
+.dm-dials {
+  margin-top: 16px; padding: 14px;
+  border: 1px solid var(--dm-line); border-radius: var(--dm-radius);
+  background: var(--dm-panel);
+  display: grid; gap: 16px;
+}
+.dm-dial { display: grid; gap: 7px; }
+.dm-dial-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: 13.5px; font-weight: 700; color: var(--dm-text);
+}
+.dm-dial-value { color: var(--dm-gold); font-variant-numeric: tabular-nums; font-size: 13px; }
+.dm-dial-word { font-size: 12.5px; color: var(--dm-dim); }
+
+.dm-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 44px; background: transparent; cursor: pointer;
+}
+.dm-range::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--dm-line-hot), var(--dm-gold));
+}
+.dm-range::-moz-range-track {
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--dm-line-hot), var(--dm-gold));
+}
+.dm-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+  background: var(--dm-gold-hot); border: 2px solid #1a1712;
+  box-shadow: 0 2px 10px rgba(0,0,0,.6);
+}
+.dm-range::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--dm-gold-hot); border: 2px solid #1a1712;
+}
+.dm-range:focus-visible { outline: 2px solid var(--dm-gold); outline-offset: 4px; }
+
+/* ── Staging bar ──────────────────────────────────────────────────────── */
+
+.dm-staging {
+  margin: 22px auto 0; max-width: 460px; padding: 16px;
+  border: 1px solid var(--dm-line); border-radius: var(--dm-radius);
+  background: var(--dm-panel); text-align: left;
+}
+.dm-staging-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: 13.5px; font-weight: 800; color: var(--dm-text);
+}
+.dm-staging-pct { color: var(--dm-gold); font-variant-numeric: tabular-nums; }
+.dm-staging-track {
+  margin-top: 10px; height: 8px; border-radius: 999px;
+  background: var(--dm-panel-2); border: 1px solid var(--dm-line); overflow: hidden;
+}
+.dm-staging-track i {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--dm-ember), var(--dm-gold-hot));
+  transition: width .24s linear;
+}
+.dm-staging-line {
+  margin: 10px 0 0; font-size: 13px; color: var(--dm-dim); line-height: 1.45;
+  animation: dm-fadein .35s ease;
+}
+@keyframes dm-fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .dm-staging-line { animation: none; } }
+
+/* ── The judge's working ──────────────────────────────────────────────── */
+
+.dm-plan {
+  margin: 20px auto 0; max-width: 620px; padding: 16px;
+  border: 1px solid var(--dm-line); border-radius: var(--dm-radius);
+  background: var(--dm-panel); text-align: left;
+}
+.dm-plan-format { color: var(--dm-gold); }
+.dm-plan-how { margin: 8px 0 0; font-size: 14px; line-height: 1.55; color: var(--dm-text); }
+.dm-plan-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.dm-plan-tag {
+  padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  background: var(--dm-panel-2); border: 1px solid var(--dm-line); color: var(--dm-dim);
+}
+.dm-plan-block { margin-top: 16px; }
+.dm-plan-block h4 {
+  margin: 0 0 6px; font-size: 11px; font-weight: 800;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dm-mute);
+}
+.dm-plan-block ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.dm-plan-block li { font-size: 13.5px; line-height: 1.5; color: var(--dm-dim); }
+.dm-plan-block li strong { color: var(--dm-text); }
+.dm-plan-block[data-twist="1"] h4 { color: var(--dm-gold); }
+.dm-plan-block[data-twist="1"] li { color: var(--dm-gold-hot); }
+
+/* Grade carried through to the rosters, so a mythic sitting on the bench is
+   as legible as one under the spotlight. */
+.dm-variant-note[data-grade="crippling"] { color: var(--dm-g-crippling); }
+.dm-variant-note[data-grade="weakening"] { color: var(--dm-g-weakening); }
+.dm-variant-note[data-grade="neutral"]   { color: var(--dm-g-neutral); }
+.dm-variant-note[data-grade="boon"]      { color: var(--dm-g-boon); }
+.dm-variant-note[data-grade="major"]     { color: var(--dm-g-major); font-weight: 700; }
+.dm-variant-note[data-grade="mythic"] {
+  color: var(--dm-g-mythic); font-weight: 800; letter-spacing: .01em;
+  text-shadow: 0 0 12px rgba(192,91,255,.5);
+}
+
+.dm-slot[data-grade="crippling"] { box-shadow: inset 0 0 0 2px var(--dm-g-crippling); }
+.dm-slot[data-grade="weakening"] { box-shadow: inset 0 0 0 2px var(--dm-g-weakening); }
+.dm-slot[data-grade="boon"]      { box-shadow: inset 0 0 0 2px var(--dm-g-boon); }
+.dm-slot[data-grade="major"]     { box-shadow: inset 0 0 0 2px var(--dm-g-major); }
+.dm-slot[data-grade="mythic"] {
+  box-shadow: inset 0 0 0 2px #f0c860, 0 0 16px rgba(192,91,255,.55);
+}
 `;
