@@ -168,12 +168,25 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
 
         <div className="dm-bt-center">
           <div className="dm-bt-clash" key={index} data-kind={beat.kind} data-intensity={beat.intensity}>
-            {beat.actors.map((name) => (
-              <figure key={name} className="dm-bt-actor" data-from={actorsFrom(name)} data-dead={eliminated.has(name) ? "1" : "0"}>
-                <ActorPortrait url={portraitOf.get(name) ?? null} name={name} />
-                <figcaption>{name}</figcaption>
-              </figure>
-            ))}
+            {beat.actors.map((name) => {
+              // The stamp belongs on whoever just died, not floating over the
+              // winner — you should be able to see at a glance who it was.
+              const justDied = beat.eliminated?.includes(name) ?? false;
+              return (
+                <figure
+                  key={name}
+                  className="dm-bt-actor"
+                  data-from={actorsFrom(name)}
+                  data-dead={eliminated.has(name) ? "1" : "0"}
+                >
+                  <span className="dm-bt-actor-shot">
+                    <ActorPortrait url={portraitOf.get(name) ?? null} name={name} />
+                    {justDied && <span className="dm-bt-dead">DEAD</span>}
+                  </span>
+                  <figcaption>{name}</figcaption>
+                </figure>
+              );
+            })}
             {(beat.kind === "clash" || beat.kind === "kill" || beat.intensity >= 2) && !reducedMotion && (
               <>
                 <span className="dm-bt-slash" />
@@ -181,7 +194,6 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
                 <span className="dm-bt-flash" />
               </>
             )}
-            {beat.kind === "kill" && <span className="dm-bt-stamp">DOWN</span>}
           </div>
         </div>
 

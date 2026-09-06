@@ -198,18 +198,9 @@ export const BATTLE_STYLES = `
 }
 @keyframes dm-bt-flash { from { opacity: 1; } to { opacity: 0; } }
 
-.dm-bt-stamp {
-  position: absolute; top: 12%; left: 50%;
-  transform: translateX(-50%) rotate(-9deg);
-  font-size: clamp(26px, 7vw, 48px); font-weight: 900; letter-spacing: .06em;
-  color: var(--dm-red); border: 4px solid currentColor; border-radius: 10px;
-  padding: 4px 16px; background: rgba(8,8,10,.5);
-  animation: dm-bt-stamp .4s cubic-bezier(.2,1.5,.4,1);
-  pointer-events: none;
-}
 @keyframes dm-bt-stamp {
-  from { transform: translateX(-50%) rotate(-9deg) scale(1.6); opacity: 0; }
-  to   { transform: translateX(-50%) rotate(-9deg) scale(1); opacity: 1; }
+  from { transform: translate(-50%, -50%) rotate(-11deg) scale(1.7); opacity: 0; }
+  to   { transform: translate(-50%, -50%) rotate(-11deg) scale(1); opacity: 1; }
 }
 
 /* ── Caption ──────────────────────────────────────────────────────────── */
@@ -278,4 +269,16 @@ export const BATTLE_STYLES = `
   }
   .dm-bt-slash, .dm-bt-flash { display: none; }
 }
+
+.dm-bt-actor-shot { position: relative; display: block; line-height: 0; }
+.dm-bt-dead {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-11deg);
+  font-size: clamp(20px, 4.2vw, 34px); font-weight: 900; letter-spacing: .08em;
+  color: #ff5f57; border: 4px solid currentColor; border-radius: 8px;
+  padding: 2px 14px; background: rgba(8,8,10,.72); line-height: 1.1;
+  animation: dm-bt-stamp .4s cubic-bezier(.2,1.5,.4,1);
+  pointer-events: none; white-space: nowrap;
+}
+.dm-bt-actor[data-dead="1"] .dm-bt-actor-shot img { filter: grayscale(.9) brightness(.55); }
 `;
