@@ -107,6 +107,8 @@ export default class DraftMastersParty implements Party.Server {
   private ticker: TickerEvent[] = [];
   private eventSeq = 0;
   private verdict: Verdict | null = null;
+  /** Battle cinematic script, posted by the driver so everyone watches together */
+  private battle: unknown = null;
 
   constructor(readonly room: Party.Room) {}
 
@@ -171,6 +173,8 @@ export default class DraftMastersParty implements Party.Server {
         return this.handleMedia(msg, sender);
       case "verdict":
         return this.handleVerdict(msg, sender);
+      case "battle":
+        return this.handleBattle(msg, sender);
       case "rematch":
         return this.handleRematch(sender);
       case "rtc-signal":
@@ -274,6 +278,7 @@ export default class DraftMastersParty implements Party.Server {
     this.unsold = [];
     this.lotEntryIndex = -1;
     this.verdict = null;
+    this.battle = null;
     this.dice = null;
     this.ticker = [];
     this.readyIds.clear();
@@ -603,6 +608,17 @@ export default class DraftMastersParty implements Party.Server {
     this.broadcastState();
   }
 
+  /**
+   * The driver posts the battle script so both players watch the same fight,
+   * beat for beat, rather than each generating their own.
+   */
+  private handleBattle(msg: Record<string, unknown>, sender: Party.Connection) {
+    if (!this.canDrive(sender)) return;
+    if (this.phase !== "complete") return;
+    this.battle = msg.battle ?? null;
+    this.broadcastState();
+  }
+
   private handleRematch(sender: Party.Connection) {
     if (!this.canDrive(sender)) return;
     this.phase = "lobby";
@@ -614,6 +630,7 @@ export default class DraftMastersParty implements Party.Server {
     this.lotEntryIndex = -1;
     this.lot = null;
     this.verdict = null;
+    this.battle = null;
     this.dice = null;
     this.currentBid = 0;
     this.highBidderId = null;
@@ -706,6 +723,7 @@ export default class DraftMastersParty implements Party.Server {
       })),
       ticker: this.ticker.slice(-14),
       verdict: this.verdict,
+      battle: this.battle,
     };
   }
 

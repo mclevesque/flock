@@ -29,12 +29,15 @@ import {
 import type { Pack } from "@/lib/draftmasters/packs";
 import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
+import BattleScreen from "./BattleScreen";
 import MediaRail from "./MediaRail";
 import VerdictScreen from "./VerdictScreen";
 import { useDraftMedia, type DraftMedia } from "./useDraftMedia";
 import { STYLES } from "./styles";
+import { BATTLE_STYLES } from "./battle-styles";
 import {
   EMPTY_VIEW,
+  type BattleScript,
   type ChatLine,
   type DiceState,
   type GameView,
@@ -118,6 +121,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   // ── Verdict + records ──────────────────────────────────────────────────────
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [judging, setJudging] = useState(false);
+  const [battle, setBattle] = useState<BattleScript | null>(null);
+  const [battleLoading, setBattleLoading] = useState(false);
+  /** Cleared when the cinematic is dismissed, so the verdict shows underneath */
+  const [watchedBattle, setWatchedBattle] = useState(false);
   const [record, setRecord] = useState<PlayerRecord | null>(null);
   const [leaderboard, setLeaderboard] = useState<PlayerRecord[]>([]);
   const [ratingDelta, setRatingDelta] = useState<number | null>(null);
@@ -397,6 +404,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const finishVerdictRef = useRef<(v: Verdict) => void>(() => {});
   const verdictRef = useRef<Verdict | null>(null);
   verdictRef.current = verdict;
+  const watchedBattleRef = useRef(false);
+  watchedBattleRef.current = watchedBattle;
 
   const nameOf = useCallback(
     (id: string) => (id === meId ? "You" : (gameRef.current.sides.find((s) => s.id === id)?.name ?? "—")),
@@ -814,6 +823,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setVerdict((s.verdict as Verdict | null) ?? null);
       matchIdRef.current = String(s.matchId ?? "");
 
+      // The driver posts the battle script; everyone else watches the same one.
+      const serverBattle = (s.battle as BattleScript | null) ?? null;
+      setBattle((current) => {
+        if (!serverBattle) return null;
+        if (watchedBattleRef.current) return current; // don't replay for someone who skipped
+        return current && current.beats.length === serverBattle.beats.length ? current : serverBattle;
+      });
+
       // New board arrived — pull its portraits before the first lot drops.
       // The server stamps a nonce on every board so this fires per deal.
       if (serverPack && serverPack.id !== knownPackId.current) {
@@ -972,9 +989,87 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     }
   }, [mode, pack, send, view.sides]);
 
+  /**
+   * "Battle!" — the same verdict, dramatised. The winner is decided first and
+   * handed to the script generator, so the fight can never contradict the
+   * judge. In a room the driver posts the script so both watch the same one.
+   */
+  const handleBattle = useCallback(async () => {
+    setBattleLoading(true);
+    setError(null);
+    try {
+      let decided = verdict;
+
+      if (!decided) {
+        const res = await fetch("/api/draftmasters/judge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            packId: pack?.id?.split("#")[0],
+            pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
+            sides: view.sides,
+          }),
+        });
+        if (!res.ok) throw new Error("The judge is out to lunch. Try again.");
+        decided = (await res.json()) as Verdict;
+
+        // A tie has to go to the dice before there's a winner to dramatise.
+        const notes = decided.sideNotes ?? [];
+        if (notes.length === 2 && notes[0].score === notes[1].score) {
+          setBattleLoading(false);
+          if (mode === "pvp") send({ type: "verdict", verdict: decided });
+          else {
+            setVerdict(decided);
+            verdictRef.current = decided;
+            const g = gameRef.current;
+            setScreen("auction");
+            startDiceRef.current("verdict", [g.sides[0].id, g.sides[1].id], 0);
+          }
+          return;
+        }
+
+        setVerdict(decided);
+        verdictRef.current = decided;
+        if (mode === "pvp") send({ type: "verdict", verdict: decided });
+        else void reportMatch(decided, gameRef.current.sides, matchIdRef.current, "solo");
+      }
+
+      const res = await fetch("/api/draftmasters/battle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          packId: pack?.id?.split("#")[0],
+          pack: pack ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria } : undefined,
+          sides: view.sides,
+          winnerId: decided.winnerId,
+          reasoning: decided.reasoning,
+        }),
+      });
+      if (!res.ok) throw new Error("Couldn't stage the battle. Try again.");
+      const script = (await res.json()) as BattleScript;
+      if (!script.beats?.length) throw new Error("The battle came back empty. Try again.");
+
+      setWatchedBattle(false);
+      setBattle(script);
+      if (mode === "pvp") send({ type: "battle", battle: script });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't stage the battle.");
+    } finally {
+      setBattleLoading(false);
+    }
+  }, [mode, pack, reportMatch, send, verdict, view.sides]);
+
+  const endBattle = useCallback(() => {
+    setWatchedBattle(true);
+    setBattle(null);
+    if (mode === "pvp") send({ type: "battle", battle: null });
+  }, [mode, send]);
+
   const playAgain = useCallback(() => {
     sfx.click();
     clearNpc();
+    setBattle(null);
+    setWatchedBattle(false);
     setVerdict(null);
     setRatingDelta(null);
     setError(null);
@@ -1022,7 +1117,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   return (
     <div className="dm">
-      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+      <style dangerouslySetInnerHTML={{ __html: STYLES + BATTLE_STYLES }} />
       {mode === "pvp" && !connected && <div className="dm-conn">Reconnecting…</div>}
       <div className="dm-shell">
         <header className="dm-head">
@@ -1157,11 +1252,25 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             record={record}
             ratingDelta={ratingDelta}
             mode={mode}
+            battleLoading={battleLoading}
+            onBattle={() => void handleBattle()}
             onJudge={handleJudge}
             onPlayAgain={playAgain}
           />
         )}
       </div>
+
+      {battle && (
+        <BattleScreen
+          script={battle}
+          sides={view.sides}
+          rules={rules}
+          meId={meId}
+          portraits={portraits}
+          packName={pack?.name ?? "Draft"}
+          onDone={endBattle}
+        />
+      )}
     </div>
   );
 }

@@ -50,6 +50,26 @@ export interface GameView {
   readyIds: string[];
 }
 
+export type BeatKind = "entrance" | "clash" | "kill" | "standoff" | "heroic" | "comic" | "turn" | "final";
+
+/** One moment of the battle cinematic. */
+export interface BattleBeat {
+  actors: string[];
+  sideId: string;
+  targetSideId?: string;
+  text: string;
+  kind: BeatKind;
+  /** 0–3; drives screen shake, slashes and musical accents */
+  intensity: number;
+  eliminated?: string[];
+}
+
+export interface BattleScript {
+  beats: BattleBeat[];
+  winnerId: string;
+  scripted: "ai" | "offline";
+}
+
 /** How much one drafted pick mattered to the result, 0–10. */
 export interface PickContribution {
   name: string;

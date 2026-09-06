@@ -23,6 +23,8 @@ interface Props {
   record: PlayerRecord | null;
   ratingDelta: number | null;
   mode: "solo" | "pvp";
+  battleLoading: boolean;
+  onBattle: () => void;
   onJudge: () => void;
   onPlayAgain: () => void;
 }
@@ -40,6 +42,8 @@ export default function VerdictScreen({
   record,
   ratingDelta,
   mode,
+  battleLoading,
+  onBattle,
   onJudge,
   onPlayAgain,
 }: Props) {
@@ -74,13 +78,19 @@ export default function VerdictScreen({
 
         <div style={{ marginTop: 24 }}>
           {canJudge ? (
-            <button
-              className="dm-btn dm-btn-primary dm-btn-lg"
-              onClick={onJudge}
-              disabled={loading}
-            >
-              {loading ? "The judge is deliberating…" : "⚖️  Calculate Winner"}
-            </button>
+            <>
+              <div className="dm-row" style={{ justifyContent: "center" }}>
+                <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={loading || battleLoading}>
+                  {battleLoading ? "Staging the fight…" : "⚔️  BATTLE!"}
+                </button>
+                <button className="dm-btn dm-btn-lg" onClick={onJudge} disabled={loading || battleLoading}>
+                  {loading ? "Deliberating…" : "⚖️  Just calculate it"}
+                </button>
+              </div>
+              <p className="dm-note" style={{ marginTop: 10 }}>
+                Same winner either way — Battle shows you how it went down.
+              </p>
+            </>
           ) : (
             <div className="dm-waiting">Waiting for the host to call it…</div>
           )}
@@ -228,7 +238,12 @@ export default function VerdictScreen({
         </p>
       )}
 
-      <div style={{ marginTop: 26 }}>
+      <div className="dm-row" style={{ marginTop: 26, justifyContent: "center" }}>
+        {canJudge && (
+          <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={battleLoading}>
+            {battleLoading ? "Staging the fight…" : "⚔️  Watch the battle"}
+          </button>
+        )}
         <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onPlayAgain}>
           Play again — new topic
         </button>
