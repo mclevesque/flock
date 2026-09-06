@@ -45,15 +45,15 @@ export async function POST(req: Request) {
   const apiKey = process.env.GROQ_API_KEY;
   if (apiKey && pack) {
     try {
+      // Prices are deliberately withheld. What a pick cost says nothing about
+      // how it performs, and showing the judge a big number next to a name
+      // made it reward the bidding instead of the roster.
       const rosterText = sides
         .map((s) => {
           const picks = s.roster.length
-            ? s.roster
-                .map((p) => `  - ${p.name}${p.variant ? ` (${p.variant})` : ""} — $${p.price}`)
-                .join("\n")
+            ? s.roster.map((p) => `  - ${p.name}${p.variant ? ` (${p.variant})` : ""}`).join("\n")
             : "  - (drafted nobody)";
-          const spent = s.roster.reduce((sum, p) => sum + p.price, 0);
-          return `TEAM "${s.name}" [id: ${s.id}] — spent $${spent}, $${s.budget} unspent\n${picks}`;
+          return `TEAM "${s.name}" [id: ${s.id}] — ${s.roster.length} pick${s.roster.length === 1 ? "" : "s"}\n${picks}`;
         })
         .join("\n\n");
 
@@ -75,8 +75,8 @@ export async function POST(req: Request) {
                 "You are the judge of a live auction draft show. You are decisive, funny, and you commit to a winner — never a tie. " +
                 "Before deciding, actually play the scenario out: who on each side handles whom, what each roster lacks, where it breaks. Use what is widely known about these characters' feats and weaknesses — the verdict should survive a fan's cross-examination. " +
                 "WEIGH WHAT THE SCENARIO ACTUALLY REWARDS. Read the scenario and the setting first, then decide what matters. If it calls for planning, knowledge, invention, diplomacy, deception or survival over time, INTELLIGENCE AND INGENUITY OUTWEIGH RAW STRENGTH — a brilliant strategist beats a stronger fool, and the smartest roster should win even if it would lose an arm-wrestle. If it is a straight fight, power and skill decide it. The setting is part of this: deep water, killing cold, a sealed room, no sunlight, powers suppressed — say plainly which picks the setting ruins and which it hands the win to. " +
-                "You care about the scenario, not about who spent more. A cheap roster that fits the scenario beats an expensive one that doesn't. " +
-                "Note when a team overpaid or found a steal. Be specific about the actual names drafted; never be generic. " +
+                "You are not told what anything cost, and it is irrelevant — judge the roster you are shown, purely on what those characters can do in this scenario. " +
+                "Be specific about the actual names drafted; never be generic. " +
                 "A condition in parentheses is binding, but weigh it proportionately: a mild one (a wound, fatigue, age) makes them only slightly worse; only a crippling one (missing sword hand, sealed away, dying) changes who they are. " +
                 'Reply with ONLY JSON: {"winnerId": string, "headline": string (max 8 words, no period), "reasoning": string (3-4 sentences), ' +
                 '"sideNotes": [{"sideId": string, "score": number 0-100, "mvp": string (a drafted name), "bust": string (a drafted name), "note": string (one sentence), ' +
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
         score: Math.min(100, Math.round(sc.power * 2)),
         mvp: sorted[0]?.name ?? "—",
         bust: sorted[sorted.length - 1]?.name ?? "—",
-        note: `${sc.power} power for $${sc.spent} spent.`,
+        note: `${sc.power} roster power across ${side.roster.length} pick${side.roster.length === 1 ? "" : "s"}.`,
         // Offline: contribution tracks tier — a 5 carried, a 1 rode the bench.
         picks: side.roster.map((p) => ({ name: p.name, contribution: Math.max(0, Math.min(10, p.tier * 2)) })),
       };

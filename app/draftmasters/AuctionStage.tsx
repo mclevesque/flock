@@ -32,6 +32,8 @@ interface Props {
   portraitNote: string | null;
   /** 👍 keep this photo / 👎 wrong person — swaps in another */
   onPortraitFeedback: (verdict: "good" | "bad") => void;
+  /** A file picked for a character that has no photo anywhere */
+  onPortraitUpload: (file: File) => void;
 }
 
 export default function AuctionStage({
@@ -48,6 +50,7 @@ export default function AuctionStage({
   onAdvance,
   portraitNote,
   onPortraitFeedback,
+  onPortraitUpload,
 }: Props) {
   const me = view.sides.find((s) => s.id === meId) ?? null;
   const other = view.sides.find((s) => s.id !== meId) ?? null;
@@ -92,6 +95,11 @@ export default function AuctionStage({
 
   const lastPick = view.phase === "sold" && lot ? lot.id : null;
 
+  // No photo resolved for this lot — the card is a letter, and tapping it
+  // opens a file picker so a human can just supply the right one.
+  const hasPhoto = Boolean(lot && portraits[lot.imgQuery]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="dm-stage">
       <div className="dm-block">
@@ -104,11 +112,26 @@ export default function AuctionStage({
         </div>
 
         {/* ── Portrait ─────────────────────────────────────────────────── */}
-        <div className="dm-portrait-wrap" data-in={view.phase === "bidding" ? "1" : "0"} key={lot?.id}>
+        <div
+          className="dm-portrait-wrap"
+          data-in={view.phase === "bidding" ? "1" : "0"}
+          data-uploadable={lot && !hasPhoto ? "1" : "0"}
+          key={lot?.id}
+          onClick={() => {
+            if (lot && !hasPhoto) fileRef.current?.click();
+          }}
+          title={lot && !hasPhoto ? `Upload a photo for ${lot.name}` : undefined}
+        >
           {lot ? (
             <Portrait url={portraits[lot.imgQuery] ?? null} name={lot.name} />
           ) : (
             <div className="dm-portrait-fallback">—</div>
+          )}
+          {lot && !hasPhoto && (
+            <span className="dm-portrait-upload">
+              <strong>📷 Tap to add a photo</strong>
+              <small>no picture found for {lot.name}</small>
+            </span>
           )}
           <div className="dm-portrait-vignette" />
           {lot && (
@@ -139,13 +162,38 @@ export default function AuctionStage({
         {/* ── Photo feedback ────────────────────────────────────────────── */}
         {lot && view.phase === "bidding" && (
           <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="dm-sr"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onPortraitUpload(f);
+                e.target.value = ""; // let the same file be picked again
+              }}
+            />
             <div className="dm-photo-fb">
-              <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("good")} title="Keep this photo for them">
-                👍 Good photo
-              </button>
-              <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Wrong person — find another">
-                👎 Wrong photo
-              </button>
+              {hasPhoto ? (
+                <>
+                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("good")} title="Keep this photo for them">
+                    👍 Good photo
+                  </button>
+                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Wrong person — find another">
+                    👎 Wrong photo
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* A lettered card is exactly when another search is worth it. */}
+                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Look again for a photo">
+                    🔍 Search again
+                  </button>
+                  <button className="dm-btn dm-btn-ghost" onClick={() => fileRef.current?.click()} title="Upload your own">
+                    📷 Upload a photo
+                  </button>
+                </>
+              )}
             </div>
             {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
           </>

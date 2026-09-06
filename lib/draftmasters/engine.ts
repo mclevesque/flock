@@ -343,27 +343,32 @@ export function npcThinkMs(valuation: number, currentBid: number): number {
 export interface SideScore {
   sideId: string;
   power: number;
-  spent: number;
-  /** Power per dollar actually spent — the value story */
-  efficiency: number;
 }
 
+/**
+ * Score a roster on what it IS, never on what it cost.
+ *
+ * Price is deliberately absent here and from everything downstream. A $1
+ * steal and a $12 splurge of the same character are the same fighter, so
+ * paying more must not make a pick contribute more — that would score the
+ * bidding rather than the draft.
+ */
 export function scoreSide(side: Side): SideScore {
   // Superlinear in tier: one monster beats three mediocre picks, which is how
   // these drafts actually feel.
   const power = side.roster.reduce((sum, p) => sum + Math.pow(p.tier, 1.7), 0);
-  const spent = side.roster.reduce((sum, p) => sum + p.price, 0);
-  return {
-    sideId: side.id,
-    power: Math.round(power * 10) / 10,
-    spent,
-    efficiency: spent > 0 ? Math.round((power / spent) * 100) / 100 : 0,
-  };
+  return { sideId: side.id, power: Math.round(power * 10) / 10 };
 }
 
 export function offlineVerdict(sides: Side[]): { winnerId: string; scores: SideScore[]; reasoning: string } {
   const scores = sides.map(scoreSide);
-  const sorted = [...scores].sort((a, b) => b.power - a.power || b.efficiency - a.efficiency);
+  // Roster size breaks a tie, not money — an empty chair is a real weakness.
+  const sorted = [...scores].sort(
+    (a, b) =>
+      b.power - a.power ||
+      (sides.find((s) => s.id === b.sideId)?.roster.length ?? 0) -
+        (sides.find((s) => s.id === a.sideId)?.roster.length ?? 0)
+  );
   const winner = sorted[0];
   const loser = sorted[sorted.length - 1];
   const margin = winner.power - loser.power;

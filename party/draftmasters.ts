@@ -109,6 +109,13 @@ export default class DraftMastersParty implements Party.Server {
   private verdict: Verdict | null = null;
   /** Battle cinematic script, posted by the driver so everyone watches together */
   private battle: unknown = null;
+  /**
+   * True while the driver is off fetching the verdict and the fight script.
+   * Everyone holds the reveal until the fight lands, so the crown can't spoil
+   * the fight it exists to pay off.
+   */
+  private battleStaging = false;
+  private battleStagerId: string | null = null;
 
   constructor(readonly room: Party.Room) {}
 
@@ -129,6 +136,8 @@ export default class DraftMastersParty implements Party.Server {
       this.room.broadcast(JSON.stringify({ type: "peer-left", userId: member.userId }));
       // Ready state is a live promise — a dropped player has to re-confirm.
       if (this.phase === "ready") this.readyIds.delete(member.userId);
+      // Never leave the room holding a reveal for a fight that isn't coming.
+      if (this.battleStagerId === member.userId) this.clearStaging();
       this.push(`${member.name} disconnected`, "system");
     }
     this.broadcastState();
@@ -167,6 +176,18 @@ export default class DraftMastersParty implements Party.Server {
         return this.handleMatch(sender);
       case "advance":
         return this.handleAdvance(msg);
+      case "portrait":
+        // A photo someone found or uploaded — pass it straight to the room so
+        // both cards match. Not part of game state; it's per-client display.
+        return this.room.broadcast(
+          JSON.stringify({
+            type: "portrait",
+            imgQuery: String(msg.imgQuery ?? "").slice(0, 200),
+            url: typeof msg.url === "string" ? msg.url.slice(0, 2000) : null,
+            source: String(msg.source ?? "curated").slice(0, 32),
+          }),
+          [sender.id]
+        );
       case "chat":
         return this.handleChat(msg, sender);
       case "media":
@@ -282,6 +303,7 @@ export default class DraftMastersParty implements Party.Server {
     this.lotEntryIndex = -1;
     this.verdict = null;
     this.battle = null;
+    this.clearStaging();
     this.dice = null;
     this.ticker = [];
     this.readyIds.clear();
@@ -604,6 +626,7 @@ export default class DraftMastersParty implements Party.Server {
     const notes = verdict.sideNotes ?? [];
     const sides = this.sidesList();
     if (notes.length === 2 && notes[0].score === notes[1].score && sides.length === 2) {
+      this.clearStaging();
       this.push("The judge has it even — dice decide it", "dice");
       this.startDice("verdict", [sides[0].id, sides[1].id], 0);
       return;
@@ -618,8 +641,27 @@ export default class DraftMastersParty implements Party.Server {
   private handleBattle(msg: Record<string, unknown>, sender: Party.Connection) {
     if (!this.canDrive(sender)) return;
     if (this.phase !== "complete") return;
+
+    // A staging ping carries no script — it just opens or closes the hold.
+    if (msg.staging !== undefined) {
+      if (msg.staging) {
+        this.battleStaging = true;
+        this.battleStagerId = this.members.get(sender.id)?.userId ?? null;
+      } else {
+        this.clearStaging();
+      }
+      this.broadcastState();
+      return;
+    }
+
     this.battle = msg.battle ?? null;
+    this.clearStaging();
     this.broadcastState();
+  }
+
+  private clearStaging() {
+    this.battleStaging = false;
+    this.battleStagerId = null;
   }
 
   private handleRematch(sender: Party.Connection) {
@@ -634,6 +676,7 @@ export default class DraftMastersParty implements Party.Server {
     this.lot = null;
     this.verdict = null;
     this.battle = null;
+    this.clearStaging();
     this.dice = null;
     this.currentBid = 0;
     this.highBidderId = null;
@@ -727,6 +770,7 @@ export default class DraftMastersParty implements Party.Server {
       ticker: this.ticker.slice(-14),
       verdict: this.verdict,
       battle: this.battle,
+      battleStaging: this.battleStaging,
     };
   }
 

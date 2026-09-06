@@ -124,6 +124,12 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const [judging, setJudging] = useState(false);
   const [battle, setBattle] = useState<BattleScript | null>(null);
   const [battleLoading, setBattleLoading] = useState(false);
+  /**
+   * The room is holding the reveal because the driver is off staging a fight.
+   * Mirrors the server flag so the player who didn't press Battle doesn't get
+   * the winner spoiled while the other one waits on the script.
+   */
+  const [peerStaging, setPeerStaging] = useState(false);
   /** Cleared when the cinematic is dismissed, so the verdict shows underneath */
   const [watchedBattle, setWatchedBattle] = useState(false);
   const [record, setRecord] = useState<PlayerRecord | null>(null);
@@ -277,6 +283,19 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   }, []);
 
   /**
+   * Update a portrait locally and tell the room, so a photo one player finds
+   * or uploads appears on the other player's card immediately.
+   */
+  const applyPortrait = useCallback(
+    (imgQuery: string, url: string | null, source: string, broadcast = true) => {
+      setPortraits((p) => ({ ...p, [imgQuery]: url }));
+      setPortraitSources((p) => ({ ...p, [imgQuery]: source }));
+      if (broadcast && mode === "pvp") send({ type: "portrait", imgQuery, url, source });
+    },
+    [mode, send]
+  );
+
+  /**
    * 👍 keeps this photo for the character from now on; 👎 blocks it (with its
    * source recorded, so we learn which lookups fail) and swaps in the next
    * candidate right away.
@@ -286,26 +305,36 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       const lot = view.lot;
       if (!lot) return;
       const url = portraits[lot.imgQuery];
-      if (!url) {
-        setPortraitNote("No photo to rate — it's a lettered card.");
+
+      // A lettered card means every lookup came back empty — that's exactly
+      // when you want another search, not a refusal. Go straight to a fresh
+      // lookup with nothing to down-vote.
+      const searchOnly = !url;
+      if (verdict === "good" && searchOnly) {
+        setPortraitNote("No photo yet — tap the card to upload one.");
         return;
       }
+
       initAudio();
       sfx.click();
-      setPortraitNote(verdict === "good" ? "Saved — this photo is theirs from now on." : "Finding another…");
+      setPortraitNote(
+        verdict === "good" ? "Saved — this photo is theirs from now on." : searchOnly ? "Searching…" : "Finding another…"
+      );
       try {
-        await fetch("/api/draftmasters/portrait/feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imgQuery: lot.imgQuery,
-            name: lot.name,
-            url,
-            source: portraitSources[lot.imgQuery] ?? "unknown",
-            verdict,
-            userId: meId,
-          }),
-        });
+        if (!searchOnly) {
+          await fetch("/api/draftmasters/portrait/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imgQuery: lot.imgQuery,
+              name: lot.name,
+              url,
+              source: portraitSources[lot.imgQuery] ?? "unknown",
+              verdict,
+              userId: meId,
+            }),
+          });
+        }
         if (verdict === "bad") {
           const entry = pack?.entries.find((e) => e.n === lot.name);
           const wiki = entry?.wiki ?? pack?.wiki ?? "";
@@ -315,20 +344,59 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             { cache: "no-store" }
           );
           const data = await res.json();
-          setPortraits((p) => ({ ...p, [lot.imgQuery]: data?.url ?? null }));
-          setPortraitSources((p) => ({ ...p, [lot.imgQuery]: data?.source ?? "none" }));
-          setPortraitNote(data?.url ? `Swapped in another (${data.source}).` : "Nothing better found — lettered card for now.");
+          applyPortrait(lot.imgQuery, data?.url ?? null, data?.source ?? "none");
+          setPortraitNote(
+            data?.url
+              ? `Found one (${data.source}).`
+              : "Still nothing out there — tap the card to upload one."
+          );
         }
       } catch {
-        setPortraitNote("Couldn't save that — try again.");
+        setPortraitNote("Couldn't do that — try again.");
       }
     },
-    [meId, pack, portraits, portraitSources, view.lot]
+    [applyPortrait, meId, pack, portraits, portraitSources, view.lot]
+  );
+
+  /** Someone picked a file for a character with no photo anywhere. */
+  const handlePortraitUpload = useCallback(
+    async (file: File) => {
+      const lot = view.lot;
+      if (!lot) return;
+      if (file.size > 8 * 1024 * 1024) {
+        setPortraitNote("That image is too big — 8MB max.");
+        return;
+      }
+      initAudio();
+      sfx.click();
+      setPortraitNote(`Uploading a photo for ${lot.name}…`);
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("read failed"));
+          reader.readAsDataURL(file);
+        });
+        const res = await fetch("/api/draftmasters/portrait/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imgQuery: lot.imgQuery, name: lot.name, dataUrl, userId: meId }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.url) throw new Error(data?.error ?? "upload failed");
+        applyPortrait(lot.imgQuery, data.url, "curated");
+        setPortraitNote(`Saved — that's ${lot.name} from now on.`);
+      } catch (e) {
+        setPortraitNote(e instanceof Error ? e.message : "Upload failed — try again.");
+      }
+    },
+    [applyPortrait, meId, view.lot]
   );
 
   useEffect(() => {
     setPortraitNote(null);
   }, [view.lot?.id]);
+
 
   /** Resolve the chosen topic into a full board, portraits and all. */
   const buildBoard = useCallback(async (): Promise<Pack | null> => {
@@ -848,6 +916,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         mediaRef.current.dropPeer(String(msg.userId));
         return;
       }
+      if (msg.type === "portrait") {
+        // The other player found or uploaded a photo — show it here too.
+        const q = String(msg.imgQuery ?? "");
+        if (q) {
+          setPortraits((p) => ({ ...p, [q]: (msg.url as string) ?? null }));
+          setPortraitSources((p) => ({ ...p, [q]: String(msg.source ?? "curated") }));
+        }
+        return;
+      }
       if (msg.type !== "state") return;
 
       const s = msg.state as Record<string, unknown>;
@@ -859,6 +936,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setRules(s.rules as Rules);
       setMembers((s.members as Member[]) ?? []);
       setVerdict((s.verdict as Verdict | null) ?? null);
+      setPeerStaging(Boolean(s.battleStaging));
       matchIdRef.current = String(s.matchId ?? "");
 
       // The driver posts the battle script; everyone else watches the same one.
@@ -1035,6 +1113,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const handleBattle = useCallback(async () => {
     setBattleLoading(true);
     setError(null);
+    // Hold the reveal room-wide before anything is fetched — the other player
+    // gets the verdict from the same state push the driver does.
+    if (mode === "pvp") send({ type: "battle", staging: true });
     try {
       let decided = verdict;
 
@@ -1091,11 +1172,20 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setBattle(script);
       if (mode === "pvp") send({ type: "battle", battle: script });
     } catch (e) {
+      // Nothing to watch — let the room show the verdict rather than hang.
+      if (mode === "pvp") send({ type: "battle", staging: false });
       setError(e instanceof Error ? e.message : "Couldn't stage the battle.");
     } finally {
       setBattleLoading(false);
     }
   }, [mode, pack, reportMatch, send, verdict, view.sides]);
+
+  /**
+   * Hold the crown back while a fight is being staged or played out. The
+   * verdict has to be decided first — the script is written from it — but
+   * showing it before the fight gives away the ending.
+   */
+  const revealHeld = battleLoading || peerStaging || battle !== null;
 
   const endBattle = useCallback(() => {
     setWatchedBattle(true);
@@ -1108,6 +1198,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     clearNpc();
     setBattle(null);
     setWatchedBattle(false);
+    setPeerStaging(false);
     setVerdict(null);
     setRatingDelta(null);
     setError(null);
@@ -1268,6 +1359,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               onAdvance={handleAdvance}
               portraitNote={portraitNote}
               onPortraitFeedback={handlePortraitFeedback}
+              onPortraitUpload={(f) => void handlePortraitUpload(f)}
             />
             {mode === "pvp" && (
               <div style={{ maxWidth: 380, marginLeft: "auto" }}>
@@ -1279,7 +1371,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
         {screen === "verdict" && (
           <VerdictScreen
-            verdict={verdict}
+            verdict={revealHeld ? null : verdict}
             loading={judging}
             error={error}
             sides={view.sides}

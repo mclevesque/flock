@@ -630,4 +630,17 @@ export const STYLES = `
 .dm-photo-note { text-align: center; font-size: 12px; color: var(--dm-dim); margin-top: 6px; }
 
 .dm-arena-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgba(212,169,66,.14); color: var(--dm-gold); border: 1px solid rgba(212,169,66,.3); white-space: nowrap; }
+
+.dm-portrait-wrap[data-uploadable="1"] { cursor: pointer; border-style: dashed; border-color: var(--dm-line-hot); }
+.dm-portrait-wrap[data-uploadable="1"]:hover { border-color: var(--dm-gold); }
+.dm-portrait-upload {
+  position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 10px 16px; border-radius: 12px; text-align: center;
+  background: rgba(8,8,10,.72); border: 1px solid var(--dm-line-hot);
+  pointer-events: none; max-width: 88%;
+}
+.dm-portrait-upload strong { font-size: 14px; color: var(--dm-gold); font-weight: 750; white-space: nowrap; }
+.dm-portrait-upload small { font-size: 11.5px; color: var(--dm-dim); line-height: 1.3; }
+.dm-portrait-wrap[data-uploadable="1"]:hover .dm-portrait-upload { border-color: var(--dm-gold); }
 `;
