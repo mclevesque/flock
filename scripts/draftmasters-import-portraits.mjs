@@ -81,6 +81,21 @@ const ALIASES = {
   "sandor clegane": ["the hound"],
   "petyr baelish": ["littlefinger"],
   "daenerys targaryen": ["dany", "khaleesi"],
+  // Animals — the pack and the filenames won't always agree on plurals or
+  // the full common name, so cover both directions.
+  "dire wolves": ["dire wolf", "direwolf", "direwolves"],
+  "african male elephant": ["african elephant", "elephant", "bull elephant"],
+  orca: ["killer whale"],
+  liger: [],
+  anaconda: ["green anaconda"],
+  "polar bear": [],
+  moose: [],
+};
+
+/** Folder name -> franchise slug, for folders that aren't named after one. */
+const FRANCHISE_ALIASES = {
+  "new folder": "animals",
+  got: "got",
 };
 
 function slug(s) {
@@ -110,7 +125,8 @@ if (!files.length) {
 let ok = 0;
 for (const { franchise, file } of files) {
   const name = nameFromFile(file);
-  const key = `${PREFIX}/${slug(franchise)}/${slug(name)}.webp`;
+  const fran = FRANCHISE_ALIASES[normalizeName(franchise)] ?? slug(franchise);
+  const key = `${PREFIX}/${fran}/${slug(name)}.webp`;
   const original = fs.readFileSync(file);
 
   let body = original;
@@ -138,7 +154,7 @@ for (const { franchise, file } of files) {
   for (const k of keys) {
     await sql`
       INSERT INTO draftmasters_portraits (img_query, url, source, chosen_by)
-      VALUES (${k}, ${url}, ${"curated"}, ${"import:" + slug(franchise)})
+      VALUES (${k}, ${url}, ${"curated"}, ${"import:" + fran})
       ON CONFLICT (img_query) DO UPDATE SET url = EXCLUDED.url, source = EXCLUDED.source, chosen_by = EXCLUDED.chosen_by, updated_at = NOW()
     `;
   }

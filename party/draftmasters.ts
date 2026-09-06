@@ -272,7 +272,10 @@ export default class DraftMastersParty implements Party.Server {
       this.rules.rosterSize = Math.round(msg.rosterSize);
     }
 
-    this.pool = buildPool(this.pack, makeRng(this.seed));
+    const recent = Array.isArray(msg.recent)
+      ? new Set((msg.recent as string[]).slice(0, 60).map((n) => String(n).toLowerCase()))
+      : undefined;
+    this.pool = buildPool(this.pack, makeRng(this.seed), { recent });
     this.cursor = 0;
     this.lotIndex = 0;
     this.unsold = [];

@@ -628,4 +628,6 @@ export const STYLES = `
 .dm-photo-fb { display: flex; gap: 6px; justify-content: center; margin: 8px auto 0; max-width: 340px; }
 .dm-photo-fb .dm-btn { min-height: 34px; padding: 6px 12px; font-size: 12.5px; }
 .dm-photo-note { text-align: center; font-size: 12px; color: var(--dm-dim); margin-top: 6px; }
+
+.dm-arena-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgba(212,169,66,.14); color: var(--dm-gold); border: 1px solid rgba(212,169,66,.3); white-space: nowrap; }
 `;

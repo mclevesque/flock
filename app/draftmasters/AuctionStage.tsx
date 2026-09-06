@@ -21,6 +21,8 @@ interface Props {
   portraits: PortraitMap;
   speaking: Set<string>;
   packName: string;
+  /** Setting rolled for this game, shown beside the topic */
+  arenaName?: string;
   onBid: (amount: number) => void;
   onPass: () => void;
   onMatch: () => void;
@@ -39,6 +41,7 @@ export default function AuctionStage({
   portraits,
   speaking,
   packName,
+  arenaName,
   onBid,
   onPass,
   onMatch,
@@ -95,6 +98,7 @@ export default function AuctionStage({
         <div className="dm-lotbar">
           <span>
             <strong>{packName}</strong>
+            {arenaName && <span className="dm-arena-pill" style={{ marginLeft: 8 }}>📍 {arenaName}</span>}
           </span>
           <span>{view.lotsRemaining} left on the board</span>
         </div>

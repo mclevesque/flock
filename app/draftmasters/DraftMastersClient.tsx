@@ -6,6 +6,7 @@ import {
   BUDGET_PRESETS,
   DEFAULT_RULES,
   NPC_PERSONALITIES,
+  applyArena,
   buildLot,
   buildPool,
   canMatch,
@@ -360,6 +361,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       return null;
     }
 
+    // Roll the setting. Same board, different fight — an animal draft is
+    // usually a field and occasionally deep water, which changes everything.
+    board = applyArena(board, Math.random);
+
     setPrepStep(1);
     setPack(board);
     await prefetchPortraits(board);
@@ -367,6 +372,31 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     sfx.boardReady();
     return board;
   }, [customTopic, presetId, prefetchPortraits]);
+
+  /** Names drafted in recent games on this board, so they get demoted. */
+  const recentKey = (id: string) => `dm_recent_${id.split("#")[0]}`;
+
+  const readRecent = useCallback((board: Pack): Set<string> => {
+    try {
+      const raw = localStorage.getItem(recentKey(board.id));
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  }, []);
+
+  const rememberDrafted = useCallback((board: Pack | null, sides: Side[]) => {
+    if (!board) return;
+    try {
+      const key = recentKey(board.id);
+      const prev = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+      const now = sides.flatMap((s) => s.roster.map((p) => p.name.toLowerCase()));
+      // Two games' worth is enough to break up repeats without freezing anyone out.
+      localStorage.setItem(key, JSON.stringify([...new Set([...now, ...prev])].slice(0, 40)));
+    } catch {
+      /* no localStorage — repeats are the only cost */
+    }
+  }, []);
 
   // ── Solo game loop ─────────────────────────────────────────────────────────
 
@@ -593,6 +623,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       g.dice = null;
       pushEvent(allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner", "system");
       commit();
+      rememberDrafted(S.pack, g.sides);
       setScreen("verdict");
       return;
     }
@@ -661,7 +692,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     ];
 
     soloRef.current = {
-      pool: buildPool(board, makeRng(seed)),
+      pool: buildPool(board, makeRng(seed), { recent: readRecent(board) }),
       cursor: 0,
       lotIndex: 0,
       lotEntryIndex: -1,
@@ -770,8 +801,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       return;
     }
     const preset = BUDGET_PRESETS[rulesIdx];
-    send({ type: "board", pack: board, budget: preset.budget, rosterSize: preset.rosterSize });
-  }, [buildBoard, rulesIdx, send]);
+    send({
+      type: "board",
+      pack: board,
+      budget: preset.budget,
+      rosterSize: preset.rosterSize,
+      // The host's history shapes the queue; the server does the shuffling.
+      recent: [...readRecent(board)],
+    });
+  }, [buildBoard, readRecent, rulesIdx, send]);
 
   const prevPhase = useRef<string>("");
   const prevBid = useRef(0);
@@ -1223,6 +1261,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               portraits={portraits}
               speaking={media.speaking}
               packName={pack?.name ?? "Draft"}
+              arenaName={pack?.arenaName}
               onBid={handleBid}
               onPass={handlePass}
               onMatch={handleMatch}
@@ -1364,7 +1403,7 @@ function SetupScreen({
             className="dm-input dm-textarea"
             value={customTopic}
             onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — as specific as you like. “Game of Thrones warriors, each at their prime and their lowest point, no dragons”…"
+            placeholder="Type any topic — and a setting if you want one. “GoT warriors fighting on a frozen lake” or “Pokémon, but the arena is flooded”…"
             maxLength={TOPIC_MAX_CHARS}
             rows={2}
             aria-label="Custom topic"
@@ -1622,7 +1661,7 @@ function RoomLobby({
             className="dm-input dm-textarea"
             value={customTopic}
             onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — as specific as you like. “Game of Thrones warriors, each at their prime and their lowest point, no dragons”…"
+            placeholder="Type any topic — and a setting if you want one. “GoT warriors fighting on a frozen lake” or “Pokémon, but the arena is flooded”…"
             maxLength={TOPIC_MAX_CHARS}
             rows={2}
             aria-label="Custom topic"
@@ -1828,6 +1867,11 @@ function ReadyScreen({
           ${rules.budget} each · {rules.rosterSize} picks · {pack?.entries.length ?? 0} on the board · opening rights
           alternate · no clock
         </p>
+        {pack?.arenaName && (
+          <p style={{ margin: "10px 0 0", fontSize: 13.5 }}>
+            <span className="dm-arena-pill">📍 {pack.arenaName}</span>
+          </p>
+        )}
       </div>
 
       {waitingForOpponent && roomCode && (

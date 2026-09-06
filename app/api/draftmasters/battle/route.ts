@@ -112,6 +112,8 @@ VOICE: breathless, funny, a little unhinged — like a wrestling commentator who
 
 RULES:
 - The winning team is given to you. Your fight MUST end with them standing. Do not change the outcome.
+- USE THE SETTING. It is named in the scenario and it is doing real work: deep water drowns anything that can't swim, cold saps the unprepared, a sealed room removes escape, sunlight ruins anything nocturnal. At least two beats should turn on the setting rather than on a straight swing.
+- If the scenario rewards brains over brawn, show that: the clever pick outmanoeuvres the stronger one, and say how.
 - Use ONLY the drafted names given, spelled exactly. Never invent a character.
 - A parenthetical after a name is that character's state and it is binding — "Jaime Lannister (one hand)" fights one-handed. Mine those for drama and comedy.
 - The losing team must land real moments first — a kill, a near-miss, a heroic stand. A one-sided walkover is boring.

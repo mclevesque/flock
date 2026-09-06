@@ -153,8 +153,10 @@ OUTPUT — JSON only, this exact shape:
   "blurb": string (one playful sentence, max 12 words),
   "imgContext": string (2-4 words appended to each name for an image search, e.g. "Game of Thrones character", "NBA player", "animal", "anime character"),
   "wiki": string (OPTIONAL but IMPORTANT for fictional topics — the Fandom wiki subdomain where these characters have pages, lowercase, no ".fandom.com". Examples: "gameofthrones", "marvel", "dc", "starwars", "pokemon", "villains" (horror/villain topics), "deathbattle" (anime/versus topics), "harrypotter", "lotr", "zelda", "residentevil", "onepiece", "naruto". Wikipedia has NO usable image for fictional characters, so getting this right is the difference between real character art and a blank card. OMIT it entirely for real-world topics — real people, animals, places, food, history, sports — where Wikipedia is better.),
-  "scenario": string (1-2 sentences: the situation both drafted rosters are thrown into — make it concrete and specific to this topic),
-  "criteria": string (1 sentence: what actually decides the winner in that scenario),
+  "scenario": string (1-2 sentences: the situation both drafted rosters are thrown into — make it concrete and specific to this topic. If the player's topic already names a setting or a contest, USE THEIRS and don't invent a different one),
+  "criteria": string (1 sentence: what actually decides the winner in that scenario. Be honest about it — if the scenario rewards planning, knowledge or invention, say that intelligence and ingenuity outweigh raw strength),
+  "arenas": [ { "name": string (3-5 words, e.g. "An open grass field"), "desc": string (1 sentence appended to the scenario, describing what this setting does to the contest), "weight": number } ]
+    (3-5 settings this topic could be played in, ONE is rolled per game. The ordinary, expected setting gets weight 10; genuine twists that flip the board — deep water, killing cold, no sunlight, powers suppressed, a sealed room — get weight 2-4 so they show up occasionally and surprise people. Make each one actually change who wins.),
   "entries": [
     { "n": string (the name, no parentheses in it),
       "t": number 1-5 (base tier),
@@ -208,6 +210,15 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
 
   if (entries.length < 10) return null;
 
+  const arenas = (Array.isArray(raw.arenas) ? (raw.arenas as Record<string, unknown>[]) : [])
+    .map((a) => ({
+      name: String(a?.name ?? "").trim().slice(0, 60),
+      desc: String(a?.desc ?? "").trim().slice(0, 220),
+      weight: Math.max(1, Math.min(20, Math.round(Number(a?.weight) || 5))),
+    }))
+    .filter((a) => a.name && a.desc)
+    .slice(0, 6);
+
   const title = String(raw.name ?? topic).trim().slice(0, 40) || topic;
   // Subdomain only — anything else is a malformed guess and gets dropped.
   const rawWiki = String(raw.wiki ?? "").trim().toLowerCase().replace(/\.fandom\.com.*$/, "");
@@ -215,6 +226,7 @@ function sanitize(raw: Record<string, unknown>, topic: string): Pack | null {
 
   return {
     ...(wiki ? { wiki } : {}),
+    ...(arenas.length ? { arenas } : {}),
     id: `custom:${slug(topic)}`,
     name: title,
     emoji: firstEmoji(String(raw.emoji ?? "")) ?? "🎲",

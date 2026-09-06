@@ -26,7 +26,7 @@
  * room run the same code and never disagree.
  */
 
-import type { Entry, Pack, Variant } from "./packs";
+import type { Arena, Entry, Pack, Variant } from "./packs";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -113,14 +113,66 @@ export function buildLot(entry: Entry, entryIndex: number, pack: Pack, rng: () =
   };
 }
 
-/** Shuffle the pack into a draft order. Returns entry indices, not lots. */
-export function buildPool(pack: Pack, rng: () => number): number[] {
-  const idx = pack.entries.map((_, i) => i);
-  for (let i = idx.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [idx[i], idx[j]] = [idx[j], idx[i]];
+export interface PoolOptions {
+  /**
+   * Names drafted in recent games on this board. Their weight is cut so the
+   * same faces don't headline every session — they can still appear, they
+   * just have to get lucky for a while.
+   */
+  recent?: Set<string>;
+}
+
+/** Prominence -> draw weight. A 5 is roughly 8x as likely to lead as a 1. */
+const FAME_WEIGHT = [0, 1, 2.2, 4, 6, 8.5];
+
+/**
+ * Order the pack into a draft queue. Returns entry indices, not lots.
+ *
+ * Weighted sampling without replacement (Efraimidis–Spirakis): each entry
+ * draws a key of random^(1/weight) and the queue is that key, descending.
+ * Heavier entries usually land early, lighter ones usually land late — but
+ * every entry keeps a real chance at every position, which is the point.
+ * Jon Snow headlines most drafts; Strong Belwas still turns up sometimes.
+ *
+ * Nothing is pinned. A draft only reaches ~12 of 50+ entries, so the pool
+ * genuinely differs game to game.
+ */
+export function buildPool(pack: Pack, rng: () => number, opts: PoolOptions = {}): number[] {
+  return pack.entries
+    .map((e, i) => {
+      const fame = FAME_WEIGHT[Math.max(1, Math.min(5, Math.round(e.f ?? 3)))];
+      // Seen lately: heavily demoted, never excluded.
+      const weight = opts.recent?.has(e.n.toLowerCase()) ? fame * 0.18 : fame;
+      // rng() can return 0; nudge it so the log/pow stays finite.
+      const u = Math.max(rng(), 1e-9);
+      return { i, key: Math.pow(u, 1 / weight) };
+    })
+    .sort((a, b) => b.key - a.key)
+    .map((x) => x.i);
+}
+
+/** Roll one of the pack's arenas, by weight. Returns null when it has none. */
+export function pickArena(pack: Pack, rng: () => number): Arena | null {
+  const arenas = pack.arenas;
+  if (!arenas?.length) return null;
+  const total = arenas.reduce((sum, a) => sum + Math.max(0, a.weight), 0);
+  if (total <= 0) return null;
+  let roll = rng() * total;
+  for (const a of arenas) {
+    roll -= Math.max(0, a.weight);
+    if (roll <= 0) return a;
   }
-  return idx;
+  return arenas[arenas.length - 1];
+}
+
+/**
+ * Bake a rolled arena into the board, so the judge, the battle and the ready
+ * screen all describe the same fight without extra plumbing.
+ */
+export function applyArena(pack: Pack, rng: () => number): Pack {
+  const arena = pickArena(pack, rng);
+  if (!arena) return pack;
+  return { ...pack, scenario: `${pack.scenario} ${arena.desc}`, arenaName: arena.name };
 }
 
 // ── Budget rules ─────────────────────────────────────────────────────────────
