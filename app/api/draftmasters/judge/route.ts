@@ -5,6 +5,7 @@ import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { formatMenu, getFormat, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
 import { argumentBriefing, type ArgumentRuling } from "@/lib/draftmasters/arguments";
 import { scoutRoster, scoutingReport } from "@/lib/draftmasters/lore";
+import { counterBriefing, counterHits } from "@/lib/draftmasters/traits";
 
 /**
  * POST /api/draftmasters/judge
@@ -101,6 +102,22 @@ export async function POST(req: Request) {
         (id) => sides.find((s) => s.id === id)?.name ?? id
       );
 
+      // The same counter rules the offline scorer applies. Handed over as
+      // rules rather than hints so the two paths cannot disagree about
+      // whether the machine built to shoot dragons shoots the dragon.
+      const counters = sides
+        .map((s) =>
+          counterBriefing(
+            s.name,
+            counterHits(
+              s.roster,
+              sides.filter((o) => o.id !== s.id).flatMap((o) => o.roster)
+            )
+          )
+        )
+        .filter(Boolean)
+        .join("");
+
       const { data: parsed, provider } = await callModelJson<Record<string, unknown>>({
         system: systemPrompt(),
         user:
@@ -110,6 +127,7 @@ export async function POST(req: Request) {
           (hint ? `The board was built as a "${hint}" contest — check that against the scenario before you commit.\n` : "") +
           `\n${rosterText}\n\n` +
           (report ? `${report}\n\n` : "") +
+          (counters ? `${counters}\n` : "") +
           (argued ? `${argued}\n` : "") +
           `Note: a name in parentheses is that character's condition and it is binding — "Jaime Lannister (one hand)" really does only have one hand. The bracket after it says how heavily that condition weighs, and you must respect it: a MYTHIC state should decide the contest almost on its own, a CRIPPLING one should visibly cost them, and a flavour-only one changes nothing but the jokes.\n\n` +
           `Work out the format first, then decide. Use the exact id string for winnerId and sideId.`,
@@ -167,14 +185,23 @@ export async function POST(req: Request) {
    * Accepted argument weight, as a multiplier on raw power.
    *
    * The offline scorer only knows tiers, so without this an argument would
-   * silently count for nothing whenever Groq is down — the player would type
-   * a case, watch the panel accept it, and see it change nothing. 20/20 (the
-   * cap) is worth a 30% swing: enough to turn a close draft, never enough to
-   * beat a roster that was genuinely twice as strong.
+   * count for nothing exactly when the judge is unreachable — the player types
+   * a case, watches the panel accept it, and sees it change nothing.
+   *
+   * How much it counts depends on WHO ruled, because the two are not remotely
+   * equal evidence. An AI panel checked every claim against the actual roster
+   * and priced it, and it is strict — a full 20 needs several claims that each
+   * genuinely reframe the contest. That has earned real weight, so it swings
+   * up to 60%: enough to take a clearly better roster down, which is the whole
+   * promise of the mechanic. The offline stand-in can only measure how
+   * specific the writing was, which is not evidence at all, so it barely
+   * registers — otherwise typing a long paragraph would beat drafting well.
    */
   const swayFor = (sideId: string): number => {
     const r = (body.rulings ?? []).find((x) => x.sideId === sideId);
-    return 1 + Math.min(20, Math.max(0, r?.totalSway ?? 0)) * 0.015;
+    if (!r) return 1;
+    const perPoint = r.ruled === "offline" ? 0.008 : 0.03;
+    return 1 + Math.min(20, Math.max(0, r.totalSway)) * perPoint;
   };
 
   const argued2 = off.scores.map((s) => ({ sideId: s.sideId, power: s.power * swayFor(s.sideId) }));

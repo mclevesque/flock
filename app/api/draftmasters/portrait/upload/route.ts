@@ -56,25 +56,22 @@ export async function POST(req: Request) {
   const session = await auth().catch(() => null);
   const userId = session?.user?.id ?? String(body?.userId ?? "anon").slice(0, 64);
 
-  // Card-sized WebP, same treatment the bulk importer gives its files.
-  let out = buffer;
-  let contentType = match[1];
-  try {
-    const sharp = (await import("sharp")).default;
-    out = await sharp(buffer)
-      .rotate()
-      .resize(900, 1125, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 86 })
-      .toBuffer();
-    contentType = "image/webp";
-  } catch {
-    /* no sharp — store the original rather than failing the upload */
-  }
+  /**
+   * Stored as sent — the browser has already resized it to card size.
+   *
+   * This used to call sharp here. sharp is a native binary and not a declared
+   * dependency (it arrives only because Next depends on it), so what resolves
+   * on a dev machine is not dependably in a Linux function bundle — and a
+   * dynamic import of it drags that binary into the trace. Resizing in the
+   * browser removes the native module from this function altogether and keeps
+   * the request small enough to survive the platform's body limit.
+   */
+  const out = buffer;
+  const contentType = match[1];
 
   const slug = normalizeName(name).replace(/\s+/g, "-") || "portrait";
-  const path = `draftmasters/portraits/uploads/${slug}-${Date.now().toString(36)}.${
-    contentType === "image/webp" ? "webp" : "img"
-  }`;
+  const ext = contentType === "image/webp" ? "webp" : contentType === "image/png" ? "png" : "jpg";
+  const path = `draftmasters/portraits/uploads/${slug}-${Date.now().toString(36)}.${ext}`;
 
   try {
     const { url } = await storagePut(path, out, { contentType });

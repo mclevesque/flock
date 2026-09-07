@@ -277,6 +277,18 @@ export const PACKS: Pack[] = [
       { n: "Olenna Tyrell", t: 2 },
       { n: "Margaery Tyrell", t: 2 },
       { n: "Qyburn", t: 2 },
+      // A counter card, not a power card: tier 3 on its own, and a monster
+      // only when the other side drafted something enormous. See lib/traits.
+      {
+        n: "Qyburn's Scorpion",
+        t: 3,
+        s: "Game of Thrones scorpion ballista dragon killer",
+        variants: [
+          { v: "rapid-fire, mounted on the walls", g: "mythic" },
+          { v: "loaded and aimed", g: "boon" },
+          { v: "still being winched into position", g: "crippling" },
+        ],
+      },
       { n: "Walder Frey", t: 1, f: 1 },
       { n: "Roose Bolton", t: 3 },
       { n: "The High Sparrow", t: 2 },

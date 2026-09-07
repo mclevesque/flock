@@ -386,6 +386,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   );
 
   /** Someone picked a file for a character with no photo anywhere. */
+
   const handlePortraitUpload = useCallback(
     async (file: File) => {
       const lot = view.lot;
@@ -398,18 +399,27 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       sfx.click();
       setPortraitNote(`Uploading a photo for ${lot.name}…`);
       try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error("read failed"));
-          reader.readAsDataURL(file);
-        });
+        const dataUrl = await toCardSizedDataUrl(file);
         const res = await fetch("/api/draftmasters/portrait/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imgQuery: lot.imgQuery, name: lot.name, dataUrl, userId: meId }),
         });
-        const data = await res.json();
+        // A crashed function answers with plain text, not JSON — parsing it
+        // blind turned every server error into "Unexpected token 'I'", which
+        // tells the player nothing and hides the real fault from us too.
+        const raw = await res.text();
+        let data: { url?: string; error?: string } | null = null;
+        try {
+          data = JSON.parse(raw) as { url?: string; error?: string };
+        } catch {
+          console.error("[portrait upload] non-JSON response", res.status, raw.slice(0, 200));
+          throw new Error(
+            res.status >= 500
+              ? "The photo service is down right now — try again shortly."
+              : `Upload failed (${res.status}).`
+          );
+        }
         if (!res.ok || !data?.url) throw new Error(data?.error ?? "upload failed");
         applyPortrait(lot.imgQuery, data.url, "curated");
         setPortraitNote(`Saved — that's ${lot.name} from now on.`);
@@ -1722,6 +1732,54 @@ function Dial({
       <span className="dm-dial-word">{word}</span>
     </div>
   );
+}
+
+/**
+ * Shrink a picked photo to card size in the browser, before it is uploaded.
+ *
+ * This used to happen server-side with sharp, which was the wrong place for
+ * two reasons. sharp is a native binary that is not a declared dependency —
+ * it only exists here because Next pulls it in — so what resolves on a dev
+ * machine is not reliably present in a Linux serverless bundle. And sending
+ * the full-size photo meant a phone picture arrived as a base64 JSON body
+ * several megabytes wide, which runs straight at the platform's request
+ * ceiling; an 8MB payload is already rejected outright.
+ *
+ * Doing it here makes the upload a few hundred KB, removes the native module
+ * from the function entirely, and is faster for the player as a bonus.
+ * Falls back to the original file if the canvas route is unavailable.
+ */
+async function toCardSizedDataUrl(file: File): Promise<string> {
+  const readAsDataUrl = () =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.readAsDataURL(file);
+    });
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    // Same box the server used to target: portrait, card-shaped, never upscaled.
+    const scale = Math.min(1, 900 / bitmap.width, 1125 / bitmap.height);
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    // WebP where it exists; browsers that refuse it hand back a PNG data URL,
+    // which the server accepts too.
+    const out = canvas.toDataURL("image/webp", 0.86);
+    return out.startsWith("data:image/webp") ? out : canvas.toDataURL("image/jpeg", 0.86);
+  } catch {
+    return readAsDataUrl();
+  }
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { getFormat } from "@/lib/draftmasters/contest";
-import { ARGUMENT_MAX, cleanArgument, sanitizeRulings, type ArgumentRuling } from "@/lib/draftmasters/arguments";
+import {
+  ARGUMENT_MAX,
+  cleanArgument,
+  offlineClaims,
+  sanitizeRulings,
+  type ArgumentRuling,
+} from "@/lib/draftmasters/arguments";
 import type { Side } from "@/lib/draftmasters/engine";
 
 /**
@@ -78,6 +84,9 @@ export async function POST(req: Request) {
         for (const r of rulings) {
           const mine = submitted.find((a) => a.sideId === r.sideId);
           if (mine) r.argument = mine.text;
+          // Stamped so the judge knows this was genuinely adjudicated, and can
+          // weigh it properly even if the judge itself ends up offline.
+          r.ruled = "ai";
         }
         console.log("[draftmasters/argue] ruled by", provider);
         return NextResponse.json({ rulings, ruled: "ai" });
@@ -143,37 +152,35 @@ No commentary outside the JSON.`;
 }
 
 /**
- * Offline ruling. No model, so it cannot judge whether a claim is true — it
- * only rewards having made a specific, substantial case at all, and says as
- * much so nobody thinks a real panel weighed it.
+ * Offline ruling, checked against the board rather than guessed at.
+ *
+ * It cannot weigh rhetoric, but it verifies the things players actually argue
+ * from — who you drafted, what kind of thing you have, and whether your
+ * counter really answers theirs — and it rejects claims that are checkably
+ * false. That keeps the mechanic honest with no model in the loop: bluffing
+ * fails offline for the same reason it fails with a panel.
  */
 function offlineRulings(sides: Side[], submitted: { sideId: string; text: string }[]): ArgumentRuling[] {
-  const drafted = new Set(
-    sides.flatMap((s) => s.roster.map((p) => p.name.toLowerCase()))
-  );
-
   return sides.map((s) => {
     const mine = submitted.find((a) => a.sideId === s.id);
     if (!mine) {
-      return { sideId: s.id, argument: "", claims: [], totalSway: 0, summary: "No case was made." };
+      return { sideId: s.id, argument: "", claims: [], totalSway: 0, summary: "No case was made.", ruled: "offline" as const };
     }
-    // Naming your own picks is the one thing that can be checked without a model.
-    const named = [...drafted].filter((n) => mine.text.toLowerCase().includes(n)).length;
-    const words = mine.text.split(/\s+/).filter(Boolean).length;
-    const sway = Math.max(1, Math.min(6, Math.round(words / 22) + named));
+
+    const theirs = sides.filter((o) => o.id !== s.id).flatMap((o) => o.roster);
+    const claims = offlineClaims(mine.text, s.roster, theirs);
+    const totalSway = Math.min(20, claims.reduce((sum, c) => sum + c.sway, 0));
+    const kept = claims.filter((c) => c.accepted).length;
+
     return {
       sideId: s.id,
       argument: mine.text,
-      claims: [
-        {
-          text: named ? `Made a specific case naming ${named} of the drafted picks` : "Made a general case",
-          accepted: true,
-          reason: "The panel is offline, so this was weighed on specificity alone rather than on whether it is true.",
-          sway,
-        },
-      ],
-      totalSway: sway,
-      summary: "Ruled without the panel — specificity only.",
+      claims,
+      totalSway,
+      summary: kept
+        ? `${kept} point${kept === 1 ? "" : "s"} checked out against the draft.`
+        : "Nothing in this case could be verified against the roster.",
+      ruled: "offline" as const,
     };
   });
 }

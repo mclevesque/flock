@@ -27,6 +27,7 @@
  */
 
 import { MAX_TIER, effectiveTier, variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
+import { counterHits } from "./traits";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -552,8 +553,29 @@ export function scoreSide(side: Side): SideScore {
   return { sideId: side.id, power: Math.round(power * 10) / 10 };
 }
 
+/**
+ * Power after the other side's hard counters have been applied.
+ *
+ * A scorpion opposite a dragon is not a matter of taste, so it does not wait
+ * for a model to notice it. The counter removes its expected share of that
+ * target's strength before anything else is compared, which is what stops the
+ * offline path from calling a dragon unbeatable when the board contains the
+ * one machine built to shoot it down.
+ */
+function counteredPower(side: Side, opponents: Side[]): number {
+  const incoming = opponents.flatMap((o) => counterHits(o.roster, side.roster));
+  return side.roster.reduce((sum, p) => {
+    const hit = incoming.find((h) => h.target === p.name);
+    const surviving = hit ? 1 - hit.effect : 1;
+    return sum + Math.pow(p.tier, 1.7) * surviving;
+  }, 0);
+}
+
 export function offlineVerdict(sides: Side[]): { winnerId: string; scores: SideScore[]; reasoning: string } {
-  const scores = sides.map(scoreSide);
+  const scores = sides.map((s) => ({
+    sideId: s.id,
+    power: Math.round(counteredPower(s, sides.filter((o) => o.id !== s.id)) * 10) / 10,
+  }));
 
   // Compare using raw unrounded floats so identical-looking rounded scores
   // never produce a true tie. Cascade through roster size and tier-by-tier
@@ -561,7 +583,7 @@ export function offlineVerdict(sides: Side[]): { winnerId: string; scores: SideS
   // even for genuinely identical rosters.
   const raw = sides.map((s) => ({
     sideId: s.id,
-    rawPower: s.roster.reduce((sum, p) => sum + Math.pow(p.tier, 1.7), 0),
+    rawPower: counteredPower(s, sides.filter((o) => o.id !== s.id)),
     size: s.roster.length,
     tiers: [...s.roster].map((p) => p.tier).sort((a, b) => b - a),
   }));

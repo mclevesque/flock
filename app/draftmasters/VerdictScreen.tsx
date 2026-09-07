@@ -248,11 +248,11 @@ export default function VerdictScreen({
         })}
       </div>
 
-      {verdict.judged === "offline" && (
-        <p className="dm-note" style={{ marginTop: 16 }}>
-          Judged offline — the AI judge was unreachable, so this one went to the tale of the tape.
-        </p>
-      )}
+      {/* No "judged offline" notice. Which backend produced the verdict is our
+          plumbing, not the player's concern — and announcing a fallback makes a
+          perfectly good result read as a broken one. The distinction is still
+          on the payload as `verdict.judged` and in the server logs, so it stays
+          diagnosable without being confessed on screen. */}
 
       <div className="dm-row" style={{ marginTop: 26, justifyContent: "center" }}>
         {canJudge && (
