@@ -29,6 +29,8 @@ import {
   type Side,
 } from "@/lib/draftmasters/engine";
 import type { Pack } from "@/lib/draftmasters/packs";
+import { ARGUMENT_MAX, type ArgumentRuling } from "@/lib/draftmasters/arguments";
+import ArgumentScreen from "./ArgumentScreen";
 import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
 import BattleScreen from "./BattleScreen";
@@ -75,7 +77,7 @@ const SYNC_INTERVAL_MS = 8000;
 /** Room to describe a board properly — qualifiers, exclusions, the lot. Mirrors the API cap. */
 const TOPIC_MAX_CHARS = 600;
 
-type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "verdict";
+type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "arguments" | "verdict";
 type Mode = "solo" | "pvp";
 type Action = { kind: "bid"; amount: number } | { kind: "pass" } | { kind: "match" };
 
@@ -113,6 +115,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
    */
   const [variantRate, setVariantRate] = useState(5);
   const [variantWild, setVariantWild] = useState(5);
+  /**
+   * Pre-battle arguments. When on, the draft finishing opens one sealed box
+   * per player instead of going straight to the verdict — see ArgumentScreen.
+   */
+  const [argumentsOn, setArgumentsOn] = useState(false);
+  const [rulings, setRulings] = useState<ArgumentRuling[]>([]);
+  const [arguing, setArguing] = useState(false);
+  const [argSubmitted, setArgSubmitted] = useState<string[]>([]);
+  const rulingsRef = useRef<ArgumentRuling[]>([]);
   const [npc, setNpc] = useState<NpcPersonality>(NPC_PERSONALITIES[0]);
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +131,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
   // ── Board + game ───────────────────────────────────────────────────────────
   const [pack, setPack] = useState<Pack | null>(null);
+  /** Read from the socket handler, which can't close over current state. */
+  const packRef = useRef<Pack | null>(null);
+  packRef.current = pack;
   const [rules, setRules] = useState<Rules>(DEFAULT_RULES);
   const [portraits, setPortraits] = useState<PortraitMap>({});
   /** imgQuery -> which lookup produced it; reported with 👍/👎 */
@@ -437,6 +451,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         const data = await res.json();
         if (!res.ok) throw new Error("Could not load that topic.");
         board = data.pack as Pack;
+        // A generated board is written to the dials; a ready-made one is
+        // written already, so stamp them on here instead. After this every
+        // board carries its own settings, which is what lets them ride along
+        // to a PvP guest and into a rematch.
+        board = { ...board, variantRate, variantWild };
+      }
+      if (board) {
+        // The argument round is the host's call and has to reach the guest.
+        board = { ...board, argumentsOn };
       } else {
         // Never default to a board the host didn't choose.
         throw new Error("Pick a topic first.");
@@ -709,7 +732,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       pushEvent(allFull ? "Rosters full — calculate the winner" : "Board exhausted — calculate the winner", "system");
       commit();
       rememberDrafted(S.pack, g.sides);
-      setScreen("verdict");
+      // With arguments on, the draft ends at the sealed box, not the verdict.
+      setScreen(S.pack?.argumentsOn ? "arguments" : "verdict");
       return;
     }
 
@@ -788,8 +812,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       pack: board,
       rules: nextRules,
       npc,
-      // Fresh allowance every draft, at the board's own wildness.
-      variants: newVariantBudget(Math.random, board.variantWild),
+      // Fresh allowance every draft. A generated board carries the dials it
+      // was built at; a ready-made one has no dials of its own, so the
+      // player's current settings drive it instead.
+      variants: newVariantBudget(Math.random, board.variantWild, board.variantRate),
     };
     gameRef.current = {
       ...EMPTY_VIEW,
@@ -801,7 +827,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     };
     commit();
     setScreen("ready");
-  }, [buildBoard, commit, meId, myAvatar, myName, npc, rulesIdx]);
+  }, [buildBoard, commit, meId, myAvatar, myName, npc, rulesIdx, variantRate, variantWild]);
 
   const readyUp = useCallback(() => {
     initAudio();
@@ -944,6 +970,41 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         }
         return;
       }
+      // Sent to the driver alone, once every seated player has sealed a case.
+      // This is the only time argument text reaches a client, and it reaches
+      // exactly one — the one that has to call the panel.
+      if (msg.type === "args-ready") {
+        const args = (msg.args as { sideId: string; text: string }[]) ?? [];
+        void (async () => {
+          setArguing(true);
+          try {
+            const res = await fetch("/api/draftmasters/argue", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pack: packRef.current
+                  ? {
+                      name: packRef.current.name,
+                      scenario: packRef.current.scenario,
+                      criteria: packRef.current.criteria,
+                      format: packRef.current.format,
+                    }
+                  : undefined,
+                sides: gameRef.current.sides,
+                args,
+              }),
+            });
+            if (!res.ok) throw new Error("The panel couldn't read the arguments.");
+            const data = (await res.json()) as { rulings: ArgumentRuling[] };
+            send({ type: "rulings", rulings: data.rulings ?? [] });
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "The panel couldn't read the arguments.");
+          } finally {
+            setArguing(false);
+          }
+        })();
+        return;
+      }
       if (msg.type !== "state") return;
 
       const s = msg.state as Record<string, unknown>;
@@ -955,6 +1016,11 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setRules(s.rules as Rules);
       setMembers((s.members as Member[]) ?? []);
       setVerdict((s.verdict as Verdict | null) ?? null);
+      // Who has sealed a case — the server never sends what they wrote.
+      setArgSubmitted((s.argSubmitted as string[]) ?? []);
+      const serverRulings = (s.rulings as ArgumentRuling[] | null) ?? [];
+      rulingsRef.current = serverRulings;
+      setRulings(serverRulings);
       setPeerStaging(Boolean(s.battleStaging));
       setPeerStagingKind(s.stagingKind === "judging" ? "judging" : "staging");
       matchIdRef.current = String(s.matchId ?? "");
@@ -1016,7 +1082,10 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
 
       if (phase === "ready") setScreen("ready");
       else if (phase === "bidding" || phase === "sold" || phase === "dice") setScreen("auction");
-      else if (phase === "complete") setScreen("verdict");
+      // The argument round sits between the last lot and the verdict; once the
+      // panel has ruled, the room moves on.
+      else if (phase === "complete")
+        setScreen(serverPack?.argumentsOn && serverRulings.length === 0 ? "arguments" : "verdict");
       else if (phase === "lobby") setScreen("room");
       else setScreen("prep");
 
@@ -1110,6 +1179,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               }
             : undefined,
           sides: view.sides,
+          // Only the accepted points travel — see argumentBriefing.
+          rulings: rulingsRef.current,
         }),
       });
       const data = (await res.json()) as Verdict;
@@ -1145,6 +1216,52 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
    * handed to the script generator, so the fight can never contradict the
    * judge. In a room the driver posts the script so both watch the same one.
    */
+  /**
+   * Seal this player's case and, once every case is in, fetch the panel's
+   * ruling. In PvP the text goes to the server and comes back only as a
+   * ruling — the driver is handed the sealed texts privately by the room.
+   */
+  const submitArgument = useCallback(
+    async (text: string) => {
+      setError(null);
+      if (mode === "pvp") {
+        // The server seals it; it reaches the panel via the "args-ready"
+        // message, so nothing here can leak it to the other client.
+        send({ type: "argument", text });
+        setArgSubmitted((prev) => (prev.includes(meId) ? prev : [...prev, meId]));
+        return;
+      }
+
+      setArgSubmitted([meId]);
+      setArguing(true);
+      try {
+        const res = await fetch("/api/draftmasters/argue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pack: pack
+              ? { name: pack.name, scenario: pack.scenario, criteria: pack.criteria, format: pack.format }
+              : undefined,
+            sides: gameRef.current.sides,
+            // Solo: only the human submits. The panel writes the NPC's case.
+            args: text ? [{ sideId: meId, text }] : [],
+          }),
+        });
+        if (!res.ok) throw new Error("The panel couldn't read the arguments. Try again.");
+        const data = (await res.json()) as { rulings: ArgumentRuling[] };
+        rulingsRef.current = data.rulings ?? [];
+        setRulings(rulingsRef.current);
+        setArgSubmitted(gameRef.current.sides.map((s) => s.id));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "The panel couldn't read the arguments.");
+        setArgSubmitted([]);
+      } finally {
+        setArguing(false);
+      }
+    },
+    [meId, mode, pack, send]
+  );
+
   const handleBattle = useCallback(async () => {
     setBattleLoading(true);
     setError(null);
@@ -1172,24 +1289,29 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               }
             : undefined,
             sides: view.sides,
+            // Only the accepted points travel — see argumentBriefing.
+            rulings: rulingsRef.current,
           }),
         });
         if (!res.ok) throw new Error("The judge is out to lunch. Try again.");
         decided = (await res.json()) as Verdict;
 
-        // A tie has to go to the dice before there's a winner to dramatise.
+        // If the judge returned equal scores, resolve with a quick dice roll
+        // right now so we have a winner to hand to the battle. No early return —
+        // the battle must still run. The dice result is stored on the verdict
+        // so the verdict screen can display it.
         const notes = decided.sideNotes ?? [];
         if (notes.length === 2 && notes[0].score === notes[1].score) {
-          setBattleLoading(false);
-          if (mode === "pvp") send({ type: "verdict", verdict: decided });
-          else {
-            setVerdict(decided);
-            verdictRef.current = decided;
-            const g = gameRef.current;
-            setScreen("auction");
-            startDiceRef.current("verdict", [g.sides[0].id, g.sides[1].id], 0);
-          }
-          return;
+          const idA = view.sides[0].id;
+          const idB = view.sides[1].id;
+          let a: number, b: number;
+          do { a = rollDie(); b = rollDie(); } while (a === b);
+          const tieWinnerId = a > b ? idA : idB;
+          decided = {
+            ...decided,
+            winnerId: tieWinnerId,
+            diceBreak: { sideIds: [idA, idB] as [string, string], rounds: [{ a, b }], winnerId: tieWinnerId, reason: "verdict" as const, price: 0 },
+          };
         }
 
         setVerdict(decided);
@@ -1220,6 +1342,9 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
           // The judge already worked out the format, the panel's biases and
           // the twists — the fight is staged from that, not re-derived.
           plan: decided.plan,
+          // ...and who carried vs who was dead weight, so the show can't hand
+          // the heroic moment to the pick the verdict is calling a bust.
+          sideNotes: decided.sideNotes,
         }),
       });
       if (!res.ok) throw new Error("Couldn't stage the battle. Try again.");
@@ -1344,6 +1469,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             setVariantRate={setVariantRate}
             variantWild={variantWild}
             setVariantWild={setVariantWild}
+            argumentsOn={argumentsOn}
+            setArgumentsOn={setArgumentsOn}
             rulesIdx={rulesIdx}
             setRulesIdx={setRulesIdx}
             npc={npc}
@@ -1434,6 +1561,21 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               </div>
             )}
           </>
+        )}
+
+        {screen === "arguments" && (
+          <ArgumentScreen
+            sides={view.sides}
+            meId={meId}
+            rulings={rulings}
+            submitted={argSubmitted}
+            busy={arguing}
+            canDrive={canDrive}
+            error={error}
+            onSubmit={(t) => void submitArgument(t)}
+            onSkip={() => void submitArgument("")}
+            onContinue={() => setScreen("verdict")}
+          />
         )}
 
         {screen === "verdict" && (
@@ -1594,6 +1736,8 @@ function SetupScreen({
   setVariantRate,
   variantWild,
   setVariantWild,
+  argumentsOn,
+  setArgumentsOn,
   rulesIdx,
   setRulesIdx,
   npc,
@@ -1620,6 +1764,8 @@ function SetupScreen({
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
+  argumentsOn: boolean;
+  setArgumentsOn: (fn: (v: boolean) => boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   npc: NpcPersonality;
@@ -1696,10 +1842,6 @@ function SetupScreen({
           The board is built to match your wording — <em>warriors</em> gets you fighters, not schemers.
         </p>
 
-        {usingCustom && (
-          <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
-        )}
-
         <p className="dm-eyebrow" style={{ marginTop: 22 }}>
           …or start from a ready-made board
         </p>
@@ -1720,6 +1862,24 @@ function SetupScreen({
             </button>
           ))}
         </div>
+
+        {/* Below both choices, because they now govern whichever board you
+            pick — a ready-made one rolls its authored variants at these
+            settings, a generated one is written to them as well. */}
+        <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
+
+        <button
+          className="dm-seg-item dm-toggle"
+          data-on={argumentsOn ? "1" : "0"}
+          onClick={() => setArgumentsOn((v) => !v)}
+          aria-pressed={argumentsOn}
+        >
+          <span className="dm-seg-label">Pre-battle arguments {argumentsOn ? "· ON" : "· OFF"}</span>
+          <span className="dm-seg-note">
+            Before the judge decides, each of you writes one case for your roster — sealed, so neither sees the
+            other&apos;s. The panel throws out anything that isn&apos;t true and the rest counts as evidence.
+          </span>
+        </button>
       </section>
 
       <section className="dm-section">
@@ -1972,9 +2132,7 @@ function RoomLobby({
             ))}
           </div>
 
-          {usingCustom && (
-            <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
-          )}
+          <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
 
           <p className="dm-eyebrow" style={{ marginTop: 20 }}>
             Budget

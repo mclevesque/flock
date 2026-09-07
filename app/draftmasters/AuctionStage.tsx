@@ -12,6 +12,8 @@ const GRADE_LABEL: Record<VariantGrade, string> = {
   neutral: "flavour",
   boon: "boosted",
   major: "major",
+  legendary: "LEGENDARY",
+  exalted: "EXALTED",
   mythic: "MYTHIC",
 };
 
@@ -20,7 +22,9 @@ const GRADE_HINT: Record<VariantGrade, string> = {
   weakening: "Weakened — it hurts, but they're still themselves.",
   neutral: "Flavour — changes little. Probably just funny.",
   boon: "Boosted — helps a bit.",
-  major: "Major — helps a lot.",
+  major: "Major — a real upgrade.",
+  legendary: "LEGENDARY — helps enormously. Rationed to a couple per game.",
+  exalted: "EXALTED — the best form they have short of myth.",
   mythic: "MYTHIC — game changing. Beats almost anything.",
 };
 
@@ -121,8 +125,12 @@ export default function AuctionStage({
   const fileRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="dm-stage">
-      <div className="dm-block">
+    /* The desktop arena seats exactly two players across a table. Anything
+       else keeps the plain stacked rail at every width. */
+    <div className="dm-stage" data-arena={view.sides.length === 2 ? "1" : "0"}>
+      {/* On desktop this block is the centre of the table — the lot, the price
+          and the controls. On narrow screens it's simply the top of the stack. */}
+      <div className="dm-block dm-stage-main">
         <div className="dm-lotbar">
           <span>
             <strong>{packName}</strong>
@@ -131,6 +139,11 @@ export default function AuctionStage({
           <span>{view.lotsRemaining} left on the board</span>
         </div>
 
+        {/* ── The lot card ─────────────────────────────────────────────────
+            Portrait plus the photo-fixing row that belongs to it. Another
+            `display: contents` wrapper — invisible on narrow screens, the left
+            half of the centre in the desktop arena. */}
+        <div className="dm-lot-card">
         {/* ── Portrait ─────────────────────────────────────────────────── */}
         <div
           className="dm-portrait-wrap"
@@ -228,9 +241,31 @@ export default function AuctionStage({
             {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
           </>
         )}
+        </div>
 
-        {/* ── Money readout ────────────────────────────────────────────── */}
-        <div className="dm-bidbar">
+        {/* ── Money readout + controls ──────────────────────────────────
+            Wrapper is `display: contents` on narrow screens, so the stack
+            below the lot card is byte-for-byte what it always was. In the
+            desktop arena it becomes the right half of the centre — price
+            over controls, sitting beside the lot card rather than under it. */}
+        <div className="dm-lot-actions">
+        {/* The plain "your call" prompt repeats what the Open/Pass buttons
+            underneath already say. Flagged so a phone can drop that one state
+            and keep the bar for the ones carrying real information — the
+            standing bid, the pass lock, whose turn it is. */}
+        <div
+          className="dm-bidbar"
+          data-plain={
+            !view.highBidderId &&
+            view.phase === "bidding" &&
+            myTurn &&
+            !passLocked &&
+            openAmt > 0 &&
+            !view.passedIds.length
+              ? "1"
+              : undefined
+          }
+        >
           {view.highBidderId ? (
             <>
               <div className="dm-bid-amount dm-money">{view.currentBid > 0 ? `$${view.currentBid}` : "Free"}</div>
@@ -321,10 +356,15 @@ export default function AuctionStage({
             Board&apos;s done. Time to find out who drafted better.
           </div>
         )}
+        </div>
       </div>
 
-      {/* ── Right rail ─────────────────────────────────────────────────── */}
-      <div className="dm-block">
+      {/* ── Right rail ───────────────────────────────────────────────────
+          Narrow: a rail under the lot — two score cards, then the ticker.
+          Desktop: this wrapper and .dm-scores go `display: contents`, so each
+          side's seat and roster become grid items of .dm-stage directly and
+          get placed around the table (see styles.ts, "Arena layout"). */}
+      <div className="dm-block dm-stage-rail">
         <div className="dm-scores">
           {view.sides.map((side) => (
             <ScoreCard
@@ -549,33 +589,56 @@ function ScoreCard({
   const cap = maxBid(side, rules);
   const slotsLeft = rules.rosterSize - side.roster.length;
 
+  const turn = isTurn ? "1" : "0";
+  const high = holdsBid ? "1" : "0";
+
   return (
-    <div className="dm-score" data-turn={isTurn ? "1" : "0"} data-high={holdsBid ? "1" : "0"}>
-      <div className="dm-score-top">
-        {side.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="dm-avatar" data-speaking={speaking ? "1" : "0"} src={side.avatarUrl} alt="" />
-        ) : (
-          <div className="dm-avatar" data-speaking={speaking ? "1" : "0"}>
-            {side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}
+    /* data-seat drives which side of the desktop table this player sits on.
+       On desktop .dm-score is `display: contents`, so .dm-seat and .dm-roster
+       below are placed independently — seat at the left/right rail, roster
+       along the top/bottom edge. The flags are repeated on both children
+       because the shared parent no longer paints anything there. */
+    <div
+      className="dm-score"
+      data-seat={isMe ? "me" : "them"}
+      data-turn={turn}
+      data-high={high}
+    >
+      <div className="dm-seat" data-turn={turn} data-high={high}>
+        <div className="dm-score-top">
+          {/* Fixed-aspect slot sized for a webcam tile. It is `display: contents`
+              on narrow screens so the avatar keeps its original inline place;
+              on desktop it becomes the 4:3 box a <video> can drop straight into
+              alongside (or instead of) the avatar below. */}
+          <div className="dm-seat-feed">
+            {side.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="dm-avatar" data-speaking={speaking ? "1" : "0"} src={side.avatarUrl} alt="" />
+            ) : (
+              <div className="dm-avatar" data-speaking={speaking ? "1" : "0"}>
+                {side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}
+              </div>
+            )}
           </div>
-        )}
-        <div className="dm-score-name">{isMe ? "You" : side.name}</div>
-        {isTurn && <span className="dm-turn-pill">{isMe ? "Your move" : "Deciding…"}</span>}
+          <div className="dm-score-name">{isMe ? "You" : side.name}</div>
+          {isTurn && <span className="dm-turn-pill">{isMe ? "Your move" : "Deciding…"}</span>}
+        </div>
+
+        <div className="dm-score-budget dm-money">${side.budget}</div>
+        <div className="dm-score-meta">
+          {slotsLeft > 0 ? (
+            <>
+              max bid <span className="dm-money">${cap}</span> · {slotsLeft} slot{slotsLeft === 1 ? "" : "s"} left
+            </>
+          ) : (
+            "roster full"
+          )}
+        </div>
       </div>
 
-      <div className="dm-score-budget dm-money">${side.budget}</div>
-      <div className="dm-score-meta">
-        {slotsLeft > 0 ? (
-          <>
-            max bid <span className="dm-money">${cap}</span> · {slotsLeft} slot{slotsLeft === 1 ? "" : "s"} left
-          </>
-        ) : (
-          "roster full"
-        )}
-      </div>
-
-      <div className="dm-roster">
+      <div className="dm-roster" data-turn={turn} data-high={high}>
+        {/* Desktop only — on the table the strips are detached from the name. */}
+        <span className="dm-roster-tag">{isMe ? "Your picks" : `${side.name}'s picks`}</span>
         {Array.from({ length: rules.rosterSize }).map((_, i) => {
           const pick = side.roster[i];
           if (!pick) return <div key={i} className="dm-slot" data-filled="0" />;

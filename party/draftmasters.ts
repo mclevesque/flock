@@ -114,6 +114,17 @@ export default class DraftMastersParty implements Party.Server {
   private readyIds = new Set<string>();
   private ticker: TickerEvent[] = [];
   private eventSeq = 0;
+  /**
+   * Sealed pre-battle arguments, userId -> text.
+   *
+   * Deliberately never included in publicState. Arguments are written blind:
+   * if the text shipped with the state push, the second player could read the
+   * first's case in devtools and write a rebuttal to it, which is a different
+   * and much worse game.
+   */
+  private args = new Map<string, string>();
+  /** The panel's ruling, once the driver has fetched it. Public — by then both cases are revealed together. */
+  private rulings: unknown = null;
   private verdict: Verdict | null = null;
   /** Battle cinematic script, posted by the driver so everyone watches together */
   private battle: unknown = null;
@@ -206,6 +217,10 @@ export default class DraftMastersParty implements Party.Server {
         return this.handleChat(msg, sender);
       case "media":
         return this.handleMedia(msg, sender);
+      case "argument":
+        return this.handleArgument(msg, sender);
+      case "rulings":
+        return this.handleRulings(msg, sender);
       case "verdict":
         return this.handleVerdict(msg, sender);
       case "battle":
@@ -312,7 +327,7 @@ export default class DraftMastersParty implements Party.Server {
       : undefined;
     this.pool = buildPool(this.pack, makeRng(this.seed), { recent });
     // Fresh allowance each draft, at the wildness the host built the board at.
-    this.variants = newVariantBudget(Math.random, this.pack.variantWild);
+    this.variants = newVariantBudget(Math.random, this.pack.variantWild, this.pack.variantRate);
     this.cursor = 0;
     this.lotIndex = 0;
     this.unsold = [];
@@ -632,6 +647,53 @@ export default class DraftMastersParty implements Party.Server {
    * The driver runs the judge call and posts the result so both sides see one
    * verdict. If the judge scored it even, the dice settle it.
    */
+  /**
+   * Seal one player's argument. Anyone seated may send their own; the text is
+   * stored and never rebroadcast, so the room learns only that they're done.
+   */
+  private handleArgument(msg: Record<string, unknown>, sender: Party.Connection) {
+    const member = this.members.get(sender.id);
+    if (!member || !this.sides.has(member.userId)) return;
+    const text = String(msg.text ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+    if (!text) return;
+    // First answer stands — no rewriting once it's in the box.
+    if (this.args.has(member.userId)) return;
+    this.args.set(member.userId, text);
+    this.push(`${member.name} has made their case`, "system");
+    this.broadcastState();
+
+    // Once every seated player has sealed one, hand the texts to the driver
+    // ALONE — a direct send, never a broadcast — so it can fetch the ruling.
+    // This is the first and only time an argument leaves the server, and it
+    // goes to the one client that has to call the panel.
+    const seated = [...this.sides.keys()];
+    if (seated.length > 0 && seated.every((id) => this.args.has(id))) {
+      for (const connId of this.members.keys()) {
+        const conn = this.room.getConnection(connId);
+        if (!conn || !this.canDrive(conn)) continue;
+        conn.send(JSON.stringify({ type: "args-ready", args: this.sealedArgs() }));
+        this.push("Both cases are in — the panel is reading", "system");
+        this.broadcastState();
+        break;
+      }
+    }
+  }
+
+  /**
+   * The driver posts the panel's ruling. Both cases become public here and
+   * only here — revealed together, with the ruling attached.
+   */
+  private handleRulings(msg: Record<string, unknown>, sender: Party.Connection) {
+    if (!this.canDrive(sender)) return;
+    this.rulings = msg.rulings ?? null;
+    this.broadcastState();
+  }
+
+  /** The sealed arguments, for the driver to send to the panel. */
+  sealedArgs(): { sideId: string; text: string }[] {
+    return [...this.args.entries()].map(([sideId, text]) => ({ sideId, text }));
+  }
+
   private handleVerdict(msg: Record<string, unknown>, sender: Party.Connection) {
     if (!this.canDrive(sender)) return;
     if (this.phase !== "complete") return;
@@ -787,6 +849,11 @@ export default class DraftMastersParty implements Party.Server {
         seat: m.seat,
       })),
       ticker: this.ticker.slice(-14),
+      // Only WHO has sealed their argument, never WHAT they wrote. The text
+      // stays server-side until the ruling comes back, so neither player can
+      // read the other's case out of a state push and rebut it.
+      argSubmitted: [...this.args.keys()],
+      rulings: this.rulings,
       verdict: this.verdict,
       battle: this.battle,
       battleStaging: this.battleStaging,

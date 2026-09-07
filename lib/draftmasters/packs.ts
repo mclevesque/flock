@@ -17,15 +17,28 @@
  * The grade IS the mechanic: it sets the tier the variant lands on, relative
  * to the entry's base tier, so a colour never lies about what it does.
  *
- *   crippling  red          guts them
- *   weakening  light red    hurts, but they're still themselves
- *   neutral    grey         changes little — usually just funny
- *   boon       green        helps a bit
- *   major      orange       helps a lot
- *   mythic     gold         GAME CHANGING — loses only to another mythic,
- *                           or to a couple of oranges on the other side
+ * The ladder runs cold-and-hot for harm, then climbs for help, so a player can
+ * rank two chips they've never seen before by colour alone:
+ *
+ *   crippling  red            guts them
+ *   weakening  light red      hurts, but they're still themselves
+ *   neutral    grey           changes little — usually just funny
+ *   boon       green          helps a bit
+ *   major      blue           a real upgrade
+ *   legendary  orange         helps enormously
+ *   exalted    deep orange    the best form they have short of myth
+ *   mythic     purple         GAME CHANGING — loses only to another mythic,
+ *                             or to a couple of oranges on the other side
  */
-export type VariantGrade = "crippling" | "weakening" | "neutral" | "boon" | "major" | "mythic";
+export type VariantGrade =
+  | "crippling"
+  | "weakening"
+  | "neutral"
+  | "boon"
+  | "major"
+  | "legendary"
+  | "exalted"
+  | "mythic";
 
 /** Tier movement each grade is worth, applied to the entry's base tier. */
 export const GRADE_DELTA: Record<VariantGrade, number> = {
@@ -34,19 +47,24 @@ export const GRADE_DELTA: Record<VariantGrade, number> = {
   neutral: 0,
   boon: 1,
   major: 2,
-  mythic: 3,
+  legendary: 3,
+  exalted: 4,
+  mythic: 5,
 };
 
 export const GRADES = Object.keys(GRADE_DELTA) as VariantGrade[];
 
 /**
- * Tiers run 1-8, not 1-5.
+ * Tiers run 1-10, not 1-5.
  *
- * 1-5 is the base scale a board is written on; 6-8 only exist because a
- * mythic or major variant on an already-huge pick has to actually be worth
- * more at auction than the plain version. Nothing hand-authored uses them.
+ * 1-5 is the base scale a board is written on; 6-10 only exist because a big
+ * variant on an already-huge pick has to actually be worth more at auction
+ * than the plain version. The ceiling is 10 rather than 8 so the top of the
+ * ladder stays legible: at 8, a tier-5 pick's exalted and mythic forms both
+ * clamped to the same number and the two chips promised different things
+ * while doing the same thing.
  */
-export const MAX_TIER = 8;
+export const MAX_TIER = 10;
 
 export function clampTierValue(n: number): number {
   return Math.max(1, Math.min(MAX_TIER, Math.round(n)));
@@ -58,26 +76,47 @@ export function gradedTier(baseTier: number, grade: VariantGrade): number {
 }
 
 /**
+ * The tier a variant actually lands on.
+ *
+ * A declared grade wins, because the 1-5 scale the hand-authored boards are
+ * written on has no room above a 5: "Ultra Instinct" on a tier-5 Goku had to
+ * be written as another 5, which then read back as a *neutral* variant and
+ * showed the player a grey chip on a god form. Declaring the grade instead
+ * lets it land at 8 where it belongs. Variants with no grade keep their
+ * authored tier, so every board that predates grades is untouched.
+ */
+export function effectiveTier(variant: Variant, baseTier: number): number {
+  return variant.g && GRADE_DELTA[variant.g] !== undefined
+    ? gradedTier(baseTier, variant.g)
+    : variant.t ?? baseTier;
+}
+
+/**
  * The grade for a variant, from its declared grade or — for the hand-authored
  * boards below, which predate grades — from how far its tier moved.
  */
 export function variantGrade(variant: Variant, baseTier: number): VariantGrade {
   if (variant.g && GRADE_DELTA[variant.g] !== undefined) return variant.g;
-  const delta = variant.t - baseTier;
+  const delta = (variant.t ?? baseTier) - baseTier;
   if (delta <= -2) return "crippling";
   if (delta === -1) return "weakening";
   if (delta === 0) return "neutral";
   if (delta === 1) return "boon";
   if (delta === 2) return "major";
+  if (delta === 3) return "legendary";
+  if (delta === 4) return "exalted";
   return "mythic";
 }
 
 export interface Variant {
   /** Parenthetical shown after the name, e.g. "two hands" */
   v: string;
-  /** Tier override for this condition */
-  t: number;
-  /** Impact grade — drives the chip colour and, on generated boards, `t` itself */
+  /**
+   * Tier override for this condition. Only needed on ungraded variants — when
+   * `g` is set the grade computes the tier, so declaring both invites drift.
+   */
+  t?: number;
+  /** Impact grade — the source of truth for both the chip colour and the tier */
   g?: VariantGrade;
 }
 
@@ -155,6 +194,18 @@ export interface Pack {
    * the same board keeps the same temperament.
    */
   variantWild?: number;
+  /**
+   * The frequency dial (0-10) this board is played at. Same reason as
+   * `variantWild`: it travels with the board so a PvP guest and a rematch both
+   * get the host's setting without a second channel to keep in sync.
+   */
+  variantRate?: number;
+  /**
+   * Whether this game runs the pre-battle argument round. On the board for the
+   * same reason as the dials — it's the host's setting, and a guest has to
+   * know the draft ends at the sealed box rather than the verdict.
+   */
+  argumentsOn?: boolean;
   /** Settings this board can be played in; one is rolled per game */
   arenas?: Arena[];
   /** The arena actually rolled for this game, baked in when the board is dealt */
@@ -186,12 +237,12 @@ export const PACKS: Pack[] = [
       { n: "Jaime Lannister", t: 4, f: 5, variants: [{ v: "two hands", t: 5 }, { v: "one hand", t: 3 }, { v: "gold hand, drunk", t: 2 }] },
       { n: "The Mountain", s: "Gregor Clegane", t: 5, variants: [{ v: "alive", t: 5 }, { v: "undead, Ser Robert Strong", t: 5 }, { v: "poisoned, dying", t: 3 }] },
       { n: "Arya Stark", t: 4, f: 5, variants: [{ v: "Faceless assassin", t: 5 }, { v: "blind beggar", t: 2 }, { v: "Winterfell child", t: 1 }] },
-      { n: "The Hound", s: "Sandor Clegane", t: 5, variants: [{ v: "prime", t: 5 }, { v: "burned leg, feverish", t: 3 }] },
+      { n: "The Hound", s: "Sandor Clegane", t: 5, variants: [{ v: "prime", g: "boon" }, { v: "burned leg, feverish", g: "crippling" }] },
       { n: "Brienne of Tarth", t: 4, f: 5 },
-      { n: "Jon Snow", t: 4, f: 5, variants: [{ v: "resurrected", t: 4 }, { v: "Lord Commander", t: 4 }, { v: "green recruit", t: 2 }] },
+      { n: "Jon Snow", t: 4, f: 5, variants: [{ v: "resurrected", g: "boon" }, { v: "Lord Commander", g: "neutral" }, { v: "green recruit", g: "crippling" }] },
       { n: "Daenerys Targaryen", t: 3, f: 5, variants: [{ v: "with three dragons", t: 5 }, { v: "with one dragon", t: 4 }, { v: "alone in the Dothraki Sea", t: 1 }] },
       { n: "Tyrion Lannister", t: 2, f: 5, variants: [{ v: "Hand of the King", t: 3 }, { v: "on trial, in chains", t: 1 }] },
-      { n: "Khal Drogo", t: 5, f: 5, variants: [{ v: "prime", t: 5 }, { v: "infected wound", t: 1 }] },
+      { n: "Khal Drogo", t: 5, f: 5, variants: [{ v: "prime", g: "boon" }, { v: "infected wound", g: "crippling" }] },
       { n: "Oberyn Martell", t: 5, s: "Red Viper" },
       { n: "Bronn", t: 4 },
       { n: "Ser Barristan Selmy", t: 4, variants: [{ v: "prime, Barristan the Bold", t: 5 }, { v: "old man", t: 3 }] },
@@ -212,7 +263,7 @@ export const PACKS: Pack[] = [
       { n: "Littlefinger", t: 1, s: "Petyr Baelish" },
       { n: "Varys", t: 1, s: "Game of Thrones eunuch spymaster" },
       { n: "Eddard Stark", t: 4, f: 5, s: "Ned Stark", variants: [{ v: "Warden of the North", t: 4 }, { v: "on the steps of Baelor", t: 1 }] },
-      { n: "Ser Arthur Dayne", t: 5, s: "Sword of the Morning", variants: [{ v: "with Dawn, at the Tower of Joy", t: 5 }, { v: "outnumbered seven to two", t: 4 }] },
+      { n: "Ser Arthur Dayne", t: 5, s: "Sword of the Morning", variants: [{ v: "with Dawn, at the Tower of Joy", g: "legendary" }, { v: "outnumbered seven to two", g: "weakening" }] },
       { n: "Sansa Stark", t: 2, f: 5 },
       { n: "Bran Stark", t: 2, variants: [{ v: "the Three-Eyed Raven", t: 4 }, { v: "before the fall", t: 1 }] },
       { n: "Theon Greyjoy", t: 2, variants: [{ v: "Prince of the Iron Islands", t: 3 }, { v: "Reek", t: 1 }] },
@@ -237,7 +288,7 @@ export const PACKS: Pack[] = [
       { n: "Ghost", t: 4, s: "Jon Snow direwolf" },
       { n: "Nymeria", t: 4, s: "Arya direwolf wolf pack" },
       { n: "Drogon", t: 5, f: 5, s: "Game of Thrones dragon" },
-      { n: "Viserion", t: 5, s: "Game of Thrones dragon", variants: [{ v: "wight, blue fire", t: 5 }, { v: "alive", t: 4 }] },
+      { n: "Viserion", t: 5, s: "Game of Thrones dragon", variants: [{ v: "wight, blue fire", g: "legendary" }, { v: "alive", g: "neutral" }] },
       { n: "Wight", t: 2, s: "Game of Thrones wight", variants: [{ v: "an army of them", t: 5 }, { v: "a single wight", t: 2 }] },
       { n: "White Walker", t: 4, s: "Game of Thrones Others" },
       { n: "Giant", t: 5, s: "Game of Thrones Wun Wun giant" },
@@ -265,18 +316,18 @@ export const PACKS: Pack[] = [
       { name: "A power-dampening field", desc: "Powers run at a fraction of normal. Training and gear decide it.", weight: 2 },
     ],
     entries: [
-      { n: "Iron Man", t: 5, f: 5, variants: [{ v: "Mark 85 armor", t: 5 }, { v: "Mark I, cave build", t: 2 }, { v: "no suit, just Tony", t: 1 }] },
-      { n: "Thor", t: 5, f: 5, variants: [{ v: "with Stormbreaker", t: 5 }, { v: "with Mjolnir", t: 5 }, { v: "Bro Thor, no hammer", t: 3 }] },
-      { n: "Captain America", t: 4, f: 5, variants: [{ v: "with the shield", t: 4 }, { v: "no shield", t: 3 }, { v: "worthy, wielding Mjolnir", t: 5 }] },
-      { n: "Hulk", t: 5, f: 5, variants: [{ v: "enraged", t: 5 }, { v: "Professor Hulk", t: 4 }, { v: "Bruce Banner, calm", t: 1 }] },
+      { n: "Iron Man", t: 5, f: 5, variants: [{ v: "Mark 85 armor", g: "legendary" }, { v: "Mark I, cave build", g: "crippling" }, { v: "no suit, just Tony", g: "crippling" }] },
+      { n: "Thor", t: 5, f: 5, variants: [{ v: "with Stormbreaker", g: "legendary" }, { v: "with Mjolnir", g: "boon" }, { v: "Bro Thor, no hammer", g: "crippling" }] },
+      { n: "Captain America", t: 4, f: 5, variants: [{ v: "with the shield", g: "neutral" }, { v: "no shield", g: "weakening" }, { v: "worthy, wielding Mjolnir", g: "mythic" }] },
+      { n: "Hulk", t: 5, f: 5, variants: [{ v: "enraged", g: "legendary" }, { v: "Professor Hulk", g: "weakening" }, { v: "Bruce Banner, calm", g: "crippling" }] },
       { n: "Scarlet Witch", t: 5, f: 5, s: "Wanda Maximoff" },
-      { n: "Doctor Strange", t: 5, f: 5, variants: [{ v: "Sorcerer Supreme", t: 5 }, { v: "with the Time Stone", t: 5 }, { v: "shaky hands, pre-training", t: 1 }] },
+      { n: "Doctor Strange", t: 5, f: 5, variants: [{ v: "Sorcerer Supreme", g: "boon" }, { v: "with the Time Stone", g: "mythic" }, { v: "shaky hands, pre-training", g: "crippling" }] },
       { n: "Spider-Man", t: 4, f: 5 },
       { n: "Black Panther", t: 4, f: 5, variants: [{ v: "vibranium suit", t: 4 }, { v: "no suit, herb stripped", t: 2 }] },
-      { n: "Wolverine", t: 4, f: 5, s: "Marvel Logan", variants: [{ v: "adamantium claws", t: 5 }, { v: "bone claws", t: 3 }, { v: "Old Man Logan", t: 3 }] },
+      { n: "Wolverine", t: 4, f: 5, s: "Marvel Logan", variants: [{ v: "adamantium claws", g: "major" }, { v: "bone claws", g: "weakening" }, { v: "Old Man Logan", g: "weakening" }] },
       { n: "Deadpool", t: 3, f: 5 },
-      { n: "Magneto", t: 5, f: 5, variants: [{ v: "with the helmet", t: 5 }, { v: "no helmet", t: 3 }] },
-      { n: "Thanos", t: 5, f: 5, variants: [{ v: "full Infinity Gauntlet", t: 5 }, { v: "no stones, just the blade", t: 4 }] },
+      { n: "Magneto", t: 5, f: 5, variants: [{ v: "with the helmet", g: "boon" }, { v: "no helmet", g: "crippling" }] },
+      { n: "Thanos", t: 5, f: 5, variants: [{ v: "full Infinity Gauntlet", g: "mythic" }, { v: "no stones, just the blade", g: "weakening" }] },
       { n: "Storm", t: 4, s: "X-Men Ororo Munroe" },
       { n: "Loki", t: 3, f: 5 },
       { n: "Black Widow", t: 3, f: 5 },
@@ -294,14 +345,14 @@ export const PACKS: Pack[] = [
       { n: "Punisher", t: 2, s: "Frank Castle" },
       { n: "Kingpin", t: 2, s: "Wilson Fisk" },
       { n: "Professor X", t: 5, s: "Charles Xavier" },
-      { n: "Jean Grey", t: 5, variants: [{ v: "Dark Phoenix", t: 5 }, { v: "before the Phoenix", t: 3 }] },
+      { n: "Jean Grey", t: 5, variants: [{ v: "Dark Phoenix", g: "mythic" }, { v: "before the Phoenix", g: "weakening" }] },
       { n: "Cyclops", t: 4 },
       { n: "Nightcrawler", t: 3 },
       { n: "Colossus", t: 4 },
       { n: "Rogue", t: 4, variants: [{ v: "after absorbing Ms. Marvel", t: 5 }, { v: "gloves on", t: 3 }] },
       { n: "Beast", t: 3 },
       { n: "Gambit", t: 3 },
-      { n: "Emma Frost", t: 4, variants: [{ v: "diamond form", t: 4 }, { v: "flesh, telepathy only", t: 3 }] },
+      { n: "Emma Frost", t: 4, variants: [{ v: "diamond form", g: "boon" }, { v: "flesh, telepathy only", g: "weakening" }] },
       { n: "Apocalypse", t: 5, s: "Marvel En Sabah Nur" },
       { n: "Mister Sinister", t: 4 },
       { n: "Juggernaut", t: 4, variants: [{ v: "helmet on, moving", t: 5 }, { v: "helmet off", t: 3 }] },
@@ -334,7 +385,7 @@ export const PACKS: Pack[] = [
       { n: "Jessica Jones", t: 3 },
       { n: "Luke Cage", t: 3 },
       { n: "Iron Fist", t: 3 },
-      { n: "Squirrel Girl", t: 3, variants: [{ v: "canonically undefeated", t: 5 }, { v: "on paper", t: 1 }] },
+      { n: "Squirrel Girl", t: 3, variants: [{ v: "canonically undefeated", g: "exalted" }, { v: "on paper", g: "crippling" }] },
       { n: "Howard the Duck", t: 1, f: 1 },
       { n: "Aunt May", t: 1, f: 1 },
       { n: "Stan Lee's cameo", t: 1, s: "Stan Lee" },
@@ -360,8 +411,8 @@ export const PACKS: Pack[] = [
       { name: "Trick Room", desc: "Speed is inverted — the slowest act first.", weight: 2 },
     ],
     entries: [
-      { n: "Charizard", t: 4, f: 5, variants: [{ v: "Mega Charizard X", t: 5 }, { v: "standard", t: 4 }, { v: "still a level 5 Charmander", t: 1 }] },
-      { n: "Mewtwo", t: 5, f: 5, variants: [{ v: "Mega Mewtwo Y", t: 5 }, { v: "standard", t: 5 }] },
+      { n: "Charizard", t: 4, f: 5, variants: [{ v: "Mega Charizard X", g: "legendary" }, { v: "standard", g: "neutral" }, { v: "still a level 5 Charmander", g: "crippling" }] },
+      { n: "Mewtwo", t: 5, f: 5, variants: [{ v: "Mega Mewtwo Y", g: "legendary" }, { v: "standard", g: "neutral" }] },
       { n: "Pikachu", t: 2, f: 5, variants: [{ v: "Ash's Pikachu", t: 4 }, { v: "wild, level 3", t: 1 }] },
       { n: "Gengar", t: 4, f: 5 },
       { n: "Dragonite", t: 5, f: 5 },
@@ -461,7 +512,7 @@ export const PACKS: Pack[] = [
       { n: "Saltwater Crocodile", t: 5, variants: [{ v: "in water", t: 5 }, { v: "on dry land", t: 3 }] },
       { n: "Grizzly Bear", t: 5, f: 5 },
       { n: "Siberian Tiger", t: 5, f: 5 },
-      { n: "African Elephant", t: 5, f: 5, variants: [{ v: "bull in musth", t: 5 }, { v: "calm cow", t: 4 }] },
+      { n: "African Elephant", t: 5, f: 5, variants: [{ v: "bull in musth", g: "boon" }, { v: "calm cow", g: "neutral" }] },
       { n: "Hippopotamus", t: 5, f: 5 },
       { n: "Cape Buffalo", t: 4 },
       { n: "Silverback Gorilla", t: 5, f: 5 },
@@ -487,10 +538,10 @@ export const PACKS: Pack[] = [
       { n: "Bald Eagle", t: 2 },
       { n: "Sloth", t: 1, f: 1 },
       // Pinned: Mark photographed these, so they're guaranteed to be dealt.
-      { n: "Dire Wolves", t: 5, s: "dire wolf Aenocyon dirus", variants: [{ v: "a pack of six, de-extincted", t: 5 }, { v: "one lone dire wolf", t: 4 }] },
+      { n: "Dire Wolves", t: 5, s: "dire wolf Aenocyon dirus", variants: [{ v: "a pack of six, de-extincted", g: "boon" }, { v: "one lone dire wolf", g: "weakening" }] },
       { n: "Liger", t: 5, s: "liger lion tiger hybrid" },
-      { n: "Orca", t: 5, f: 5, s: "killer whale", variants: [{ v: "hunting pod, coordinated", t: 5 }, { v: "beached", t: 1 }] },
-      { n: "African Elephant", t: 5, f: 5, variants: [{ v: "bull in musth", t: 5 }, { v: "calm cow", t: 4 }] },
+      { n: "Orca", t: 5, f: 5, s: "killer whale", variants: [{ v: "hunting pod, coordinated", g: "boon" }, { v: "beached", g: "crippling" }] },
+      { n: "African Elephant", t: 5, f: 5, variants: [{ v: "bull in musth", g: "boon" }, { v: "calm cow", g: "neutral" }] },
       { n: "Anaconda", t: 4, f: 5, s: "green anaconda" },
       { n: "Polar Bear", t: 5, f: 5 },
       { n: "Moose", t: 4, variants: [{ v: "bull in rut", t: 5 }, { v: "yearling", t: 2 }] },
@@ -562,11 +613,11 @@ export const PACKS: Pack[] = [
       { name: "A Coruscant rooftop chase", desc: "Speeder traffic, thousand-metre drops, and no room to plant your feet.", weight: 2 },
     ],
     entries: [
-      { n: "Darth Vader", t: 5, f: 5, variants: [{ v: "prime, Rogue One hallway", t: 5 }, { v: "damaged suit", t: 3 }] },
-      { n: "Anakin Skywalker", t: 5, f: 5, variants: [{ v: "Clone Wars prime", t: 5 }, { v: "burned on Mustafar", t: 1 }, { v: "podracing kid", t: 1 }] },
-      { n: "Yoda", t: 5, f: 5, variants: [{ v: "prime", t: 5 }, { v: "900 years old, dying", t: 2 }] },
-      { n: "Obi-Wan Kenobi", t: 5, f: 5, variants: [{ v: "Clone Wars prime", t: 5 }, { v: "Old Ben", t: 3 }] },
-      { n: "Luke Skywalker", t: 4, f: 5, variants: [{ v: "Jedi Master", t: 5 }, { v: "Return of the Jedi", t: 4 }, { v: "farm boy", t: 1 }] },
+      { n: "Darth Vader", t: 5, f: 5, variants: [{ v: "prime, Rogue One hallway", g: "legendary" }, { v: "damaged suit", g: "weakening" }] },
+      { n: "Anakin Skywalker", t: 5, f: 5, variants: [{ v: "Clone Wars prime", g: "legendary" }, { v: "burned on Mustafar", g: "crippling" }, { v: "podracing kid", g: "crippling" }] },
+      { n: "Yoda", t: 5, f: 5, variants: [{ v: "prime", g: "legendary" }, { v: "900 years old, dying", g: "crippling" }] },
+      { n: "Obi-Wan Kenobi", t: 5, f: 5, variants: [{ v: "Clone Wars prime", g: "legendary" }, { v: "Old Ben", g: "weakening" }] },
+      { n: "Luke Skywalker", t: 4, f: 5, variants: [{ v: "Jedi Master", g: "legendary" }, { v: "Return of the Jedi", g: "boon" }, { v: "farm boy", g: "crippling" }] },
       { n: "Darth Maul", t: 5, f: 5 },
       { n: "Mace Windu", t: 5 },
       { n: "Emperor Palpatine", t: 5, f: 5 },
@@ -621,7 +672,7 @@ export const PACKS: Pack[] = [
       { n: "Sarlacc", t: 3, s: "Star Wars sarlacc pit" },
       { n: "Wampa", t: 3 },
       { n: "AT-AT", t: 4, s: "Star Wars AT-AT walker" },
-      { n: "Death Star", t: 5, s: "Star Wars Death Star", variants: [{ v: "fully operational", t: 5 }, { v: "with an exhaust port", t: 2 }] },
+      { n: "Death Star", t: 5, s: "Star Wars Death Star", variants: [{ v: "fully operational", g: "legendary" }, { v: "with an exhaust port", g: "crippling" }] },
       { n: "Millennium Falcon", t: 4 },
       { n: "Admiral Ackbar", t: 2, f: 1 },
       { n: "Wedge Antilles", t: 3, f: 1 },
@@ -653,9 +704,9 @@ export const PACKS: Pack[] = [
       { n: "Michael Myers", t: 5, f: 5, s: "Halloween" },
       { n: "Freddy Krueger", t: 5, f: 5, variants: [{ v: "in the dream world", t: 5 }, { v: "pulled into the real world", t: 3 }] },
       { n: "Jason Voorhees", t: 5, f: 5, variants: [{ v: "undead Jason", t: 5 }, { v: "sack-head Jason", t: 4 }, { v: "drowning boy", t: 1 }] },
-      { n: "Pennywise", t: 5, f: 5, s: "IT clown", variants: [{ v: "full power", t: 5 }, { v: "weakened by belief", t: 2 }] },
+      { n: "Pennywise", t: 5, f: 5, s: "IT clown", variants: [{ v: "full power", g: "legendary" }, { v: "weakened by belief", g: "crippling" }] },
       { n: "Leatherface", t: 4, f: 5 },
-      { n: "Xenomorph", t: 5, f: 5, s: "Alien creature", variants: [{ v: "full grown", t: 5 }, { v: "facehugger stage", t: 2 }] },
+      { n: "Xenomorph", t: 5, f: 5, s: "Alien creature", variants: [{ v: "full grown", g: "boon" }, { v: "facehugger stage", g: "crippling" }] },
       { n: "The Predator", t: 5, f: 5, variants: [{ v: "cloaked, plasma caster", t: 5 }, { v: "weapons stripped", t: 4 }] },
       { n: "Hannibal Lecter", t: 3 },
       { n: "Ghostface", t: 3, f: 5, s: "Scream" },
@@ -821,18 +872,18 @@ export const PACKS: Pack[] = [
       { name: "A place where nobody can use their strongest technique", desc: "Trump cards are off the table. Fundamentals decide it.", weight: 2 },
     ],
     entries: [
-      { n: "Goku", t: 5, f: 5, s: "Dragon Ball", variants: [{ v: "Ultra Instinct", t: 5 }, { v: "Super Saiyan", t: 4 }, { v: "base form, kid Goku", t: 1 }] },
+      { n: "Goku", t: 5, f: 5, s: "Dragon Ball", variants: [{ v: "Ultra Instinct", g: "mythic" }, { v: "Super Saiyan", g: "boon" }, { v: "base form, kid Goku", g: "crippling" }] },
       { n: "Saitama", t: 5, f: 5, s: "One Punch Man" },
-      { n: "Naruto Uzumaki", t: 4, f: 5, variants: [{ v: "Six Paths Sage Mode", t: 5 }, { v: "Sage Mode", t: 4 }, { v: "Academy student", t: 1 }] },
+      { n: "Naruto Uzumaki", t: 4, f: 5, variants: [{ v: "Six Paths Sage Mode", g: "mythic" }, { v: "Sage Mode", g: "boon" }, { v: "Academy student", g: "crippling" }] },
       { n: "Sasuke Uchiha", t: 4, f: 5 },
-      { n: "Monkey D. Luffy", t: 4, f: 5, s: "One Piece", variants: [{ v: "Gear 5", t: 5 }, { v: "Gear 2", t: 3 }, { v: "East Blue rookie", t: 1 }] },
+      { n: "Monkey D. Luffy", t: 4, f: 5, s: "One Piece", variants: [{ v: "Gear 5", g: "mythic" }, { v: "Gear 2", g: "boon" }, { v: "East Blue rookie", g: "crippling" }] },
       { n: "Roronoa Zoro", t: 4, f: 5, s: "One Piece" },
       { n: "Ichigo Kurosaki", t: 4, s: "Bleach" },
       { n: "Levi Ackerman", t: 4, f: 5, s: "Attack on Titan", variants: [{ v: "with ODM gear", t: 4 }, { v: "no gear, open field", t: 2 }] },
       { n: "Eren Yeager", t: 4, f: 5, s: "Attack on Titan" },
       { n: "Satoru Gojo", t: 5, f: 5, s: "Jujutsu Kaisen", variants: [{ v: "unsealed", t: 5 }, { v: "sealed in the box", t: 1 }] },
       { n: "Tanjiro Kamado", t: 3, s: "Demon Slayer" },
-      { n: "All Might", t: 5, f: 5, s: "My Hero Academia", variants: [{ v: "prime", t: 5 }, { v: "post-injury, three minutes", t: 3 }] },
+      { n: "All Might", t: 5, f: 5, s: "My Hero Academia", variants: [{ v: "prime", g: "legendary" }, { v: "post-injury, three minutes", g: "weakening" }] },
       { n: "Izuku Midoriya", t: 3, s: "My Hero Academia Deku" },
       { n: "Vegeta", t: 5, f: 5, s: "Dragon Ball" },
       { n: "Light Yagami", t: 2, f: 5, s: "Death Note", variants: [{ v: "with the Death Note", t: 5 }, { v: "no notebook", t: 1 }] },
@@ -841,7 +892,7 @@ export const PACKS: Pack[] = [
       { n: "Killua Zoldyck", t: 4, s: "Hunter x Hunter" },
       { n: "Gon Freecss", t: 3, s: "Hunter x Hunter" },
       { n: "Meliodas", t: 5, s: "Seven Deadly Sins" },
-      { n: "Escanor", t: 5, s: "Seven Deadly Sins", variants: [{ v: "at high noon", t: 5 }, { v: "at midnight", t: 1 }] },
+      { n: "Escanor", t: 5, s: "Seven Deadly Sins", variants: [{ v: "at high noon", g: "exalted" }, { v: "at midnight", g: "crippling" }] },
       { n: "Yusuke Urameshi", t: 4, s: "Yu Yu Hakusho" },
       { n: "Spike Spiegel", t: 3, s: "Cowboy Bebop" },
       { n: "Alucard", t: 5, s: "Hellsing" },
@@ -866,7 +917,7 @@ export const PACKS: Pack[] = [
       { n: "Kakashi", t: 4, f: 5, s: "Naruto", variants: [{ v: "with the Sharingan", t: 5 }, { v: "post-war, no Sharingan", t: 3 }] },
       { n: "Itachi Uchiha", t: 5, f: 5, s: "Naruto" },
       { n: "Madara Uchiha", t: 5, s: "Naruto" },
-      { n: "Rock Lee", t: 3, s: "Naruto", variants: [{ v: "eight gates open", t: 5 }, { v: "weights on", t: 2 }] },
+      { n: "Rock Lee", t: 3, s: "Naruto", variants: [{ v: "eight gates open", g: "exalted" }, { v: "weights on", g: "weakening" }] },
       { n: "Might Guy", t: 5, s: "Naruto" },
       { n: "Frieza", t: 5, f: 5, s: "Dragon Ball" },
       { n: "Cell", t: 5, s: "Dragon Ball" },
@@ -1092,10 +1143,10 @@ export const PACKS: Pack[] = [
       { name: "A red-sun room", desc: "Kryptonian powers are gone. Everyone else fights as usual.", weight: 2 },
     ],
     entries: [
-      { n: "Superman", t: 5, f: 5, variants: [{ v: "full power, yellow sun", t: 5 }, { v: "under a red sun", t: 1 }, { v: "kryptonite in the room", t: 2 }] },
+      { n: "Superman", t: 5, f: 5, variants: [{ v: "full power, yellow sun", g: "legendary" }, { v: "under a red sun", g: "crippling" }, { v: "kryptonite in the room", g: "crippling" }] },
       { n: "Batman", t: 4, f: 5, variants: [{ v: "with prep time", t: 5 }, { v: "ambushed, no belt", t: 2 }] },
       { n: "Wonder Woman", t: 5, f: 5 },
-      { n: "The Flash", t: 5, f: 5, s: "Barry Allen", variants: [{ v: "Speed Force unlocked", t: 5 }, { v: "held to normal speed", t: 2 }] },
+      { n: "The Flash", t: 5, f: 5, s: "Barry Allen", variants: [{ v: "Speed Force unlocked", g: "legendary" }, { v: "held to normal speed", g: "crippling" }] },
       { n: "Green Lantern", t: 5, f: 5, s: "Hal Jordan", variants: [{ v: "ring charged", t: 5 }, { v: "ring out of power", t: 1 }] },
       { n: "Aquaman", t: 4, f: 5 },
       { n: "Martian Manhunter", t: 5, variants: [{ v: "no fire nearby", t: 5 }, { v: "the building is on fire", t: 2 }] },
@@ -1164,13 +1215,13 @@ export const PACKS: Pack[] = [
       { name: "The slopes of Caradhras", desc: "Snow, thin air, and a mountain that does not want them there.", weight: 2 },
     ],
     entries: [
-      { n: "Gandalf", t: 5, f: 5, variants: [{ v: "the White", t: 5 }, { v: "the Grey", t: 4 }, { v: "no staff, no sword", t: 2 }] },
-      { n: "Aragorn", t: 5, f: 5, variants: [{ v: "crowned, with Andúril", t: 5 }, { v: "Strider, ranger of the North", t: 4 }, { v: "wounded but walking", t: 4 }] },
+      { n: "Gandalf", t: 5, f: 5, variants: [{ v: "the White", g: "legendary" }, { v: "the Grey", g: "neutral" }, { v: "no staff, no sword", g: "crippling" }] },
+      { n: "Aragorn", t: 5, f: 5, variants: [{ v: "crowned, with Andúril", g: "legendary" }, { v: "Strider, ranger of the North", g: "neutral" }, { v: "wounded but walking", g: "weakening" }] },
       { n: "Legolas", t: 4, f: 5 },
       { n: "Gimli", t: 4, f: 5 },
       { n: "Boromir", t: 4, f: 5, variants: [{ v: "before Amon Hen", t: 4 }, { v: "three arrows in", t: 2 }] },
       { n: "Faramir", t: 4 },
-      { n: "Éowyn", t: 4, variants: [{ v: "facing the Witch-king", t: 5 }, { v: "shieldmaiden of Rohan", t: 3 }] },
+      { n: "Éowyn", t: 4, variants: [{ v: "facing the Witch-king", g: "legendary" }, { v: "shieldmaiden of Rohan", g: "neutral" }] },
       { n: "Théoden", t: 3, variants: [{ v: "freed of Saruman", t: 4 }, { v: "under Wormtongue's spell", t: 1 }] },
       { n: "Éomer", t: 4 },
       { n: "Samwise Gamgee", t: 3, f: 5, variants: [{ v: "with Sting and the Phial", t: 4 }, { v: "with a frying pan", t: 2 }] },
@@ -1188,7 +1239,7 @@ export const PACKS: Pack[] = [
       { n: "Beorn", t: 5 },
       { n: "Bard the Bowman", t: 4 },
       { n: "Thorin Oakenshield", t: 4 },
-      { n: "Sauron", t: 5, f: 5, variants: [{ v: "with the One Ring", t: 5 }, { v: "a lidless eye only", t: 3 }] },
+      { n: "Sauron", t: 5, f: 5, variants: [{ v: "with the One Ring", g: "mythic" }, { v: "a lidless eye only", g: "weakening" }] },
       { n: "The Witch-king", t: 5, variants: [{ v: "no man can kill him", t: 5 }, { v: "facing a woman and a hobbit", t: 3 }] },
       { n: "Saruman", t: 4, f: 5, variants: [{ v: "staff unbroken", t: 5 }, { v: "staff broken", t: 1 }] },
       { n: "A Nazgûl", t: 4, s: "Ringwraith" },
@@ -1261,7 +1312,7 @@ export const PACKS: Pack[] = [
       { n: "Rafael Nadal", t: 5, variants: [{ v: "on clay", t: 5 }, { v: "on grass", t: 4 }] },
       { n: "Novak Djokovic", t: 5 },
       { n: "Tiger Woods", t: 4, f: 5, variants: [{ v: "prime, red shirt Sunday", t: 5 }, { v: "post-surgery", t: 3 }] },
-      { n: "Mike Tyson", t: 5, f: 5, variants: [{ v: "1988 prime", t: 5 }, { v: "the ear-biting era", t: 3 }] },
+      { n: "Mike Tyson", t: 5, f: 5, variants: [{ v: "1988 prime", g: "legendary" }, { v: "the ear-biting era", g: "weakening" }] },
       { n: "Floyd Mayweather", t: 4 },
       { n: "Georges St-Pierre", t: 4 },
       { n: "Khabib Nurmagomedov", t: 5 },

@@ -26,7 +26,7 @@
  * room run the same code and never disagree.
  */
 
-import { variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
+import { MAX_TIER, effectiveTier, variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -118,7 +118,9 @@ const GRADE_WEIGHT: Record<VariantGrade, number> = {
   weakening: 18,
   boon: 18,
   crippling: 7, // rare
-  major: 4, // very rare, and capped per game
+  major: 6, // uncommon, but the only positive grade above boon that isn't rationed
+  legendary: 5, // rationed per game
+  exalted: 12, // rationed harder, so the weight can afford to be higher
   mythic: 20, // super rare — see mythicSlots()
 };
 
@@ -131,6 +133,8 @@ const GRADE_WEIGHT: Record<VariantGrade, number> = {
 function wildnessTilt(grade: VariantGrade, wild: number): number {
   switch (grade) {
     case "mythic":
+    case "exalted":
+    case "legendary":
     case "major":
       return 0.35 + wild * 0.13; // 0 -> 0.35x, 5 -> 1x, 10 -> 1.65x
     case "crippling":
@@ -163,34 +167,69 @@ function mythicSlots(rng: () => number, wild: number): number {
  */
 export interface VariantBudget {
   mythicsLeft: number;
-  majorsLeft: number;
+  exaltedLeft: number;
+  legendariesLeft: number;
   /** The board's wildness dial, 0-10 — tilts every roll */
   wild: number;
+  /**
+   * The frequency dial, 0-10 — the chance a pick that HAS variants actually
+   * shows one rather than turning up as its plain self.
+   *
+   * On a generated board this dial also decides how many entries get written
+   * with variants at all; on a hand-authored board the variants already exist,
+   * so this is the only thing it can act on. That's what makes the dial mean
+   * the same thing on both: 0 is never, 10 is every time.
+   */
+  rate: number;
 }
 
 export const DEFAULT_WILDNESS = 5;
+export const DEFAULT_RATE = 5;
 
-export function newVariantBudget(rng: () => number = Math.random, wild = DEFAULT_WILDNESS): VariantBudget {
+export function newVariantBudget(
+  rng: () => number = Math.random,
+  wild = DEFAULT_WILDNESS,
+  rate = DEFAULT_RATE
+): VariantBudget {
   const w = Math.max(0, Math.min(10, Math.round(wild)));
+  const r = Math.max(0, Math.min(10, Math.round(rate)));
   return {
     mythicsLeft: mythicSlots(rng, w),
+    // Rarer than legendary, commoner than mythic: none at all at the bottom
+    // of the dial, two at the top.
+    exaltedLeft: Math.round(w * 0.2),
     // Very rare by default; the dial can open it up to four.
-    majorsLeft: Math.max(1, Math.round(w * 0.4)),
+    legendariesLeft: Math.max(1, Math.round(w * 0.4)),
     wild: w,
+    rate: r,
   };
 }
 
 function affordable(grade: VariantGrade, budget: VariantBudget | undefined): boolean {
   if (!budget) return true;
   if (grade === "mythic") return budget.mythicsLeft > 0;
-  if (grade === "major") return budget.majorsLeft > 0;
+  if (grade === "exalted") return budget.exaltedLeft > 0;
+  if (grade === "legendary") return budget.legendariesLeft > 0;
   return true;
 }
 
 function spend(grade: VariantGrade, budget: VariantBudget | undefined) {
   if (!budget) return;
   if (grade === "mythic") budget.mythicsLeft -= 1;
-  else if (grade === "major") budget.majorsLeft -= 1;
+  else if (grade === "exalted") budget.exaltedLeft -= 1;
+  else if (grade === "legendary") budget.legendariesLeft -= 1;
+}
+
+/**
+ * Whether this pick turns up with a condition on it at all, or as its plain
+ * self. Rolled before the grade is chosen, so the frequency dial and the
+ * wildness dial stay independent — how OFTEN vs how BIG.
+ */
+function showsVariant(rng: () => number, budget: VariantBudget | undefined): boolean {
+  const rate = budget?.rate ?? DEFAULT_RATE;
+  if (rate <= 0) return false;
+  if (rate >= 10) return true;
+  return rng() < rate / 10;
 }
 
 /**
@@ -210,7 +249,7 @@ function rollVariant(
 
   if (!pool.length) {
     // Everything this entry offers is priced out — take the least extreme.
-    const order: VariantGrade[] = ["neutral", "weakening", "boon", "crippling", "major", "mythic"];
+    const order: VariantGrade[] = ["neutral", "weakening", "boon", "crippling", "major", "legendary", "exalted", "mythic"];
     return graded.sort((a, b) => order.indexOf(a.grade) - order.indexOf(b.grade))[0].i;
   }
 
@@ -249,7 +288,7 @@ export function buildLot(
 ): Lot {
   let variant: Variant | null = null;
   let variantIndex = -1;
-  if (entry.variants && entry.variants.length > 0) {
+  if (entry.variants && entry.variants.length > 0 && showsVariant(rng, budget)) {
     variantIndex = rollVariant(entry.variants, entry.t, rng, budget);
     variant = entry.variants[variantIndex];
   }
@@ -259,7 +298,7 @@ export function buildLot(
     name: entry.n,
     variant: variant ? variant.v : null,
     variantGrade: variant ? variantGrade(variant, entry.t) : null,
-    tier: variant ? variant.t : entry.t,
+    tier: variant ? effectiveTier(variant, entry.t) : entry.t,
     imgQuery: `${searchBase} ${pack.imgContext}`.trim(),
   };
 }
@@ -418,7 +457,9 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
 /** Rough "fair" price for a tier, before personality and situation. */
 function baseValue(tier: number, rules: Rules): number {
   const fairShare = rules.budget / rules.rosterSize;
-  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2, 3.1, 4.2, 5.5][Math.max(1, Math.min(8, Math.round(tier)))];
+  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2, 3.1, 4.2, 5.5, 7.0, 8.8][
+    Math.max(1, Math.min(MAX_TIER, Math.round(tier)))
+  ];
   return fairShare * mult;
 }
 
@@ -513,15 +554,30 @@ export function scoreSide(side: Side): SideScore {
 
 export function offlineVerdict(sides: Side[]): { winnerId: string; scores: SideScore[]; reasoning: string } {
   const scores = sides.map(scoreSide);
-  // Roster size breaks a tie, not money — an empty chair is a real weakness.
-  const sorted = [...scores].sort(
-    (a, b) =>
-      b.power - a.power ||
-      (sides.find((s) => s.id === b.sideId)?.roster.length ?? 0) -
-        (sides.find((s) => s.id === a.sideId)?.roster.length ?? 0)
-  );
-  const winner = sorted[0];
-  const loser = sorted[sorted.length - 1];
+
+  // Compare using raw unrounded floats so identical-looking rounded scores
+  // never produce a true tie. Cascade through roster size and tier-by-tier
+  // as further tiebreakers; the stable sideId comparison guarantees a winner
+  // even for genuinely identical rosters.
+  const raw = sides.map((s) => ({
+    sideId: s.id,
+    rawPower: s.roster.reduce((sum, p) => sum + Math.pow(p.tier, 1.7), 0),
+    size: s.roster.length,
+    tiers: [...s.roster].map((p) => p.tier).sort((a, b) => b - a),
+  }));
+
+  const sorted = [...raw].sort((a, b) => {
+    if (Math.abs(b.rawPower - a.rawPower) > 1e-9) return b.rawPower - a.rawPower;
+    if (b.size !== a.size) return b.size - a.size;
+    for (let i = 0; i < Math.max(a.tiers.length, b.tiers.length); i++) {
+      const d = (b.tiers[i] ?? 0) - (a.tiers[i] ?? 0);
+      if (d !== 0) return d;
+    }
+    return a.sideId < b.sideId ? 1 : -1;
+  });
+
+  const winner = scores.find((s) => s.sideId === sorted[0].sideId)!;
+  const loser = scores.find((s) => s.sideId === sorted[sorted.length - 1].sideId)!;
   const margin = winner.power - loser.power;
   const closeness =
     margin < 3 ? "It came down to the last pick." : margin < 12 ? "A clear but honest win." : "It was not close.";

@@ -84,8 +84,10 @@ export const STYLES = `
 .dm-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; margin-bottom: 26px;
+  flex-wrap: wrap;
 }
-.dm-head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.dm-head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; min-width: 0; }
+.dm-head-actions .dm-btn { min-width: 0; }
 
 .dm-panel {
   background: var(--dm-panel);
@@ -255,7 +257,11 @@ export const STYLES = `
 
 /* ── Auction stage ────────────────────────────────────────────────────── */
 
-.dm-stage { display: grid; grid-template-columns: 1fr; gap: 14px; }
+/* minmax(0,…) not 1fr: a grid item defaults to min-width:auto, so the widest
+   unbreakable thing in the bid controls was forcing this track to 400px and
+   pushing the Pass button off a 375px screen. */
+.dm-stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.dm-stage > * { min-width: 0; }
 @media (min-width: 900px) {
   .dm-stage { grid-template-columns: 1fr minmax(320px, 380px); align-items: start; }
 }
@@ -382,7 +388,7 @@ export const STYLES = `
 .dm-bid-open { font-size: 14px; color: var(--dm-dim); }
 
 /* Bid controls */
-.dm-controls { margin: 14px auto 0; max-width: 400px; display: flex; flex-direction: column; gap: 8px; }
+.dm-controls { margin: 14px auto 0; width: 100%; max-width: 400px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .dm-quickbids { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .dm-quickbid {
   min-height: 52px; border-radius: 12px; cursor: pointer;
@@ -430,6 +436,15 @@ export const STYLES = `
   margin-top: 8px; line-height: 1;
 }
 .dm-score-meta { font-size: 11.5px; color: var(--dm-mute); margin-top: 4px; }
+
+/* Seat — the block that holds one player's identity, money and (later) feed.
+   Inert on narrow screens: a plain wrapper in normal flow, and the feed slot
+   is display:contents so the avatar keeps its original inline position.
+   Both come alive in the desktop arena block at the bottom of this sheet. */
+.dm-seat-feed { display: contents; }
+.dm-lot-card { display: contents; }
+.dm-lot-actions { display: contents; }
+.dm-roster-tag { display: none; }
 
 /* Roster shelf */
 .dm-roster { display: flex; gap: 5px; margin-top: 10px; }
@@ -653,8 +668,10 @@ export const STYLES = `
   --dm-g-weakening: #e8918c;
   --dm-g-neutral:   #8d8778;
   --dm-g-boon:      #4caf7d;
-  --dm-g-major:     #f0872e;
-  --dm-g-mythic:    #d9a3ff;
+  --dm-g-major:     #3b8fd4;
+  --dm-g-legendary: #f0872e;
+  --dm-g-exalted:   #d1541f;
+  --dm-g-mythic:    #a855f7;
 }
 
 .dm-lot-variant[data-grade] {
@@ -665,12 +682,18 @@ export const STYLES = `
 .dm-lot-variant[data-grade="weakening"] { background: rgba(232,145,140,.9); color: #2a0e0d; }
 .dm-lot-variant[data-grade="neutral"]   { background: rgba(141,135,120,.85); color: #14130f; }
 .dm-lot-variant[data-grade="boon"]      { background: rgba(76,175,125,.92); color: #05170f; }
-.dm-lot-variant[data-grade="major"]     { background: rgba(240,135,46,.95); color: #1d0d02; }
+.dm-lot-variant[data-grade="major"]     { background: rgba(59,143,212,.95);  color: #02101d; }
+.dm-lot-variant[data-grade="legendary"] { background: rgba(240,135,46,.95);  color: #1d0d02; }
+.dm-lot-variant[data-grade="exalted"] {
+  background: rgba(209,84,31,.97); color: #fff5ee;
+  border-color: #ffb98a;
+  box-shadow: 0 0 0 1px rgba(255,185,138,.45), 0 3px 16px rgba(209,84,31,.4);
+}
 .dm-lot-variant[data-grade="mythic"] {
-  background: linear-gradient(100deg, #7a3bd6 0%, #c05bff 40%, #f0c860 100%);
-  color: #17061f;
-  border-color: #ffe9a8;
-  box-shadow: 0 0 0 1px rgba(255,233,168,.5), 0 4px 22px rgba(192,91,255,.45);
+  background: linear-gradient(100deg, #6d28d9 0%, #a855f7 55%, #d8b4fe 100%);
+  color: #fdf6ff;
+  border-color: #e9d5ff;
+  box-shadow: 0 0 0 1px rgba(233,213,255,.55), 0 4px 22px rgba(168,85,247,.5);
   animation: dm-mythic 2.6s ease-in-out infinite;
 }
 @keyframes dm-mythic {
@@ -691,8 +714,9 @@ export const STYLES = `
   font-size: 11px; font-weight: 800; color: #14130f;
 }
 .dm-grade-swatch[data-grade="crippling"] { background: var(--dm-g-crippling); color: #fff; }
+.dm-grade-swatch[data-grade="exalted"]   { background: var(--dm-g-exalted);   color: #fff5ee; }
 .dm-grade-swatch[data-grade="mythic"] {
-  background: linear-gradient(100deg, #c05bff, #f0c860); color: #17061f;
+  background: linear-gradient(100deg, #a855f7, #d8b4fe); color: #2a0442;
 }
 
 /* ── Custom bid ───────────────────────────────────────────────────────────
@@ -700,6 +724,7 @@ export const STYLES = `
 
 .dm-custombid {
   display: flex; align-items: stretch; gap: 8px; margin-top: 10px;
+  min-width: 0;
 }
 .dm-custombid-sign {
   display: grid; place-items: center; width: 34px; flex: none;
@@ -819,6 +844,8 @@ export const STYLES = `
 .dm-variant-note[data-grade="neutral"]   { color: var(--dm-g-neutral); }
 .dm-variant-note[data-grade="boon"]      { color: var(--dm-g-boon); }
 .dm-variant-note[data-grade="major"]     { color: var(--dm-g-major); font-weight: 700; }
+.dm-variant-note[data-grade="legendary"] { color: var(--dm-g-legendary); font-weight: 700; }
+.dm-variant-note[data-grade="exalted"]   { color: var(--dm-g-exalted); font-weight: 800; }
 .dm-variant-note[data-grade="mythic"] {
   color: var(--dm-g-mythic); font-weight: 800; letter-spacing: .01em;
   text-shadow: 0 0 12px rgba(192,91,255,.5);
@@ -828,7 +855,320 @@ export const STYLES = `
 .dm-slot[data-grade="weakening"] { box-shadow: inset 0 0 0 2px var(--dm-g-weakening); }
 .dm-slot[data-grade="boon"]      { box-shadow: inset 0 0 0 2px var(--dm-g-boon); }
 .dm-slot[data-grade="major"]     { box-shadow: inset 0 0 0 2px var(--dm-g-major); }
+.dm-slot[data-grade="legendary"] { box-shadow: inset 0 0 0 2px var(--dm-g-legendary); }
+.dm-slot[data-grade="exalted"]   { box-shadow: inset 0 0 0 2px var(--dm-g-exalted); }
 .dm-slot[data-grade="mythic"] {
   box-shadow: inset 0 0 0 2px #f0c860, 0 0 16px rgba(192,91,255,.55);
+}
+
+/* ── Pre-battle arguments ─────────────────────────────────────────────────
+   Written blind, so this screen never renders the opponent's text until the
+   ruling arrives and both are opened together. */
+
+.dm-args { max-width: 720px; margin: 0 auto; }
+.dm-args-roster {
+  font-size: 13px; color: var(--dm-dim); margin: 12px 0 0;
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel-2);
+}
+.dm-args-input {
+  width: 100%; margin-top: 12px; padding: 12px 14px;
+  border-radius: 12px; border: 1px solid var(--dm-line-hot);
+  background: var(--dm-bg); color: var(--dm-text);
+  font-size: 16px; /* iOS: anything smaller zooms on focus */
+  font-family: inherit; line-height: 1.5; resize: vertical; outline: none;
+}
+.dm-args-input:focus { border-color: var(--dm-gold); }
+.dm-args-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.dm-args-count { font-size: 12px; color: var(--dm-mute); margin-right: auto; font-variant-numeric: tabular-nums; }
+.dm-args-count[data-low="1"] { color: var(--dm-ember); }
+.dm-args-sealed {
+  margin-top: 14px; padding: 14px; border-radius: 12px; text-align: center;
+  border: 1px solid var(--dm-gold); background: rgba(212,169,66,.08);
+}
+.dm-args-status { list-style: none; padding: 0; margin: 14px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.dm-args-status li {
+  font-size: 12px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--dm-line); color: var(--dm-mute);
+}
+.dm-args-status li[data-in="1"] { border-color: var(--dm-green); color: var(--dm-green); }
+
+.dm-args-rulings { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 18px; }
+.dm-args-ruling {
+  padding: 14px; border-radius: 13px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel-2);
+}
+.dm-args-ruling[data-me="1"] { border-color: var(--dm-gold); }
+.dm-args-ruling-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.dm-args-sway { font-size: 12px; font-weight: 800; color: var(--dm-green); }
+.dm-args-sway[data-zero="1"] { color: var(--dm-mute); }
+.dm-args-quote {
+  margin: 10px 0; padding-left: 12px; border-left: 2px solid var(--dm-line-hot);
+  font-size: 14px; line-height: 1.5; color: var(--dm-text); font-style: italic;
+}
+.dm-args-claims { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.dm-args-claims li {
+  display: grid; gap: 2px; padding: 9px 11px; border-radius: 10px;
+  border-left: 3px solid var(--dm-g-neutral); background: var(--dm-panel);
+}
+.dm-args-claims li[data-ok="1"] { border-left-color: var(--dm-g-boon); }
+.dm-args-claims li[data-ok="0"] { border-left-color: var(--dm-g-crippling); }
+.dm-args-verdict {
+  font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dm-mute);
+}
+.dm-args-claims li[data-ok="1"] .dm-args-verdict { color: var(--dm-g-boon); }
+.dm-args-claims li[data-ok="0"] .dm-args-verdict { color: var(--dm-g-crippling); }
+.dm-args-claim { font-size: 14px; font-weight: 650; }
+.dm-args-reason { font-size: 12.5px; color: var(--dm-dim); line-height: 1.45; }
+
+.dm-toggle { width: 100%; margin-top: 12px; text-align: left; }
+
+/* ── Arena layout (desktop only) ───────────────────────────────────────────
+   A poker table. The two players face each other across the middle, each
+   one's drafted picks laid out on the edge in front of them, and the auction
+   itself — lot, price, controls, ticker — in the centre.
+
+       ┌───────────── their picks ─────────────┐
+       │  your  │   the lot + the bids   │ their │
+       │  seat  │       the ticker       │ seat  │
+       └───────────── your picks ──────────────┘
+
+   Everything here is additive and lives behind min-width: 1024px, so the
+   phone layout above is untouched. It works by collapsing the rail wrappers
+   with display:contents, which promotes each side's seat and roster to
+   direct grid items of .dm-stage — no second DOM tree, no JS breakpoint.
+
+   Gated on data-arena="1" (exactly two sides) because the named areas can
+   only seat two; any other count falls back to the stacked rail. */
+
+@media (min-width: 1024px) {
+  .dm-stage[data-arena="1"] {
+    grid-template-columns: minmax(176px, 230px) minmax(380px, 1fr) minmax(176px, 230px);
+    grid-template-areas:
+      "roster-top    roster-top    roster-top"
+      "seat-left     center        seat-right"
+      ".             ticker        ."
+      "roster-bottom roster-bottom roster-bottom";
+    gap: 14px 22px;
+    align-items: start;
+  }
+
+  .dm-stage[data-arena="1"] > .dm-stage-main { grid-area: center; min-width: 0; }
+
+  /* Unwrap the rail so its parts can take their seats at the table. */
+  .dm-stage[data-arena="1"] .dm-stage-rail,
+  .dm-stage[data-arena="1"] .dm-scores,
+  .dm-stage[data-arena="1"] .dm-score { display: contents; }
+
+  .dm-stage[data-arena="1"] .dm-score[data-seat="me"]   > .dm-seat   { grid-area: seat-left; }
+  .dm-stage[data-arena="1"] .dm-score[data-seat="me"]   > .dm-roster { grid-area: roster-bottom; }
+  .dm-stage[data-arena="1"] .dm-score[data-seat="them"] > .dm-seat   { grid-area: seat-right; }
+  .dm-stage[data-arena="1"] .dm-score[data-seat="them"] > .dm-roster { grid-area: roster-top; }
+  .dm-stage[data-arena="1"] .dm-stage-rail > .dm-ticker {
+    grid-area: ticker; margin: 0; max-height: 96px;
+  }
+
+  /* The centre and the edges both play shorter here: four bands stacked in one
+     column eat height fast, and the table wants to read in a single glance.
+
+     So the centre splits in two — the lot card on the left, the price and the
+     bid controls beside it — using the two display:contents wrappers, which
+     leave the narrow-screen DOM (and its single column) exactly as it was. */
+  .dm-stage[data-arena="1"] .dm-stage-main {
+    display: grid;
+    grid-template-columns: minmax(150px, 264px) minmax(250px, 1fr);
+    grid-template-areas:
+      "lotbar lotbar"
+      "card   actions";
+    column-gap: 18px;
+    align-content: start;
+  }
+  .dm-stage[data-arena="1"] .dm-stage-main > .dm-lotbar { grid-area: lotbar; }
+  .dm-stage[data-arena="1"] .dm-stage-main > .dm-lot-card {
+    grid-area: card; display: block; min-width: 0;
+  }
+  .dm-stage[data-arena="1"] .dm-stage-main > .dm-lot-actions {
+    grid-area: actions; align-self: start; min-width: 0;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /* Here the column decides the width and aspect-ratio derives the height —
+     the reverse of the phone rule above. In a fixed-width track a
+     height-driven card just overflows sideways into the bid controls. */
+  .dm-stage[data-arena="1"] .dm-lot-card > .dm-portrait-wrap {
+    width: 100%; height: auto; max-width: none; margin: 0;
+  }
+  .dm-stage[data-arena="1"] .dm-lot-card > .dm-photo-fb {
+    max-width: none; flex-wrap: wrap; gap: 5px;
+  }
+  .dm-stage[data-arena="1"] .dm-lot-card > .dm-photo-fb .dm-btn {
+    padding: 6px 9px; font-size: 12px;
+  }
+  .dm-stage[data-arena="1"] .dm-lot-actions > .dm-bidbar { margin: 0; max-width: none; }
+  .dm-stage[data-arena="1"] .dm-lot-actions > .dm-controls { margin: 0; max-width: none; }
+  .dm-stage[data-arena="1"] .dm-lot-actions > .dm-waiting { margin: 0 !important; }
+
+  /* ── Seats ─────────────────────────────────────────────────────────── */
+
+  .dm-stage[data-arena="1"] .dm-seat {
+    align-self: center;
+    padding: 14px;
+    border-radius: var(--dm-radius);
+    border: 1px solid var(--dm-line);
+    background: var(--dm-panel);
+    transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+  }
+  .dm-stage[data-arena="1"] .dm-seat[data-turn="1"] {
+    border-color: var(--dm-gold);
+    background: rgba(212,169,66,.08);
+    box-shadow: 0 0 32px rgba(212,169,66,.13);
+  }
+  .dm-stage[data-arena="1"] .dm-seat[data-high="1"] { border-color: var(--dm-green); }
+
+  /* The feed slot. Fixed 4:3 box, sized and framed for a webcam tile — the
+     avatar fills it today, a <video> can be dropped in beside it later and
+     will land in exactly the same frame with no layout change. */
+  .dm-stage[data-arena="1"] .dm-seat-feed {
+    display: block; position: relative; width: 100%;
+    aspect-ratio: 4 / 3; margin-bottom: 11px;
+    border-radius: 13px; overflow: hidden;
+    border: 1px solid var(--dm-line-hot);
+    background: radial-gradient(70% 70% at 50% 35%, var(--dm-panel-2), var(--dm-bg));
+  }
+  .dm-stage[data-arena="1"] .dm-seat-feed > .dm-avatar,
+  .dm-stage[data-arena="1"] .dm-seat-feed > video {
+    width: 100%; height: 100%; border: 0; border-radius: 0;
+    object-fit: cover; font-size: clamp(30px, 3.2vw, 46px);
+  }
+  .dm-stage[data-arena="1"] .dm-seat-feed > .dm-avatar[data-speaking="1"] {
+    box-shadow: inset 0 0 0 3px var(--dm-green);
+  }
+
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-top { display: block; text-align: center; }
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-name { font-size: 15px; }
+  .dm-stage[data-arena="1"] .dm-seat .dm-turn-pill {
+    display: inline-block; margin: 7px 0 0;
+  }
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-budget {
+    text-align: center; font-size: 32px; margin-top: 10px;
+  }
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-meta { text-align: center; }
+
+  /* ── Edge strips ───────────────────────────────────────────────────── */
+
+  .dm-stage[data-arena="1"] .dm-roster {
+    position: relative;
+    margin: 0; padding: 10px 18px;
+    justify-content: center; align-items: center; gap: 10px;
+    border: 1px solid var(--dm-line); border-radius: 14px;
+    background: var(--dm-panel);
+    transition: border-color .2s ease;
+  }
+  .dm-stage[data-arena="1"] .dm-roster[data-turn="1"] { border-color: rgba(212,169,66,.45); }
+  .dm-stage[data-arena="1"] .dm-roster > .dm-slot { flex: 0 0 68px; }
+  /* Your own bench sits nearest the reader, so it reads a size larger. */
+  .dm-stage[data-arena="1"] .dm-score[data-seat="me"] > .dm-roster > .dm-slot { flex: 0 0 80px; }
+
+  .dm-stage[data-arena="1"] .dm-roster-tag {
+    display: block; position: absolute; left: 18px; top: 50%;
+    transform: translateY(-50%);
+    max-width: 20%; overflow: hidden; text-overflow: ellipsis;
+    font-size: 11px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--dm-mute); white-space: nowrap;
+  }
+  .dm-stage[data-arena="1"] .dm-slot-price { font-size: 11px; }
+}
+
+/* ── Phone: fit the live auction in one screen ─────────────────────────────
+   A phone viewport is 812px, but the site nav takes 69 off the top and the
+   fixed bottom nav takes another 65, leaving ~678 for the whole auction. The
+   stage came to 985, so the bid controls and both budgets sat below the fold
+   and you had to scroll away from the lot to bid on it.
+
+   Scoped with :has(.dm-stage) so only the live auction tightens — the setup
+   and prep screens keep the full-size wordmark and their breathing room. */
+
+@media (max-width: 1023px) {
+  /* min-height:100dvh measures the whole screen, but .dm starts below the site
+     nav and ends above the fixed bottom nav — so it reserved ~117px of empty
+     space that scrolled. Let the content set the height, then pad the bottom
+     enough that the last row clears the fixed nav instead of hiding under it. */
+  /* body already carries bottom padding to clear the fixed nav, so this only
+     needs a normal gap — 72px here double-counted it and reintroduced scroll. */
+  .dm:has(.dm-stage) { min-height: 0; padding-bottom: 10px; }
+  /* The app shell's <main> is min-height:100vh, which measures the full screen
+     while .dm actually starts below the site nav — so the page kept 117px of
+     empty scroll under the content. Only relaxed for the live auction; this
+     stylesheet is injected by DraftMastersClient, so no other page sees it. */
+  main.min-h-screen:has(.dm-stage) { min-height: 0; }
+
+  /* The wordmark is a title card. Mid-draft it is just spending height. */
+  .dm:has(.dm-stage) .dm-head { margin-bottom: 10px; }
+  .dm:has(.dm-stage) .dm-wordmark { font-size: clamp(21px, 6vw, 30px); }
+  .dm:has(.dm-stage) .dm-head-actions .dm-btn { min-height: 36px; padding: 7px 12px; font-size: 13px; }
+
+  /* Biggest single saving. Still portrait-shaped, still the focal point. */
+  /* The art is the fun part, so the height comes out of the chrome around it
+     (lot bar, bid bar, wordmark) rather than out of the card. */
+  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(32dvh, 256px); }
+  .dm:has(.dm-stage) .dm-portrait-caption { padding: 10px; }
+
+  /* Was wrapping to two lines and costing ~35px. */
+  .dm:has(.dm-stage) .dm-lotbar { font-size: 11.5px; gap: 6px; }
+  .dm:has(.dm-stage) .dm-lotbar > * { min-width: 0; }
+  .dm:has(.dm-stage) .dm-arena-pill { font-size: 11px; padding: 2px 8px; }
+
+  .dm:has(.dm-stage) .dm-bidbar { padding: 9px 12px; }
+  .dm:has(.dm-stage) .dm-bidbar[data-plain="1"] { display: none; }
+
+  /* The prompt shrank with the card; let it wrap instead of clipping. */
+  .dm:has(.dm-stage) .dm-portrait-upload { padding: 7px 10px; max-width: 94%; bottom: 14%; }
+  .dm:has(.dm-stage) .dm-portrait-upload strong { font-size: 12px; white-space: normal; }
+  .dm:has(.dm-stage) .dm-portrait-upload small { font-size: 10px; }
+  /* The card itself stays tappable to upload, so this row was a second way to
+     do the same thing — and on a phone the height is worth more than the
+     duplicate. "Search again" goes with it; the search runs automatically. */
+  .dm:has(.dm-stage) .dm-photo-fb { display: none; }
+
+  .dm:has(.dm-stage) .dm-lotbar { margin-bottom: 8px; }
+  .dm:has(.dm-stage) .dm-bidbar { margin-top: 8px; }
+  .dm:has(.dm-stage) .dm-controls { margin-top: 10px; gap: 6px; }
+  .dm:has(.dm-stage) .dm-custombid { margin-top: 6px; }
+
+  /* 46px keeps every bid target above the 44px minimum. */
+  .dm:has(.dm-stage) .dm-quickbid { min-height: 46px; }
+  .dm:has(.dm-stage) .dm-custombid-sign,
+  .dm:has(.dm-stage) .dm-custombid-input,
+  .dm:has(.dm-stage) .dm-custombid-go { min-height: 46px; }
+
+  .dm:has(.dm-stage) .dm-scores { gap: 8px; margin-bottom: 8px; }
+  .dm:has(.dm-stage) .dm-score { padding: 8px; }
+  .dm:has(.dm-stage) .dm-score-budget { font-size: 20px; }
+  .dm:has(.dm-stage) .dm-score-meta { font-size: 10.5px; }
+  .dm:has(.dm-stage) .dm-avatar { width: 28px; height: 28px; }
+  .dm:has(.dm-stage) .dm-roster > .dm-slot { height: 30px; }
+
+  /* The ticker is a scrolling log of things that already happened — on a phone
+     it sat as an near-empty bar between the budgets and the nav, spending
+     height on history nobody acts on. The sale result is already announced on
+     the lot itself. */
+  .dm:has(.dm-stage) .dm-ticker { display: none; }
+}
+
+/* Short phones (iPhone SE and friends) have ~145px less than a modern handset.
+   The lot, the bid controls and both budgets all still fit; the art just takes
+   the difference. */
+@media (max-width: 1023px) and (max-height: 720px) {
+  .dm:has(.dm-stage) .dm-head { margin-bottom: 6px; }
+  .dm:has(.dm-stage) .dm-wordmark { font-size: 19px; }
+  .dm:has(.dm-stage) .dm-bidbar { padding: 7px 10px; font-size: 13px; margin-top: 6px; }
+  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(21dvh, 138px); }
+  /* At this card size the prompt overruns the card and collides with the name.
+     The dashed border still marks it tappable, and the card still accepts an
+     upload — only the label goes. */
+  .dm:has(.dm-stage) .dm-portrait-upload { display: none; }
+  .dm:has(.dm-stage) .dm-score { padding: 6px; }
+  .dm:has(.dm-stage) .dm-score-budget { font-size: 17px; }
+  .dm:has(.dm-stage) .dm-roster > .dm-slot { height: 26px; }
 }
 `;

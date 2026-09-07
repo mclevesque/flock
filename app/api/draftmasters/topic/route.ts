@@ -122,7 +122,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const pack = sanitize(JSON.parse(raw), topic, wild);
+      const pack = sanitize(JSON.parse(raw), topic, wild, rate);
       if (!pack || pack.entries.length < 10) {
         lastError = "That topic came back too thin. Try something with more names in it.";
         continue;
@@ -189,14 +189,16 @@ ${
 
 VARIANTS — the "(two hands)" mechanic:
 Give the chosen entries a "variants" array: the same subject in different iconic states, each with its own tier. This is the signature of the game and the part people quote to each other, so every variant must be FUNNY, COOL, or MEANINGFUL — a specific moment, form, era, piece of gear, or crossover fans would recognise:
-- Jaime Lannister -> [{"v":"two hands","t":5},{"v":"one hand","t":3},{"v":"gold hand, drunk","t":2}]
-- Ser Barristan Selmy -> [{"v":"prime, Barristan the Bold","t":5},{"v":"old man","t":3}]
-- Pikachu -> [{"v":"Ash's Pikachu","t":4},{"v":"wild, level 3","t":1}]
-- Master Chief -> [{"v":"on a dragon","t":5},{"v":"no shields","t":3}]
-- Charizard -> [{"v":"Mega Charizard X","t":5},{"v":"still a level 5 Charmander","t":1}]
-- Dracula -> [{"v":"at night","t":5},{"v":"at high noon","t":1}]
+- Jaime Lannister -> [{"v":"two hands","g":"boon"},{"v":"one hand","g":"weakening"},{"v":"gold hand, drunk","g":"crippling"}]
+- Ser Barristan Selmy -> [{"v":"prime, Barristan the Bold","g":"major"},{"v":"old man","g":"weakening"}]
+- Pikachu -> [{"v":"Ash's Pikachu","g":"major"},{"v":"wild, level 3","g":"crippling"}]
+- Master Chief -> [{"v":"on a dragon","g":"mythic"},{"v":"no shields","g":"weakening"}]
+- Charizard -> [{"v":"Mega Charizard X","g":"mythic"},{"v":"still a level 5 Charmander","g":"crippling"}]
+- Dracula -> [{"v":"at night","g":"boon"},{"v":"at high noon","g":"crippling"}]
 NEVER use a bare generic state as a variant: not "wounded", "injured", "tired", "weak", "angry", "old", "young", "damaged" on their own. If a condition matters, name the specific one ("burned leg, feverish", "post-Mustafar", "hand cut off by Vader").
-TIER DELTAS MUST BE PROPORTIONATE. A mild or cosmetic condition costs AT MOST one tier — a wounded Aragorn is still Aragorn, only slightly worse. Only genuinely crippling states (missing sword hand, sealed away, dying, stripped of the thing that makes them powerful) drop two or more tiers. Upside variants (prime, mega form, with their signature weapon) can add one or two.
+THE GRADE MUST POINT THE SAME WAY THE WORDS DO. This is the single most important rule about grades, and getting it backwards is the worst bug in the game: a player reads "sealed away in a coffin" next to an ORANGE chip that promises a big upgrade, and the card is lying to them. Before you write a grade, ask "does this state make them better or worse?" — better is boon/major/mythic, worse is weakening/crippling, and only genuinely does-nothing states are neutral. Never give a handicap a positive grade. Never give a power-up a negative or neutral one.
+GRADES MUST BE PROPORTIONATE. A mild or cosmetic setback is "weakening" — a wounded Aragorn is still Aragorn, only slightly worse. Reserve "crippling" for genuinely gutting states: missing sword hand, sealed away, dying, stripped of the thing that makes them powerful.
+"NEUTRAL" MEANS IT GENUINELY CHANGES NOTHING. A power-up is never neutral. If the words name a stronger form, a signature weapon, a prime era or a legendary state — "Sage Mode", "Ultra Instinct", "prime", "with the One Ring", "full Infinity Gauntlet" — it is AT LEAST a boon, and usually legendary or mythic. Grey is for the wrong hat and the bad mood, nothing more.
 VARIANTS MUST MAKE SENSE IN *THIS* CONTEST. Before you write one, ask what it changes about the thing you decided the format was — a variant that changes nothing is wasted, and a variant about swordsmanship on a cook-off board is a bug.
 - A fight / melee / duel board: variants are about power, gear, injuries, forms. "one hand", "Mega Charizard X", "no shields".
 - A pokemon board: variants are about the creature's competitive state. "shiny, fully EV-trained", "level 3 and wild", "holding a Focus Sash", "asleep on turn one" — never a knife wound.
@@ -206,13 +208,16 @@ VARIANTS MUST MAKE SENSE IN *THIS* CONTEST. Before you write one, ask what it ch
 The tier delta must reflect what the variant does IN THIS CONTEST: a wound that ends a fighter barely dents a pageant contestant, and stage fright that means nothing in a brawl is devastating in front of a panel.
 
 EVERY VARIANT NEEDS A GRADE. "g" says how hard it hits, and it is what the player sees as a colour on the card. Do NOT set "t" — the grade sets the tier for you, so a colour can never lie about what it does.
+The eight grades, worst to best:
 - "crippling" (red): guts them. Missing sword hand, sealed away, dying, stripped of the one thing that makes them powerful.
 - "weakening" (light red): hurts, but they're still themselves. A bad leg, a hangover, out of practice.
 - "neutral" (grey): changes little. Usually just funny — a bad outfit, a terrible mood, the wrong hat.
 - "boon" (green): helps a bit. Well-rested, properly armed, home crowd.
-- "major" (orange): helps a lot. Prime years, signature weapon, a serious upgrade.
-- "mythic" (gold): GAME CHANGING. The prophesied form, the mega evolution, the god-mode moment — it should only lose to another mythic, or to two or three oranges stacked against it.
-OFFER THE BIG ONES FREELY; THE GAME DECIDES HOW OFTEN THEY LAND. You are writing a menu, not a rolled game. Give a "mythic" option to any entry that genuinely has a legendary form, and a "major" to any that has a real upgrade — roughly a quarter of your variant entries should carry one. The draft itself rations them: mythics are budgeted to about one per game and a lot of games see none at all, so a generous menu does NOT make them common in play. What it does do is make the one that lands feel earned.
+- "major" (blue): a real upgrade. Signature weapon in hand, fully prepared, the good era.
+- "legendary" (orange): helps enormously. Prime years at their absolute peak, the famous form fans picture first.
+- "exalted" (deep orange): the best they have short of myth. The final evolution, the fully powered state, the one-night-only performance.
+- "mythic" (purple): GAME CHANGING. The prophesied form, the mega evolution, the god-mode moment — it should only lose to another mythic, or to two or three oranges stacked against it.
+OFFER THE BIG ONES FREELY; THE GAME DECIDES HOW OFTEN THEY LAND. You are writing a menu, not a rolled game. Give a "mythic" option to any entry that genuinely has a legendary form, and a "legendary" or "exalted" to any that has a real peak state — roughly a quarter of your variant entries should carry one. The draft itself rations them: mythics are budgeted to about one per game and a lot of games see none at all, so a generous menu does NOT make them common in play. What it does do is make the one that lands feel earned.
 Still: never invent a legendary form that doesn't exist. If a character has no mythic state, they don't get one.
 GRADE BY WHAT IT DOES IN *THIS* CONTEST, not in the abstract. Stage fright is neutral in a brawl and crippling in front of a panel; a broken arm is crippling in a race and weakening at a bake-off.
 Most variants should still be weakening, neutral or boon — those are the everyday rolls.
@@ -236,7 +241,7 @@ OUTPUT — JSON only, this exact shape:
       "t": number 1-5 (base tier),
       "s": string (REQUIRED whenever the name could be a real person or someone from another franchise — put the franchise here: Jon Snow -> "Game of Thrones", Jin -> "Samurai Champloo", Wolverine the animal -> "Gulo gulo animal". A bare "Jon Snow" image search returns a British newsreader.),
       "wiki": string (REQUIRED on crossover/mixed boards — this entry's own Fandom subdomain, e.g. "gameofthrones", "samuraichamploo", "marvel". Omit only when the board-level wiki already covers this entry, or the entry is real-world.),
-      "variants": [ {"v": string, "g": "crippling" | "weakening" | "neutral" | "boon" | "major" | "mythic"} ]  (OPTIONAL — no "t", the grade sets it) }
+      "variants": [ {"v": string, "g": "crippling" | "weakening" | "neutral" | "boon" | "major" | "legendary" | "exalted" | "mythic"} ]  (OPTIONAL — no "t", the grade sets it) }
   ]
 }
 
@@ -247,7 +252,7 @@ No duplicate names. No commentary outside the JSON.`;
 // The model is good but not trusted — everything gets clamped and de-duped
 // before it reaches the auction engine.
 
-function sanitize(raw: Record<string, unknown>, topic: string, wild: number): Pack | null {
+function sanitize(raw: Record<string, unknown>, topic: string, wild: number, rate: number): Pack | null {
   if (!raw || !Array.isArray(raw.entries)) return null;
 
   const seen = new Set<string>();
@@ -313,6 +318,7 @@ function sanitize(raw: Record<string, unknown>, topic: string, wild: number): Pa
     ...(arenas.length ? { arenas } : {}),
     format,
     variantWild: wild,
+    variantRate: rate,
     id: `custom:${slug(topic)}`,
     name: title,
     emoji: firstEmoji(String(raw.emoji ?? "")) ?? "🎲",

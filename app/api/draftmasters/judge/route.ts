@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getPack } from "@/lib/draftmasters/packs";
 import { offlineVerdict, type Side } from "@/lib/draftmasters/engine";
 import { DRAFT_MODEL } from "@/lib/draftmasters/model";
-import { formatMenu, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
+import { formatMenu, getFormat, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
+import { argumentBriefing, type ArgumentRuling } from "@/lib/draftmasters/arguments";
 import { scoutRoster, scoutingReport } from "@/lib/draftmasters/lore";
 
 /**
@@ -33,6 +34,11 @@ interface JudgeRequest {
   packId?: string;
   pack?: { name: string; scenario: string; criteria: string; wiki?: string; format?: string };
   sides: Side[];
+  /**
+   * The panel's ruling on the pre-battle arguments, when that mode is on.
+   * Only the ACCEPTED points reach the prompt — see argumentBriefing.
+   */
+  rulings?: ArgumentRuling[];
 }
 
 interface SideNote {
@@ -91,6 +97,10 @@ export async function POST(req: Request) {
         .join("\n\n");
 
       const hint = body.pack?.format ?? preset?.format;
+      const argued = argumentBriefing(
+        body.rulings ?? [],
+        (id) => sides.find((s) => s.id === id)?.name ?? id
+      );
 
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -114,6 +124,7 @@ export async function POST(req: Request) {
                 (hint ? `The board was built as a "${hint}" contest — check that against the scenario before you commit.\n` : "") +
                 `\n${rosterText}\n\n` +
                 (report ? `${report}\n\n` : "") +
+                (argued ? `${argued}\n` : "") +
                 `Note: a name in parentheses is that character's condition and it is binding — "Jaime Lannister (one hand)" really does only have one hand. The bracket after it says how heavily that condition weighs, and you must respect it: a MYTHIC state should decide the contest almost on its own, a CRIPPLING one should visibly cost them, and a flavour-only one changes nothing but the jokes.\n\n` +
                 `Work out the format first, then decide. Use the exact id string for winnerId and sideId.`,
             },
@@ -136,6 +147,12 @@ export async function POST(req: Request) {
         const parsed = JSON.parse(raw);
         const validId = sides.some((s) => s.id === parsed.winnerId);
         if (validId && parsed.headline && parsed.reasoning) {
+          const plan = sanitizePlan(parsed.plan);
+          // When the AI omits howItWorks, fall back to the format's judging brief
+          // so the breakdown panel always has something to show.
+          if (!plan.howItWorks) {
+            plan.howItWorks = getFormat(plan.format).judging.slice(0, 320);
+          }
           const verdict: Verdict = {
             winnerId: parsed.winnerId,
             headline: String(parsed.headline).slice(0, 80),
@@ -157,7 +174,7 @@ export async function POST(req: Request) {
                       : [],
                   }))
               : [],
-            plan: sanitizePlan(parsed.plan),
+            plan,
             judged: "ai",
           };
           return NextResponse.json(verdict);
@@ -170,7 +187,79 @@ export async function POST(req: Request) {
 
   // ── Offline fallback ──────────────────────────────────────────────────────
   const off = offlineVerdict(sides);
+
+  /**
+   * Accepted argument weight, as a multiplier on raw power.
+   *
+   * The offline scorer only knows tiers, so without this an argument would
+   * silently count for nothing whenever Groq is down — the player would type
+   * a case, watch the panel accept it, and see it change nothing. 20/20 (the
+   * cap) is worth a 30% swing: enough to turn a close draft, never enough to
+   * beat a roster that was genuinely twice as strong.
+   */
+  const swayFor = (sideId: string): number => {
+    const r = (body.rulings ?? []).find((x) => x.sideId === sideId);
+    return 1 + Math.min(20, Math.max(0, r?.totalSway ?? 0)) * 0.015;
+  };
+
+  const argued2 = off.scores.map((s) => ({ sideId: s.sideId, power: s.power * swayFor(s.sideId) }));
+  const swayedWinner = [...argued2].sort((a, b) => b.power - a.power)[0]?.sideId ?? off.winnerId;
+  if (swayedWinner !== off.winnerId) {
+    off.winnerId = swayedWinner;
+    // Replaced, not appended: the original line quotes the raw power totals
+    // and names the other side, so keeping it would have the verdict arguing
+    // against its own winner.
+    off.reasoning =
+      "On raw power this was the other way round — but the panel accepted the case that was made, " +
+      "and the argument is what turned it.";
+  }
   const winner = sides.find((s) => s.id === off.winnerId);
+
+  // Score relative to each team's share of total power, so winner always
+  // shows higher than loser and the display is never a misleading 100/100.
+  // Scored on the swayed power, so the number shown agrees with the winner.
+  const totalPower = argued2.reduce((s, r) => s + r.power, 0);
+  const relScore = (power: number) => totalPower > 0 ? Math.round((power / totalPower) * 100) : 50;
+  const winnerPower = argued2.find((s) => s.sideId === off.winnerId)?.power ?? 0;
+  const loserPower = argued2.find((s) => s.sideId !== off.winnerId)?.power ?? 0;
+  const winnerRel = relScore(winnerPower);
+  const loserRel = relScore(loserPower);
+  // Guarantee winner's displayed score strictly exceeds loser's.
+  const winnerScore = Math.max(winnerRel, loserRel + 1);
+  const loserScore = Math.min(loserRel, winnerRel - 1);
+
+  // Build a plan from the tier data so the breakdown panel always has content.
+  const winSide = sides.find((s) => s.id === off.winnerId)!;
+  const losSide = sides.find((s) => s.id !== off.winnerId)!;
+  const wTop = [...winSide.roster].sort((a, b) => b.tier - a.tier);
+  const lTop = [...losSide.roster].sort((a, b) => b.tier - a.tier);
+  const offMatchups: ContestPlan["matchups"] = [];
+  for (let i = 0; i < Math.min(3, wTop.length, lTop.length); i++) {
+    const w = wTop[i], l = lTop[i];
+    const note =
+      w.tier > l.tier
+        ? `${w.name} has the edge — tier ${w.tier} vs tier ${l.tier}`
+        : w.tier === l.tier
+        ? `${w.name} and ${l.name} are evenly matched — a coin flip`
+        : `${l.name} has the edge here (tier ${l.tier} vs ${w.tier}), but ${winSide.name} compensates elsewhere`;
+    offMatchups.push({ a: w.name, b: l.name, note });
+  }
+  const margin = winnerPower - loserPower;
+  const offPlan: ContestPlan = {
+    format: "melee",
+    formatLabel: "Power ranking",
+    howItWorks: `Each pick is scored by tier raised to the 1.7 power — a single top-tier pick outweighs several mid-tiers. ${winSide.name} scored ${winnerPower} against ${losSide.name}'s ${loserPower}.`,
+    decidedBy:
+      margin < 3
+        ? ["Fine margin at the top", "Depth across the board", "Tiebreaker on strongest pick"]
+        : margin < 12
+        ? ["Top pick advantage", "Tier-weighted roster depth"]
+        : ["Dominant tier advantage", "Roster depth"],
+    panel: [],
+    matchups: offMatchups,
+    twists: [],
+  };
+
   const verdict: Verdict = {
     winnerId: off.winnerId,
     headline: `${winner?.name ?? "The winner"} takes it`,
@@ -178,16 +267,17 @@ export async function POST(req: Request) {
     sideNotes: off.scores.map((sc) => {
       const side = sides.find((s) => s.id === sc.sideId)!;
       const sorted = [...side.roster].sort((a, b) => b.tier - a.tier);
+      const isWinner = sc.sideId === off.winnerId;
       return {
         sideId: sc.sideId,
-        score: Math.min(100, Math.round(sc.power * 2)),
+        score: isWinner ? winnerScore : loserScore,
         mvp: sorted[0]?.name ?? "—",
         bust: sorted[sorted.length - 1]?.name ?? "—",
         note: `${sc.power} roster power across ${side.roster.length} pick${side.roster.length === 1 ? "" : "s"}.`,
-        // Offline: contribution tracks tier — a 5 carried, a 1 rode the bench.
         picks: side.roster.map((p) => ({ name: p.name, contribution: Math.max(0, Math.min(10, p.tier * 2)) })),
       };
     }),
+    plan: offPlan,
     judged: "offline",
   };
   return NextResponse.json(verdict);
@@ -268,7 +358,7 @@ REPLY WITH ONLY JSON:
   "reasoning": string (3-5 sentences — name the format, the decisive matchup and the bias or twist that settled it),
   "sideNotes": [{
     "sideId": string,
-    "score": number 0-100,
+    "score": number 0-100 (the two scores MUST differ — winner's score must be at least 5 higher than the loser's),
     "mvp": string (a drafted name),
     "bust": string (a drafted name),
     "note": string (one sentence),

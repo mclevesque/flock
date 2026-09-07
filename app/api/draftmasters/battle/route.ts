@@ -50,6 +50,51 @@ export interface BattleBeat {
   eliminated?: string[];
 }
 
+/** How much one drafted pick mattered to the result, 0–10. */
+interface PickContribution {
+  name: string;
+  contribution: number;
+}
+
+interface SideNote {
+  sideId: string;
+  score: number;
+  mvp: string;
+  bust: string;
+  note: string;
+  picks?: PickContribution[];
+}
+
+/**
+ * Turn the judge's per-pick scoring into casting instructions.
+ *
+ * Without this the writer only knows who won, so it picks its own hero — and
+ * roughly half the time that is the pick the verdict screen is calling a bust
+ * two inches away.
+ */
+function castNotes(sides: Side[], notes: SideNote[] | undefined): string {
+  if (!notes?.length) return "";
+  const lines: string[] = [];
+  for (const s of sides) {
+    const n = notes.find((x) => x.sideId === s.id);
+    if (!n) continue;
+    const bits: string[] = [];
+    if (n.mvp) bits.push(`MVP is ${n.mvp} — give them the moment that decides it`);
+    if (n.bust) bits.push(`${n.bust} was the bust — show them outclassed or contributing nothing`);
+    const decisive = (n.picks ?? []).filter((p) => p.contribution >= 7).map((p) => p.name);
+    const bystanders = (n.picks ?? []).filter((p) => p.contribution <= 2).map((p) => p.name);
+    if (decisive.length) bits.push(`carried the day: ${decisive.join(", ")} — these should recur across beats`);
+    if (bystanders.length) bits.push(`barely mattered: ${bystanders.join(", ")} — keep them in the background`);
+    if (bits.length) lines.push(`  ${s.name}: ${bits.join(". ")}.`);
+  }
+  if (!lines.length) return "";
+  return (
+    `WHO ACTUALLY DID THE WORK. The judge has already scored every pick and the ` +
+    `player is reading that scorecard beside your fight, so never contradict it — ` +
+    `never let a bust win the day, and never sideline an MVP:\n${lines.join("\n")}\n\n`
+  );
+}
+
 interface BattleRequest {
   packId?: string;
   pack?: { name: string; scenario: string; criteria: string; format?: string };
@@ -58,6 +103,16 @@ interface BattleRequest {
   reasoning?: string;
   /** The judge's read on the contest — see /api/draftmasters/judge */
   plan?: ContestPlan;
+  /**
+   * The judge's per-side scoring: who carried, who was dead weight, and how
+   * much each individual pick was worth.
+   *
+   * The winner alone was never enough to keep the two screens honest. The
+   * verdict would name a pick as the bust and the fight would then hand that
+   * same pick the heroic moment, so the show quietly contradicted the
+   * reasoning printed right next to it.
+   */
+  sideNotes?: SideNote[];
 }
 
 export async function POST(req: Request) {
@@ -112,6 +167,7 @@ export async function POST(req: Request) {
                 `TEAM "${winner.name}" [id: ${winner.id}] — THIS TEAM WINS:\n${roster(winner)}\n\n` +
                 `TEAM "${loser.name}" [id: ${loser.id}] — this team loses:\n${roster(loser)}\n\n` +
                 (body.reasoning ? `The judge's reasoning, which your show must agree with: ${body.reasoning}\n\n` : "") +
+                castNotes(sides, body.sideNotes) +
                 `Write it. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
             },
           ],
