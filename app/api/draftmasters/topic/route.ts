@@ -9,7 +9,7 @@ import {
   type Variant,
   type VariantGrade,
 } from "@/lib/draftmasters/packs";
-import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { formatMenu, getFormat } from "@/lib/draftmasters/contest";
 
 /**
@@ -70,8 +70,7 @@ export async function POST(req: Request) {
   const count = Math.max(16, Math.min(32, body?.count ?? 26));
   const rate = dial(body?.variantRate);
   const wild = dial(body?.variantWild);
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
+  if (!hasAnyProvider()) {
     return NextResponse.json({ error: "Topic generation is unavailable right now." }, { status: 503 });
   }
 
@@ -87,42 +86,17 @@ export async function POST(req: Request) {
 
   for (const attempt of attempts) {
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: DRAFT_MODEL,
-          max_tokens: 12000,
-          // Medium, not low: the board is built once behind a loading screen,
-          // and the extra think-time buys sharper qualifier filtering and
-          // variants people actually quote. Worth a few more seconds.
-          reasoning_effort: "medium",
-          temperature: attempt.temperature,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt(rate, wild) },
-            {
-              role: "user",
-              content: `Build a draft board of exactly ${attempt.count} entries for this topic:\n\n"${topic}"\n\nRemember: every single entry must satisfy the topic AS WORDED, including any qualifier in it.`,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(40000),
+      const { data: raw } = await callModelJson<Record<string, unknown>>({
+        system: systemPrompt(rate, wild),
+        user: `Build a draft board of exactly ${attempt.count} entries for this topic:\n\n"${topic}"\n\nRemember: every single entry must satisfy the topic AS WORDED, including any qualifier in it.`,
+        // The board is built once behind a loading screen, so this is the one
+        // call worth spending real tokens on.
+        maxTokens: 12000,
+        temperature: attempt.temperature,
+        timeoutMs: 40000,
       });
 
-      if (!res.ok) {
-        lastError = "Could not build that board. Try rewording it.";
-        continue;
-      }
-
-      const data = await res.json();
-      const raw = data?.choices?.[0]?.message?.content;
-      if (!raw) {
-        lastError = "The board came back empty. Try again.";
-        continue;
-      }
-
-      const pack = sanitize(JSON.parse(raw), topic, wild, rate);
+      const pack = sanitize(raw, topic, wild, rate);
       if (!pack || pack.entries.length < 10) {
         lastError = "That topic came back too thin. Try something with more names in it.";
         continue;

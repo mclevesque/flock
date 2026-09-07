@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { getFormat } from "@/lib/draftmasters/contest";
 import { ARGUMENT_MAX, cleanArgument, sanitizeRulings, type ArgumentRuling } from "@/lib/draftmasters/arguments";
 import type { Side } from "@/lib/draftmasters/engine";
@@ -46,66 +46,44 @@ export async function POST(req: Request) {
 
   const pack = body?.pack ?? { name: "the draft", scenario: "Two rosters face off.", criteria: "Overall quality." };
   const format = getFormat(pack.format);
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (apiKey) {
+  if (hasAnyProvider()) {
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: DRAFT_MODEL,
-          max_tokens: 3000,
-          reasoning_effort: "medium",
-          temperature: 0.6,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt() },
-            {
-              role: "user",
-              content:
-                `SCENARIO: ${pack.scenario}\n` +
-                `WHAT DECIDES IT: ${pack.criteria}\n` +
-                `THIS IS A "${format.id}" CONTEST — ${format.label}. ${format.judging}\n\n` +
-                sides
-                  .map((s) => {
-                    const mine = submitted.find((a) => a.sideId === s.id);
-                    return (
-                      `TEAM "${s.name}" [id: ${s.id}]:\n${roster(s)}\n` +
-                      (mine
-                        ? `  THEIR ARGUMENT: "${mine.text}"\n`
-                        : `  THEY DID NOT WRITE ONE${s.isNpc ? " — write a short, in-character case for them first, then rule on it as you would any other." : " — return them a ruling with no claims and a summary saying they stayed silent."}\n`)
-                    );
-                  })
-                  .join("\n") +
-                `\nRule on every team listed above. Use the exact side ids.`,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(40000),
+      const { data: parsed, provider } = await callModelJson<{ rulings?: unknown }>({
+        system: systemPrompt(),
+        user:
+          `SCENARIO: ${pack.scenario}\n` +
+          `WHAT DECIDES IT: ${pack.criteria}\n` +
+          `THIS IS A "${format.id}" CONTEST — ${format.label}. ${format.judging}\n\n` +
+          sides
+            .map((s) => {
+              const mine = submitted.find((a) => a.sideId === s.id);
+              return (
+                `TEAM "${s.name}" [id: ${s.id}]:\n${roster(s)}\n` +
+                (mine
+                  ? `  THEIR ARGUMENT: "${mine.text}"\n`
+                  : `  THEY DID NOT WRITE ONE${s.isNpc ? " — write a short, in-character case for them first, then rule on it as you would any other." : " — return them a ruling with no claims and a summary saying they stayed silent."}\n`)
+              );
+            })
+            .join("\n") +
+          `\nRule on every team listed above. Use the exact side ids.`,
+        maxTokens: 3000,
+        temperature: 0.6,
+        timeoutMs: 40000,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data?.choices?.[0]?.message?.content;
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const rulings = sanitizeRulings(parsed?.rulings, ids);
-          if (rulings.length) {
-            // The model echoes back what it read; make sure what we show the
-            // player is what the player actually typed.
-            for (const r of rulings) {
-              const mine = submitted.find((a) => a.sideId === r.sideId);
-              if (mine) r.argument = mine.text;
-            }
-            return NextResponse.json({ rulings, ruled: "ai" });
-          }
+      const rulings = sanitizeRulings(parsed?.rulings, ids);
+      if (rulings.length) {
+        // The model echoes back what it read; make sure what we show the
+        // player is what the player actually typed.
+        for (const r of rulings) {
+          const mine = submitted.find((a) => a.sideId === r.sideId);
+          if (mine) r.argument = mine.text;
         }
-      } else {
-        console.error("[draftmasters/argue] Groq said", res.status);
+        console.log("[draftmasters/argue] ruled by", provider);
+        return NextResponse.json({ rulings, ruled: "ai" });
       }
     } catch (e) {
-      console.error("[draftmasters/argue] failed", e);
+      console.error("[draftmasters/argue] every provider failed", e);
     }
   }
 

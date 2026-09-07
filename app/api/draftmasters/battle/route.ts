@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPack } from "@/lib/draftmasters/packs";
-import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { getFormat, planBriefing, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
 import type { Side } from "@/lib/draftmasters/engine";
 
@@ -134,63 +134,42 @@ export async function POST(req: Request) {
   const plan = body.plan ? sanitizePlan(body.plan) : null;
   const format = getFormat(plan?.format ?? body.pack?.format ?? preset?.format);
 
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (apiKey && pack) {
+  if (hasAnyProvider() && pack) {
     try {
       const roster = (s: Side) =>
         s.roster.length
           ? s.roster.map(pickLine).join("\n")
           : "  - (nobody)";
 
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: DRAFT_MODEL,
-          max_tokens: 9000,
-          // Low was fine when every board was a melee. Staging an unfamiliar
-          // format correctly — turn order, a scorecard, a heist going wrong —
-          // needs a little actual thought, and it happens once behind a bar.
-          reasoning_effort: "medium",
-          temperature: 0.95,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt(format.id) },
-            {
-              role: "user",
-              content:
-                `SCENARIO: ${pack.scenario}\n\n` +
-                `${plan ? `${planBriefing(plan)}\n\n` : `FORMAT: ${format.id} — ${format.label}\n\n`}` +
-                `HOW TO STAGE A "${format.id}" CONTEST:\n${format.staging}\n` +
-                `When someone goes out, they are ${format.outLabel.toLowerCase()} — never describe it as anything else.\n\n` +
-                `TEAM "${winner.name}" [id: ${winner.id}] — THIS TEAM WINS:\n${roster(winner)}\n\n` +
-                `TEAM "${loser.name}" [id: ${loser.id}] — this team loses:\n${roster(loser)}\n\n` +
-                (body.reasoning ? `The judge's reasoning, which your show must agree with: ${body.reasoning}\n\n` : "") +
-                castNotes(sides, body.sideNotes) +
-                `Write it. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(50000),
+      const { data: raw, provider } = await callModelJson<Record<string, unknown>>({
+        system: systemPrompt(format.id),
+        user:
+          `SCENARIO: ${pack.scenario}\n\n` +
+          `${plan ? `${planBriefing(plan)}\n\n` : `FORMAT: ${format.id} — ${format.label}\n\n`}` +
+          `HOW TO STAGE A "${format.id}" CONTEST:\n${format.staging}\n` +
+          `When someone goes out, they are ${format.outLabel.toLowerCase()} — never describe it as anything else.\n\n` +
+          `TEAM "${winner.name}" [id: ${winner.id}] — THIS TEAM WINS:\n${roster(winner)}\n\n` +
+          `TEAM "${loser.name}" [id: ${loser.id}] — this team loses:\n${roster(loser)}\n\n` +
+          (body.reasoning ? `The judge's reasoning, which your show must agree with: ${body.reasoning}\n\n` : "") +
+          castNotes(sides, body.sideNotes) +
+          `Write it. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
+        maxTokens: 9000,
+        temperature: 0.95,
+        timeoutMs: 50000,
       });
 
-      if (!res.ok) console.error("[draftmasters/battle] Groq said", res.status);
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data?.choices?.[0]?.message?.content;
-        if (raw) {
-          const beats = sanitize(JSON.parse(raw), sides, winner.id);
-          if (beats.length >= 3) {
-            return NextResponse.json({
-              beats,
-              winnerId: winner.id,
-              scripted: "ai",
-              format: format.id,
-              formatLabel: plan?.formatLabel || format.label,
-              outLabel: format.outLabel,
-            });
-          }
+      {
+        const beats = sanitize(raw, sides, winner.id);
+        if (beats.length >= 3) {
+          console.log("[draftmasters/battle] staged by", provider);
+          return NextResponse.json({
+            beats,
+            winnerId: winner.id,
+            scripted: "ai",
+            format: format.id,
+            formatLabel: plan?.formatLabel || format.label,
+            outLabel: format.outLabel,
+          });
         }
       }
     } catch (err) {

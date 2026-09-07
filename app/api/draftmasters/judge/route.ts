@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPack } from "@/lib/draftmasters/packs";
 import { offlineVerdict, type Side } from "@/lib/draftmasters/engine";
-import { DRAFT_MODEL } from "@/lib/draftmasters/model";
+import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { formatMenu, getFormat, sanitizePlan, type ContestPlan } from "@/lib/draftmasters/contest";
 import { argumentBriefing, type ArgumentRuling } from "@/lib/draftmasters/arguments";
 import { scoutRoster, scoutingReport } from "@/lib/draftmasters/lore";
@@ -71,8 +71,7 @@ export async function POST(req: Request) {
   const sides = body.sides;
   const wiki = body.pack?.wiki ?? preset?.wiki;
 
-  const apiKey = process.env.GROQ_API_KEY;
-  if (apiKey && pack) {
+  if (hasAnyProvider() && pack) {
     try {
       // ── Look it up first ────────────────────────────────────────────────
       // Best-effort and time-boxed; an empty report just means we reason the
@@ -102,49 +101,25 @@ export async function POST(req: Request) {
         (id) => sides.find((s) => s.id === id)?.name ?? id
       );
 
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: DRAFT_MODEL,
-          max_tokens: 9000,
-          // Medium, not low: a verdict people argue about deserves an actual
-          // war-game of the matchup, not a vibe. Costs a few seconds once.
-          reasoning_effort: "medium",
-          temperature: 0.6,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt() },
-            {
-              role: "user",
-              content:
-                `DRAFT TOPIC: ${pack.name}\n` +
-                `SCENARIO: ${pack.scenario}\n` +
-                `JUDGING CRITERIA: ${pack.criteria}\n` +
-                (hint ? `The board was built as a "${hint}" contest — check that against the scenario before you commit.\n` : "") +
-                `\n${rosterText}\n\n` +
-                (report ? `${report}\n\n` : "") +
-                (argued ? `${argued}\n` : "") +
-                `Note: a name in parentheses is that character's condition and it is binding — "Jaime Lannister (one hand)" really does only have one hand. The bracket after it says how heavily that condition weighs, and you must respect it: a MYTHIC state should decide the contest almost on its own, a CRIPPLING one should visibly cost them, and a flavour-only one changes nothing but the jokes.\n\n` +
-                `Work out the format first, then decide. Use the exact id string for winnerId and sideId.`,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(50000),
+      const { data: parsed, provider } = await callModelJson<Record<string, unknown>>({
+        system: systemPrompt(),
+        user:
+          `DRAFT TOPIC: ${pack.name}\n` +
+          `SCENARIO: ${pack.scenario}\n` +
+          `JUDGING CRITERIA: ${pack.criteria}\n` +
+          (hint ? `The board was built as a "${hint}" contest — check that against the scenario before you commit.\n` : "") +
+          `\n${rosterText}\n\n` +
+          (report ? `${report}\n\n` : "") +
+          (argued ? `${argued}\n` : "") +
+          `Note: a name in parentheses is that character's condition and it is binding — "Jaime Lannister (one hand)" really does only have one hand. The bracket after it says how heavily that condition weighs, and you must respect it: a MYTHIC state should decide the contest almost on its own, a CRIPPLING one should visibly cost them, and a flavour-only one changes nothing but the jokes.\n\n` +
+          `Work out the format first, then decide. Use the exact id string for winnerId and sideId.`,
+        maxTokens: 9000,
+        temperature: 0.6,
+        timeoutMs: 50000,
       });
 
-      const data = await res.json();
-      const raw = data?.choices?.[0]?.message?.content;
-      // Silent fall-through used to make a rate-limited or retired model look
-      // exactly like a working offline scorer. Say which it was.
-      if (!raw) {
-        console.error("[draftmasters/judge] no content from Groq", {
-          status: res.status,
-          error: data?.error?.message ?? data?.error ?? null,
-        });
-      }
-      if (raw) {
-        const parsed = JSON.parse(raw);
+      {
+        console.log("[draftmasters/judge] judged by", provider);
         const validId = sides.some((s) => s.id === parsed.winnerId);
         if (validId && parsed.headline && parsed.reasoning) {
           const plan = sanitizePlan(parsed.plan);
@@ -154,7 +129,7 @@ export async function POST(req: Request) {
             plan.howItWorks = getFormat(plan.format).judging.slice(0, 320);
           }
           const verdict: Verdict = {
-            winnerId: parsed.winnerId,
+            winnerId: String(parsed.winnerId),
             headline: String(parsed.headline).slice(0, 80),
             reasoning: String(parsed.reasoning).slice(0, 1200),
             sideNotes: Array.isArray(parsed.sideNotes)

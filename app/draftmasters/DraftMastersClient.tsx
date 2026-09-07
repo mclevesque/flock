@@ -119,7 +119,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
    * Pre-battle arguments. When on, the draft finishing opens one sealed box
    * per player instead of going straight to the verdict — see ArgumentScreen.
    */
-  const [argumentsOn, setArgumentsOn] = useState(false);
+  const [argumentsOn, setArgumentsOn] = useState(true);
   const [rulings, setRulings] = useState<ArgumentRuling[]>([]);
   const [arguing, setArguing] = useState(false);
   const [argSubmitted, setArgSubmitted] = useState<string[]>([]);

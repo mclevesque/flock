@@ -922,7 +922,60 @@ export const STYLES = `
 .dm-args-claim { font-size: 14px; font-weight: 650; }
 .dm-args-reason { font-size: 12.5px; color: var(--dm-dim); line-height: 1.45; }
 
-.dm-toggle { width: 100%; margin-top: 12px; text-align: left; }
+/* A mode switch, not another option chip — it changes the shape of the game,
+   so it gets a state dot and its own weight instead of sitting quietly at the
+   bottom of the topic section where it was being missed entirely. */
+.dm-toggle {
+  width: 100%; margin-top: 14px; text-align: left;
+  display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center;
+  padding: 14px 16px;
+}
+.dm-toggle::before {
+  content: ""; grid-row: 1 / 3;
+  width: 42px; height: 24px; border-radius: 999px;
+  border: 1px solid var(--dm-line-hot); background: var(--dm-panel-2);
+  position: relative; transition: background .18s ease, border-color .18s ease;
+}
+.dm-toggle::after {
+  content: ""; position: absolute; margin-left: 5px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--dm-mute); transition: transform .18s ease, background .18s ease;
+}
+.dm-toggle[data-on="1"]::before { background: rgba(212,169,66,.22); border-color: var(--dm-gold); }
+.dm-toggle[data-on="1"]::after { transform: translateX(18px); background: var(--dm-gold); }
+.dm-toggle .dm-seg-label { grid-column: 2; }
+.dm-toggle .dm-seg-note { grid-column: 2; }
+
+/* ── Live auction: no title bar ───────────────────────────────────────────
+   The wordmark is a title card. Once the draft is running you know what game
+   you are in, and the bar was spending a full band of height — the widest
+   thing on the screen — to tell you again. The two controls that did earn
+   their place (mute, and the way out) lift out of the flow into the corner,
+   which hands that whole band back to the table.
+
+   Scoped with :has(.dm-stage), so the setup and prep screens keep the title. */
+
+.dm:has(.dm-stage) .dm-wordmark,
+.dm:has(.dm-stage) .dm-tagline { display: none; }
+.dm:has(.dm-stage) .dm-head {
+  position: absolute; top: 10px; right: 14px; z-index: 6;
+  width: auto; margin: 0; gap: 6px;
+}
+/* Lifting the controls out of the flow means nothing reserves their space, so
+   the lot bar ran underneath them. This is the band they now occupy — ~50px
+   against the ~120px the full title bar was taking. */
+.dm:has(.dm-stage) { padding-top: 50px; }
+.dm:has(.dm-stage) .dm-head-actions .dm-btn {
+  min-height: 34px; padding: 6px 11px; font-size: 12.5px;
+}
+.dm:has(.dm-stage) .dm-head-actions .dm-btn-icon { min-width: 34px; padding: 6px; }
+
+/* min-height:100dvh measures the whole screen, but .dm starts below the site
+   nav — so it reserved a screenful of empty scroll under the table. Let the
+   content set the height at every width; the table is meant to be seen in one
+   glance, and dead scroll under it invites you to go looking for more. */
+.dm:has(.dm-stage) { min-height: 0; }
+main.min-h-screen:has(.dm-stage) { min-height: 0; }
 
 /* ── Arena layout (desktop only) ───────────────────────────────────────────
    A poker table. The two players face each other across the middle, each
@@ -944,13 +997,12 @@ export const STYLES = `
 
 @media (min-width: 1024px) {
   .dm-stage[data-arena="1"] {
-    grid-template-columns: minmax(176px, 230px) minmax(380px, 1fr) minmax(176px, 230px);
+    grid-template-columns: minmax(196px, 248px) minmax(420px, 1fr) minmax(196px, 248px);
     grid-template-areas:
       "roster-top    roster-top    roster-top"
       "seat-left     center        seat-right"
-      ".             ticker        ."
       "roster-bottom roster-bottom roster-bottom";
-    gap: 14px 22px;
+    gap: 16px 26px;
     align-items: start;
   }
 
@@ -965,44 +1017,57 @@ export const STYLES = `
   .dm-stage[data-arena="1"] .dm-score[data-seat="me"]   > .dm-roster { grid-area: roster-bottom; }
   .dm-stage[data-arena="1"] .dm-score[data-seat="them"] > .dm-seat   { grid-area: seat-right; }
   .dm-stage[data-arena="1"] .dm-score[data-seat="them"] > .dm-roster { grid-area: roster-top; }
-  .dm-stage[data-arena="1"] .dm-stage-rail > .dm-ticker {
-    grid-area: ticker; margin: 0; max-height: 96px;
-  }
+  /* The ticker sat between the table and the bench as a wide, usually-empty
+     bar. Every event it carries is already announced on the lot itself, so it
+     was spending a whole band to repeat things. */
+  .dm-stage[data-arena="1"] .dm-stage-rail > .dm-ticker { display: none; }
 
-  /* The centre and the edges both play shorter here: four bands stacked in one
-     column eat height fast, and the table wants to read in a single glance.
+  /* The centre is the lot beside the bidding, in two EQUAL columns.
 
-     So the centre splits in two — the lot card on the left, the price and the
-     bid controls beside it — using the two display:contents wrappers, which
-     leave the narrow-screen DOM (and its single column) exactly as it was. */
+     The original put a narrow card left and wide controls right at different
+     heights, which left an L-shaped hole under the buttons — that is what
+     read as lopsided. Stacking them instead fixed the symmetry but doubled
+     the centre to 712px and pushed your own bench off the bottom of the
+     screen, which is worse.
+
+     Equal columns, both stretched to the same height, fix both at once: the
+     halves mirror each other so there is no corner left over, and the centre
+     stays about as tall as its tallest single element instead of the sum. */
   .dm-stage[data-arena="1"] .dm-stage-main {
     display: grid;
-    grid-template-columns: minmax(150px, 264px) minmax(250px, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
       "lotbar lotbar"
       "card   actions";
-    column-gap: 18px;
-    align-content: start;
+    column-gap: 20px; row-gap: 10px;
+    align-items: stretch;
   }
-  .dm-stage[data-arena="1"] .dm-stage-main > .dm-lotbar { grid-area: lotbar; }
+  .dm-stage[data-arena="1"] .dm-stage-main > .dm-lotbar {
+    grid-area: lotbar; width: 100%; margin: 0;
+  }
   .dm-stage[data-arena="1"] .dm-stage-main > .dm-lot-card {
-    grid-area: card; display: block; min-width: 0;
+    grid-area: card;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    min-width: 0; gap: 9px;
   }
+  /* Centred against the card's mass rather than pinned to the top, so the two
+     halves read as a matched pair however tall the portrait comes out. */
   .dm-stage[data-arena="1"] .dm-stage-main > .dm-lot-actions {
-    grid-area: actions; align-self: start; min-width: 0;
-    display: flex; flex-direction: column; gap: 10px;
+    grid-area: actions;
+    display: flex; flex-direction: column; justify-content: center; gap: 10px;
+    min-width: 0;
   }
-  /* Here the column decides the width and aspect-ratio derives the height —
-     the reverse of the phone rule above. In a fixed-width track a
-     height-driven card just overflows sideways into the bid controls. */
+  /* Height-driven so the card keeps its portrait shape and the column width
+     stops mattering — a width-driven card in a flexible track gets taller as
+     the window widens and shoves the buttons off the bottom of the screen. */
   .dm-stage[data-arena="1"] .dm-lot-card > .dm-portrait-wrap {
-    width: 100%; height: auto; max-width: none; margin: 0;
+    width: auto; height: min(30vh, 268px); max-width: 100%; margin: 0;
   }
   .dm-stage[data-arena="1"] .dm-lot-card > .dm-photo-fb {
-    max-width: none; flex-wrap: wrap; gap: 5px;
+    max-width: none; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 0;
   }
   .dm-stage[data-arena="1"] .dm-lot-card > .dm-photo-fb .dm-btn {
-    padding: 6px 9px; font-size: 12px;
+    padding: 5px 10px; font-size: 12px; min-height: 30px;
   }
   .dm-stage[data-arena="1"] .dm-lot-actions > .dm-bidbar { margin: 0; max-width: none; }
   .dm-stage[data-arena="1"] .dm-lot-actions > .dm-controls { margin: 0; max-width: none; }
@@ -1044,6 +1109,10 @@ export const STYLES = `
     box-shadow: inset 0 0 0 3px var(--dm-green);
   }
 
+  /* A seat is a face and a number. The line under the money repeated the
+     roster count that the bench below already shows and the max bid that the
+     budget above already implies, so it went — leaving the feed as the thing
+     the eye lands on, which is what it needs to be once a camera is in it. */
   .dm-stage[data-arena="1"] .dm-seat .dm-score-top { display: block; text-align: center; }
   .dm-stage[data-arena="1"] .dm-seat .dm-score-name { font-size: 15px; }
   .dm-stage[data-arena="1"] .dm-seat .dm-turn-pill {
@@ -1052,31 +1121,64 @@ export const STYLES = `
   .dm-stage[data-arena="1"] .dm-seat .dm-score-budget {
     text-align: center; font-size: 32px; margin-top: 10px;
   }
-  .dm-stage[data-arena="1"] .dm-seat .dm-score-meta { text-align: center; }
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-meta { display: none; }
 
   /* ── Edge strips ───────────────────────────────────────────────────── */
 
+  /* The bench cards are the point of the top and bottom bands — they are what
+     you actually study while deciding what to bid. At 68px they were chips in
+     a mostly-empty panel; at this size they read as a hand of cards and the
+     band stops looking like padding. */
   .dm-stage[data-arena="1"] .dm-roster {
     position: relative;
-    margin: 0; padding: 10px 18px;
-    justify-content: center; align-items: center; gap: 10px;
-    border: 1px solid var(--dm-line); border-radius: 14px;
+    margin: 0; padding: 13px 18px;
+    justify-content: center; align-items: center; gap: 12px;
+    border: 1px solid var(--dm-line); border-radius: 16px;
     background: var(--dm-panel);
     transition: border-color .2s ease;
   }
   .dm-stage[data-arena="1"] .dm-roster[data-turn="1"] { border-color: rgba(212,169,66,.45); }
-  .dm-stage[data-arena="1"] .dm-roster > .dm-slot { flex: 0 0 68px; }
+  /* Sized off viewport HEIGHT, not width. These are 3:4 cards, so a width
+     clamp sets the height too — on a short window two benches at 200px each
+     plus the table simply will not fit, and your own bench slides off the
+     bottom. Tying them to vh keeps all three bands on screen. */
+  .dm-stage[data-arena="1"] .dm-roster > .dm-slot {
+    flex: 0 0 clamp(74px, 13vh, 128px);
+    border-radius: 11px;
+  }
   /* Your own bench sits nearest the reader, so it reads a size larger. */
-  .dm-stage[data-arena="1"] .dm-score[data-seat="me"] > .dm-roster > .dm-slot { flex: 0 0 80px; }
+  .dm-stage[data-arena="1"] .dm-score[data-seat="me"] > .dm-roster > .dm-slot {
+    flex: 0 0 clamp(82px, 14.5vh, 142px);
+  }
+  .dm-stage[data-arena="1"] .dm-slot-initial { font-size: 30px; }
+  .dm-stage[data-arena="1"] .dm-slot-price { font-size: 13px; padding: 4px 0; }
 
   .dm-stage[data-arena="1"] .dm-roster-tag {
-    display: block; position: absolute; left: 18px; top: 50%;
+    display: block; position: absolute; left: 20px; top: 50%;
     transform: translateY(-50%);
-    max-width: 20%; overflow: hidden; text-overflow: ellipsis;
+    max-width: 15%; overflow: hidden; text-overflow: ellipsis;
     font-size: 11px; font-weight: 800; letter-spacing: .14em;
     text-transform: uppercase; color: var(--dm-mute); white-space: nowrap;
   }
-  .dm-stage[data-arena="1"] .dm-slot-price { font-size: 11px; }
+}
+
+/* ── Laptop: the table on a short screen ───────────────────────────────────
+   A 1440x800 laptop has 150px less height than a desktop monitor, which is
+   more than the three bands can absorb — your own bench ends up 20px under
+   the fold, and a bench you cannot see is the same as no bench. Everything
+   here just tightens; nothing is removed. */
+
+@media (min-width: 1024px) and (max-height: 880px) {
+  .dm-stage[data-arena="1"] { gap: 12px 22px; }
+  .dm-stage[data-arena="1"] .dm-roster { padding: 9px 16px; gap: 10px; }
+  .dm-stage[data-arena="1"] .dm-roster > .dm-slot { flex: 0 0 clamp(70px, 11.2vh, 104px); }
+  .dm-stage[data-arena="1"] .dm-score[data-seat="me"] > .dm-roster > .dm-slot {
+    flex: 0 0 clamp(76px, 12.4vh, 116px);
+  }
+  .dm-stage[data-arena="1"] .dm-lot-card > .dm-portrait-wrap { height: min(25vh, 210px); }
+  .dm-stage[data-arena="1"] .dm-seat { padding: 11px; }
+  .dm-stage[data-arena="1"] .dm-seat-feed { margin-bottom: 9px; }
+  .dm-stage[data-arena="1"] .dm-seat .dm-score-budget { font-size: 26px; margin-top: 7px; }
 }
 
 /* ── Phone: fit the live auction in one screen ─────────────────────────────
@@ -1102,15 +1204,9 @@ export const STYLES = `
      stylesheet is injected by DraftMastersClient, so no other page sees it. */
   main.min-h-screen:has(.dm-stage) { min-height: 0; }
 
-  /* The wordmark is a title card. Mid-draft it is just spending height. */
-  .dm:has(.dm-stage) .dm-head { margin-bottom: 10px; }
-  .dm:has(.dm-stage) .dm-wordmark { font-size: clamp(21px, 6vw, 30px); }
-  .dm:has(.dm-stage) .dm-head-actions .dm-btn { min-height: 36px; padding: 7px 12px; font-size: 13px; }
-
-  /* Biggest single saving. Still portrait-shaped, still the focal point. */
-  /* The art is the fun part, so the height comes out of the chrome around it
-     (lot bar, bid bar, wordmark) rather than out of the card. */
-  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(32dvh, 256px); }
+  /* The art is the fun part, and the slimmed title bar hands it back, so the
+     height comes out of the chrome rather than out of the card. */
+  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(33dvh, 266px); }
   .dm:has(.dm-stage) .dm-portrait-caption { padding: 10px; }
 
   /* Was wrapping to two lines and costing ~35px. */
@@ -1159,10 +1255,8 @@ export const STYLES = `
    The lot, the bid controls and both budgets all still fit; the art just takes
    the difference. */
 @media (max-width: 1023px) and (max-height: 720px) {
-  .dm:has(.dm-stage) .dm-head { margin-bottom: 6px; }
-  .dm:has(.dm-stage) .dm-wordmark { font-size: 19px; }
   .dm:has(.dm-stage) .dm-bidbar { padding: 7px 10px; font-size: 13px; margin-top: 6px; }
-  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(21dvh, 138px); }
+  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(25dvh, 168px); }
   /* At this card size the prompt overruns the card and collides with the name.
      The dashed border still marks it tappable, and the card still accepts an
      upload — only the label goes. */
