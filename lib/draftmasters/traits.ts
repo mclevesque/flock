@@ -22,6 +22,8 @@
  * whether a model saw it or not. That consistency is the point.
  */
 
+import type { VariantGrade } from "./packs";
+
 export type Trait =
   /** Winged, breathes fire, hoards things. Drogon, Smaug, a wyvern. */
   | "dragon"
@@ -82,12 +84,69 @@ const TRAIT_WORDS: Record<Trait, string[]> = {
  * dragon whichever way you look at it, and a variant that says "on a dragon"
  * puts an otherwise ordinary pick in the air.
  */
+/**
+ * Words meaning small, young or not yet hatched.
+ *
+ * Deliberately narrow. "young" is NOT here: a young Robert Baratheon with the
+ * warhammer is a monster, and a list that catches it would quietly gut every
+ * prime-of-their-life variant on the board.
+ */
+const DIMINUTIVE = [
+  "newborn", "new-born", "hatchling", "unhatched", "infant", "baby", "cub", "pup",
+  "kitten", "chick", "egg", "runt", "larval", "just hatched", "days old",
+];
+
+/** States that make a big grade implausible whatever the model claimed. */
+const DIMINISHED = [
+  ...DIMINUTIVE,
+  "wounded", "dying", "injured", "crippled", "blinded", "poisoned", "starving",
+  "exhausted", "imprisoned", "in chains", "maimed", "sick", "feverish", "bleeding",
+  "half-dead", "barely", "malnourished", "drained", "sealed away", "de-powered",
+];
+
+const hasAny = (text: string, words: string[]) => {
+  const t = text.toLowerCase();
+  return words.some((w) => t.includes(w));
+};
+
+/** True when the condition describes something small or young rather than grown. */
+export function isDiminutive(text: string): boolean {
+  return hasAny(text, DIMINUTIVE);
+}
+
+/**
+ * Cap a grade the words cannot support.
+ *
+ * "Daenerys with three newborn dragons" came back MYTHIC — three dragons reads
+ * as overwhelming, and the word doing all the work is "newborn". Hatchlings
+ * are the weakest Daenerys ever is. The model is not reliably careful about
+ * this, and it is trivially checkable, so the game checks it.
+ *
+ * Capped at "boon" rather than "neutral": three baby dragons are still worth
+ * something, just not the contest.
+ */
+export function clampGradeToText(grade: VariantGrade, variantText: string): VariantGrade {
+  const big: VariantGrade[] = ["legendary", "exalted", "mythic", "major"];
+  if (!big.includes(grade)) return grade;
+  return hasAny(variantText, DIMINISHED) ? "boon" : grade;
+}
+
 export function traitsOf(name: string, variant?: string | null): Trait[] {
   const hay = `${name} ${variant ?? ""}`.toLowerCase();
   const found = new Set<Trait>();
 
   for (const [trait, words] of Object.entries(TRAIT_WORDS) as [Trait, string[]][]) {
     if (words.some((w) => hay.includes(w))) found.add(trait);
+  }
+
+  // A hatchling is not a siege target. Without this, "with three newborn
+  // dragons" reads as dragon-sized to every counter on the board and Qyburn's
+  // scorpion gets a 60% shot at something the size of a dog.
+  if (isDiminutive(hay)) {
+    found.delete("dragon");
+    found.delete("giant");
+    found.delete("large");
+    found.delete("sluggish");
   }
 
   // Anything huge is, for siege purposes, a big target — a dragon and a giant

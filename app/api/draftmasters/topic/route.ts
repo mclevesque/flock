@@ -11,6 +11,7 @@ import {
 } from "@/lib/draftmasters/packs";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 import { formatMenu, getFormat } from "@/lib/draftmasters/contest";
+import { clampGradeToText } from "@/lib/draftmasters/traits";
 
 /**
  * GET /api/draftmasters/topic?packId=got
@@ -250,9 +251,10 @@ function sanitize(raw: Record<string, unknown>, topic: string, wild: number, rat
     if (Array.isArray(item.variants)) {
       const variants = (item.variants as Record<string, unknown>[])
         .map((v): Variant => {
-          const g = grade(v?.g, v?.t, entry.t);
+          const label = String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 90);
+          const g = grade(v?.g, v?.t, entry.t, label);
           return {
-            v: String(v?.v ?? "").trim().replace(/^\(|\)$/g, "").slice(0, 90),
+            v: label,
             // The grade is the source of truth: whatever tier the model felt
             // like attaching, the colour and the number must agree.
             t: gradedTier(entry.t, g),
@@ -320,9 +322,12 @@ function clampTier(t: unknown): number {
  * The variant's grade. Normally the model just says; a model that ignored the
  * instruction and sent a bare tier still gets graded, from how far it moved.
  */
-function grade(g: unknown, t: unknown, baseTier: number): VariantGrade {
+function grade(g: unknown, t: unknown, baseTier: number, variantText = ""): VariantGrade {
   const named = String(g ?? "").trim().toLowerCase() as VariantGrade;
-  if (GRADES.includes(named)) return named;
+  // The model's own grade still has to survive a sanity check — it called
+  // "with three newborn dragons" mythic, which the words plainly do not
+  // support. See clampGradeToText.
+  if (GRADES.includes(named)) return clampGradeToText(named, variantText);
 
   const tier = Number(t);
   if (!Number.isFinite(tier)) return "neutral";

@@ -1,15 +1,18 @@
 /**
- * The AWS SDK is imported DYNAMICALLY, inside the functions that use it.
+ * Required lazily, and Turbopack cannot ship this SDK either way.
  *
- * A static top-level import pulls the whole SDK into every serverless function
- * that touches this module, and when that fails to load the function dies
- * during initialisation — before any route code runs. The symptom is a
- * plain-text "Internal Server Error" with no stack anywhere, which the browser
- * then fails to parse as JSON. Proven by isolation: the portrait feedback
- * route, whose imports are identical to the upload route's minus this one,
- * returns 200 in production while upload returns 500.
+ * Measured, both forms fail in production: a static import kills the function
+ * at load even with runtime="nodejs" and serverExternalPackages declared, and
+ * this dynamic form is rewritten to "@aws-sdk/client-s3-<hash>", which does not
+ * exist. So EVERY R2 write from a Next route is currently broken — avatars and
+ * audio included, not just portraits.
  *
- * `import type` is erased at compile time, so the types cost nothing at runtime.
+ * The dynamic form is kept because it fails at CALL time rather than load
+ * time: the route stays up and returns real JSON, so one broken feature does
+ * not take a whole function down with it.
+ *
+ * Portrait writes therefore go through netlify/functions/portrait-store, which
+ * Netlify bundles with its own esbuild and which resolves the SDK correctly.
  */
 import type { S3Client } from "@aws-sdk/client-s3";
 
@@ -93,8 +96,8 @@ export async function storageDel(url: string): Promise<void> {
  */
 export async function storagePresign(path: string, expiresIn = 3600): Promise<string> {
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: path });
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: path });
   return getSignedUrl(await client(), cmd, { expiresIn });
 }
 

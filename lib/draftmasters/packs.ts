@@ -29,6 +29,7 @@
  *   exalted    deep orange    the best form they have short of myth
  *   mythic     purple         GAME CHANGING — loses only to another mythic,
  *                             or to a couple of oranges on the other side
+ *   uber       prismatic      Does not lose. One lot in five hundred.
  */
 export type VariantGrade =
   | "crippling"
@@ -38,7 +39,14 @@ export type VariantGrade =
   | "major"
   | "legendary"
   | "exalted"
-  | "mythic";
+  | "mythic"
+  /**
+   * Above mythic, and not a variant of the character at all — a crossover
+   * absurdity bolted onto whoever happened to come up. Ser Arthur Dayne with
+   * a lightsaber. Roughly one lot in five hundred, so most players will go
+   * months without seeing one. See lib/draftmasters/ubers.
+   */
+  | "uber";
 
 /** Tier movement each grade is worth, applied to the entry's base tier. */
 export const GRADE_DELTA: Record<VariantGrade, number> = {
@@ -50,6 +58,7 @@ export const GRADE_DELTA: Record<VariantGrade, number> = {
   legendary: 3,
   exalted: 4,
   mythic: 5,
+  uber: 7,
 };
 
 export const GRADES = Object.keys(GRADE_DELTA) as VariantGrade[];
@@ -64,7 +73,7 @@ export const GRADES = Object.keys(GRADE_DELTA) as VariantGrade[];
  * clamped to the same number and the two chips promised different things
  * while doing the same thing.
  */
-export const MAX_TIER = 10;
+export const MAX_TIER = 12;
 
 export function clampTierValue(n: number): number {
   return Math.max(1, Math.min(MAX_TIER, Math.round(n)));
@@ -144,6 +153,16 @@ export interface Entry {
   f?: number;
   /** Conditions — one is rolled at nomination time */
   variants?: Variant[];
+  /**
+   * Never enters the pool normally — only on the one-in-five-hundred uber
+   * roll, and always wearing its declared uber variant.
+   *
+   * For cards that are absurd to draft at all. Eru Ilúvatar is not a fighter
+   * you outbid someone for; he is the thing that wrote the fight. Putting him
+   * in the ordinary rotation would be silly, so he simply is not there — until
+   * the rarest roll in the game puts him there.
+   */
+  uberOnly?: boolean;
 }
 
 /**
@@ -234,7 +253,7 @@ export const PACKS: Pack[] = [
       { name: "Beyond the Wall at night", desc: "Open tundra, no fire, and the dark belongs to something else.", weight: 2 },
     ],
     entries: [
-      { n: "Jaime Lannister", t: 4, f: 5, variants: [{ v: "two hands", t: 5 }, { v: "one hand", t: 3 }, { v: "gold hand, drunk", t: 2 }] },
+      { n: "Jaime Lannister", t: 4, f: 5, variants: [{ v: "two hands", g: "mythic" }, { v: "one hand", g: "weakening" }, { v: "gold hand, drunk", g: "crippling" }] },
       { n: "The Mountain", s: "Gregor Clegane", t: 5, variants: [{ v: "alive", t: 5 }, { v: "undead, Ser Robert Strong", t: 5 }, { v: "poisoned, dying", t: 3 }] },
       { n: "Arya Stark", t: 4, f: 5, variants: [{ v: "Faceless assassin", t: 5 }, { v: "blind beggar", t: 2 }, { v: "Winterfell child", t: 1 }] },
       { n: "The Hound", s: "Sandor Clegane", t: 5, variants: [{ v: "prime", g: "boon" }, { v: "burned leg, feverish", g: "crippling" }] },
@@ -1251,6 +1270,13 @@ export const PACKS: Pack[] = [
       { n: "Beorn", t: 5 },
       { n: "Bard the Bowman", t: 4 },
       { n: "Thorin Oakenshield", t: 4 },
+      {
+        n: "Eru Ilúvatar",
+        t: 5,
+        s: "Tolkien Eru Iluvatar the One",
+        uberOnly: true,
+        variants: [{ v: "Supreme Creator", g: "uber" }],
+      },
       { n: "Sauron", t: 5, f: 5, variants: [{ v: "with the One Ring", g: "mythic" }, { v: "a lidless eye only", g: "weakening" }] },
       { n: "The Witch-king", t: 5, variants: [{ v: "no man can kill him", t: 5 }, { v: "facing a woman and a hobbit", t: 3 }] },
       { n: "Saruman", t: 4, f: 5, variants: [{ v: "staff unbroken", t: 5 }, { v: "staff broken", t: 1 }] },
@@ -1409,6 +1435,123 @@ export const PACKS: Pack[] = [
       { n: "Sisyphus", t: 1, f: 1 },
       { n: "Narcissus", t: 1, f: 1 },
       { n: "Pandora", t: 2, variants: [{ v: "box closed", t: 1 }, { v: "box open", t: 5 }] },
+    ],
+  },
+
+  // ── Berserk ───────────────────────────────────────────────────────────────
+  {
+    id: "berserk",
+    name: "Berserk",
+    emoji: "⚔️",
+    blurb: "Draft from the Band of the Hawk. Causality is not on your side.",
+    imgContext: "Berserk manga character",
+    wiki: "berserk",
+    scenario:
+      "The drafted parties meet on a field already gone wrong — the air thick, the moon low, and something watching from outside causality. Whoever is still standing when it lifts has won.",
+    criteria:
+      "Raw violence counts, but so does what a fighter is: an apostle eats an ordinary swordsman, and a witch can undo an apostle. Armour, will, and whether they break under horror all matter.",
+    arenas: [
+      { name: "A blood-soaked battlefield", desc: "Open mud and corpses, no cover, and nothing supernatural interfering — just steel.", weight: 10 },
+      { name: "The Eclipse", desc: "Causality itself is hostile. Branded flesh draws demons, and the God Hand are watching. Only the truly monstrous are comfortable here.", weight: 3 },
+      { name: "The Tower of Conviction", desc: "Close stone corridors and fanatics. Big apostle forms can barely turn around.", weight: 3 },
+      { name: "Elfhelm's shore", desc: "Warded ground where astral things are weakened and magic answers readily.", weight: 2 },
+      { name: "The Misty Valley at dusk", desc: "Fog, forest and flight. Anything that cannot get off the ground is at a real disadvantage.", weight: 2 },
+    ],
+    entries: [
+      { n: "Guts", t: 5, f: 5, s: "Berserk Black Swordsman", variants: [
+        { v: "in the Berserker Armor", g: "mythic" },
+        { v: "the Black Swordsman, Dragonslayer drawn", g: "legendary" },
+        { v: "one eye, one arm, still coming", g: "neutral" },
+        { v: "a boy in Gambino's band", g: "crippling" },
+      ] },
+      { n: "Griffith", t: 5, f: 5, s: "Berserk", variants: [
+        { v: "Femto, of the God Hand", g: "mythic" },
+        { v: "reborn, leading the new Band of the Hawk", g: "legendary" },
+        { v: "a year in the Tower of Rebirth", g: "crippling" },
+      ] },
+      { n: "Zodd", t: 5, f: 5, s: "Berserk Nosferatu Zodd apostle", variants: [
+        { v: "apostle form, Immortal Zodd", g: "legendary" },
+        { v: "human form, two swords", g: "boon" },
+      ] },
+      { n: "Skull Knight", t: 5, f: 5, s: "Berserk", variants: [
+        { v: "with the Sword of Resonance", g: "legendary" },
+        { v: "riding out of the Eclipse", g: "major" },
+      ] },
+      { n: "Void", t: 5, s: "Berserk God Hand", variants: [
+        { v: "God Hand, bending causality", g: "mythic" },
+      ] },
+      { n: "Slan", t: 5, s: "Berserk God Hand", variants: [
+        { v: "manifested in flesh and blood", g: "legendary" },
+        { v: "a presence only", g: "neutral" },
+      ] },
+      { n: "Ubik", t: 4, s: "Berserk God Hand" },
+      { n: "Conrad", t: 4, s: "Berserk God Hand" },
+      { n: "Emperor Ganishka", t: 5, s: "Berserk apostle", variants: [
+        { v: "the Shiva colossus", g: "mythic" },
+        { v: "apostle form, lightning", g: "legendary" },
+        { v: "on his throne, human", g: "weakening" },
+      ] },
+      { n: "Grunbeld", t: 5, s: "Berserk apostle Flame Dragon", variants: [
+        { v: "Apostle of the Flame Dragon", g: "legendary" },
+        { v: "in armour, human-sized", g: "boon" },
+      ] },
+      { n: "Wyald", t: 4, s: "Berserk apostle Black Dog Knights", variants: [
+        { v: "apostle form", g: "major" },
+        { v: "as a man, all boast", g: "weakening" },
+      ] },
+      { n: "Mozgus", t: 4, s: "Berserk Holy Iron Chain", variants: [
+        { v: "apostle, burning and winged", g: "legendary" },
+        { v: "the torturer, human", g: "weakening" },
+      ] },
+      { n: "Rosine", t: 4, s: "Berserk apostle Misty Valley", variants: [
+        { v: "Queen of the Misty Valley", g: "major" },
+        { v: "a runaway child", g: "crippling" },
+      ] },
+      { n: "Casca", t: 4, f: 5, s: "Berserk", variants: [
+        { v: "commander of the Band of the Hawk", g: "boon" },
+        { v: "mind restored at Elfhelm", g: "major" },
+        { v: "after the Eclipse, lost", g: "crippling" },
+      ] },
+      { n: "Serpico", t: 4, s: "Berserk", variants: [
+        { v: "with the wind sylph's cloak", g: "major" },
+        { v: "fencing bare, no wind", g: "neutral" },
+      ] },
+      { n: "Schierke", t: 4, s: "Berserk witch", variants: [
+        { v: "casting from the astral world", g: "legendary" },
+        { v: "a frightened apprentice", g: "weakening" },
+      ] },
+      { n: "Farnese", t: 2, s: "Berserk", variants: [
+        { v: "trained as a witch", g: "boon" },
+        { v: "Holy Iron Chain Knights, all zeal", g: "weakening" },
+      ] },
+      { n: "Locus", t: 5, s: "Berserk Moonlight Knight apostle", variants: [
+        { v: "Moonlight Knight, lance couched", g: "legendary" },
+      ] },
+      { n: "Irvine", t: 4, s: "Berserk apostle archer", variants: [
+        { v: "longbow, apostle form", g: "major" },
+        { v: "at close range", g: "weakening" },
+      ] },
+      { n: "Silat", t: 3, s: "Berserk Bakiraka", variants: [
+        { v: "Bakiraka weapons, full arsenal", g: "boon" },
+      ] },
+      { n: "Judeau", t: 3, s: "Berserk Band of the Hawk" },
+      { n: "Pippin", t: 3, s: "Berserk Band of the Hawk" },
+      { n: "Rickert", t: 2, s: "Berserk", variants: [
+        { v: "grown, with Elfhelm behind him", g: "boon" },
+        { v: "a boy minding the camp", g: "crippling" },
+      ] },
+      { n: "Isidro", t: 2, f: 1, s: "Berserk", variants: [
+        { v: "with the salamander dagger", g: "boon" },
+        { v: "a thief with no training", g: "crippling" },
+      ] },
+      { n: "Puck", t: 1, f: 5, s: "Berserk elf", variants: [
+        { v: "elf dust, healing the party", g: "boon" },
+        { v: "commentating", g: "neutral" },
+      ] },
+      { n: "Corkus", t: 2, f: 1, s: "Berserk Band of the Hawk" },
+      { n: "Daiba", t: 3, s: "Berserk onmyoji" },
+      { n: "Sonia", t: 2, s: "Berserk" },
+      { n: "Charlotte", t: 1, f: 1, s: "Berserk princess" },
     ],
   },
 ];

@@ -15,6 +15,7 @@ const GRADE_LABEL: Record<VariantGrade, string> = {
   legendary: "LEGENDARY",
   exalted: "EXALTED",
   mythic: "MYTHIC",
+  uber: "UBER",
 };
 
 const GRADE_HINT: Record<VariantGrade, string> = {
@@ -26,6 +27,7 @@ const GRADE_HINT: Record<VariantGrade, string> = {
   legendary: "LEGENDARY — helps enormously. Rationed to a couple per game.",
   exalted: "EXALTED — the best form they have short of myth.",
   mythic: "MYTHIC — game changing. Beats almost anything.",
+  uber: "UBER — about one lot in five hundred. This does not lose.",
 };
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { IMMEASURABLE } from "@/lib/draftmasters/ubers";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
 import { Thumb } from "./AuctionStage";
@@ -223,14 +224,25 @@ export default function VerdictScreen({
                       {(() => {
                         // How much this pick mattered, 0–10, from the judge.
                         const c = note?.picks?.find((p) => matches(pick.name, p.name));
-                        return c ? (
-                          <span className="dm-contrib" title={`Contribution ${c.contribution}/10`}>
+                        if (!c) return null;
+                        // Some cards are not on the scale. Eru Ilúvatar did not
+                        // contribute to the contest; he wrote the world it
+                        // happens in, so a number there is a category error.
+                        const immeasurable = c.contribution >= IMMEASURABLE;
+                        return (
+                          <span
+                            className="dm-contrib"
+                            data-immeasurable={immeasurable ? "1" : "0"}
+                            title={immeasurable ? "Beyond measurement" : `Contribution ${c.contribution}/10`}
+                          >
                             <span className="dm-contrib-bar">
-                              <i style={{ width: `${c.contribution * 10}%` }} />
+                              <i style={{ width: `${Math.min(100, c.contribution * 10)}%` }} />
                             </span>
-                            <span className="dm-contrib-n">{c.contribution}/10</span>
+                            <span className="dm-contrib-n">
+                              {immeasurable ? "∞/10" : `${c.contribution}/10`}
+                            </span>
                           </span>
-                        ) : null;
+                        );
                       })()}
                     </div>
                   );

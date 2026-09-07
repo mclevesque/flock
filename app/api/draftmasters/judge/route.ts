@@ -6,6 +6,7 @@ import { formatMenu, getFormat, sanitizePlan, type ContestPlan } from "@/lib/dra
 import { argumentBriefing, type ArgumentRuling } from "@/lib/draftmasters/arguments";
 import { scoutRoster, scoutingReport } from "@/lib/draftmasters/lore";
 import { counterBriefing, counterHits } from "@/lib/draftmasters/traits";
+import { IMMEASURABLE, isBeyondMeasure, uberBriefing } from "@/lib/draftmasters/ubers";
 
 /**
  * POST /api/draftmasters/judge
@@ -40,6 +41,32 @@ interface JudgeRequest {
    * Only the ACCEPTED points reach the prompt — see argumentBriefing.
    */
   rulings?: ArgumentRuling[];
+}
+
+/**
+ * How much one pick mattered, 0-10 — except when it cannot be.
+ *
+ * A mythic or an uber is defined by being off the scale, so squeezing it back
+ * under 10 alongside a $1 filler makes the scorecard contradict the card the
+ * player is looking at. Those grades get a floor of 10 and are allowed to run
+ * past it, which is why "Sauron with the One Ring" can read 14/10.
+ */
+function contributionFor(
+  sides: Side[],
+  sideId: string,
+  pickName: string,
+  raw: number
+): number {
+  const pick = sides
+    .find((s) => s.id === sideId)
+    ?.roster.find((p) => p.name === pickName);
+  const grade = pick?.variantGrade;
+
+  // Off the scale entirely — the verdict screen prints an infinity for this.
+  if (isBeyondMeasure(pick?.variant)) return IMMEASURABLE;
+  if (grade === "uber") return Math.max(15, Math.min(20, raw));
+  if (grade === "mythic") return Math.max(10, Math.min(14, raw));
+  return Math.max(0, Math.min(10, raw));
 }
 
 interface SideNote {
@@ -105,6 +132,18 @@ export async function POST(req: Request) {
       // The same counter rules the offline scorer applies. Handed over as
       // rules rather than hints so the two paths cannot disagree about
       // whether the machine built to shoot dragons shoots the dragon.
+      // An uber has to be stated as a rule. Shown "Hot Pie (with a lightsaber)"
+      // and left to its own judgement, a model reasons about Hot Pie the baker
+      // and hands the contest to the other side — the one outcome that makes
+      // the rarest thing in the game feel broken rather than extraordinary.
+      const ubers = sides
+        .flatMap((s) =>
+          s.roster
+            .filter((p) => p.variantGrade === "uber" && p.variant)
+            .map((p) => uberBriefing(p.name, p.variant!))
+        )
+        .join("");
+
       const counters = sides
         .map((s) =>
           counterBriefing(
@@ -127,6 +166,7 @@ export async function POST(req: Request) {
           (hint ? `The board was built as a "${hint}" contest — check that against the scenario before you commit.\n` : "") +
           `\n${rosterText}\n\n` +
           (report ? `${report}\n\n` : "") +
+          (ubers ? `${ubers}\n` : "") +
           (counters ? `${counters}\n` : "") +
           (argued ? `${argued}\n` : "") +
           `Note: a name in parentheses is that character's condition and it is binding — "Jaime Lannister (one hand)" really does only have one hand. The bracket after it says how heavily that condition weighs, and you must respect it: a MYTHIC state should decide the contest almost on its own, a CRIPPLING one should visibly cost them, and a flavour-only one changes nothing but the jokes.\n\n` +
@@ -162,7 +202,14 @@ export async function POST(req: Request) {
                     picks: Array.isArray(n.picks)
                       ? (n.picks as Record<string, unknown>[]).slice(0, 12).map((p) => ({
                           name: String(p.name ?? "").slice(0, 60),
-                          contribution: Math.max(0, Math.min(10, Math.round(Number(p.contribution) || 0))),
+                          // Capped at 10 for ordinary picks, but a mythic or an
+                          // uber has a FLOOR of 10 and is allowed past it — the
+                          // whole promise of those grades is that they are not
+                          // on the same scale as the rest of the roster.
+                          contribution: contributionFor(
+                            sides, String(n.sideId), String(p.name),
+                            Math.round(Number(p.contribution) || 0)
+                          ),
                         }))
                       : [],
                   }))
@@ -276,7 +323,10 @@ export async function POST(req: Request) {
         mvp: sorted[0]?.name ?? "—",
         bust: sorted[sorted.length - 1]?.name ?? "—",
         note: `${sc.power} roster power across ${side.roster.length} pick${side.roster.length === 1 ? "" : "s"}.`,
-        picks: side.roster.map((p) => ({ name: p.name, contribution: Math.max(0, Math.min(10, p.tier * 2)) })),
+        picks: side.roster.map((p) => ({
+          name: p.name,
+          contribution: contributionFor(sides, side.id, p.name, p.tier * 2),
+        })),
       };
     }),
     plan: offPlan,
@@ -364,7 +414,7 @@ REPLY WITH ONLY JSON:
     "mvp": string (a drafted name),
     "bust": string (a drafted name),
     "note": string (one sentence),
-    "picks": [{"name": string (exact drafted name), "contribution": number 0-10 (how much THIS pick mattered to the result IN THIS FORMAT — 10 carried it, 0 was dead weight)}] (one entry per drafted pick, in roster order)
+    "picks": [{"name": string (exact drafted name), "contribution": number (how much THIS pick mattered to the result IN THIS FORMAT — 10 carried it, 0 was dead weight). Ordinary picks are 0-10. A MYTHIC pick is never below 10 and may go as high as 14; an UBER is never below 15 and may reach 20 — those grades are deliberately off the scale everything else is measured on, so do not squeeze them back under 10.}] (one entry per drafted pick, in roster order)
   }]
 }`;
 }

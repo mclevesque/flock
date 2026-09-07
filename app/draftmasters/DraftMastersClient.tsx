@@ -1027,7 +1027,20 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setMembers((s.members as Member[]) ?? []);
       setVerdict((s.verdict as Verdict | null) ?? null);
       // Who has sealed a case — the server never sends what they wrote.
-      setArgSubmitted((s.argSubmitted as string[]) ?? []);
+      //
+      // Merged, never replaced. Sealing is one-way: once you have committed a
+      // case you cannot take it back, so the UI must not un-seal you either.
+      // Replacing this wholesale meant any state push that had not yet caught
+      // up flipped the box back to "still writing", and it flickered between
+      // the two while you waited for the other player.
+      {
+        const fromServer = (s.argSubmitted as string[]) ?? [];
+        setArgSubmitted((prev) => {
+          const merged = new Set(fromServer);
+          if (prev.includes(meId)) merged.add(meId);
+          return [...merged];
+        });
+      }
       const serverRulings = (s.rulings as ArgumentRuling[] | null) ?? [];
       rulingsRef.current = serverRulings;
       setRulings(serverRulings);

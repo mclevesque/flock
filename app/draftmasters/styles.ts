@@ -672,6 +672,7 @@ export const STYLES = `
   --dm-g-legendary: #f0872e;
   --dm-g-exalted:   #d1541f;
   --dm-g-mythic:    #a855f7;
+  --dm-g-uber:      #7ef9ff;
 }
 
 .dm-lot-variant[data-grade] {
@@ -689,6 +690,16 @@ export const STYLES = `
   border-color: #ffb98a;
   box-shadow: 0 0 0 1px rgba(255,185,138,.45), 0 3px 16px rgba(209,84,31,.4);
 }
+/* Prismatic and moving — an uber has to be unmistakable from across a room,
+   because most players will only ever see a handful. */
+.dm-lot-variant[data-grade="uber"] {
+  background: linear-gradient(100deg, #ff5f9e 0%, #ffd76f 25%, #7ef9ff 50%, #9b7bff 75%, #ff5f9e 100%);
+  background-size: 300% 100%;
+  color: #0a0a0b; border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.6), 0 4px 26px rgba(126,249,255,.55);
+  animation: dm-uber 3.4s linear infinite;
+}
+@keyframes dm-uber { from { background-position: 0% 50%; } to { background-position: 300% 50%; } }
 .dm-lot-variant[data-grade="mythic"] {
   background: linear-gradient(100deg, #6d28d9 0%, #a855f7 55%, #d8b4fe 100%);
   color: #fdf6ff;
@@ -701,7 +712,17 @@ export const STYLES = `
   50%      { filter: saturate(1.35) brightness(1.15); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dm-lot-variant[data-grade="mythic"] { animation: none; }
+  /* Prismatic and moving — an uber has to be unmistakable from across a room,
+   because most players will only ever see a handful. */
+.dm-lot-variant[data-grade="uber"] {
+  background: linear-gradient(100deg, #ff5f9e 0%, #ffd76f 25%, #7ef9ff 50%, #9b7bff 75%, #ff5f9e 100%);
+  background-size: 300% 100%;
+  color: #0a0a0b; border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.6), 0 4px 26px rgba(126,249,255,.55);
+  animation: dm-uber 3.4s linear infinite;
+}
+@keyframes dm-uber { from { background-position: 0% 50%; } to { background-position: 300% 50%; } }
+.dm-lot-variant[data-grade="mythic"] { animation: none; }
 }
 
 .dm-grade-tag {
@@ -715,6 +736,9 @@ export const STYLES = `
 }
 .dm-grade-swatch[data-grade="crippling"] { background: var(--dm-g-crippling); color: #fff; }
 .dm-grade-swatch[data-grade="exalted"]   { background: var(--dm-g-exalted);   color: #fff5ee; }
+.dm-grade-swatch[data-grade="uber"] {
+  background: linear-gradient(100deg, #ffd76f, #7ef9ff, #9b7bff); color: #0a0a0b;
+}
 .dm-grade-swatch[data-grade="mythic"] {
   background: linear-gradient(100deg, #a855f7, #d8b4fe); color: #2a0442;
 }
@@ -846,6 +870,7 @@ export const STYLES = `
 .dm-variant-note[data-grade="major"]     { color: var(--dm-g-major); font-weight: 700; }
 .dm-variant-note[data-grade="legendary"] { color: var(--dm-g-legendary); font-weight: 700; }
 .dm-variant-note[data-grade="exalted"]   { color: var(--dm-g-exalted); font-weight: 800; }
+.dm-variant-note[data-grade="uber"] { color: var(--dm-g-uber); font-weight: 800; letter-spacing: .02em; }
 .dm-variant-note[data-grade="mythic"] {
   color: var(--dm-g-mythic); font-weight: 800; letter-spacing: .01em;
   text-shadow: 0 0 12px rgba(192,91,255,.5);
@@ -857,6 +882,7 @@ export const STYLES = `
 .dm-slot[data-grade="major"]     { box-shadow: inset 0 0 0 2px var(--dm-g-major); }
 .dm-slot[data-grade="legendary"] { box-shadow: inset 0 0 0 2px var(--dm-g-legendary); }
 .dm-slot[data-grade="exalted"]   { box-shadow: inset 0 0 0 2px var(--dm-g-exalted); }
+.dm-slot[data-grade="uber"] { box-shadow: inset 0 0 0 2px var(--dm-g-uber), 0 0 18px rgba(126,249,255,.4); }
 .dm-slot[data-grade="mythic"] {
   box-shadow: inset 0 0 0 2px #f0c860, 0 0 16px rgba(192,91,255,.55);
 }
@@ -925,6 +951,13 @@ export const STYLES = `
 /* A mode switch, not another option chip — it changes the shape of the game,
    so it gets a state dot and its own weight instead of sitting quietly at the
    bottom of the topic section where it was being missed entirely. */
+.dm-contrib[data-immeasurable="1"] .dm-contrib-n {
+  color: var(--dm-g-uber); font-weight: 800; letter-spacing: .02em;
+}
+.dm-contrib[data-immeasurable="1"] .dm-contrib-bar > i {
+  background: linear-gradient(90deg, #ffd76f, #7ef9ff, #9b7bff);
+}
+
 .dm-toggle {
   width: 100%; margin-top: 14px; text-align: left;
   display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center;

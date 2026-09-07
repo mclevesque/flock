@@ -28,6 +28,7 @@
 
 import { MAX_TIER, effectiveTier, variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
 import { counterHits } from "./traits";
+import { UBER_CHANCE, rollUber } from "./ubers";
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -123,6 +124,7 @@ const GRADE_WEIGHT: Record<VariantGrade, number> = {
   legendary: 5, // rationed per game
   exalted: 12, // rationed harder, so the weight can afford to be higher
   mythic: 20, // super rare — see mythicSlots()
+  uber: 0, // never chosen from an entry's list; only the 1/500 roll grants one
 };
 
 /**
@@ -133,6 +135,7 @@ const GRADE_WEIGHT: Record<VariantGrade, number> = {
  */
 function wildnessTilt(grade: VariantGrade, wild: number): number {
   switch (grade) {
+    case "uber":
     case "mythic":
     case "exalted":
     case "legendary":
@@ -289,7 +292,27 @@ export function buildLot(
 ): Lot {
   let variant: Variant | null = null;
   let variantIndex = -1;
-  if (entry.variants && entry.variants.length > 0 && showsVariant(rng, budget)) {
+
+  /**
+   * The uber roll comes FIRST and replaces the normal variant entirely.
+   *
+   * An uber is not a state of the character, so pairing it with one reads as
+   * nonsense — "Jaime Lannister (one hand, with a lightsaber)" is a worse joke
+   * than either half. At one in five hundred this branch is almost never
+   * taken, which is the point.
+   */
+  // An uber-only card always arrives as itself — it is in the pool at all only
+  // because its rare roll already succeeded, so it must not then be handed
+  // some other uber, or a plain variant.
+  const declaredUber = entry.uberOnly
+    ? entry.variants?.find((v) => v.g === "uber") ?? null
+    : null;
+
+  const uber = declaredUber ? declaredUber.v : rollUber(rng);
+  if (uber) {
+    variant = { v: uber, g: "uber" };
+    variantIndex = -2; // distinct from -1 (no variant) so the lot id stays unique
+  } else if (entry.variants && entry.variants.length > 0 && showsVariant(rng, budget)) {
     variantIndex = rollVariant(entry.variants, entry.t, rng, budget);
     variant = entry.variants[variantIndex];
   }
@@ -330,7 +353,12 @@ const FAME_WEIGHT = [0, 1, 2.2, 4, 6, 8.5];
  */
 export function buildPool(pack: Pack, rng: () => number, opts: PoolOptions = {}): number[] {
   return pack.entries
-    .map((e, i) => {
+    .map((e, i) => ({ e, i }))
+    // Uber-only cards are not in the rotation. Each gets one chance per draft
+    // at the same one-in-five-hundred odds an uber variant has, so a board can
+    // carry a card almost nobody will ever be dealt.
+    .filter(({ e }) => !e.uberOnly || rng() < UBER_CHANCE)
+    .map(({ e, i }) => {
       const fame = FAME_WEIGHT[Math.max(1, Math.min(5, Math.round(e.f ?? 3)))];
       // Seen lately: heavily demoted, never excluded.
       const weight = opts.recent?.has(e.n.toLowerCase()) ? fame * 0.18 : fame;
@@ -458,7 +486,7 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
 /** Rough "fair" price for a tier, before personality and situation. */
 function baseValue(tier: number, rules: Rules): number {
   const fairShare = rules.budget / rules.rosterSize;
-  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2, 3.1, 4.2, 5.5, 7.0, 8.8][
+  const mult = [0, 0.35, 0.6, 1.0, 1.5, 2.2, 3.1, 4.2, 5.5, 7.0, 8.8, 11.0, 13.5][
     Math.max(1, Math.min(MAX_TIER, Math.round(tier)))
   ];
   return fairShare * mult;

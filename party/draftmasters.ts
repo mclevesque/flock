@@ -655,11 +655,17 @@ export default class DraftMastersParty implements Party.Server {
     const member = this.members.get(sender.id);
     if (!member || !this.sides.has(member.userId)) return;
     const text = String(msg.text ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
-    if (!text) return;
     // First answer stands — no rewriting once it's in the box.
     if (this.args.has(member.userId)) return;
+    // An EMPTY case still seals. "Say nothing" is a legitimate move, and
+    // dropping it here meant that player never counted as done — so the room
+    // waited forever for a submission that was never coming and neither
+    // player could leave the page. The panel treats an empty case as silence.
     this.args.set(member.userId, text);
-    this.push(`${member.name} has made their case`, "system");
+    this.push(
+      text ? `${member.name} has made their case` : `${member.name} says nothing`,
+      "system"
+    );
     this.broadcastState();
 
     // Once every seated player has sealed one, hand the texts to the driver
