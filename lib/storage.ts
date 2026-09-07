@@ -1,5 +1,17 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+/**
+ * The AWS SDK is imported DYNAMICALLY, inside the functions that use it.
+ *
+ * A static top-level import pulls the whole SDK into every serverless function
+ * that touches this module, and when that fails to load the function dies
+ * during initialisation — before any route code runs. The symptom is a
+ * plain-text "Internal Server Error" with no stack anywhere, which the browser
+ * then fails to parse as JSON. Proven by isolation: the portrait feedback
+ * route, whose imports are identical to the upload route's minus this one,
+ * returns 200 in production while upload returns 500.
+ *
+ * `import type` is erased at compile time, so the types cost nothing at runtime.
+ */
+import type { S3Client } from "@aws-sdk/client-s3";
 
 /**
  * Built on first use, not at import.
@@ -16,7 +28,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
  */
 let _r2: S3Client | null = null;
 
-function client(): S3Client {
+async function client(): Promise<S3Client> {
   const accountId = process.env.R2_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -26,7 +38,8 @@ function client(): S3Client {
     );
   }
   if (!_r2) {
-    _r2 = new S3Client({
+    const { S3Client: Ctor } = await import("@aws-sdk/client-s3");
+    _r2 = new Ctor({
       region: "auto",
       endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       credentials: { accessKeyId, secretAccessKey },
@@ -57,7 +70,8 @@ export async function storagePut(
     data instanceof Blob ? Buffer.from(await data.arrayBuffer()) :
     data instanceof ArrayBuffer ? Buffer.from(data) :
     data;
-  await client().send(new PutObjectCommand({
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  await (await client()).send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: path,
     Body: body as Buffer,
@@ -68,7 +82,8 @@ export async function storagePut(
 
 export async function storageDel(url: string): Promise<void> {
   const key = url.replace(`${PUBLIC_URL}/`, "");
-  await client().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {});
+  const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+  await (await client()).send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {});
 }
 
 /**
@@ -79,11 +94,13 @@ export async function storageDel(url: string): Promise<void> {
 export async function storagePresign(path: string, expiresIn = 3600): Promise<string> {
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
   const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: path });
-  return getSignedUrl(client(), cmd, { expiresIn });
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  return getSignedUrl(await client(), cmd, { expiresIn });
 }
 
 export async function storageList(prefix: string): Promise<StorageObject[]> {
-  const res = await client().send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }));
+  const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const res = await (await client()).send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }));
   return (res.Contents ?? []).map(obj => ({
     key: obj.Key!,
     url: `${PUBLIC_URL}/${obj.Key!}`,
