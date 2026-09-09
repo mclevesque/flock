@@ -10,7 +10,7 @@
  * one colour, hammer red, is spent exclusively on the live bid and the fall of
  * the gavel: the only two moments that are actually urgent.
  *
- * The type is a catalogue: a high-contrast Bodoni for the wordmark and the lot
+ * The type is carved: Cinzel for the wordmark and the lot
  * names — the auction house's own letterform — against Archivo for everything
  * you operate, with tabular figures so money lines up in a column.
  *
@@ -19,19 +19,24 @@
  */
 
 export const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,600;6..96,800&family=Playfair+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Archivo:wght@400;500;600;700;800&display=swap');
 
 .dm {
-  /* Ink and baize — a neutral biased green, not a default grey. */
-  --dm-bg: #080b0a;
-  --dm-panel: #101614;
-  --dm-panel-2: #161d1a;
-  --dm-line: #242e2a;
-  --dm-line-hot: #35443e;
+  /* The ground the collector's case sits on: black, barely warm, so the brass
+     is the only colour in the room and reads as metal rather than as yellow. */
+  --dm-bg: #08080a;
+  --dm-panel: #121214;
+  --dm-panel-2: #17171a;
+  --dm-line: #24242a;
+  --dm-line-hot: #33333c;
 
-  /* The fittings. */
-  --dm-gold: #c9a227;
-  --dm-gold-hot: #e8c65a;
+  /* The fittings. Brighter and lighter than the old dull gold — this is the
+     brass off the case frame, and it has to survive being a thin 1px edge. */
+  --dm-gold: #d4af5f;
+  --dm-gold-hot: #f2dfa4;
+  --dm-gold-deep: #8a6a24;
+  /* The glow, as an unquoted triple so rules can set their own alpha. */
+  --dm-glow: 217 178 106;
 
   /* Spent only where it means something: the standing bid, and the hammer. */
   --dm-hammer: #d9522b;
@@ -40,20 +45,22 @@ export const STYLES = `
   --dm-green: #5bbd8a;
   --dm-red: #cf4d3f;
 
-  /* Catalogue paper. */
-  --dm-text: #ece5d8;
-  --dm-dim: #9aa39b;
-  --dm-mute: #616b64;
+  /* Catalogue paper, with the green bias taken out of the greys. */
+  --dm-text: #f0ece4;
+  --dm-dim: #8f8f8f;
+  --dm-mute: #616161;
   --dm-radius: 16px;
 
-  --dm-display: "Bodoni Moda", "Didot", "Playfair Display", Georgia, serif;
+  /* Cinzel: carved rather than printed. Bodoni was a magazine face and read
+     as an auction catalogue; this reads as something stamped into metal. */
+  --dm-display: "Cinzel", "Trajan Pro", Georgia, serif;
   --dm-ui: "Archivo", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
 
   position: relative;
   min-height: 100dvh;
   /* The spotlight over the block. */
   background:
-    radial-gradient(105% 62% at 50% -8%, rgba(201,162,39,.16) 0%, rgba(8,11,10,0) 62%),
+    radial-gradient(105% 62% at 50% -8%, rgb(var(--dm-glow) / .13) 0%, rgba(8,8,10,0) 62%),
     var(--dm-bg);
   color: var(--dm-text);
   font-family: var(--dm-ui);
@@ -1847,7 +1854,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 .dm-pack:hover { transform: translateY(-6px) rotateY(-4deg); }
 .dm-pack[data-on="1"] {
   transform: translateY(-10px) scale(1.03);
-  filter: drop-shadow(0 22px 34px rgba(0,0,0,.72)) drop-shadow(0 0 18px rgba(201,162,39,.42));
+  filter: drop-shadow(0 22px 34px rgba(0,0,0,.72)) drop-shadow(0 0 18px rgb(var(--dm-glow) / .42));
 }
 
 /* The photograph. */
@@ -1891,8 +1898,8 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   border-radius: 50%;
   overflow: hidden;
   display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 34%, rgba(201,162,39,.30), rgba(0,0,0,.55) 72%);
-  box-shadow: 0 0 0 2px rgba(201,162,39,.55), 0 0 26px rgba(201,162,39,.28), 0 8px 20px rgba(0,0,0,.6) inset;
+  background: radial-gradient(circle at 50% 34%, rgb(var(--dm-glow) / .30), rgba(0,0,0,.55) 72%);
+  box-shadow: 0 0 0 2px rgb(var(--dm-glow) / .55), 0 0 26px rgb(var(--dm-glow) / .28), 0 8px 20px rgba(0,0,0,.6) inset;
 }
 .dm-pack-window img {
   position: absolute; inset: 0;
@@ -2011,8 +2018,8 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   width: 26px; height: 26px; flex-shrink: 0;
   border-radius: 50%;
   font-size: 14px; line-height: 1;
-  background: rgba(201,162,39,.14);
-  box-shadow: inset 0 0 0 1.5px rgba(201,162,39,.55);
+  background: rgb(var(--dm-glow) / .14);
+  box-shadow: inset 0 0 0 1.5px rgb(var(--dm-glow) / .55);
 }
 .dm-usel-label { max-width: 54vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-usel-chev {
@@ -2058,7 +2065,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 }
 .dm-usel-item .dm-usel-mark { width: 22px; height: 22px; font-size: 12px; }
 .dm-usel-item:hover { background: var(--dm-panel-2); }
-.dm-usel-item[data-on="1"] { background: rgba(201,162,39,.16); color: var(--dm-gold-hot); font-weight: 700; }
+.dm-usel-item[data-on="1"] { background: rgb(var(--dm-glow) / .16); color: var(--dm-gold-hot); font-weight: 700; }
 
 /* The settings arrive rather than appear — a block of four sections popping
    in under the thumb reads as a layout shift, not as a reveal. */
@@ -2114,13 +2121,13 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   font-weight: 850;
   letter-spacing: .06em;
   /* Brass sits on a darker brass edge, not on black. */
-  box-shadow: 0 2px 0 #7a5c10, 0 4px 14px rgba(201,162,39,.32);
+  box-shadow: 0 2px 0 var(--dm-gold-deep), 0 4px 14px rgb(var(--dm-glow) / .32);
 }
 .dm-btn-primary:hover:not(:disabled) {
   background: linear-gradient(180deg, #f6dc8a 0%, var(--dm-gold-hot) 62%, var(--dm-gold) 100%);
   border-color: #f2dc9a;
 }
-.dm-btn-primary:active:not(:disabled) { box-shadow: 0 0 0 #7a5c10, 0 2px 6px rgba(201,162,39,.28); }
+.dm-btn-primary:active:not(:disabled) { box-shadow: 0 0 0 var(--dm-gold-deep), 0 2px 6px rgb(var(--dm-glow) / .28); }
 
 /* Ghost stays quiet — it is the way out, not the way on. */
 .dm-btn-ghost {
@@ -2145,7 +2152,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 }
 .dm-input:focus, .dm-textarea:focus {
   border-color: var(--dm-gold);
-  box-shadow: inset 0 2px 5px rgba(0,0,0,.55), 0 0 0 3px rgba(201,162,39,.18);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.55), 0 0 0 3px rgb(var(--dm-glow) / .18);
 }
 
 /* Chips are the one genuinely soft thing — they are suggestions. */
@@ -2166,8 +2173,8 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 }
 .dm-seg-item[data-on="1"] {
   border-color: var(--dm-gold);
-  background: linear-gradient(180deg, rgba(201,162,39,.16), rgba(201,162,39,.05));
-  box-shadow: 0 2px 0 #7a5c10, 0 0 0 1px rgba(201,162,39,.45), 0 6px 18px rgba(201,162,39,.14);
+  background: linear-gradient(180deg, rgb(var(--dm-glow) / .16), rgb(var(--dm-glow) / .05));
+  box-shadow: 0 2px 0 var(--dm-gold-deep), 0 0 0 1px rgb(var(--dm-glow) / .45), 0 6px 18px rgb(var(--dm-glow) / .14);
 }
 .dm-seg-label {
   font-weight: 750;
@@ -2318,12 +2325,12 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 }
 /* A sealed slot reads as foil, not as a missing picture. */
 .dm-inside-cell[data-sealed="1"] .dm-inside-art {
-  border-color: rgba(201,162,39,.45);
+  border-color: rgb(var(--dm-glow) / .45);
   background:
-    repeating-linear-gradient(115deg, rgba(201,162,39,.10) 0 6px, rgba(201,162,39,.03) 6px 12px),
+    repeating-linear-gradient(115deg, rgb(var(--dm-glow) / .10) 0 6px, rgb(var(--dm-glow) / .03) 6px 12px),
     var(--dm-panel-2);
   color: var(--dm-gold);
-  box-shadow: inset 0 0 18px rgba(201,162,39,.16);
+  box-shadow: inset 0 0 18px rgb(var(--dm-glow) / .16);
 }
 .dm-inside-cell[data-sealed="1"] .dm-inside-name { color: var(--dm-gold); opacity: .8; }
 

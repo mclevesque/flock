@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Icon from "./Icon";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import {
   battleHit,
@@ -213,7 +214,7 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
 
       {finished ? (
         <div className="dm-bt-end" onClick={(e) => e.stopPropagation()}>
-          <div className="dm-bt-crown">👑</div>
+          <div className="dm-bt-crown"><Icon name="crown" size={15} /></div>
           <div className="dm-bt-winner">{winner?.id === meId ? "You win." : `${winner?.name ?? "Winner"} wins.`}</div>
           <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onDone}>
             See the full verdict

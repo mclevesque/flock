@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Icon from "./Icon";
 import type { DraftMedia } from "./useDraftMedia";
 import type { ChatLine } from "./types";
 
@@ -73,7 +74,7 @@ export default function MediaRail({ media, members, meId, chat, onSendChat }: Pr
           aria-pressed={media.micOn}
           title={media.micOn ? "Mute your mic" : "Unmute your mic"}
         >
-          {media.micOn ? "🎙️" : "🔇"}
+          {media.micOn ? <Icon name="mic" size={16} /> : <Icon name="mute" size={16} />}
         </button>
         <button
           className="dm-btn"
@@ -82,7 +83,7 @@ export default function MediaRail({ media, members, meId, chat, onSendChat }: Pr
           aria-pressed={media.camOn}
           style={{ flex: 1 }}
         >
-          {media.camOn ? "📷  Camera on" : "📷  Turn on camera"}
+          <><Icon name="camera" size={16} /> {media.camOn ? "Camera on" : "Turn on camera"}</>
         </button>
       </div>
 
@@ -174,7 +175,7 @@ function Tile({
       <span className="dm-tile-name">{label}</span>
       {!micOn && (
         <span className="dm-tile-badge" title="Muted">
-          🔇
+          <Icon name="mute" size={16} />
         </span>
       )}
     </div>

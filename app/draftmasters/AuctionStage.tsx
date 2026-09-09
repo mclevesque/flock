@@ -61,7 +61,7 @@ interface Props {
   onAdvance: () => void;
   /** Status line under the photo-feedback buttons */
   portraitNote: string | null;
-  /** 👍 keep this photo / 👎 wrong person — swaps in another */
+  /** Keep this photo, or say it is the wrong person and swap in another. */
   onPortraitFeedback: (verdict: "good" | "bad") => void;
   /** A file picked for a character that has no photo anywhere */
   onPortraitUpload: (file: File) => void;
@@ -161,11 +161,11 @@ export default function AuctionStage({
                 aria-expanded={arenaOpen}
                 title="What this arena means"
               >
-                📍 {arenaName}
+                <Icon name="pin" size={13} />
+                {arenaName}
               </button>
             )}
           </span>
-          <span>{view.lotsRemaining} left on the board</span>
         </div>
 
         {arenaOpen && arenaName && (
@@ -178,7 +178,7 @@ export default function AuctionStage({
             >
               ✕
             </button>
-            <strong>📍 {arenaName}</strong>
+            <strong><Icon name="pin" size={13} /> {arenaName}</strong>
             {arenaDesc && <p>{arenaDesc}</p>}
             {scenario && <p className="dm-arena-note-scenario">{scenario}</p>}
           </div>
@@ -265,29 +265,10 @@ export default function AuctionStage({
                 e.target.value = ""; // let the same file be picked again
               }}
             />
-            {/* Upload is ALWAYS on the row, photo or no photo. A picture that
-                resolved isn't necessarily the right one, and either player
-                should be able to just hand us the correct one on the spot. */}
-            <div className="dm-photo-fb">
-              {hasPhoto ? (
-                <>
-                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("good")} title="Keep this photo for them">
-                    👍 Good photo
-                  </button>
-                  <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Wrong person — find another">
-                    👎 Wrong photo
-                  </button>
-                </>
-              ) : (
-                /* A lettered card is exactly when another search is worth it. */
-                <button className="dm-btn dm-btn-ghost" onClick={() => onPortraitFeedback("bad")} title="Look again for a photo">
-                  🔍 Search again
-                </button>
-              )}
-              <button className="dm-btn dm-btn-ghost" onClick={() => fileRef.current?.click()} title={`Upload your own photo for ${lot.name}`}>
-                <Icon name="camera" size={15} /> {hasPhoto ? "Use my own" : "Upload a photo"}
-              </button>
-            </div>
+            {/* The good/wrong/upload row used to sit here. Curating a
+                picture is a calm, batch job and this is neither — it is
+                the middle of an auction with a clock running. It all
+                happens on the portrait studio page now. */}
             {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
           </>
         )}
@@ -502,7 +483,7 @@ function RaiseControls({
 
       {canMatch && (
         <button className="dm-btn dm-btn-primary dm-btn-block dm-btn-lg" onClick={onMatch}>
-          🎲 Match ${currentBid} and roll for it
+          Match ${currentBid} and roll for it
         </button>
       )}
 
@@ -601,12 +582,12 @@ function DiceOverlay({ dice, sides, meId }: { dice: DiceState; sides: Side[]; me
         </div>
         <div className="dm-dice-row" key={dice.rounds.length}>
           <div className="dm-die">
-            <span className="dm-die-face">{round ? DIE[round.a] : "🎲"}</span>
+            <span className="dm-die-face">{round ? DIE[round.a] : "⚄"}</span>
             <span className="dm-die-name">{nameOf(a)}</span>
           </div>
           <span className="dm-die-vs">vs</span>
           <div className="dm-die">
-            <span className="dm-die-face">{round ? DIE[round.b] : "🎲"}</span>
+            <span className="dm-die-face">{round ? DIE[round.b] : "⚁"}</span>
             <span className="dm-die-name">{nameOf(b)}</span>
           </div>
         </div>
@@ -673,7 +654,7 @@ function ScoreCard({
               <img className="dm-avatar" data-speaking={speaking ? "1" : "0"} src={side.avatarUrl} alt="" />
             ) : (
               <div className="dm-avatar" data-speaking={speaking ? "1" : "0"}>
-                {side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}
+                {side.isNpc ? <Icon name="bot" size={22} /> : side.name.charAt(0).toUpperCase()}
               </div>
             )}
           </div>

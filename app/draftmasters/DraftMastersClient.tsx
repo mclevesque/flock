@@ -1036,7 +1036,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     matchIdRef.current = `solo-${meId}-${seed}`;
     const sides: Side[] = [
       { id: meId, name: myName, avatarUrl: myAvatar, budget: nextRules.budget, roster: [], isNpc: false },
-      { id: "npc", name: `${npc.emoji} ${npc.name}`, avatarUrl: null, budget: nextRules.budget, roster: [], isNpc: true },
+      { id: "npc", name: npc.name, avatarUrl: null, budget: nextRules.budget, roster: [], isNpc: true },
     ];
 
     soloRef.current = {
@@ -2155,7 +2155,7 @@ function WhatsInside({
         <div className="dm-sheet-grip" aria-hidden="true" />
         <div className="dm-sheet-head">
           <h2 className="dm-sheet-title">{pack.emoji} {pack.name}</h2>
-          <button type="button" className="dm-sheet-x" onClick={onClose} aria-label="Close">✕</button>
+          <button type="button" className="dm-sheet-x" onClick={onClose} aria-label="Close"><Icon name="close" size={15} /></button>
         </div>
 
         {/* No record here yet, deliberately.
@@ -2725,7 +2725,7 @@ function SetupScreen({
             {hasTopic ? `Start draft vs ${npc.name}` : "Pick a topic to start"}
           </button>
           <button className="dm-btn dm-btn-lg" onClick={onCreate}>
-            🎙️ Draft with a friend
+            <Icon name="friends" size={16} /> Draft with a friend
           </button>
           <button className="dm-btn dm-btn-ghost dm-btn-lg" onClick={() => setShowJoin((v) => !v)}>
             Join a room
@@ -2795,7 +2795,7 @@ function RecordPanel({ record, leaderboard, meId }: { record: PlayerRecord | nul
                 </strong>{" "}
                 vs the house
               </span>
-              {record.streak >= 3 && <span>🔥 {record.streak} in a row</span>}
+              {record.streak >= 3 && <span><Icon name="flame" size={13} /> {record.streak} in a row</span>}
             </>
           ) : (
             <span className="dm-note">No games on record yet — your first draft starts the ledger.</span>
@@ -2803,7 +2803,7 @@ function RecordPanel({ record, leaderboard, meId }: { record: PlayerRecord | nul
         </div>
         {leaderboard.length > 0 && (
           <button className="dm-btn dm-btn-ghost" onClick={() => setOpen((v) => !v)}>
-            {open ? "Hide ladder" : "🏆 Ladder"}
+            {open ? "Hide ladder" : <><Icon name="trophy" size={14} /> Ladder</>}
           </button>
         )}
       </div>
@@ -3010,7 +3010,9 @@ function RoomCode({ code }: { code: string }) {
       </button>
       <div className="dm-row" style={{ marginTop: 8 }}>
         <button className="dm-btn dm-btn-primary" style={{ flex: 1 }} onClick={() => void share()}>
-          {copied === "link" ? "✓  Link copied" : "🔗  Copy invite link"}
+          {copied === "link"
+              ? <><Icon name="check" size={14} /> Link copied</>
+              : <><Icon name="link" size={14} /> Copy invite link</>}
         </button>
       </div>
       <p className="dm-note" style={{ marginTop: 8 }}>
@@ -3104,7 +3106,7 @@ function PrepScreen({
       <div className="dm-prep-steps">
         {steps.map((st, i) => (
           <div key={st.key} className="dm-step" data-state={at > i ? "done" : at === i ? "active" : "todo"}>
-            <span className="dm-step-dot">{at > i ? "✓" : ""}</span>
+            <span className="dm-step-dot">{at > i ? <Icon name="check" size={11} /> : ""}</span>
             <span>
               {at > i ? st.done : st.label}
               {/* The one honest count on this screen. */}
@@ -3173,7 +3175,7 @@ function ReadyScreen({
         </p>
         {pack?.arenaName && (
           <p style={{ margin: "10px 0 0", fontSize: 13.5 }}>
-            <span className="dm-arena-pill">📍 {pack.arenaName}</span>
+            <span className="dm-arena-pill"><Icon name="pin" size={13} /> {pack.arenaName}</span>
           </p>
         )}
       </div>
@@ -3192,7 +3194,9 @@ function ReadyScreen({
           const ready = readyIds.includes(side.id);
           return (
             <div key={side.id} className="dm-ready-card" data-ready={ready ? "1" : "0"}>
-              <div style={{ fontSize: 30 }}>{side.isNpc ? "🤖" : side.id === meId ? "🫵" : "🧑"}</div>
+              <div style={{ display: "grid", placeItems: "center", color: "var(--dm-gold)" }}>
+                    <Icon name={side.isNpc ? "bot" : "profile"} size={30} />
+                  </div>
               <div style={{ fontWeight: 750, marginTop: 6 }}>{side.id === meId ? "You" : side.name}</div>
               <div className="dm-ready-state" style={{ color: ready ? "var(--dm-green)" : "var(--dm-mute)" }}>
                 {ready ? "Ready" : "Not ready"}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Icon from "./Icon";
 import { IMMEASURABLE } from "@/lib/draftmasters/ubers";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
@@ -92,10 +93,10 @@ export default function VerdictScreen({
             <>
               <div className="dm-row" style={{ justifyContent: "center" }}>
                 <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={loading || battleLoading}>
-                  {battleLoading ? "Staging the fight…" : "⚔️  BATTLE!"}
+                  {battleLoading ? "Staging the fight…" : <><Icon name="swords" size={15} /> BATTLE!</>}
                 </button>
                 <button className="dm-btn dm-btn-lg" onClick={onJudge} disabled={loading || battleLoading}>
-                  {loading ? "Deliberating…" : "⚖️  Just calculate it"}
+                  {loading ? "Deliberating…" : <><Icon name="scales" size={15} /> Just calculate it</>}
                 </button>
               </div>
               <p className="dm-note" style={{ marginTop: 10 }}>
@@ -115,7 +116,7 @@ export default function VerdictScreen({
 
   return (
     <div className="dm-verdict">
-      <div className="dm-verdict-crown">👑</div>
+      <div className="dm-verdict-crown"><Icon name="crown" size={15} /></div>
       <h2 className="dm-verdict-headline">{verdict.headline}</h2>
       <p className="dm-verdict-winner">
         {winner?.id === meId ? "You win." : `${winner?.name ?? "Winner"} wins.`}
@@ -126,7 +127,7 @@ export default function VerdictScreen({
 
       {verdict.diceBreak?.winnerId && (
         <p className="dm-note" style={{ marginTop: 10, color: "var(--dm-gold)" }}>
-          🎲 The judge scored it even — settled on the dice
+          <Icon name="dice" size={15} /> The judge scored it even — settled on the dice
           {verdict.diceBreak.rounds.length > 1
             ? ` after ${verdict.diceBreak.rounds.length - 1} tie${verdict.diceBreak.rounds.length > 2 ? "s" : ""}`
             : ""}
@@ -161,7 +162,7 @@ export default function VerdictScreen({
               </strong>{" "}
               {mode === "pvp" ? "vs friends" : "vs the house"}
             </span>
-            {record.streak >= 3 && <span>🔥 {record.streak} straight</span>}
+            {record.streak >= 3 && <span><Icon name="flame" size={15} /> {record.streak} straight</span>}
           </div>
         </div>
       )}
@@ -174,10 +175,10 @@ export default function VerdictScreen({
             <div key={side.id} className="dm-verdict-side" data-won={won ? "1" : "0"}>
               <div className="dm-score-top">
                 <div className="dm-avatar">
-                  {side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}
+                  {side.isNpc ? <Icon name="bot" size={15} /> : side.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="dm-score-name">{side.id === meId ? "You" : side.name}</div>
-                {won && <span style={{ marginLeft: "auto", fontSize: 18 }}>🏆</span>}
+                {won && <span style={{ marginLeft: "auto", fontSize: 18 }}><Icon name="trophy" size={15} /></span>}
               </div>
 
               {note && (
@@ -269,7 +270,7 @@ export default function VerdictScreen({
       <div className="dm-row" style={{ marginTop: 26, justifyContent: "center" }}>
         {canJudge && (
           <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={battleLoading}>
-            {battleLoading ? "Staging the fight…" : "⚔️  Watch the battle"}
+            {battleLoading ? "Staging the fight…" : <><Icon name="swords" size={15} /> Watch the battle</>}
           </button>
         )}
         <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onPlayAgain}>
@@ -335,7 +336,9 @@ function StagingBar({ kind }: { kind: "judging" | "staging" }) {
   return (
     <div className="dm-staging" role="status" aria-live="polite">
       <div className="dm-staging-head">
-        <span>{kind === "judging" ? "⚖️ The judge is working" : "⚔️ Staging the show"}</span>
+        <span>{kind === "judging"
+          ? <><Icon name="scales" size={15} /> The judge is working</>
+          : <><Icon name="swords" size={15} /> Staging the show</>}</span>
         <span className="dm-staging-pct">{Math.round(pct)}%</span>
       </div>
       <div className="dm-staging-track">
@@ -435,7 +438,7 @@ function RosterCard({
   return (
     <div className="dm-verdict-side">
       <div className="dm-score-top">
-        <div className="dm-avatar">{side.isNpc ? "🤖" : side.name.charAt(0).toUpperCase()}</div>
+        <div className="dm-avatar">{side.isNpc ? <Icon name="bot" size={15} /> : side.name.charAt(0).toUpperCase()}</div>
         <div className="dm-score-name">{isMe ? "You" : side.name}</div>
       </div>
       <div className="dm-verdict-picks">
