@@ -323,7 +323,7 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         }
         const share = n / Math.max(had, 1);
         const pool = share >= 0.6 ? HEAVY : share >= 0.3 ? SOLID : GLANCING;
-        ev.said = fill(pick(pool), { A: NAME_IN(att), D: NAME_IN(def) }) + ` (${n})`;
+        ev.said = fill(pick(pool), { A: NAME_IN(att), D: NAME_IN(def) });
         break;
       }
 
@@ -357,7 +357,7 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         const m = e.text.match(/^(\d+) gets past and hits (.+?) — (\d+) health left\.$/);
         if (!m) break;
         ev.said =
-          fill(pick(BREAKTHROUGH), { P: m[2], D: NAME_IN(fallen) || "the line" }) + ` (${m[1]}, ${m[3]} left)`;
+          fill(pick(BREAKTHROUGH), { P: m[2], D: NAME_IN(fallen) || "the line" });
         break;
       }
 

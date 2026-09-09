@@ -239,6 +239,60 @@ export function swordClash(): void {
 }
 
 /** Short triumphant swell for the final beat. */
+/**
+ * The end of a fight, on the winner's screen.
+ *
+ * F major -- the relative major of the battle's D minor -- so it is the same
+ * world resolving rather than a key change nobody asked for. Long enough to
+ * hold a screen: a swelling chord, a rising figure over the top, and two
+ * taiko hits to put a floor under it.
+ */
+export function victoryFanfare(): void {
+  if (!ensure() || !ctx || !bus) return;
+  const t = now() + 0.03;
+
+  // The chord underneath: F major, wide, swelling in rather than struck.
+  [87.31, 174.61, 261.63, 349.23].forEach((f) => {
+    if (!ctx || !bus) return;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = f;
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(0.1, t + 0.5);
+    env.gain.setValueAtTime(0.1, t + 2.2);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 4.2);
+    osc.connect(env);
+    env.connect(bus);
+    osc.start(t);
+    osc.stop(t + 4.3);
+  });
+
+  // The figure over the top. Dotted, so it reads as a fanfare and not a scale.
+  const line: [number, number][] = [
+    [349.23, 0.0], [523.25, 0.22], [698.46, 0.44],
+    [659.25, 0.86], [698.46, 1.06], [880.0, 1.32],
+  ];
+  for (const [f, at] of line) {
+    if (!ctx || !bus) return;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = f;
+    env.gain.setValueAtTime(0.0001, t + at);
+    env.gain.exponentialRampToValueAtTime(0.17, t + at + 0.03);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + at + 1.5);
+    osc.connect(env);
+    env.connect(bus);
+    osc.start(t + at);
+    osc.stop(t + at + 1.6);
+  }
+
+  taiko(t, 1);
+  taiko(t + 0.44, 0.75);
+  taiko(t + 1.32, 0.9);
+}
+
 export function victorySting(): void {
   if (!ensure() || !ctx || !bus) return;
   const t = now() + 0.02;

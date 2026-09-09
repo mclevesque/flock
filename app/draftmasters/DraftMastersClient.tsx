@@ -46,7 +46,7 @@ import { ARGUMENT_MAX, type ArgumentRuling } from "@/lib/draftmasters/arguments"
 import ArgumentScreen from "./ArgumentScreen";
 import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
-import BattleScreen from "./BattleScreen";
+import BattleStory from "./BattleStory";
 import Icon from "./Icon";
 import MediaRail from "./MediaRail";
 import Wordmark from "./Wordmark";
@@ -1939,13 +1939,14 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       </div>
 
       {battle && (
-        <BattleScreen
+        <BattleStory
           script={battle}
           sides={view.sides}
           rules={rules}
           meId={meId}
           portraits={portraits}
           packName={pack?.name ?? "Draft"}
+          arena={pack?.arenaName ?? null}
           onDone={endBattle}
         />
       )}

@@ -122,8 +122,11 @@ const WRITTEN: [string, [number, number]][] = [
   ["krillin", [6, 6]],
   ["yamcha", [4, 5]],
   ["master roshi", [7, 7]],
-  ["hercule", [2, 3]],
-  ["mr. satan", [2, 3]],
+  // Peak human and the reigning champion of a tournament full of them. He is
+  // only a punchline against ki users, and that joke does not need him to
+  // lose to a knight.
+  ["hercule", [7, 8]],
+  ["mr. satan", [7, 8]],
   ["bulma", [1, 2]],
 
   // ── Shinobi ───────────────────────────────────────────────────────────
@@ -247,6 +250,36 @@ const WRITTEN: [string, [number, number]][] = [
   ["qyburn", [1, 4]],
   ["the mountain", [8, 11]],
   ["gregor clegane", [8, 11]],
+
+  // ── Middle-earth ──────────────────────────────────────────────────────
+  // Everybody unwritten was landing on the board's ordinary 5, which is a
+  // Gondorian foot soldier and not any of these.
+  ["gandalf", [14, 13]],
+  ["saruman", [12, 11]],
+  ["the witch-king", [12, 12]],
+  ["witch king", [12, 12]],
+  ["balrog", [16, 15]],
+  ["sauron", [18, 17]],
+  ["glorfindel", [11, 10]],
+  ["elrond", [10, 10]],
+  ["galadriel", [12, 11]],
+  ["aragorn", [9, 9]],
+  ["legolas", [8, 7]],
+  ["gimli", [8, 8]],
+  ["boromir", [7, 7]],
+  ["faramir", [6, 6]],
+  ["eowyn", [7, 6]],
+  ["theoden", [6, 6]],
+  ["treebeard", [12, 16]],
+  ["shelob", [10, 12]],
+  ["gollum", [3, 4]],
+  ["frodo", [2, 4]],
+  ["samwise", [4, 6]],
+  ["sam gamgee", [4, 6]],
+  ["merry", [3, 4]],
+  ["pippin", [3, 4]],
+  ["bilbo", [2, 4]],
+  ["tom bombadil", [20, 20]],
 
   // ── Kaiju are big and strong, which is the point of them ──────────────
   ["king ghidorah", [32, 30]],

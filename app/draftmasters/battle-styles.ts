@@ -221,6 +221,225 @@ export const BATTLE_STYLES = `
   .dm-bt-slot { padding-bottom: 26px; }
 }
 
+/* ── The story ──────────────────────────────────────────────────────────────
+   Rosters top and bottom, the fight between them. The same shape as the draft
+   table on purpose: it is the same information at the same moment of the game
+   and nobody should have to learn a second layout for it. */
+.dm-st {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; grid-template-rows: auto auto 1fr auto;
+  background: #08080a;
+  cursor: pointer; user-select: none;
+}
+
+/* The board's landscape, held behind the whole screen. Dimmed hard: it is the
+   ground the fight is on, not something anybody should be reading. */
+.dm-st-ground {
+  position: absolute; inset: 0; z-index: 0; overflow: hidden;
+  pointer-events: none;
+}
+.dm-st-scene {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: .5;
+}
+.dm-st-ground::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 70% at 50% 42%, rgba(6,6,8,.62) 0%, rgba(6,6,8,.9) 68%),
+    linear-gradient(180deg, rgba(6,6,8,.85) 0%, rgba(6,6,8,.4) 26%,
+      rgba(6,6,8,.4) 74%, rgba(6,6,8,.85) 100%);
+}
+.dm-st > *:not(.dm-st-ground) { position: relative; z-index: 1; }
+
+.dm-st-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; cursor: default;
+}
+.dm-st-where {
+  font-family: var(--dm-display); font-size: 11.5px; letter-spacing: .18em;
+  text-transform: uppercase; color: rgb(var(--dm-glow) / .6);
+}
+.dm-st-where em {
+  font-style: normal; margin-left: 10px; letter-spacing: .06em;
+  text-transform: none; color: rgba(240,230,210,.4);
+}
+.dm-st-controls { display: flex; gap: 6px; }
+
+/* ── A bench ──────────────────────────────────────────────────────────────── */
+.dm-st-bench { padding: 6px 16px; }
+.dm-st-bench[data-align="top"] { border-bottom: 1px solid rgb(var(--dm-glow) / .12); }
+.dm-st-bench[data-align="bottom"] { border-top: 1px solid rgb(var(--dm-glow) / .12); }
+.dm-st-who {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px;
+  font-family: var(--dm-display); font-size: 11px; letter-spacing: .16em;
+  text-transform: uppercase; color: rgba(240,230,210,.45);
+}
+.dm-st-who b { color: var(--dm-gold); letter-spacing: 0; font-size: 12.5px; }
+
+.dm-st-cards { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.dm-st-card {
+  position: relative; margin: 0; width: clamp(72px, 9vw, 104px);
+  transition: opacity .5s ease, filter .5s ease;
+}
+.dm-st-art {
+  position: relative; display: block; overflow: hidden;
+  aspect-ratio: 4 / 5; border-radius: 9px; background: #0c0b09;
+  border: 1px solid rgb(var(--dm-glow) / .22);
+}
+.dm-st-art img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.dm-st-initial {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  font-family: var(--dm-display); font-size: 26px; color: rgb(var(--dm-glow) / .45);
+}
+.dm-st-ord, .dm-st-cap {
+  position: absolute; left: 3px; top: 3px;
+  min-width: 14px; height: 14px; padding: 0 3px;
+  display: grid; place-items: center; border-radius: 4px;
+  background: rgba(8,8,10,.85); border: 1px solid rgb(var(--dm-glow) / .3);
+  font-family: var(--dm-display); font-size: 9px; color: rgb(var(--dm-glow) / .8);
+}
+.dm-st-cap { background: linear-gradient(180deg, #f6e3ae, #c9a558); color: #17130a; border-color: #b08c37; }
+.dm-st-card figcaption {
+  margin-top: 4px; text-align: center; font-size: 10.5px; line-height: 1.25;
+  color: rgba(240,230,210,.82);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+/* The condition it was drafted in — the thing that actually reaches the fight. */
+.dm-st-cond {
+  display: block; text-align: center; margin-top: 2px;
+  font-size: 9.5px; line-height: 1.25; color: rgb(var(--dm-glow) / .6);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+
+/* Crossed out the moment the story kills them. */
+.dm-st-card[data-dead="1"] { opacity: .3; filter: grayscale(1); }
+.dm-st-card[data-dead="1"] figcaption { text-decoration: line-through; }
+.dm-st-card[data-dead="1"] .dm-st-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to bottom right, transparent 47%, rgba(224,64,42,.85) 47%,
+    rgba(224,64,42,.85) 53%, transparent 53%);
+}
+
+/* ── The page ─────────────────────────────────────────────────────────────── */
+/* Bottom-aligned, so the newest line sits in the same place every time and
+   the older ones drift up out of it. A top-aligned column makes the reader's
+   eye chase the text down the screen. */
+.dm-st-page {
+  overflow: hidden; padding: 26px 16px 34px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-end; gap: 16px;
+}
+.dm-st-page p {
+  margin: 0; max-width: 60ch;
+  font-family: var(--dm-display);
+  font-size: clamp(16px, 1.7vw, 21px); line-height: 1.66;
+  color: #f4ecdc;
+  /* Over a painting, so the words carry their own darkness with them. */
+  text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 34px rgba(0,0,0,.7);
+  animation: dm-st-in .5s ease both;
+}
+/* How far back in the story this line is. The one in front is the only one
+   fully lit; the rest fall away rather than scrolling off. */
+.dm-st-page p[data-back="0"] { opacity: 1; }
+.dm-st-page p[data-back="1"] { opacity: .42; font-size: clamp(14px, 1.45vw, 17px); }
+.dm-st-page p[data-back="2"] { opacity: .2;  font-size: clamp(13px, 1.3vw, 15px); }
+.dm-st-page p[data-back="3"] { opacity: .09; font-size: clamp(12px, 1.2vw, 14px); }
+.dm-st-page p {
+  transition: opacity .6s ease, font-size .6s ease, color .6s ease;
+}
+
+/* A death is the one thing allowed to change colour. */
+.dm-st-page p[data-kill="1"][data-back="0"] {
+  color: #f5b9a0;
+  text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 40px rgba(224,90,60,.28);
+}
+
+@keyframes dm-st-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(3px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+.dm-st-more { color: rgba(240,230,210,.25) !important; letter-spacing: .35em; }
+
+/* While the story is being written. Three lights, breathing in turn. */
+.dm-st-writing { display: flex; gap: 9px; align-items: center; justify-content: center; }
+.dm-st-writing span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgb(var(--dm-glow) / .75);
+  animation: dm-st-breathe 1.5s ease-in-out infinite;
+}
+.dm-st-writing span:nth-child(2) { animation-delay: .22s; }
+.dm-st-writing span:nth-child(3) { animation-delay: .44s; }
+@keyframes dm-st-breathe {
+  0%, 100% { opacity: .18; transform: scale(.75); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-st-writing span { animation: none; opacity: .7; }
+}
+
+/* ── The win ────────────────────────────────────────────────────────────────
+   Over everything. The result used to be a line at the foot of the page the
+   story had just filled, which is where a footnote goes, not the end of a
+   fight two people watched together. */
+.dm-st-win {
+  position: absolute; inset: 0; z-index: 5;
+  display: grid; place-items: center; cursor: default;
+  background: radial-gradient(90% 70% at 50% 45%, rgba(10,8,5,.72) 0%, rgba(6,6,8,.95) 70%);
+  backdrop-filter: blur(3px);
+  animation: dm-st-winin .7s cubic-bezier(.2,.8,.25,1) both;
+}
+@keyframes dm-st-winin { from { opacity: 0; } to { opacity: 1; } }
+
+.dm-st-win-in {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center; padding: 0 24px;
+}
+.dm-st-win-crown {
+  color: var(--dm-gold);
+  animation: dm-st-crown .8s cubic-bezier(.2,1.5,.4,1) both .1s;
+}
+@keyframes dm-st-crown {
+  from { opacity: 0; transform: translateY(-16px) scale(.5); }
+  to   { opacity: 1; transform: none; }
+}
+
+.dm-st-win-name {
+  margin: 0;
+  font-family: var(--dm-display);
+  font-size: clamp(38px, 7vw, 82px); line-height: 1.05; font-weight: 700;
+  letter-spacing: .01em;
+  background: linear-gradient(180deg, #fdf3d4 0%, var(--dm-gold) 52%, #9d7a2c 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  /* The glow has to be a shadow on the element, not on the clipped text. */
+  filter: drop-shadow(0 4px 30px rgb(var(--dm-glow) / .4));
+  animation: dm-st-winname .8s cubic-bezier(.2,.9,.25,1) both .22s;
+}
+@keyframes dm-st-winname {
+  from { opacity: 0; transform: translateY(18px) scale(.94); letter-spacing: .16em; }
+  to   { opacity: 1; transform: none; letter-spacing: .01em; }
+}
+
+.dm-st-win-left {
+  margin: 0; max-width: 46ch;
+  font-size: 14.5px; line-height: 1.6; color: rgba(240,236,228,.62);
+  animation: dm-st-in .6s ease both .55s;
+}
+.dm-st-win .dm-btn { animation: dm-st-in .6s ease both .75s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-st-win, .dm-st-win-crown, .dm-st-win-name,
+  .dm-st-win-left, .dm-st-win .dm-btn { animation: none; }
+}
+.dm-st-hint {
+  text-align: center; padding-bottom: 10px;
+  font-size: 11.5px; color: rgba(240,230,210,.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-st-page p { animation: none; }
+}
+
 .dm-bt {
   position: fixed;
   inset: 0;
