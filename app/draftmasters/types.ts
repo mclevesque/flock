@@ -135,6 +135,10 @@ export interface PackSummary {
   name: string;
   emoji: string;
   blurb: string;
+  /** The board's most prominent entry — the face on its card in the picker. */
+  heroName: string;
+  heroQuery: string;
+  heroWiki: string;
 }
 
 export interface PlayerRecord {

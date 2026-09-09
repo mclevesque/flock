@@ -127,8 +127,47 @@ export function isDiminutive(text: string): boolean {
  */
 export function clampGradeToText(grade: VariantGrade, variantText: string): VariantGrade {
   const big: VariantGrade[] = ["legendary", "exalted", "mythic", "major"];
-  if (!big.includes(grade)) return grade;
-  return hasAny(variantText, DIMINISHED) ? "boon" : grade;
+  if (big.includes(grade)) {
+    return hasAny(variantText, DIMINISHED) ? "boon" : grade;
+  }
+  return softenPartialHandicap(grade, variantText);
+}
+
+/**
+ * States that take SOMETHING away without taking away the character.
+ *
+ * The counterpart to DIMINISHED, and it exists because the model kept reaching
+ * for the bottom of the ladder for what is really a dent. "Thanos, gauntlet
+ * missing one stone" came back CRIPPLING, which dropped a tier-5 to a tier-2
+ * and then to 0/10 on the scorecard — while five infinity stones is still
+ * stronger than almost anything else on a Marvel board.
+ *
+ * The rule these all share: the thing is incomplete, not broken.
+ */
+const PARTIAL = [
+  "missing one", "missing a", "one short", "short one", "one stone", "without one",
+  "minus one", "down one", "all but one", "incomplete", "not at full", "less than full",
+  "reduced power", "reduced", "partially", "partial", "slightly", "a little",
+  "out of practice", "rusty", "tired", "distracted", "outnumbered", "off guard",
+  "unarmed", "no weapon", "weapon lost", "low on ammo", "out of ammo",
+];
+
+/**
+ * Cap how hard a negative grade is allowed to hit when the words describe a
+ * partial loss.
+ *
+ * CRIPPLING is three steps down and means "cannot meaningfully fight" — a
+ * newborn, a corpse, someone in chains. An elite who has merely lost one of
+ * several advantages is WEAKENING, one step, which is what the colour is for.
+ * Without this the ladder had no way to say "dented but still terrifying", and
+ * the strongest cards in the game were the easiest to write to zero.
+ */
+export function softenPartialHandicap(grade: VariantGrade, variantText: string): VariantGrade {
+  if (grade !== "crippling") return grade;
+  // A state that is BOTH partial and genuinely diminishing stays crippling —
+  // "missing one arm, and dying" is not a dent.
+  if (hasAny(variantText, DIMINISHED)) return grade;
+  return hasAny(variantText, PARTIAL) ? "weakening" : grade;
 }
 
 export function traitsOf(name: string, variant?: string | null): Trait[] {

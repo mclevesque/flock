@@ -1,12 +1,31 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const BYPASS_USERS = ["peanut", "babachoo", "thegreattester"];
 
-export default function SignInPage() {
+/**
+ * Where to send someone once they are in.
+ *
+ * Signing in used to always land on the hub, which meant following a game
+ * invite, being asked to sign in, and arriving somewhere else entirely with
+ * the invite gone. The page now carries a `next` parameter back.
+ *
+ * Only same-site paths are honoured. A value like "//evil.example" is a valid
+ * protocol-relative URL that browsers will follow off-site, so anything not
+ * starting with a single slash is discarded rather than trusted.
+ */
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
+function SignInForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [tab, setTab] = useState<"signin" | "register" | "forgot">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +42,7 @@ export default function SignInPage() {
     const result = await signIn("credentials", { username, password, redirect: false });
     setLoading(false);
     if (result?.error) setError("Wrong username or password.");
-    else router.push("/");
+    else router.push(next);
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -39,7 +58,7 @@ export default function SignInPage() {
     const result = await signIn("credentials", { username, password, redirect: false });
     setLoading(false);
     if (result?.error) { setError("Account created! Sign in below."); setTab("signin"); }
-    else router.push("/");
+    else router.push(next);
   }
 
   const input: React.CSSProperties = {
@@ -228,5 +247,18 @@ export default function SignInPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+/**
+ * useSearchParams() opts a component out of prerendering, and Next fails the
+ * build rather than guessing — so the form reading `next` sits behind its own
+ * Suspense boundary and the shell around it stays static.
+ */
+export default function SignInPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignInForm />
+    </Suspense>
   );
 }

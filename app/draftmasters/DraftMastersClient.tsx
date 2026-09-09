@@ -9,6 +9,7 @@ import {
   applyArena,
   buildLot,
   newVariantBudget,
+  withUberCard,
   buildPool,
   canMatch,
   canOpen,
@@ -34,7 +35,9 @@ import ArgumentScreen from "./ArgumentScreen";
 import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
 import BattleScreen from "./BattleScreen";
+import Icon from "./Icon";
 import MediaRail from "./MediaRail";
+import Wordmark from "./Wordmark";
 import VerdictScreen from "./VerdictScreen";
 import { useDraftMedia, type DraftMedia } from "./useDraftMedia";
 import { STYLES } from "./styles";
@@ -81,6 +84,13 @@ type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "arguments" | "v
 type Mode = "solo" | "pvp";
 type Action = { kind: "bid"; amount: number } | { kind: "pass" } | { kind: "match" };
 
+interface PrepState {
+phase: "board" | "portraits" | "room";
+/** Portraits resolved so far. Only meaningful in the portraits phase. */
+done: number;
+total: number;
+}
+
 interface Member {
   userId: string;
   name: string;
@@ -90,11 +100,78 @@ interface Member {
 }
 
 interface Props {
+  /**
+   * True when this request arrived on DraftMasters' own domain rather than
+   * through Great Souls. Only the wording changes — there is one deployment,
+   * one database and one set of accounts behind both.
+   */
+  standalone?: boolean;
   sessionUser: { id: string; name: string; avatarUrl: string | null } | null;
   packs: PackSummary[];
 }
 
-export default function DraftMastersClient({ sessionUser, packs }: Props) {
+/**
+ * Read a JSON response that might not be JSON.
+ *
+ * When a serverless function is killed mid-flight — a board that took too long
+ * to build, a cold start that timed out — the reply is not this app's JSON
+ * error but the gateway's own HTML page. `res.json()` on that throws
+ * `Unexpected token '<', "<HTML> <HE"...`, which is what the player saw
+ * instead of being told the board timed out. Read the text, try to parse it,
+ * and fall back to a sentence that says something true.
+ */
+async function readJson(res: Response, whenUnreadable: string): Promise<{ error?: string; pack?: unknown }> {
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw) as { error?: string; pack?: unknown };
+  } catch {
+    console.error("[draftmasters] non-JSON response", res.status, raw.slice(0, 200));
+    throw new Error(res.ok ? whenUnreadable : `${whenUnreadable} (${res.status})`);
+  }
+}
+
+/**
+ * Put a card-sized image in R2 and hand back its public URL.
+ *
+ * Tries the Netlify function first because that is the only write path that
+ * survives a Turbopack build (see the note at the call site), and falls back
+ * to the Next route so a plain `next dev` still works locally.
+ */
+async function storePortraitImage(name: string, dataUrl: string): Promise<string> {
+  const read = async (res: Response) => {
+    const raw = await res.text();
+    try {
+      return JSON.parse(raw) as { url?: string; error?: string };
+    } catch {
+      // A function that died on load answers in plain text; parsing it blind
+      // turned every server error into "Unexpected token 'I'".
+      console.error("[portrait upload] non-JSON response", res.status, raw.slice(0, 200));
+      return null;
+    }
+  };
+
+  const fn = await fetch("/.netlify/functions/portrait-store", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, dataUrl }),
+  }).catch(() => null);
+  const stored = fn ? await read(fn) : null;
+  if (stored?.url) return stored.url;
+
+  const api = await fetch("/api/draftmasters/portrait/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, dataUrl }),
+  }).catch(() => null);
+  const viaApi = api ? await read(api) : null;
+  if (viaApi?.url) return viaApi.url;
+
+  throw new Error(
+    stored?.error ?? viaApi?.error ?? "The photo service is down right now — try again shortly."
+  );
+}
+
+export default function DraftMastersClient({ sessionUser, packs, standalone = false }: Props) {
   // ── Identity ───────────────────────────────────────────────────────────────
   const [guestName, setGuestName] = useState("");
   const meId = useGuestId(sessionUser?.id);
@@ -104,7 +181,17 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   // ── Screen + config ────────────────────────────────────────────────────────
   const [screen, setScreen] = useState<Screen>("setup");
   const [mode, setMode] = useState<Mode>("solo");
-  const [presetId, setPresetId] = useState<string | null>("got");
+  /**
+   * Deliberately null.
+   *
+   * This used to default to "got", which meant the page opened with a choice
+   * already made on the player's behalf — a gold ring on a pack nobody had
+   * picked — and it made everything downstream unconditional, because there
+   * was never a moment when no universe was selected. Starting empty is what
+   * lets the settings stay out of the way until there is something to set
+   * them for.
+   */
+  const [presetId, setPresetId] = useState<string | null>(null);
   const [customTopic, setCustomTopic] = useState("");
   const [rulesIdx, setRulesIdx] = useState(0);
   /**
@@ -118,8 +205,15 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   /**
    * Pre-battle arguments. When on, the draft finishing opens one sealed box
    * per player instead of going straight to the verdict — see ArgumentScreen.
+   *
+   * OFF, and not offered. The round works, but it puts a writing exercise
+   * between the last bid and the result, which is the moment the game is
+   * actually about. Everything that serves it — the screen, the room protocol,
+   * the claim checker, the judge's briefing — is left intact and still runs
+   * whenever a board arrives with argumentsOn set, so turning it back on is
+   * this one line and the setup toggle that used to set it.
    */
-  const [argumentsOn, setArgumentsOn] = useState(true);
+  const [argumentsOn] = useState(false);
   const [rulings, setRulings] = useState<ArgumentRuling[]>([]);
   const [arguing, setArguing] = useState(false);
   const [argSubmitted, setArgSubmitted] = useState<string[]>([]);
@@ -140,7 +234,20 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   const [portraitSources, setPortraitSources] = useState<Record<string, string>>({});
   const [portraitNote, setPortraitNote] = useState<string | null>(null);
   const [view, setView] = useState<GameView>(EMPTY_VIEW);
-  const [prepStep, setPrepStep] = useState(0);
+  /**
+   * What the prep screen is actually doing, not which of three boxes is lit.
+   *
+   * The old version was a single step index and the bar was drawn as
+   * `(step + 0.35) / 3` — so it sat at 12%, jumped to 45%, sat again, jumped
+   * to 78% and finished. Every one of those pauses was the longest part of the
+   * job, which is why it read as stuck and then suddenly done.
+   *
+   * `done`/`total` are real counts during the portrait phase, which is the
+   * part with knowable progress. The board phase has none to report — one
+   * model call that either lands or does not — so it is shown as motion
+   * rather than as a number that would be invented.
+   */
+  const [prep, setPrep] = useState<PrepState>({ phase: "board", done: 0, total: 0 });
 
   // ── Verdict + records ──────────────────────────────────────────────────────
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -280,33 +387,113 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     };
   }, []);
 
-  // ── Board building ─────────────────────────────────────────────────────────
+// ── Board building ─────────────────────────────────────────────────────────
 
+  /**
+   * Resolve the board's portraits before the draft starts.
+   *
+   * Two things this has to get right, both learned the hard way:
+   *
+   * BATCHING. The resolver answers at most BATCH queries per request and
+   * silently drops the rest, so a board of 90 came back with 40 photos and 50
+   * letters — which reads as "portraits are broken" rather than "the request
+   * was capped".
+   *
+   * NOT BLOCKING ON ALL OF IT. The Pokémon board is 649 entries and a draft
+   * only ever deals a couple of dozen of them. Waiting for all sixteen batches
+   * before the first bid would put minutes on the prep screen to fetch photos
+   * for Pokémon nobody is going to see. So the entries most likely to be dealt
+   * — the pool is drawn by prominence — are fetched first and awaited, and the
+   * long tail keeps loading behind the auction. Anything the draft reaches
+   * before its batch lands is picked up by the per-lot fetch below.
+   */
   const prefetchPortraits = useCallback(async (board: Pack) => {
-    const queries = board.entries.map((e) => ({
-      q: `${e.s ? `${e.n} ${e.s}` : e.n} ${board.imgContext}`.trim(),
-      name: e.n,
-      // Crossover boards tag each entry with its own wiki.
-      wiki: e.wiki ?? board.wiki,
-    }));
-    try {
-      const res = await fetch("/api/draftmasters/portrait", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queries, wiki: board.wiki }),
-      });
-      const data = await res.json();
-      const map: PortraitMap = {};
-      const sources: Record<string, string> = {};
-      queries.forEach((q, i) => {
-        map[q.q] = data?.portraits?.[i]?.url ?? null;
-        sources[q.q] = data?.portraits?.[i]?.source ?? "none";
-      });
-      setPortraits(map);
-      setPortraitSources(sources);
-    } catch {
-      setPortraits({}); // lettered cards are a fine fallback
-    }
+    /**
+     * Smaller batches than the resolver's 40-query cap, deliberately.
+     *
+     * Two reasons, and neither is the cap. A batch is the unit the progress
+     * bar can move by, so 40 meant a 26-entry board finished in ONE step —
+     * nothing, then done — which is how a bar ends up looking stuck. And a
+     * batch is also the unit of parallelism: twelve queries come back sooner
+     * than forty, so the first cards are on screen while the rest are still
+     * in flight.
+     */
+    const BATCH = 12;
+    /** Enough to cover any draft: the biggest roster is 8 a side. */
+    const UP_FRONT = 10 * BATCH;
+    /** Requests in flight at once. Above this the resolver just queues. */
+    const LANES = 4;
+
+    const queries = board.entries
+      .map((e) => ({
+        q: `${e.s ? `${e.n} ${e.s}` : e.n} ${board.imgContext}`.trim(),
+        name: e.n,
+        // Crossover boards tag each entry with its own wiki.
+        wiki: e.wiki ?? board.wiki,
+        f: e.f ?? 3,
+      }))
+      // Prominence order, because that is the order the pool favours too.
+      .sort((a, b) => b.f - a.f);
+
+    setPortraits({});
+    setPortraitSources({});
+
+    const blocking = Math.min(UP_FRONT, queries.length);
+    setPrep({ phase: "portraits", done: 0, total: blocking });
+    let done = 0;
+
+    const fetchBatch = async (slice: typeof queries) => {
+      try {
+        const res = await fetch("/api/draftmasters/portrait", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ queries: slice, wiki: board.wiki }),
+        });
+        const data = await res.json();
+        const map: PortraitMap = {};
+        const sources: Record<string, string> = {};
+        slice.forEach((q, k) => {
+          map[q.q] = data?.portraits?.[k]?.url ?? null;
+          sources[q.q] = data?.portraits?.[k]?.source ?? "none";
+        });
+        setPortraits((prev) => ({ ...prev, ...map }));
+        setPortraitSources((prev) => ({ ...prev, ...sources }));
+      } catch {
+        /* lettered cards are a fine fallback for this batch */
+      }
+    };
+
+    /**
+     * Run the batches LANES at a time instead of one after another.
+     *
+     * They are independent requests against a stateless resolver, so waiting
+     * for each before starting the next was pure latency — a 120-portrait
+     * opening took ten round trips end to end when it could take three.
+     * Progress is reported as each lane finishes a batch, which is what makes
+     * the bar move in small real steps rather than one jump.
+     */
+    const run = async (from: number, to: number, report: boolean) => {
+      const batches: (typeof queries)[] = [];
+      for (let i = from; i < to; i += BATCH) batches.push(queries.slice(i, i + BATCH));
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(LANES, batches.length) }, async () => {
+          while (next < batches.length) {
+            const slice = batches[next++];
+            await fetchBatch(slice);
+            if (report) {
+              done += slice.length;
+              setPrep({ phase: "portraits", done: Math.min(done, blocking), total: blocking });
+            }
+          }
+        })
+      );
+    };
+
+    await run(0, blocking, true);
+    // The long tail keeps loading behind the auction; it must not hold the
+    // prep screen or report progress against a bar that has already finished.
+    if (queries.length > blocking) void run(blocking, queries.length, false);
   }, []);
 
   /**
@@ -400,28 +587,37 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
       setPortraitNote(`Uploading a photo for ${lot.name}…`);
       try {
         const dataUrl = await toCardSizedDataUrl(file);
-        const res = await fetch("/api/draftmasters/portrait/upload", {
+
+        /* Written through the Netlify function, not a Next route.
+           Turbopack rewrites the dynamic "@aws-sdk/client-s3" import to a
+           hashed specifier that does not exist at runtime, so every R2 write
+           from a Next route dies during module init and the platform answers
+           with a plain-text "Internal Server Error". The studio has always
+           used this function and has always worked; the in-game upload used
+           the Next route and never did. Same path now.
+
+           The Next route stays as the local fallback — `netlify dev` serves
+           the function, a bare `next dev` does not. */
+        const url = await storePortraitImage(lot.name, dataUrl);
+
+        /* Recorded exactly like a 👍, keyed by character, so the photo wins
+           on every board this character turns up on from now on. */
+        await fetch("/api/draftmasters/portrait/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imgQuery: lot.imgQuery, name: lot.name, dataUrl, userId: meId }),
+          body: JSON.stringify({
+            imgQuery: lot.imgQuery,
+            name: lot.name,
+            url,
+            source: "curated",
+            verdict: "good",
+            userId: meId,
+          }),
+        }).catch(() => {
+          /* The picture is stored and on screen; only "remember it" failed. */
         });
-        // A crashed function answers with plain text, not JSON — parsing it
-        // blind turned every server error into "Unexpected token 'I'", which
-        // tells the player nothing and hides the real fault from us too.
-        const raw = await res.text();
-        let data: { url?: string; error?: string } | null = null;
-        try {
-          data = JSON.parse(raw) as { url?: string; error?: string };
-        } catch {
-          console.error("[portrait upload] non-JSON response", res.status, raw.slice(0, 200));
-          throw new Error(
-            res.status >= 500
-              ? "The photo service is down right now — try again shortly."
-              : `Upload failed (${res.status}).`
-          );
-        }
-        if (!res.ok || !data?.url) throw new Error(data?.error ?? "upload failed");
-        applyPortrait(lot.imgQuery, data.url, "curated");
+
+        applyPortrait(lot.imgQuery, url, "curated");
         setPortraitNote(`Saved — that's ${lot.name} from now on.`);
       } catch (e) {
         setPortraitNote(e instanceof Error ? e.message : "Upload failed — try again.");
@@ -434,11 +630,41 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     setPortraitNote(null);
   }, [view.lot?.id]);
 
+  /**
+   * Safety net for the long tail.
+   *
+   * On a 649-entry board only the first few batches are resolved before the
+   * draft opens and the rest arrive behind it, so a lot can come up before its
+   * batch has landed. `undefined` means "not asked yet" and is the only case
+   * worth chasing — `null` is a resolved miss and re-asking it every time the
+   * lot changed would hammer the resolver for a picture that does not exist.
+   */
+  const chasing = useRef<string | null>(null);
+  useEffect(() => {
+    const lot = view.lot;
+    if (!lot || portraits[lot.imgQuery] !== undefined) return;
+    if (chasing.current === lot.imgQuery) return;
+    chasing.current = lot.imgQuery;
+    const wiki = pack?.entries.find((e) => e.n === lot.name)?.wiki ?? pack?.wiki ?? "";
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/draftmasters/portrait?q=${encodeURIComponent(lot.imgQuery)}` +
+            `&name=${encodeURIComponent(lot.name)}&wiki=${encodeURIComponent(wiki)}`
+        );
+        const data = await res.json();
+        applyPortrait(lot.imgQuery, data?.url ?? null, data?.source ?? "none", false);
+      } catch {
+        /* the lettered card stands */
+      }
+    })();
+  }, [view.lot, portraits, pack, applyPortrait]);
+
 
   /** Resolve the chosen topic into a full board, portraits and all. */
   const buildBoard = useCallback(async (): Promise<Pack | null> => {
     setError(null);
-    setPrepStep(0);
+    setPrep({ phase: "board", done: 0, total: 0 });
 
     let board: Pack | null = null;
     try {
@@ -452,13 +678,13 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             variantWild,
           }),
         });
-        const data = await res.json();
+        const data = await readJson(res, "Board building took too long. Try again, or shorten the topic.");
         if (!res.ok) throw new Error(data?.error ?? "Could not build that board.");
         board = data.pack as Pack;
       } else if (presetId) {
         // Path-addressed and no-store: the CDN can't serve a different board.
         const res = await fetch(`/api/draftmasters/pack/${encodeURIComponent(presetId)}`, { cache: "no-store" });
-        const data = await res.json();
+        const data = await readJson(res, "Could not load that board. Try again in a moment.");
         if (!res.ok) throw new Error("Could not load that topic.");
         board = data.pack as Pack;
         // A generated board is written to the dials; a ready-made one is
@@ -482,11 +708,14 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
     // Roll the setting. Same board, different fight — an animal draft is
     // usually a field and occasionally deep water, which changes everything.
     board = applyArena(board, Math.random);
+    // One chance in five hundred that this board carries a cosmic card. Done
+    // here so it is baked into the pack a PvP guest receives.
+    board = withUberCard(board, Math.random);
 
-    setPrepStep(1);
     setPack(board);
+    // prefetchPortraits drives the portrait phase itself, entry by entry.
     await prefetchPortraits(board);
-    setPrepStep(2);
+    setPrep({ phase: "room", done: 0, total: 0 });
     sfx.boardReady();
     return board;
   }, [customTopic, presetId, prefetchPortraits, variantRate, variantWild]);
@@ -1452,37 +1681,98 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="dm">
+    /* data-standalone marks the game as owning the whole screen: the site nav,
+       the fixed bottom nav and the floating voice/party pills are hidden while
+       it is mounted (see styles.ts, "Standalone"). DraftMasters is heading for
+       its own site, and on a phone that chrome was eating ~134px of a 812px
+       screen to show controls that belong to a different app. */
+    <div className="dm" data-standalone="1">
       <style dangerouslySetInnerHTML={{ __html: STYLES + BATTLE_STYLES }} />
       {mode === "pvp" && !connected && <div className="dm-conn">Reconnecting…</div>}
+
+      {/* The shelf gets a tab bar; a draft in progress does not. Once the
+          auction starts the screen is the table, and a nav strip along the
+          bottom would be four ways to abandon a live game. */}
+      {screen === "setup" && (
+        <nav className="dm-tabs" aria-label="DraftMasters">
+          <span className="dm-tab" data-on="1" aria-current="page">
+            <Icon name="cards" size={19} className="dm-tab-mark" />
+            Packs
+          </span>
+          <Link href="/leaderboard" className="dm-tab">
+            <Icon name="trophy" size={19} className="dm-tab-mark" />
+            Leaderboard
+          </Link>
+          <Link href="/friends" className="dm-tab">
+            <Icon name="friends" size={19} className="dm-tab-mark" />
+            Friends
+          </Link>
+          <Link href="/profile" className="dm-tab">
+            <Icon name="profile" size={19} className="dm-tab-mark" />
+            Profile
+          </Link>
+        </nav>
+      )}
       <div className="dm-shell">
         <header className="dm-head">
           <div>
-            <h1 className="dm-wordmark">DraftMasters</h1>
+            <h1 className="dm-wordmark"><Wordmark /></h1>
             {screen === "setup" && (
               <p className="dm-tagline">
-                Auction draft anything. ${BUDGET_PRESETS[rulesIdx].budget} in your pocket,{" "}
-                {BUDGET_PRESETS[rulesIdx].rosterSize} picks, one winner.
+                Travel the multiverse and draft a team to fight for you.
               </p>
             )}
           </div>
-          <div className="dm-head-actions">
+          {/* Setup keeps nothing but the mark and the universe selector — the
+              mute and the way out are controls for a draft that is running,
+              and on the shelf they were two buttons of chrome above the thing
+              the player came for. Both reappear, floated into the corner, the
+              moment the auction starts. */}
+          <div className="dm-head-actions" data-hide={screen === "setup" ? "1" : "0"}>
+            {/* Voice, one tap, wherever you are in the game.
+                It used to live inside the media rail, which is PvP-only, sits
+                below the table, and is hidden outright on a phone — so the
+                one control you reach for mid-auction ("let me say something",
+                "stop hearing me chew") was the hardest one to find. Here it
+                is beside the sound toggle in the floating corner, which is
+                on screen for the whole draft. */}
+            {mode === "pvp" && (
+              <button
+                className="dm-btn dm-btn-icon dm-btn-ghost"
+                onClick={media.toggleMic}
+                disabled={!media.ready}
+                data-live={media.micOn ? "1" : "0"}
+                title={media.micOn ? "Mute your mic" : "Unmute your mic"}
+                aria-pressed={media.micOn}
+              >
+                <Icon name={media.micOn ? "mic" : "micOff"} size={17} />
+              </button>
+            )}
             <button
               className="dm-btn dm-btn-icon dm-btn-ghost"
               onClick={toggleAudio}
-              title={audioMuted ? "Unmute sounds" : "Mute sounds"}
+              title={audioMuted ? "Unmute game sounds" : "Mute game sounds"}
               aria-pressed={!audioMuted}
             >
-              {audioMuted ? "🔇" : "🔊"}
+              <Icon name={audioMuted ? "mute" : "sound"} size={17} />
             </button>
-            <Link href="/games" className="dm-btn dm-btn-ghost">
-              Great Souls
-            </Link>
+            {/* On its own domain there is no hub to go back to, so the slot
+                does the thing a player actually wants mid-game instead. */}
+            {standalone ? (
+              <Link href="/" className="dm-btn dm-btn-ghost">
+                New draft
+              </Link>
+            ) : (
+              <Link href="/games" className="dm-btn dm-btn-ghost">
+                Great Souls
+              </Link>
+            )}
           </div>
         </header>
 
         {screen === "setup" && (
           <SetupScreen
+            standalone={standalone}
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
@@ -1492,8 +1782,6 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
             setVariantRate={setVariantRate}
             variantWild={variantWild}
             setVariantWild={setVariantWild}
-            argumentsOn={argumentsOn}
-            setArgumentsOn={setArgumentsOn}
             rulesIdx={rulesIdx}
             setRulesIdx={setRulesIdx}
             npc={npc}
@@ -1539,7 +1827,7 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
         )}
 
         {screen === "prep" && (
-          <PrepScreen step={prepStep} topic={topicLabel} isHost={canDrive} roomCode={roomCode} />
+          <PrepScreen prep={prep} topic={topicLabel} isHost={canDrive} roomCode={roomCode} />
         )}
 
         {screen === "ready" && (
@@ -1570,6 +1858,8 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               speaking={media.speaking}
               packName={pack?.name ?? "Draft"}
               arenaName={pack?.arenaName}
+              arenaDesc={pack?.arenaDesc}
+              scenario={pack?.scenario}
               onBid={handleBid}
               onPass={handlePass}
               onMatch={handleMatch}
@@ -1577,12 +1867,12 @@ export default function DraftMastersClient({ sessionUser, packs }: Props) {
               portraitNote={portraitNote}
               onPortraitFeedback={handlePortraitFeedback}
               onPortraitUpload={(f) => void handlePortraitUpload(f)}
+              media={
+                mode === "pvp" ? (
+                  <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={sendChat} />
+                ) : null
+              }
             />
-            {mode === "pvp" && (
-              <div style={{ maxWidth: 380, marginLeft: "auto" }}>
-                <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={sendChat} />
-              </div>
-            )}
           </>
         )}
 
@@ -1797,7 +2087,423 @@ async function toCardSizedDataUrl(file: File): Promise<string> {
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
+/**
+ * What's inside — the pack's contents, minus the surprises.
+ *
+ * A sealed pack you cannot see into is a gamble; a pack with a full contents
+ * list is a menu. This is deliberately neither: the ordinary lots are shown so
+ * you know what universe you are buying, and the ones worth opening a pack FOR
+ * — the mythics and the cosmic cards — are held back as sealed slots. You can
+ * see how many are in there. You cannot see which.
+ */
+function WhatsInside({
+  pack,
+  onClose,
+}: {
+  pack: PackSummary;
+  onClose: () => void;
+}) {
+  const [entries, setEntries] = useState<
+    { n: string; q: string; secret: boolean }[] | null
+  >(null);
+  const [art, setArt] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/draftmasters/pack/${pack.id}`, { cache: "no-store" });
+        const { pack: full } = await res.json();
+        if (!alive) return;
+        const ctx = full.imgContext ?? "";
+        const rows = full.entries.map((e: { n: string; s?: string; uberOnly?: boolean; variants?: { g?: string }[] }) => ({
+          n: e.n,
+          q: `${e.s ? `${e.n} ${e.s}` : e.n} ${ctx}`.trim(),
+          // Held back: anything that can turn up as a mythic or an uber, and
+          // the cosmic cards that are not in the ordinary rotation at all.
+          secret: Boolean(e.uberOnly) || (e.variants ?? []).some((v) => v.g === "mythic" || v.g === "uber"),
+        }));
+        setEntries(rows);
+
+        // Only the shown ones need faces.
+        const open = rows.filter((r: { secret: boolean }) => !r.secret).slice(0, 60);
+        const pres = await fetch("/api/draftmasters/portrait", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            queries: open.map((r: { n: string; q: string }) => ({ q: r.q, name: r.n, wiki: pack.heroWiki || undefined })),
+          }),
+        });
+        const data = await pres.json();
+        if (!alive) return;
+        const next: Record<string, string | null> = {};
+        open.forEach((r: { q: string }, i: number) => { next[r.q] = data?.portraits?.[i]?.url ?? null; });
+        setArt(next);
+      } catch {
+        setEntries([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [pack.id, pack.heroWiki]);
+
+  const shown = (entries ?? []).filter((e) => !e.secret);
+  const sealed = (entries ?? []).filter((e) => e.secret);
+
+  return (
+    <div className="dm-sheet-scrim" onClick={onClose}>
+      <div className="dm-sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`What's inside ${pack.name}`}>
+        <div className="dm-sheet-grip" aria-hidden="true" />
+        <div className="dm-sheet-head">
+          <h2 className="dm-sheet-title">{pack.emoji} {pack.name}</h2>
+          <button type="button" className="dm-sheet-x" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {/* No record here yet, deliberately.
+            The only numbers available are global — matches are stored without
+            the board they were played on — so a per-universe record would be
+            the site's overall win/loss wearing a Pokémon label. It goes in
+            when matches carry their board; until then it is absent rather
+            than wrong. */}
+
+        {entries === null ? (
+          <p className="dm-note" style={{ padding: "18px 0" }}>Opening the pack…</p>
+        ) : (
+          <>
+            <p className="dm-eyebrow" style={{ marginTop: 14 }}>
+              {shown.length} lots on the board
+            </p>
+            <div className="dm-inside-grid">
+              {shown.map((e) => (
+                <div key={e.n} className="dm-inside-cell" title={e.n}>
+                  <span className="dm-inside-art">
+                    {art[e.q] ? <img src={art[e.q]!} alt="" loading="lazy" /> : <span>{e.n.charAt(0)}</span>}
+                  </span>
+                  <span className="dm-inside-name">{e.n}</span>
+                </div>
+              ))}
+            </div>
+
+            {sealed.length > 0 && (
+              <>
+                <p className="dm-eyebrow" style={{ marginTop: 18 }}>
+                  {sealed.length} sealed — mythics and rarer
+                </p>
+                <div className="dm-inside-grid">
+                  {sealed.map((e, i) => (
+                    <div key={i} className="dm-inside-cell" data-sealed="1">
+                      <span className="dm-inside-art"><span>?</span></span>
+                      <span className="dm-inside-name">Sealed</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="dm-note" style={{ marginTop: 10 }}>
+                  You will only find out which of these turned up by drafting the board.
+                </p>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The universe selector.
+ *
+ * The shelf is for browsing; this is for arriving. Twenty-one packs is a
+ * pleasant swipe when you are undecided and a chore when you already know you
+ * want Mortal Kombat, so the bar carries the current pick and opens a list
+ * that jumps straight to it. Choosing scrolls the shelf rather than replacing
+ * it, so the two stay in agreement and the pack you chose is the one under
+ * your thumb.
+ */
+function UniverseSelect({
+  packs,
+  presetId,
+  usingCustom,
+  onPick,
+}: {
+  packs: PackSummary[];
+  presetId: string | null;
+  usingCustom: boolean;
+  onPick: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = packs.find((p) => p.id === presetId);
+  const label = usingCustom ? "Custom" : current?.name ?? "Pick a universe";
+  const mark = usingCustom ? "◈" : current?.emoji ?? "◈";
+
+  // Escape closes it, and a click anywhere else does too.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const jump = (id: string) => {
+    onPick(id);
+    setOpen(false);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-card="${id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    });
+  };
+
+  return (
+    <div className="dm-usel">
+      <button
+        type="button"
+        className="dm-usel-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span className="dm-usel-mark">{mark}</span>
+        <span className="dm-usel-label">{label}</span>
+        {/* An SVG, not "⌄". The glyph sits high in its em box, so it reads as
+            floating above the label however the flexbox is aligned. */}
+        <svg className="dm-usel-chev" data-open={open ? "1" : "0"} viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 9.5 12 15.5 18 9.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          <button
+            type="button"
+            className="dm-usel-scrim"
+            aria-label="Close"
+            onClick={() => setOpen(false)}
+          />
+          <div className="dm-usel-menu" role="listbox">
+            <button
+              type="button"
+              className="dm-usel-item"
+              role="option"
+              aria-selected={usingCustom}
+              data-on={usingCustom ? "1" : "0"}
+              onClick={() => jump("custom")}
+            >
+              <span className="dm-usel-mark">◈</span>
+              <span>Custom</span>
+            </button>
+            {packs.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="dm-usel-item"
+                role="option"
+                aria-selected={!usingCustom && presetId === p.id}
+                data-on={!usingCustom && presetId === p.id ? "1" : "0"}
+                onClick={() => jump(p.id)}
+              >
+                <span className="dm-usel-mark">{p.emoji}</span>
+                <span>{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The universe deck.
+ *
+ * A horizontal, snapping row of cards — one per board, custom first. Three
+ * things make it feel like a deck rather than a scroller:
+ *
+ *   SNAP. `scroll-snap-type: x mandatory` means a swipe always lands on a card
+ *   and never between two, so there is no half-card resting state to tidy up.
+ *
+ *   ART. Each card wears the curated portrait of its most prominent character.
+ *   Those already exist in R2, so the picker costs one batched lookup and no
+ *   new images.
+ *
+ *   FEEDBACK. On a phone, landing on a new card fires a short vibration. It is
+ *   the difference between scrolling a list and handling something.
+ */
+function PackDeck({
+  packs,
+  presetId,
+  usingCustom,
+  customTopic,
+  setCustomTopic,
+  onPick,
+  onContinue,
+}: {
+  packs: PackSummary[];
+  presetId: string | null;
+  usingCustom: boolean;
+  customTopic: string;
+  setCustomTopic: (v: string) => void;
+  onPick: (id: string) => void;
+  onContinue: () => void;
+}) {
+  const [art, setArt] = useState<Record<string, string | null>>({});
+  const railRef = useRef<HTMLDivElement>(null);
+  const lastHaptic = useRef<string>("");
+
+  // One request for every card's face. The portraits are curated, so this
+  // resolves from the database rather than going out to Google or Fandom.
+  useEffect(() => {
+    const queries = packs
+      .filter((p) => p.heroQuery)
+      .map((p) => ({ q: p.heroQuery, name: p.heroName, wiki: p.heroWiki || undefined }));
+    if (!queries.length) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/draftmasters/portrait", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ queries }),
+        });
+        const data = await res.json();
+        if (!alive) return;
+        const next: Record<string, string | null> = {};
+        packs.filter((p) => p.heroQuery).forEach((p, i) => {
+          next[p.id] = data?.portraits?.[i]?.url ?? null;
+        });
+        setArt(next);
+      } catch {
+        /* the cards fall back to their emoji, which is a fine card */
+      }
+    })();
+    return () => { alive = false; };
+  }, [packs]);
+
+  /**
+   * A tick when a new card takes the centre.
+   *
+   * Deliberately gated on which card is centred rather than fired on scroll:
+   * buzzing continuously through a swipe is noise, buzzing once on arrival is
+   * a detent. Silent on anything without a vibration motor, which includes
+   * every desktop browser and iOS Safari.
+   */
+  const onScroll = useCallback(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const mid = rail.scrollLeft + rail.clientWidth / 2;
+    let closest = "";
+    let best = Infinity;
+    for (const el of Array.from(rail.children) as HTMLElement[]) {
+      const c = el.offsetLeft + el.offsetWidth / 2;
+      const d = Math.abs(c - mid);
+      if (d < best) { best = d; closest = el.dataset.card ?? ""; }
+    }
+    if (closest && closest !== lastHaptic.current) {
+      const first = lastHaptic.current === "";
+      lastHaptic.current = closest;
+      // Silent on the very first measurement — that one fires on mount, before
+      // anybody has swiped anything.
+      if (first) return;
+      try { navigator.vibrate?.(8); } catch { /* no motor, no problem */ }
+      sfx.swipe();
+    }
+  }, []);
+
+  const [pickedCustom, setPickedCustom] = useState(false);
+
+  return (
+    <div className="dm-deck-wrap">
+      <div className="dm-deck" ref={railRef} onScroll={onScroll}>
+        {/* Custom leads: the only pack whose contents do not exist yet. */}
+        <button
+          type="button"
+          className="dm-pack dm-pack-custom"
+          data-card="custom"
+          data-on={pickedCustom || usingCustom ? "1" : "0"}
+          onClick={() => {
+            setPickedCustom(true);
+            requestAnimationFrame(() => document.getElementById("dm-custom-topic")?.focus());
+          }}
+        >
+          <span className="dm-pack-foil" aria-hidden="true" />
+          <span className="dm-pack-face">
+            <span className="dm-pack-house">◈ DraftMasters</span>
+            <span className="dm-pack-chip">Anything you can type</span>
+            <span className="dm-pack-window">
+              <span className="dm-pack-multiverse" />
+            </span>
+            <span className="dm-pack-band" aria-hidden="true" />
+            <span className="dm-pack-name">Custom</span>
+            <span className="dm-pack-foot">Build a board out of any idea — and any setting for it.</span>
+          </span>
+        </button>
+
+        {packs.map((p, i) => (
+          <button
+            key={p.id}
+            type="button"
+            className="dm-pack"
+            data-card={p.id}
+            data-on={!pickedCustom && !usingCustom && presetId === p.id ? "1" : "0"}
+            onClick={() => { setPickedCustom(false); onPick(p.id); }}
+          >
+            <span className="dm-pack-foil" aria-hidden="true" />
+            <span className="dm-pack-face">
+              <span className="dm-pack-house">◈ DraftMasters</span>
+              <span className="dm-pack-chip">Ready-made</span>
+              <span className="dm-pack-window">
+                <span className="dm-pack-emoji">{p.emoji}</span>
+                {art[p.id] && (
+                  <img
+                    src={art[p.id]!}
+                    alt=""
+                    /* The packs in and beside the first screenful load at once —
+                       lazy-loading the one peeking past the margin leaves a hole
+                       exactly where the eye lands. */
+                    loading={i < 3 ? "eager" : "lazy"}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  />
+                )}
+              </span>
+              <span className="dm-pack-name">{p.name}</span>
+              <span className="dm-pack-foot">{p.blurb}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* The compose box is not on the shelf. It appears when you pick the
+          custom pack, because until then it is a text field asking a question
+          nobody has been asked yet. */}
+      {(pickedCustom || usingCustom) && (
+        <div className="dm-deck-compose">
+          <textarea
+            id="dm-custom-topic"
+            className="dm-input dm-textarea"
+            value={customTopic}
+            onChange={(e) => setCustomTopic(e.target.value)}
+            placeholder="Type any topic — “GoT warriors on a frozen lake”, “Pokémon, but the arena is flooded”…"
+            maxLength={TOPIC_MAX_CHARS}
+            rows={2}
+            aria-label="Custom topic"
+          />
+          {/* A ready-made pack advances on the tap; a custom one cannot, since
+              the board does not exist until it is named. */}
+          <button
+            type="button"
+            className="dm-btn dm-btn-primary dm-btn-lg"
+            style={{ width: "100%", marginTop: 10 }}
+            disabled={!customTopic.trim()}
+            onClick={onContinue}
+          >
+            {customTopic.trim() ? "Use this topic" : "Name your topic first"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SetupScreen({
+  standalone,
   packs,
   presetId,
   setPresetId,
@@ -1807,8 +2513,6 @@ function SetupScreen({
   setVariantRate,
   variantWild,
   setVariantWild,
-  argumentsOn,
-  setArgumentsOn,
   rulesIdx,
   setRulesIdx,
   npc,
@@ -1826,6 +2530,8 @@ function SetupScreen({
   onCreate,
   onJoin,
 }: {
+  /** DraftMasters' own domain — see the Props note above. */
+  standalone: boolean;
   packs: PackSummary[];
   presetId: string | null;
   setPresetId: (id: string | null) => void;
@@ -1835,8 +2541,6 @@ function SetupScreen({
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
-  argumentsOn: boolean;
-  setArgumentsOn: (fn: (v: boolean) => boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   npc: NpcPersonality;
@@ -1859,6 +2563,18 @@ function SetupScreen({
   const [showJoin, setShowJoin] = useState(Boolean(joinCode));
   const usingCustom = customTopic.trim().length > 0;
   const hasTopic = usingCustom || Boolean(presetId);
+
+  /**
+   * The shelf and the settings are two pages, not one page that grows.
+   *
+   * Revealing four sections under the packs meant picking a universe pushed
+   * the shelf up the screen and buried it under dials the player had not
+   * asked for yet. Picking is one decision and setting up is another, so they
+   * get one screen each: the shelf, then the table.
+   */
+  const [stage, setStage] = useState<"pick" | "tune">("pick");
+  const [insideOpen, setInsideOpen] = useState(false);
+  const selectedPack = packs.find((p) => p.id === presetId) ?? null;
 
   return (
     <>
@@ -1883,75 +2599,94 @@ function SetupScreen({
         </div>
       )}
 
-      {(record || leaderboard.length > 0) && (
-        <section className="dm-section">
-          <RecordPanel record={record} leaderboard={leaderboard} meId={meId} />
-        </section>
-      )}
+      {/* The ladder used to sit here, above the shelf — a panel of statistics
+          between the player and the thing they came to do, which on a first
+          visit read "no games on record yet" and said nothing at all. It moves
+          below the packs, where it is a reason to come back rather than an
+          obstacle to starting. */}
 
       <section className="dm-section">
-        <p className="dm-eyebrow">1 · Pick a topic</p>
-        <div className="dm-custom">
-          <textarea
-            className="dm-input dm-textarea"
-            value={customTopic}
-            onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — and a setting if you want one. “GoT warriors fighting on a frozen lake” or “Pokémon, but the arena is flooded”…"
-            maxLength={TOPIC_MAX_CHARS}
-            rows={2}
-            aria-label="Custom topic"
+        {/* ── The deck ─────────────────────────────────────────────────────
+            One card per universe, swiped rather than scanned. The old picker
+            was a paragraph of prose above a grid of twenty text buttons, which
+            asked the player to read the whole board before choosing anything.
+            A deck asks them to look. The art is the boards' own most prominent
+            character, already curated in R2, so the thing you are choosing
+            between looks like the thing you are about to draft.
+
+            Custom leads, because "anything you can type" is the pitch. */}
+        <div className="dm-shelf-head" data-hide={stage === "tune" ? "1" : "0"}>
+          <UniverseSelect
+            packs={packs}
+            presetId={presetId}
+            usingCustom={usingCustom}
+            onPick={(id) => {
+              if (id === "custom") return;
+              setCustomTopic("");
+              setPresetId(id);
+            }}
           />
         </div>
-        <div className="dm-examples">
-          {TOPIC_EXAMPLES.map((ex) => (
-            <button key={ex} className="dm-chip" onClick={() => setCustomTopic(ex)}>
-              {ex}
-            </button>
-          ))}
-        </div>
-        <p className="dm-note" style={{ marginTop: 10 }}>
-          The board is built to match your wording — <em>warriors</em> gets you fighters, not schemers.
-        </p>
+        {stage === "pick" && (
+          <PackDeck
+            packs={packs}
+            presetId={presetId}
+            usingCustom={usingCustom}
+            customTopic={customTopic}
+            setCustomTopic={setCustomTopic}
+            onContinue={() => setStage("tune")}
+            onPick={(id) => {
+              setCustomTopic("");
+              setPresetId(id);
+            }}
+          />
+        )}
 
-        <p className="dm-eyebrow" style={{ marginTop: 22 }}>
-          …or start from a ready-made board
-        </p>
-        <div className="dm-topics">
-          {packs.map((p) => (
+        {/* The pack's own controls, under the shelf: what is in it, and the
+            one button that matters. Selecting a pack no longer jumps straight
+            to the table — you get to look inside first, which is the whole
+            reason a sealed pack is interesting. */}
+        {stage === "pick" && selectedPack && (
+          <div className="dm-shelf-foot">
+            <button type="button" className="dm-inside-btn" onClick={() => setInsideOpen(true)}>
+              <Icon name="eye" size={16} /> What&apos;s inside
+            </button>
             <button
-              key={p.id}
-              className="dm-topic"
-              data-on={!usingCustom && presetId === p.id ? "1" : "0"}
-              onClick={() => {
-                setCustomTopic("");
-                setPresetId(p.id);
-              }}
+              type="button"
+              className="dm-btn dm-btn-primary dm-btn-lg dm-draft-now"
+              onClick={() => setStage("tune")}
             >
-              <span className="dm-topic-emoji">{p.emoji}</span>
-              <span className="dm-topic-name">{p.name}</span>
-              <span className="dm-topic-blurb">{p.blurb}</span>
+              Draft Now
             </button>
-          ))}
-        </div>
-
-        {/* Below both choices, because they now govern whichever board you
-            pick — a ready-made one rolls its authored variants at these
-            settings, a generated one is written to them as well. */}
-        <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
-
-        <button
-          className="dm-seg-item dm-toggle"
-          data-on={argumentsOn ? "1" : "0"}
-          onClick={() => setArgumentsOn((v) => !v)}
-          aria-pressed={argumentsOn}
-        >
-          <span className="dm-seg-label">Pre-battle arguments {argumentsOn ? "· ON" : "· OFF"}</span>
-          <span className="dm-seg-note">
-            Before the judge decides, each of you writes one case for your roster — sealed, so neither sees the
-            other&apos;s. The panel throws out anything that isn&apos;t true and the rest counts as evidence.
-          </span>
-        </button>
+          </div>
+        )}
       </section>
+
+      {insideOpen && selectedPack && (
+        <WhatsInside pack={selectedPack} onClose={() => setInsideOpen(false)} />
+      )}
+
+      {/* ── Everything past this point waits for a universe ─────────────────
+          The dials, the budget, the opponent and the name were all on screen
+          before the player had chosen anything to apply them to — four
+          sections of settings for a draft that did not exist yet, pushing the
+          shelf up the page. They open once a pack is picked, so the first
+          screen is the shelf and nothing else. */}
+      {stage === "tune" && hasTopic && (
+        <div className="dm-after-pick">
+          <button
+            type="button"
+            className="dm-back"
+            onClick={() => setStage("pick")}
+          >
+            ← {usingCustom ? "Custom" : packs.find((p) => p.id === presetId)?.name ?? "Change universe"}
+          </button>
+          <section className="dm-section">
+            {/* These govern whichever board you picked — a ready-made one
+                rolls its authored variants at these settings, a generated one
+                is written to them as well. */}
+            <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
+          </section>
 
       <section className="dm-section">
         <p className="dm-eyebrow">2 · Budget</p>
@@ -1970,28 +2705,8 @@ function SetupScreen({
         </p>
       </section>
 
-      {!signedIn && (
-        <section className="dm-section">
-          <p className="dm-eyebrow">Your name</p>
-          <input
-            className="dm-input"
-            value={guestName}
-            onChange={(e) => setGuestName(e.target.value)}
-            placeholder="Guest"
-            maxLength={24}
-            aria-label="Your display name"
-            style={{ maxWidth: 280 }}
-          />
-          <p className="dm-note" style={{ marginTop: 8 }}>
-            Playing as a guest.{" "}
-            <Link href="/signin" style={{ color: "var(--dm-gold)" }}>
-              Sign in
-            </Link>{" "}
-            to use your Great Souls name and keep your record across devices.
-          </p>
-        </section>
-      )}
-
+      {/* The guest-name field is gone with guest play: the page now requires
+          an account, so the name on the paddle is the account's. */}
       <section className="dm-section">
         <p className="dm-eyebrow">3 · Who are you drafting against?</p>
         <div className="dm-seg" style={{ marginBottom: 12 }}>
@@ -2039,6 +2754,18 @@ function SetupScreen({
           PvP only; solo games count toward your win/loss.
         </p>
       </section>
+
+          {/* Your record, at the bottom and behind the same gate: on the first
+              screen it was a panel reading "no games on record yet", which is
+              the emptiest thing the site can say, sitting under the one thing
+              that would fix it. */}
+          {(record || leaderboard.length > 0) && (
+            <section className="dm-section">
+              <RecordPanel record={record} leaderboard={leaderboard} meId={meId} />
+            </section>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2295,12 +3022,62 @@ function RoomCode({ code }: { code: string }) {
 
 // ── Prep ─────────────────────────────────────────────────────────────────────
 
-function PrepScreen({ step, topic, isHost, roomCode }: { step: number; topic: string; isHost: boolean; roomCode: string | null }) {
+/**
+ * The prep screen, reporting what is actually happening.
+ *
+ * The bar is split by how much each phase really costs, not into equal
+ * thirds: building the board is one model call of eight to twenty seconds,
+ * finding the portraits is the long tail, and setting the room is instant.
+ *
+ * Only the portrait phase can report real progress, and it does — resolved
+ * against total, counted as each batch lands. The board phase has nothing
+ * honest to count, so instead of inventing a number it creeps: a curve that
+ * always moves and never quite arrives, so the screen is visibly alive
+ * without claiming to know something it does not. The bar also transitions in
+ * CSS, so every change glides rather than snapping.
+ */
+function PrepScreen({
+  prep,
+  topic,
+  isHost,
+  roomCode,
+}: {
+  prep: PrepState;
+  topic: string;
+  isHost: boolean;
+  roomCode: string | null;
+}) {
+  /* The board phase gets the first third of the bar; portraits take it to
+     94%, and the room closes it out. */
+  const BOARD_CEILING = 34;
+
+  const [creep, setCreep] = useState(0);
+  useEffect(() => {
+    if (prep.phase !== "board") return;
+    const started = Date.now();
+    const id = setInterval(() => {
+      // Approaches the ceiling asymptotically on a ~14s scale: fast at first,
+      // slower the longer it takes, never finishing on its own.
+      const t = (Date.now() - started) / 14000;
+      setCreep(BOARD_CEILING * (1 - Math.exp(-t)));
+    }, 120);
+    return () => clearInterval(id);
+  }, [prep.phase]);
+
+  const pct =
+    prep.phase === "board"
+      ? creep
+      : prep.phase === "portraits"
+        ? BOARD_CEILING + (prep.total ? (prep.done / prep.total) * (94 - BOARD_CEILING) : 0)
+        : 97;
+
   const steps = [
-    { label: "Building the board", done: "Board built" },
-    { label: "Finding the portraits", done: "Portraits loaded" },
-    { label: "Setting the room", done: "Ready" },
-  ];
+    { key: "board", label: "Building the board", done: "Board built" },
+    { key: "portraits", label: "Finding the portraits", done: "Portraits loaded" },
+    { key: "room", label: "Setting the room", done: "Ready" },
+  ] as const;
+  const order = { board: 0, portraits: 1, room: 2 } as const;
+  const at = order[prep.phase];
 
   if (!isHost) {
     return (
@@ -2325,16 +3102,22 @@ function PrepScreen({ step, topic, isHost, roomCode }: { step: number; topic: st
       <p className="dm-tagline">Nothing starts until the whole board is loaded — no waiting on images mid-auction.</p>
 
       <div className="dm-prep-steps">
-        {steps.map((s, i) => (
-          <div key={s.label} className="dm-step" data-state={step > i ? "done" : step === i ? "active" : "todo"}>
-            <span className="dm-step-dot">{step > i ? "✓" : ""}</span>
-            <span>{step > i ? s.done : s.label}</span>
+        {steps.map((st, i) => (
+          <div key={st.key} className="dm-step" data-state={at > i ? "done" : at === i ? "active" : "todo"}>
+            <span className="dm-step-dot">{at > i ? "✓" : ""}</span>
+            <span>
+              {at > i ? st.done : st.label}
+              {/* The one honest count on this screen. */}
+              {at === i && st.key === "portraits" && prep.total > 0 && (
+                <span className="dm-prep-count"> {prep.done} / {prep.total}</span>
+              )}
+            </span>
           </div>
         ))}
       </div>
 
       <div className="dm-progress">
-        <div className="dm-progress-fill" style={{ width: `${((step + 0.35) / 3) * 100}%` }} />
+        <div className="dm-progress-fill" style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
     </div>
   );
@@ -2375,7 +3158,7 @@ function ReadyScreen({
 
   return (
     <div className="dm-prep" style={{ maxWidth: 620 }}>
-      <p className="dm-eyebrow">{pack?.emoji} Board ready</p>
+      <p className="dm-eyebrow">{pack?.emoji} The house is open</p>
       <h2 className="dm-wordmark" style={{ fontSize: "clamp(26px, 7vw, 40px)" }}>
         {pack?.name ?? "Draft"}
       </h2>

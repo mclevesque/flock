@@ -155,7 +155,12 @@ export async function POST(req: Request) {
           `Write it. ${winner.name} must win at the end. Use the exact drafted names and the exact side ids above.`,
         maxTokens: 9000,
         temperature: 0.95,
-        timeoutMs: 50000,
+        // One provider's slice, and one budget for the whole chain.
+        // timeoutMs used to apply per request, so three providers with two
+        // attempts each could run far past maxDuration (60s) — and an
+        // overrunning function is killed and answers with HTML, not JSON.
+        timeoutMs: 26_000,
+        deadlineMs: (maxDuration - 8) * 1000,
       });
 
       {

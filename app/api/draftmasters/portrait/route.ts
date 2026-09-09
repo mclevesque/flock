@@ -244,7 +244,14 @@ async function resolve(q: string, name: string, wiki: string | undefined, blocke
   const google = await fromGoogle(q || name, blocked);
   if (google) return google;
 
-  if (name) {
+  // Fandom is for FICTIONAL boards only.
+  //
+  // A board with no wiki is a real-world one — historical figures, athletes,
+  // animals — and Wikipedia is the right source for those. Running the
+  // fallback wikis anyway meant Genghis Khan was searched against the
+  // villains, hero and deathbattle wikis BEFORE Wikipedia was tried, which is
+  // how comic art and a picture of Jon Snow ended up on the history board.
+  if (name && wiki) {
     const wikis = [wiki, ...FALLBACK_WIKIS].filter((w): w is string => Boolean(w));
     for (const w of [...new Set(wikis)]) {
       const hit = (await fromFandom(w, name, blocked)) ?? (q && q !== name && w === wiki ? await fromFandom(w, q, blocked) : null);

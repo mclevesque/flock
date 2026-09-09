@@ -148,20 +148,41 @@ export default function PortraitStudio({ packs }: { packs: Pack[] }) {
           name: e.n,
           wiki: e.wiki ?? pack.wiki,
         }));
-        const pres = await fetch("/api/draftmasters/portrait", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ queries, wiki: pack.wiki }),
-        });
-        // The route answers with an ARRAY parallel to the queries it was sent,
-        // not a map — so index it back onto the query strings the cards use.
-        const pdata = await pres.json();
-        const resolved = (pdata.portraits ?? []) as { url: string | null }[];
-        const byQuery: Record<string, string | null> = {};
-        queries.forEach((qq, i) => {
-          byQuery[qq.q] = resolved[i]?.url ?? null;
-        });
-        if (!cancelled) setPortraits(byQuery);
+        /**
+         * Resolved in batches of 40, because the route silently caps a request
+         * at that many.
+         *
+         * The game never noticed — a draft asks about ~26 picks. A studio board
+         * is the WHOLE franchise, and Game of Thrones has 61, so everything
+         * past the fortieth came back as nothing. That looked exactly like "no
+         * picture found", which is why portraits that had been uploaded and
+         * saved correctly still showed as gaps on reload.
+         *
+         * Batches are applied as they land, so the grid fills in rather than
+         * sitting empty through several seconds of live lookups.
+         */
+        const BATCH = 40;
+        for (let start = 0; start < queries.length; start += BATCH) {
+          if (cancelled) return;
+          const slice = queries.slice(start, start + BATCH);
+          const pres = await fetch("/api/draftmasters/portrait", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ queries: slice, wiki: pack.wiki }),
+          });
+          // The route answers with an ARRAY parallel to the queries it was
+          // sent, not a map — so index it back onto the card's query string.
+          const pdata = await pres.json();
+          const resolved = (pdata.portraits ?? []) as { url: string | null }[];
+          if (cancelled) return;
+          setPortraits((prev) => {
+            const next = { ...prev };
+            slice.forEach((qq, i) => {
+              next[qq.q] = resolved[i]?.url ?? null;
+            });
+            return next;
+          });
+        }
       } catch {
         if (!cancelled) setNote("Couldn't load that board.");
       } finally {

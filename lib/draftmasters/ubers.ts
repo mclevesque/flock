@@ -56,14 +56,150 @@ export const UBERS: string[] = [
 ];
 
 /**
+ * Cards that are not in any board's rotation and turn up only on the
+ * one-in-five-hundred roll — on ANY board, whatever it is about.
+ *
+ * GATED BY FRANCHISE. Eru can appear on a Tolkien board, or on any crossover
+ * that has Tolkien in it — but never on a Pokémon draft. The author of
+ * Middle-earth turning up in a contest that has nothing to do with
+ * Middle-earth is not a crossover, it is a non sequitur: there is no joke
+ * because there is no collision, just a card nobody at the table has a reason
+ * to care about.
+ *
+ * `match` is checked against everything the board is made of — its name, its
+ * scenario, AND its entry names — so "Thrones vs LOTR" qualifies through
+ * Aragorn and Gandalf even if the topic string never says Tolkien.
+ *
+ * Each is the top of its own cosmology, so none is arguably beatable by the
+ * others — fine, since two in one game is a one-in-250,000 event.
+ */
+export interface UberCard {
+  /** Name as drafted. */
+  n: string;
+  /** Extra words for the portrait search. */
+  s?: string;
+  /** The variant it always wears. */
+  v: string;
+  /**
+   * Lowercase fragments. The board must mention at least one of these
+   * somewhere — topic, scenario, or any entry name — for this card to be
+   * eligible at all.
+   */
+  match: string[];
+}
+
+export const UBER_CARDS: UberCard[] = [
+  {
+    n: "Eru Ilúvatar",
+    s: "Tolkien Eru Iluvatar the One",
+    v: "Supreme Creator",
+    match: [
+      "lotr", "lord of the rings", "tolkien", "middle-earth", "middle earth",
+      "hobbit", "silmarillion", "gandalf", "aragorn", "frodo", "sauron",
+      "gollum", "legolas", "gimli", "saruman", "balrog", "mordor", "rivendell",
+      "galadriel", "boromir", "treebeard", "isildur", "numenor", "valar",
+    ],
+  },
+  {
+    n: "The One Above All",
+    s: "Marvel Comics",
+    v: "above all others",
+    match: [
+      "marvel", "avengers", "x-men", "spider-man", "spiderman", "thanos",
+      "iron man", "captain america", "doctor strange", "mcu",
+      "infinity gauntlet", "asgard", "magneto", "galactus",
+    ],
+  },
+  {
+    n: "The Living Tribunal",
+    s: "Marvel Comics",
+    v: "passing judgement on the multiverse",
+    match: [
+      "marvel", "avengers", "x-men", "spider-man", "spiderman", "thanos",
+      "iron man", "captain america", "doctor strange", "mcu", "galactus",
+    ],
+  },
+  {
+    n: "The Presence",
+    s: "DC Comics",
+    v: "the Voice from the whirlwind",
+    match: [
+      "dc comics", "superman", "batman", "justice league", "wonder woman",
+      "green lantern", "aquaman", "darkseid", "gotham", "krypton", "metropolis",
+    ],
+  },
+  {
+    n: "Zeno",
+    s: "Dragon Ball Omni-King Zen-Oh",
+    v: "Omni-King, erasing with a gesture",
+    match: [
+      "dragon ball", "dragonball", "goku", "vegeta", "saiyan", "frieza",
+      "beerus", "gohan", "namek", "kamehameha",
+    ],
+  },
+  {
+    n: "The Truth",
+    s: "Fullmetal Alchemist",
+    v: "All is One, One is All",
+    match: ["fullmetal", "full metal alchemist", "elric", "amestris", "homunculus"],
+  },
+  {
+    n: "Azathoth",
+    s: "Lovecraft blind idiot god",
+    v: "stirring in its sleep",
+    match: [
+      "lovecraft", "cthulhu", "eldritch", "cosmic horror", "mythos",
+      "nyarlathotep", "innsmouth", "necronomicon", "shoggoth", "elder god",
+    ],
+  },
+  {
+    n: "Haruhi Suzumiya",
+    s: "anime",
+    v: "rewriting reality without noticing",
+    match: ["haruhi", "suzumiya", "sos brigade", "kyon"],
+  },
+];
+
+/**
+ * Cards whose universe is actually present on this board.
+ *
+ * Matched on WORD BOUNDARIES, not substrings. A plain `includes` put Eru on
+ * the anime and horror boards because "ent " appears inside "opponent ", which
+ * is exactly the kind of silent nonsense this gate exists to prevent.
+ */
+export function eligibleUberCards(boardText: string): UberCard[] {
+  // Pad the ends so a keyword at the very start or end still has a boundary.
+  const hay = ` ${boardText.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  const mentions = (needle: string) => {
+    const cleaned = needle.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    return cleaned.length > 0 && hay.includes(` ${cleaned} `);
+  };
+  return UBER_CARDS.filter((c) => c.match.some(mentions));
+}
+
+/**
  * Variants whose contribution is not a number.
  *
  * Eru Ilúvatar did not help win the contest; he is the author of the world the
  * contest happens in. Printing "20/10" beside that is a category error, so the
- * scorecard prints an infinity instead. Matched on the variant text because
- * that string is declared in exactly one place, on the card itself.
+ * scorecard prints an infinity instead — and the same goes for every card in
+ * UBER_CARDS, each of which sits at the top of its own cosmology.
  */
-export const BEYOND_MEASURE = ["Supreme Creator"];
+export const BEYOND_MEASURE: string[] = UBER_CARDS.map((c) => c.v);
+
+/**
+ * Pick one cosmic card for a board, at the same one-in-five-hundred odds —
+ * but only from the ones whose universe this board actually touches.
+ *
+ * Most boards make none of them eligible, and that is correct: the rate is a
+ * ceiling, not a quota.
+ */
+export function rollUberCard(rng: () => number, boardText: string): UberCard | null {
+  if (rng() >= UBER_CHANCE) return null;
+  const pool = eligibleUberCards(boardText);
+  if (!pool.length) return null;
+  return pool[Math.floor(rng() * pool.length)] ?? pool[0];
+}
 
 /** Sentinel contribution meaning "do not render a number here". */
 export const IMMEASURABLE = 999;
@@ -96,12 +232,21 @@ export function rollUber(rng: () => number): string | null {
  */
 export function uberBriefing(name: string, uber: string): string {
   return (
-    `UBER IN PLAY — ${name} ${uber}.\n` +
+    `UBER IN PLAY — ${name} ${uber}.
+` +
     `This is not flavour and not an exaggeration. It is the rarest thing in the ` +
     `game (about one lot in five hundred) and it genuinely overrides the ` +
     `character's normal limits. Whoever they were before, they now have this, ` +
-    `and it should decide the contest almost on its own. Treat the mismatch as ` +
-    `the story: the joke is that this specific character has it, and your ` +
-    `reasoning should enjoy that rather than argue them out of it.\n`
+    `and it decides the contest. Treat the mismatch as the story: the joke is ` +
+    `that this specific character has it, and your reasoning should enjoy that ` +
+    `rather than argue them out of it.
+` +
+    `THE SIDE HOLDING IT WINS unless the other side is holding one too. Never ` +
+    `write that it is flavour, cosmetic, or provides no mechanical advantage — ` +
+    `that is exactly backwards, and a player who drew a one-in-five-hundred card ` +
+    `and read that would be right to think the game was broken. Its contribution ` +
+    `is beyond measurement, so do not score it out of ten; say what it did to ` +
+    `the other roster instead.
+`
   );
 }

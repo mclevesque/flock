@@ -74,7 +74,12 @@ export async function POST(req: Request) {
           `\nRule on every team listed above. Use the exact side ids.`,
         maxTokens: 3000,
         temperature: 0.6,
-        timeoutMs: 40000,
+        // One provider's slice, and one budget for the whole chain.
+        // timeoutMs used to apply per request, so three providers with two
+        // attempts each could run far past maxDuration (45s) — and an
+        // overrunning function is killed and answers with HTML, not JSON.
+        timeoutMs: 20_000,
+        deadlineMs: (maxDuration - 8) * 1000,
       });
 
       const rulings = sanitizeRulings(parsed?.rulings, ids);

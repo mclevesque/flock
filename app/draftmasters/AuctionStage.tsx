@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { canMatch, canOpen, canRaise, maxBid, openingBid, priceLabel, type Rules, type Side } from "@/lib/draftmasters/engine";
+import Icon from "./Icon";
 import type { VariantGrade } from "@/lib/draftmasters/packs";
 import type { DiceState, GameView, PortraitMap } from "./types";
 
@@ -49,6 +50,10 @@ interface Props {
   packName: string;
   /** Setting rolled for this game, shown beside the topic */
   arenaName?: string;
+  /** What the rolled arena actually does to the fight. */
+  arenaDesc?: string;
+  /** The board's scenario, shown alongside it. */
+  scenario?: string;
   onBid: (amount: number) => void;
   onPass: () => void;
   onMatch: () => void;
@@ -60,6 +65,8 @@ interface Props {
   onPortraitFeedback: (verdict: "good" | "bad") => void;
   /** A file picked for a character that has no photo anywhere */
   onPortraitUpload: (file: File) => void;
+  /** Cameras and chat for a PvP room. Absent in solo — the feed fills that space. */
+  media?: React.ReactNode;
 }
 
 export default function AuctionStage({
@@ -70,6 +77,8 @@ export default function AuctionStage({
   speaking,
   packName,
   arenaName,
+  arenaDesc,
+  scenario,
   onBid,
   onPass,
   onMatch,
@@ -77,6 +86,7 @@ export default function AuctionStage({
   portraitNote,
   onPortraitFeedback,
   onPortraitUpload,
+  media,
 }: Props) {
   const me = view.sides.find((s) => s.id === meId) ?? null;
   const other = view.sides.find((s) => s.id !== meId) ?? null;
@@ -125,6 +135,7 @@ export default function AuctionStage({
   // opens a file picker so a human can just supply the right one.
   const hasPhoto = Boolean(lot && portraits[lot.imgQuery]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [arenaOpen, setArenaOpen] = useState(false);
 
   return (
     /* The desktop arena seats exactly two players across a table. Anything
@@ -136,10 +147,42 @@ export default function AuctionStage({
         <div className="dm-lotbar">
           <span>
             <strong>{packName}</strong>
-            {arenaName && <span className="dm-arena-pill" style={{ marginLeft: 8 }}>📍 {arenaName}</span>}
+            {arenaName && (
+              /* The pin used to be a label. The arena is rolled per game and
+                 changes what a pick is worth — a flooded field is a different
+                 auction — so the words behind it have to be reachable during
+                 the bidding, not only on the prep screen you already left. */
+              <button
+                type="button"
+                className="dm-arena-pill"
+                data-open={arenaOpen ? "1" : "0"}
+                style={{ marginLeft: 8 }}
+                onClick={() => setArenaOpen((v) => !v)}
+                aria-expanded={arenaOpen}
+                title="What this arena means"
+              >
+                📍 {arenaName}
+              </button>
+            )}
           </span>
           <span>{view.lotsRemaining} left on the board</span>
         </div>
+
+        {arenaOpen && arenaName && (
+          <div className="dm-arena-note" role="note">
+            <button
+              type="button"
+              className="dm-arena-note-x"
+              onClick={() => setArenaOpen(false)}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            <strong>📍 {arenaName}</strong>
+            {arenaDesc && <p>{arenaDesc}</p>}
+            {scenario && <p className="dm-arena-note-scenario">{scenario}</p>}
+          </div>
+        )}
 
         {/* ── The lot card ─────────────────────────────────────────────────
             Portrait plus the photo-fixing row that belongs to it. Another
@@ -150,6 +193,11 @@ export default function AuctionStage({
         <div
           className="dm-portrait-wrap"
           data-in={view.phase === "bidding" ? "1" : "0"}
+          data-shiny={lot?.shiny ? "1" : undefined}
+          /* Only the top of the ladder dresses the whole card. Everything
+             below it is expressed by the chip alone, which is what keeps an
+             uber from looking like a slightly better legendary. */
+          data-grade={lot?.variantGrade === "uber" ? "uber" : undefined}
           data-uploadable={lot && !hasPhoto ? "1" : "0"}
           key={lot?.id}
           onClick={() => {
@@ -164,7 +212,7 @@ export default function AuctionStage({
           )}
           {lot && !hasPhoto && (
             <span className="dm-portrait-upload">
-              <strong>📷 Tap to add a photo</strong>
+              <strong><Icon name="camera" size={15} /> Tap to add a photo</strong>
               <small>no picture found for {lot.name}</small>
             </span>
           )}
@@ -237,7 +285,7 @@ export default function AuctionStage({
                 </button>
               )}
               <button className="dm-btn dm-btn-ghost" onClick={() => fileRef.current?.click()} title={`Upload your own photo for ${lot.name}`}>
-                📷 {hasPhoto ? "Use my own" : "Upload a photo"}
+                <Icon name="camera" size={15} /> {hasPhoto ? "Use my own" : "Upload a photo"}
               </button>
             </div>
             {portraitNote && <div className="dm-photo-note">{portraitNote}</div>}
@@ -390,6 +438,13 @@ export default function AuctionStage({
             </div>
           ))}
         </div>
+
+        {/* Cameras and chat, in the layout rather than dumped underneath it.
+            This used to render after the whole stage in a floating 380px box,
+            which on a tall narrow screen meant the table stopped halfway down
+            and the rest of the phone was black. It is a rail item now, so it
+            takes the room the table does not. */}
+        {media}
       </div>
     </div>
   );

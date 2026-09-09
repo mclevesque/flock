@@ -28,7 +28,14 @@
 
 import { MAX_TIER, effectiveTier, variantGrade, type Arena, type Entry, type Pack, type Variant, type VariantGrade } from "./packs";
 import { counterHits } from "./traits";
-import { UBER_CHANCE, rollUber } from "./ubers";
+import { UBER_CHANCE, rollUber, rollUberCard } from "./ubers";
+
+/**
+ * How often a lot on a shiny-enabled board comes up shiny — about one in
+ * ninety, so roughly one draft in eight sees one. The games use 1/4096, which
+ * across a twelve-lot board would mean nobody ever saw one.
+ */
+const SHINY_CHANCE = 1 / 90;
 
 export interface Lot {
   /** Stable id — pack entry index plus variant index */
@@ -45,6 +52,8 @@ export interface Lot {
   tier: number;
   /** Query used for the portrait lookup */
   imgQuery: string;
+  /** Came up shiny. Cosmetic — the tier and grade are untouched. */
+  shiny?: boolean;
 }
 
 export interface RosterPick extends Lot {
@@ -316,6 +325,25 @@ export function buildLot(
     variantIndex = rollVariant(entry.variants, entry.t, rng, budget);
     variant = entry.variants[variantIndex];
   }
+  /**
+   * Shiny rides on top, and changes nothing but the card.
+   *
+   * Unlike an uber it does not replace the variant, because in the franchise
+   * it is a palette and not a power — a shiny Mega Charizard X is a shiny AND
+   * a Mega. So the grade and the tier are left exactly as rolled and only the
+   * text changes, which keeps "★ shiny, still a Charmeleon" as funny as it
+   * ought to be. Never on an uber: that card is already the rarest thing that
+   * can happen and stacking two jackpots reads as a bug.
+   */
+  let shiny = false;
+  if (pack.shinies && !uber && rng() < SHINY_CHANCE) {
+    shiny = true;
+    variant = variant ? { ...variant, v: `★ shiny ${variant.v}` } : { v: "★ shiny", g: "boon" };
+    // A distinct index so two lots of the same entry, one shiny, keep
+    // different ids — the client keys the portrait cache off this.
+    variantIndex = variantIndex === -1 ? -3 : variantIndex + 100;
+  }
+
   const searchBase = entry.s ? `${entry.n} ${entry.s}` : entry.n;
   return {
     id: `${pack.id}:${entryIndex}:${variantIndex}`,
@@ -323,7 +351,11 @@ export function buildLot(
     variant: variant ? variant.v : null,
     variantGrade: variant ? variantGrade(variant, entry.t) : null,
     tier: variant ? effectiveTier(variant, entry.t) : entry.t,
+    // Deliberately the plain name: the portrait cascade has no shiny art for
+    // most of the dex, and a failed shiny search would lose the picture
+    // altogether. The star on the card carries it.
     imgQuery: `${searchBase} ${pack.imgContext}`.trim(),
+    shiny: shiny || undefined,
   };
 }
 
@@ -370,6 +402,41 @@ export function buildPool(pack: Pack, rng: () => number, opts: PoolOptions = {})
     .map((x) => x.i);
 }
 
+/**
+ * Give a board its one-in-five-hundred chance of carrying a cosmic card.
+ *
+ * Appended to the entries rather than handled specially, so everything
+ * downstream — the pool, the lot, the portrait lookup — treats it as an
+ * ordinary entry that happens to be flagged uberOnly. Called once when the
+ * board is dealt, which means it also travels to a PvP guest with the pack.
+ */
+export function withUberCard(pack: Pack, rng: () => number): Pack {
+  /**
+   * Everything the board is made of, so a crossover qualifies through its
+   * cast. "Thrones vs LOTR" never says Tolkien, but it says Aragorn — and a
+   * board that has Aragorn on it is a board where Eru means something.
+   */
+  const boardText = [
+    pack.name,
+    pack.scenario,
+    pack.criteria,
+    pack.imgContext,
+    pack.wiki ?? "",
+    ...pack.entries.map((e) => `${e.n} ${e.s ?? ""}`),
+  ].join(" ");
+
+  const card = rollUberCard(rng, boardText);
+  if (!card) return pack;
+  if (pack.entries.some((e) => e.n === card.n)) return pack;
+  return {
+    ...pack,
+    entries: [
+      ...pack.entries,
+      { n: card.n, t: 5, s: card.s, uberOnly: true, variants: [{ v: card.v, g: "uber" as const }] },
+    ],
+  };
+}
+
 /** Roll one of the pack's arenas, by weight. Returns null when it has none. */
 export function pickArena(pack: Pack, rng: () => number): Arena | null {
   const arenas = pack.arenas;
@@ -391,7 +458,12 @@ export function pickArena(pack: Pack, rng: () => number): Arena | null {
 export function applyArena(pack: Pack, rng: () => number): Pack {
   const arena = pickArena(pack, rng);
   if (!arena) return pack;
-  return { ...pack, scenario: `${pack.scenario} ${arena.desc}`, arenaName: arena.name };
+  return {
+    ...pack,
+    scenario: `${pack.scenario} ${arena.desc}`,
+    arenaName: arena.name,
+    arenaDesc: arena.desc,
+  };
 }
 
 // ── Budget rules ─────────────────────────────────────────────────────────────

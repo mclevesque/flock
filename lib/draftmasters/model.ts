@@ -25,6 +25,13 @@ export interface ModelRequest {
   /** Response must parse as JSON. Every current caller needs this. */
   json?: boolean;
   timeoutMs?: number;
+  /**
+   * Total wall-clock the whole provider chain may spend, including failover
+   * and retries. Set it to what the CALLER has left, not to what one request
+   * should take — a serverless function that overruns is killed and answers
+   * with HTML instead of JSON.
+   */
+  deadlineMs?: number;
 }
 
 export interface ModelResult {
@@ -228,18 +235,45 @@ export function hasAnyProvider(): boolean {
 export async function callModel(req: ModelRequest): Promise<ModelResult> {
   const failures: string[] = [];
 
+  /**
+   * One budget for the whole chain, not one per call.
+   *
+   * `timeoutMs` was applied to each individual request, and the chain is three
+   * providers with two attempts apiece — so a caller asking for 24 seconds was
+   * authorising up to 144, and a board that fell through to the third provider
+   * ran 68 seconds against a 45-second function. The platform kills the
+   * function at that point and answers with its own HTML page, which is what
+   * put `Unexpected token '<', "<HTML> <HE"...` in front of the player.
+   *
+   * Failover is still worth having; it just has to fit in the time the caller
+   * actually has. Providers are tried until the budget is gone, then the chain
+   * gives up cleanly and the route returns its own JSON error.
+   */
+  const budgetMs = req.deadlineMs ?? (req.timeoutMs ?? 45000) * 2;
+  const startedAt = Date.now();
+  const left = () => budgetMs - (Date.now() - startedAt);
+  // Below this a request cannot realistically land, and starting one only
+  // guarantees it is still in flight when the function is killed.
+  const MIN_SLICE = 6000;
+
   for (const provider of PROVIDERS) {
     const key = process.env[provider.envKey];
     if (!key) continue;
+    if (left() < MIN_SLICE) {
+      failures.push(`${provider.name}: skipped, out of time`);
+      continue;
+    }
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      const slice = Math.min(req.timeoutMs ?? 45000, left());
+      if (slice < MIN_SLICE) break;
       try {
-        const text = await provider.call(req, key);
+        const text = await provider.call({ ...req, timeoutMs: slice }, key);
         return { text, provider: provider.name, model: provider.model };
       } catch (err) {
         const retryable = err instanceof ModelError ? err.retryable : true;
         const label = err instanceof Error ? err.message : String(err);
-        if (retryable && attempt === 0) {
+        if (retryable && attempt === 0 && left() > MIN_SLICE + 700) {
           await sleep(700);
           continue;
         }

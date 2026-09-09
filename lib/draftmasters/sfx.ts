@@ -91,10 +91,18 @@ interface NoiseOpts {
   gain?: number;
   /** Lowpass cutoff — lower is duller/woodier */
   cutoff?: number;
+  /**
+   * Sweep the cutoff to this frequency across the note.
+   *
+   * A static lowpass on decaying noise is a knock. Sweeping it downward is
+   * something moving past you — which is the difference between a hiss and a
+   * schwoop.
+   */
+  to?: number;
   delay?: number;
 }
 
-function noise({ dur = 0.09, gain = 0.35, cutoff = 1400, delay = 0 }: NoiseOpts = {}) {
+function noise({ dur = 0.09, gain = 0.35, cutoff = 1400, to, delay = 0 }: NoiseOpts = {}) {
   if (!ctx || !master || muted) return;
   const t0 = ctx.currentTime + delay;
   const frames = Math.max(1, Math.floor(ctx.sampleRate * dur));
@@ -110,7 +118,8 @@ function noise({ dur = 0.09, gain = 0.35, cutoff = 1400, delay = 0 }: NoiseOpts 
 
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
-  filter.frequency.value = cutoff;
+  filter.frequency.setValueAtTime(cutoff, t0);
+  if (to) filter.frequency.exponentialRampToValueAtTime(Math.max(60, to), t0 + dur);
 
   const env = ctx.createGain();
   env.gain.value = gain;
@@ -124,6 +133,19 @@ function noise({ dur = 0.09, gain = 0.35, cutoff = 1400, delay = 0 }: NoiseOpts 
 // ── The kit ──────────────────────────────────────────────────────────────────
 
 export const sfx = {
+  /**
+   * A pack slides under the thumb — the shelf's "schwoop".
+   *
+   * Filtered noise sweeping downward is foil sliding past foil; the short
+   * pitched blip under it gives the movement a landing so it reads as arriving
+   * at a pack rather than passing one. Quiet on purpose: this fires on every
+   * snap, and anything with a tail turns a fast swipe into a smear.
+   */
+  swipe() {
+    noise({ dur: 0.13, gain: 0.075, cutoff: 5200, to: 700 });
+    tone({ freq: 660, to: 330, type: "sine", dur: 0.075, gain: 0.05 });
+  },
+
   /** A new lot slides onto the block — soft upward swell. */
   lotIn() {
     tone({ freq: 220, to: 440, type: "sine", dur: 0.26, gain: 0.16 });

@@ -116,6 +116,15 @@ const nextAuthConfig = NextAuth({
   pages: {
     signIn: "/signin",
   },
+  /**
+   * One deployment answers on more than one domain now (greatsouls.net and
+   * draftmasters.net), and NextAuth v5 refuses a host it was not told to
+   * expect — it would build its callback and redirect URLs from AUTH_URL and
+   * bounce a DraftMasters sign-in back to Great Souls. Trusting the incoming
+   * host is what lets the same accounts, the same passwords and the same
+   * session logic serve both sites.
+   */
+  trustHost: true,
 });
 
 export const { handlers, signIn, signOut } = nextAuthConfig;

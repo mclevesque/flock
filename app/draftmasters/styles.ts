@@ -1,38 +1,63 @@
 /**
  * DraftMasters stylesheet.
  *
- * Standalone look — an auction house under a spotlight — but built on the
- * Great Souls palette (gold on near-black) so linking in from the hub doesn't
- * feel like leaving the site.
+ * THE HOUSE. DraftMasters is an auction house that deals in the impossible,
+ * and the whole design follows from taking that literally. The room is dark
+ * and the lot is lit, because that is what a saleroom looks like. The surfaces
+ * are green-black — baize in shadow — rather than the neutral grey a dark UI
+ * defaults to. The fittings are brass, cooler and deeper than Great Souls'
+ * gold, so the two sites are relatives rather than the same site twice. And
+ * one colour, hammer red, is spent exclusively on the live bid and the fall of
+ * the gavel: the only two moments that are actually urgent.
+ *
+ * The type is a catalogue: a high-contrast Bodoni for the wordmark and the lot
+ * names — the auction house's own letterform — against Archivo for everything
+ * you operate, with tabular figures so money lines up in a column.
  *
  * Mobile-first: base rules are the phone layout, media queries widen it.
  * Inputs are 16px so iOS doesn't zoom on focus; every control is >=44px.
  */
 
 export const STYLES = `
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,600;6..96,800&family=Playfair+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700;800&display=swap');
+
 .dm {
-  --dm-bg: #0a0a0b;
-  --dm-panel: #141416;
-  --dm-panel-2: #1c1c20;
-  --dm-line: #2a2a30;
-  --dm-line-hot: #3d3d46;
-  --dm-gold: #d4a942;
-  --dm-gold-hot: #f0c860;
-  --dm-ember: #c4531a;
-  --dm-green: #4caf7d;
-  --dm-red: #d9534f;
-  --dm-text: #ece4d6;
-  --dm-dim: #9a8f7d;
-  --dm-mute: #5f5a52;
+  /* Ink and baize — a neutral biased green, not a default grey. */
+  --dm-bg: #080b0a;
+  --dm-panel: #101614;
+  --dm-panel-2: #161d1a;
+  --dm-line: #242e2a;
+  --dm-line-hot: #35443e;
+
+  /* The fittings. */
+  --dm-gold: #c9a227;
+  --dm-gold-hot: #e8c65a;
+
+  /* Spent only where it means something: the standing bid, and the hammer. */
+  --dm-hammer: #d9522b;
+  --dm-ember: #d9522b;
+
+  --dm-green: #5bbd8a;
+  --dm-red: #cf4d3f;
+
+  /* Catalogue paper. */
+  --dm-text: #ece5d8;
+  --dm-dim: #9aa39b;
+  --dm-mute: #616b64;
   --dm-radius: 16px;
+
+  --dm-display: "Bodoni Moda", "Didot", "Playfair Display", Georgia, serif;
+  --dm-ui: "Archivo", var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
 
   position: relative;
   min-height: 100dvh;
+  /* The spotlight over the block. */
   background:
-    radial-gradient(120% 80% at 50% -10%, #26221a 0%, rgba(10,10,11,0) 60%),
+    radial-gradient(105% 62% at 50% -8%, rgba(201,162,39,.16) 0%, rgba(8,11,10,0) 62%),
     var(--dm-bg);
   color: var(--dm-text);
-  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--dm-ui);
+  font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   padding: 16px 14px 32px;
   overflow-x: hidden;
@@ -42,16 +67,14 @@ export const STYLES = `
 
 /* ── Type ─────────────────────────────────────────────────────────────── */
 
-.dm-wordmark {
-  font-size: clamp(30px, 9vw, 54px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  margin: 0;
-  background: linear-gradient(180deg, #f6e3ab 0%, var(--dm-gold) 55%, #9c7822 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* The h1 is now just a box for the mark — the gradient and the sizing live on
+   the component so it looks the same everywhere it appears. */
+.dm-wordmark { margin: 0; line-height: 1; }
+
+.dm-logo {
+  display: block; width: auto;
+  /* Knocks the source's black ground out against any dark surface. */
+  mix-blend-mode: screen;
 }
 .dm-tagline {
   margin: 8px 0 0;
@@ -74,6 +97,7 @@ export const STYLES = `
   margin: 0 0 12px;
 }
 .dm-money {
+  font-family: var(--dm-ui);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
@@ -232,12 +256,41 @@ export const STYLES = `
 @keyframes dm-spin { to { transform: rotate(360deg); } }
 
 .dm-progress {
-  height: 4px; border-radius: 999px; background: var(--dm-line);
+  height: 6px; border-radius: 999px; background: var(--dm-line);
   overflow: hidden; margin-top: 22px;
+  position: relative;
 }
 .dm-progress-fill {
   height: 100%; background: linear-gradient(90deg, var(--dm-gold), var(--dm-gold-hot));
-  transition: width .4s ease;
+  /* linear, not ease: the width is updated every 120ms during the board phase
+     and once per batch after it, so an easing curve restarts on each update
+     and the bar stutters. Linear over slightly longer than the update interval
+     joins those steps into one continuous movement. */
+  transition: width .5s linear;
+  position: relative;
+}
+/* A highlight travelling along the filled part, so the bar reads as working
+   even in the seconds where its width genuinely should not change. */
+.dm-progress-fill::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: dm-progress-sheen 1.6s ease-in-out infinite;
+}
+@keyframes dm-progress-sheen {
+  from { background-position: -60% 0; }
+  to   { background-position: 160% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-progress-fill::after { animation: none; }
+}
+/* The one real number on the prep screen. */
+.dm-prep-count {
+  color: var(--dm-gold);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 /* ── Ready check ──────────────────────────────────────────────────────── */
@@ -262,7 +315,12 @@ export const STYLES = `
    pushing the Pass button off a 375px screen. */
 .dm-stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .dm-stage > * { min-width: 0; }
-@media (min-width: 900px) {
+/* Landscape-gated, because width alone lies about shape.
+   An Android phone with "Desktop site" on reports a 980px viewport and a 2080px
+   height — so it cleared this breakpoint, got the lot on the left and the
+   budgets on the right, and left two thirds of the screen empty underneath.
+   Two columns are for a screen that is actually wider than it is tall. */
+@media (min-width: 900px) and (orientation: landscape) {
   .dm-stage { grid-template-columns: 1fr minmax(320px, 380px); align-items: start; }
 }
 
@@ -291,7 +349,7 @@ export const STYLES = `
   background: linear-gradient(160deg, #23232a, #131316);
   box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(212,169,66,.12) inset;
 }
-@media (min-width: 900px) { .dm-portrait-wrap { height: min(52dvh, 430px); } }
+@media (min-width: 900px) and (orientation: landscape) { .dm-portrait-wrap { height: min(52dvh, 430px); } }
 
 .dm-portrait-wrap[data-in="1"] { animation: dm-lot-in .45s cubic-bezier(.2,.8,.25,1); }
 @keyframes dm-lot-in {
@@ -327,6 +385,8 @@ export const STYLES = `
 }
 .dm-portrait-caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px; }
 .dm-lot-name {
+  font-family: var(--dm-display);
+  letter-spacing: -0.005em;
   font-size: clamp(21px, 5.4vw, 27px); font-weight: 800;
   letter-spacing: -0.02em; line-height: 1.12; margin: 0;
   text-shadow: 0 2px 12px rgba(0,0,0,.8);
@@ -380,6 +440,7 @@ export const STYLES = `
   border: 1px solid var(--dm-line); background: var(--dm-panel);
 }
 .dm-bid-amount {
+  color: var(--dm-hammer);
   font-size: clamp(32px, 9vw, 42px); font-weight: 800; line-height: 1;
   color: var(--dm-gold); letter-spacing: -0.02em;
 }
@@ -690,16 +751,45 @@ export const STYLES = `
   border-color: #ffb98a;
   box-shadow: 0 0 0 1px rgba(255,185,138,.45), 0 3px 16px rgba(209,84,31,.4);
 }
-/* Prismatic and moving — an uber has to be unmistakable from across a room,
-   because most players will only ever see a handful. */
+/* Polished platinum, with the light travelling across it.
+   Every other grade on the ladder is a colour, so the top of it is deliberately
+   NOT one — it is a metal. A rainbow reads as one more hue in a row of hues; a
+   silver bar with a specular sweep reads as a different class of object, which
+   is what an uber is. The sweep is a second layer over a fixed gradient rather
+   than a moving background, so the metal stays put and only the highlight
+   moves — a scrolling gradient looks like a loading bar, not like shine. */
 .dm-lot-variant[data-grade="uber"] {
-  background: linear-gradient(100deg, #ff5f9e 0%, #ffd76f 25%, #7ef9ff 50%, #9b7bff 75%, #ff5f9e 100%);
-  background-size: 300% 100%;
-  color: #0a0a0b; border-color: #fff;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.6), 0 4px 26px rgba(126,249,255,.55);
-  animation: dm-uber 3.4s linear infinite;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(103deg,
+      #6d7688 0%, #aab4c4 14%, #f2f5fa 30%, #ffffff 38%,
+      #c8d0dc 50%, #8f99ab 62%, #e6ebf3 78%, #b6c0cf 90%, #7c8698 100%);
+  color: #14171c;
+  border-color: #f4f7fb;
+  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.75),
+    0 2px 0 rgba(255,255,255,.35) inset,
+    0 -2px 6px rgba(20,23,28,.25) inset,
+    0 6px 28px rgba(198,214,236,.5);
 }
-@keyframes dm-uber { from { background-position: 0% 50%; } to { background-position: 300% 50%; } }
+/* The travelling highlight. */
+.dm-lot-variant[data-grade="uber"]::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(103deg,
+    transparent 38%, rgba(255,255,255,.15) 46%, rgba(255,255,255,.85) 50%,
+    rgba(255,255,255,.15) 54%, transparent 62%);
+  background-size: 260% 100%;
+  animation: dm-uber-shine 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes dm-uber-shine {
+  0%      { background-position: 150% 0; }
+  55%,100%{ background-position: -60% 0; }
+}
+.dm-lot-variant[data-grade="uber"] .dm-grade-tag { opacity: .95; }
+
 .dm-lot-variant[data-grade="mythic"] {
   background: linear-gradient(100deg, #6d28d9 0%, #a855f7 55%, #d8b4fe 100%);
   color: #fdf6ff;
@@ -711,18 +801,12 @@ export const STYLES = `
   0%, 100% { filter: saturate(1) brightness(1); }
   50%      { filter: saturate(1.35) brightness(1.15); }
 }
+/* This block used to re-declare the whole uber rule, animation included, so
+   "reduce motion" switched the animation back ON. It only turns things off. */
 @media (prefers-reduced-motion: reduce) {
-  /* Prismatic and moving — an uber has to be unmistakable from across a room,
-   because most players will only ever see a handful. */
-.dm-lot-variant[data-grade="uber"] {
-  background: linear-gradient(100deg, #ff5f9e 0%, #ffd76f 25%, #7ef9ff 50%, #9b7bff 75%, #ff5f9e 100%);
-  background-size: 300% 100%;
-  color: #0a0a0b; border-color: #fff;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.6), 0 4px 26px rgba(126,249,255,.55);
-  animation: dm-uber 3.4s linear infinite;
-}
-@keyframes dm-uber { from { background-position: 0% 50%; } to { background-position: 300% 50%; } }
-.dm-lot-variant[data-grade="mythic"] { animation: none; }
+  .dm-lot-variant[data-grade="uber"]::after { animation: none; background-position: 50% 0; }
+  .dm-lot-variant[data-grade="mythic"] { animation: none; }
+  .dm-portrait-wrap[data-grade="uber"]::before { animation: none; }
 }
 
 .dm-grade-tag {
@@ -1028,7 +1112,7 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
    Gated on data-arena="1" (exactly two sides) because the named areas can
    only seat two; any other count falls back to the stacked rail. */
 
-@media (min-width: 1024px) {
+@media (min-width: 1024px) and (orientation: landscape) {
   .dm-stage[data-arena="1"] {
     grid-template-columns: minmax(196px, 248px) minmax(420px, 1fr) minmax(196px, 248px);
     grid-template-areas:
@@ -1201,7 +1285,7 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
    the fold, and a bench you cannot see is the same as no bench. Everything
    here just tightens; nothing is removed. */
 
-@media (min-width: 1024px) and (max-height: 880px) {
+@media (min-width: 1024px) and (orientation: landscape) and (max-height: 880px) {
   .dm-stage[data-arena="1"] { gap: 12px 22px; }
   .dm-stage[data-arena="1"] .dm-roster { padding: 9px 16px; gap: 10px; }
   .dm-stage[data-arena="1"] .dm-roster > .dm-slot { flex: 0 0 clamp(70px, 11.2vh, 104px); }
@@ -1284,18 +1368,985 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
   .dm:has(.dm-stage) .dm-ticker { display: none; }
 }
 
-/* Short phones (iPhone SE and friends) have ~145px less than a modern handset.
-   The lot, the bid controls and both budgets all still fit; the art just takes
-   the difference. */
-@media (max-width: 1023px) and (max-height: 720px) {
-  .dm:has(.dm-stage) .dm-bidbar { padding: 7px 10px; font-size: 13px; margin-top: 6px; }
-  .dm:has(.dm-stage) .dm-portrait-wrap { height: min(25dvh, 168px); }
-  /* At this card size the prompt overruns the card and collides with the name.
-     The dashed border still marks it tappable, and the card still accepts an
-     upload — only the label goes. */
-  .dm:has(.dm-stage) .dm-portrait-upload { display: none; }
-  .dm:has(.dm-stage) .dm-score { padding: 6px; }
+/* ── Standalone: the game owns the screen ─────────────────────────────────
+   DraftMasters is heading for its own site, and the Great Souls shell around
+   it was never free. On a 812px phone the sticky site header takes 69px and
+   the fixed bottom nav another 65 — 134px, a sixth of the screen, spent on
+   controls that belong to a different app while the lot portrait was squeezed
+   to 266px to make room. The floating voice, party and invite pills sat on
+   top of the bid buttons on the way past.
+
+   Marked on the game root rather than inferred from .dm, because the portrait
+   studio shares that class and IS a Great Souls page — it keeps its nav.
+
+   Everything hidden here is the shell's own chrome; the game keeps its mute
+   button and its way out in the corner. */
+
+body:has(.dm[data-standalone="1"]) [data-site-chrome],
+body:has(.dm[data-standalone="1"]) .mobile-bottom-nav { display: none !important; }
+/* The shell reserves room for the bottom nav that no longer exists. */
+body:has(.dm[data-standalone="1"]) { padding-bottom: 0 !important; }
+/* With the header gone the game starts at the top of the viewport, so it can
+   finally be the full height it always claimed to be. */
+main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
+.dm[data-standalone="1"] {
+  min-height: 100dvh;
+  padding-top: max(14px, env(safe-area-inset-top));
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+/* The floated mute/exit controls need their band back at the top of the
+   screen now that no site header is sitting above them. */
+.dm[data-standalone="1"]:has(.dm-stage) {
+  padding-top: calc(46px + env(safe-area-inset-top));
+}
+.dm[data-standalone="1"]:has(.dm-stage) .dm-head {
+  top: max(8px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+}
+
+/* ── Phone, upright ───────────────────────────────────────────────────────
+   The 134px the chrome gave back goes almost entirely to the art, which is
+   the thing you are actually being asked to value. The rest comes out of the
+   bid readout: it is one short line of text that was styled like a heading. */
+
+@media (max-width: 1023px) {
+  .dm:has(.dm-stage) { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+
+  /* Was min(33dvh, 266px) with a site nav overhead.
+
+     The max-height gives back the home indicator's strip on a notched phone.
+     Below 860px tall nothing in the rail flexes, so the layout is a fixed
+     stack that has to fit exactly — and on an iPhone 14 in Safari (390x745
+     with the URL bar showing) the safe-area inset grows the bottom padding by
+     16px against about 14px of slack. Taking the inset out of the art instead
+     is the one adjustment that cannot push anything off the bottom. */
+  .dm[data-standalone="1"]:has(.dm-stage) .dm-portrait-wrap {
+    height: min(48dvh, 420px);
+    max-height: calc(48dvh - env(safe-area-inset-bottom, 0px));
+    max-width: min(360px, 92vw);
+  }
+
+  /* The lot bar is context, not action — one small line. */
+  .dm:has(.dm-stage) .dm-lotbar { font-size: 11px; margin-bottom: 6px; }
+
+  /* This bar carries at most a standing price and whose turn it is. It does
+     not need heading-sized type or a 14px cushion to say so. */
+  .dm:has(.dm-stage) .dm-bidbar { padding: 8px 12px; margin-top: 10px; max-width: 380px; }
+  .dm:has(.dm-stage) .dm-bid-open { font-size: 12.5px; line-height: 1.35; }
+  .dm:has(.dm-stage) .dm-bid-amount { font-size: 26px; }
+  .dm:has(.dm-stage) .dm-bid-holder { font-size: 12px; margin-top: 3px; }
+  .dm:has(.dm-stage) .dm-waiting { font-size: 12.5px; padding: 9px 12px; }
+
+  /* The buttons stay full size — they are what you touch. */
+  .dm:has(.dm-stage) .dm-controls { margin-top: 10px; gap: 7px; max-width: 420px; }
+  .dm:has(.dm-stage) .dm-quickbid { min-height: 50px; }
+
+  /* Both benches, side by side under the controls, sized so a pick reads as a
+     picture rather than a swatch. */
+  .dm:has(.dm-stage) .dm-scores { gap: 8px; margin-bottom: 0; margin-top: 10px; }
+  .dm:has(.dm-stage) .dm-roster > .dm-slot { height: 34px; }
+}
+
+/* ── Phone, on its side ───────────────────────────────────────────────────
+   A landscape phone is ~844x390. It cleared the 900px two-column breakpoint
+   on some handsets and missed it on others, so the same phone got a different
+   layout depending on which way it was turned — and in the stacked one the
+   portrait, capped by dvh, shrank to a stamp with a field of empty panel
+   beside it.
+
+   Orientation decides the layout here instead of width. Height is the scarce
+   axis when a phone is sideways, so the lot takes the whole of it in one
+   column and everything you read or touch stacks in the other:
+
+       ┌──────────┬──────────────────────┐
+       │          │  price · your call   │
+       │   lot    │  bid · bid · pass    │
+       │          │  your bench  theirs  │
+       └──────────┴──────────────────────┘
+
+   Both rail wrappers collapse with display:contents so the four real blocks
+   become grid items directly — the same trick the desktop arena uses, with
+   two areas instead of five. Written with the [data-arena] prefix so it beats
+   the desktop arena's own placement on a short, wide window. */
+
+@media (max-width: 1199px) and (orientation: landscape) and (max-height: 560px) {
+  .dm-stage,
+  .dm-stage[data-arena="1"] {
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "lot bar"
+      "lot actions"
+      "lot scores";
+    align-items: start;
+    gap: 10px 14px;
+  }
+  .dm-stage .dm-stage-main,
+  .dm-stage .dm-stage-rail,
+  .dm-stage[data-arena="1"] .dm-stage-main,
+  .dm-stage[data-arena="1"] .dm-stage-rail { display: contents; }
+
+  /* display:block, not just an area: .dm-lot-card is display:contents by
+     default, which would promote the portrait and the photo row to separate
+     grid items and scatter them into whatever cells were free. */
+  .dm-stage .dm-lot-card,
+  .dm-stage[data-arena="1"] .dm-lot-card { grid-area: lot; display: block; }
+  .dm-stage .dm-lot-actions,
+  .dm-stage[data-arena="1"] .dm-lot-actions { grid-area: actions; display: block; }
+  .dm-stage .dm-scores,
+  .dm-stage[data-arena="1"] .dm-scores { grid-area: scores; display: grid; grid-template-columns: 1fr 1fr; }
+  /* Board name and lots-remaining ride above the controls rather than above
+     the card, so the lot column is nothing but art. */
+  .dm-stage[data-arena="1"] .dm-lotbar,
+  .dm-stage .dm-lotbar { grid-area: bar; align-self: start; }
+  /* The desktop arena seats and the ticker have nowhere to go at this height. */
+  .dm-stage[data-arena="1"] > .dm-seat,
+  .dm-stage .dm-ticker { display: none; }
+
+  /* Written with the same [data-standalone] specificity as the upright rule
+     above, which would otherwise win here and hand a sideways phone a
+     420px-tall card on a 390px-tall screen. */
+  .dm[data-standalone="1"]:has(.dm-stage) .dm-portrait-wrap,
+  .dm:has(.dm-stage) .dm-portrait-wrap {
+    height: calc(100dvh - 78px);
+    max-height: 420px;
+    max-width: min(300px, 34vw);
+    margin-top: 26px;
+  }
+  .dm[data-standalone="1"]:has(.dm-stage) { padding-top: 38px; padding-bottom: 8px; }
+  .dm:has(.dm-stage) .dm-lotbar { font-size: 10.5px; margin-bottom: 0; }
+  .dm:has(.dm-stage) .dm-bidbar { margin: 0 auto; padding: 7px 10px; max-width: none; }
+  .dm:has(.dm-stage) .dm-bid-amount { font-size: 22px; }
+  .dm:has(.dm-stage) .dm-controls { margin-top: 8px; max-width: none; }
+  .dm:has(.dm-stage) .dm-quickbid { min-height: 44px; font-size: 15px; }
+  .dm:has(.dm-stage) .dm-scores { gap: 8px; margin: 0; }
+  .dm:has(.dm-stage) .dm-score { padding: 7px; }
   .dm:has(.dm-stage) .dm-score-budget { font-size: 17px; }
   .dm:has(.dm-stage) .dm-roster > .dm-slot { height: 26px; }
+  .dm:has(.dm-stage) .dm-portrait-upload { display: none; }
 }
+
+/* ── Short upright phones (iPhone SE and friends) ─────────────────────────
+   Still one column; the art just takes the difference. Restated after the
+   landscape block so it cannot be overridden by it — the two never both
+   match, since one requires landscape and this one does not. */
+
+@media (max-width: 1023px) and (orientation: portrait) and (max-height: 700px) {
+  .dm[data-standalone="1"]:has(.dm-stage) .dm-portrait-wrap { height: min(36dvh, 260px); }
+  .dm:has(.dm-stage) .dm-bidbar { padding: 6px 10px; margin-top: 7px; }
+  .dm:has(.dm-stage) .dm-bid-amount { font-size: 22px; }
+  .dm:has(.dm-stage) .dm-quickbid { min-height: 46px; }
+  .dm:has(.dm-stage) .dm-score { padding: 6px; }
+  .dm:has(.dm-stage) .dm-score-budget { font-size: 18px; }
+  .dm:has(.dm-stage) .dm-roster > .dm-slot { height: 28px; }
+  .dm:has(.dm-stage) .dm-portrait-upload { display: none; }
+}
+/* ── Shiny ────────────────────────────────────────────────────────────────
+   A shiny is worth nothing in points and everything in the moment, so it is
+   paid for entirely in presentation: the card's frame catches the light and
+   the star in the variant text does the rest. Nothing here touches layout, so
+   a shiny card is the same size as any other. */
+
+.dm-portrait-wrap[data-shiny="1"] {
+  border-color: rgba(240, 200, 96, .75);
+  box-shadow:
+    0 24px 60px rgba(0,0,0,.6),
+    0 0 0 1px rgba(240,200,96,.35) inset,
+    0 0 28px rgba(240,200,96,.28);
+}
+.dm-portrait-wrap[data-shiny="1"]::after {
+  content: "";
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg,
+    transparent 35%, rgba(255,255,255,.16) 48%,
+    rgba(240,200,96,.22) 52%, transparent 66%);
+  background-size: 280% 280%;
+  animation: dm-shine 3.4s ease-in-out infinite;
+}
+@keyframes dm-shine {
+  0%, 70% { background-position: 120% 0; }
+  100%    { background-position: -40% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-portrait-wrap[data-shiny="1"]::after { animation: none; }
+}
+/* ── Upright: one column, and it fills the screen ─────────────────────────
+   Everything above is about which layout to use. This is about the layout
+   not stopping halfway down the phone.
+
+   The auction used to be a stack of auto-height blocks inside a page that was
+   merely tall ENOUGH, so on a long screen the table finished around the
+   halfway mark and the rest was black. Now the shell is a full-height flex
+   column, the table takes what it needs, and the rail underneath it — the
+   feed in a solo game, the cameras and chat in a PvP one — takes everything
+   left over. There is no leftover space to look at any more, because the part
+   of the screen you would have been looking at is doing something. */
+
+/* min-height guards the landscape split defined above: a sideways phone is
+   844x390, which clears max-width:1023 and would otherwise be turned back into
+   a single column by this block and scroll. Anything actually upright, or wide
+   with room to stack, lands here. */
+@media (max-width: 1023px) and (min-height: 561px), (orientation: portrait) {
+  .dm[data-standalone="1"]:has(.dm-stage) { display: flex; flex-direction: column; }
+  /* width:100% because .dm is now a flex column, and .dm-shell centres itself
+     with an auto inline margin — which makes a flex item shrink to its content
+     instead of filling, collapsing the whole table to 433px in the middle of a
+     980px screen. */
+  .dm:has(.dm-stage) .dm-shell {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%;
+  }
+
+  .dm-stage,
+  .dm-stage[data-arena="1"] {
+    display: flex; flex-direction: column;
+    grid-template-columns: none; grid-template-areas: none;
+    flex: 1 1 auto; min-height: 0; gap: 12px;
+  }
+  .dm-stage > * { min-width: 0; }
+
+  /* The desktop arena and the landscape split both re-parent these with
+     display:contents. One column wants them back as ordinary blocks. */
+  .dm-stage[data-arena="1"] .dm-stage-main,
+  .dm-stage[data-arena="1"] .dm-lot-card,
+  .dm-stage[data-arena="1"] .dm-lot-actions,
+  .dm-stage[data-arena="1"] .dm-lotbar { display: block; grid-area: auto; }
+  .dm-stage[data-arena="1"] .dm-lotbar { display: flex; }
+  .dm-stage[data-arena="1"] > .dm-seat { display: none; }
+  .dm-stage[data-arena="1"] .dm-scores,
+  .dm-stage .dm-scores { display: grid; grid-template-columns: 1fr 1fr; grid-area: auto; }
+
+  /* The rail is the part that grows. */
+  .dm-stage .dm-stage-rail,
+  .dm-stage[data-arena="1"] .dm-stage-rail {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; grid-area: auto;
+  }
+
+  /* Bidding gets the width it is given rather than a phone-sized ribbon down
+     the middle of a 980px screen. */
+  .dm:has(.dm-stage) .dm-bidbar { max-width: min(560px, 100%); }
+  .dm:has(.dm-stage) .dm-controls { max-width: min(560px, 100%); }
+  .dm[data-standalone="1"]:has(.dm-stage) .dm-portrait-wrap { max-width: min(420px, 88vw); }
+}
+
+/* ── The rail's filler ────────────────────────────────────────────────────
+   Only on a screen with room to spare. A 375x812 phone finishes its table
+   about 50px above the bottom, and a feed squeezed into 50px is worse than no
+   feed — so below this height the rail stays exactly as it was. */
+
+@media (max-width: 1023px) and (min-height: 860px), (orientation: portrait) and (min-height: 860px) {
+  /* A tall screen can afford a bigger card and a bench you can actually read
+     the faces on, before any of it goes to the feed. The art is the thing
+     being valued; it should not stay phone-sized on a screen twice a phone. */
+  .dm[data-standalone="1"]:has(.dm-stage) .dm-portrait-wrap {
+    height: min(42dvh, 560px);
+    max-width: min(460px, 88vw);
+  }
+  .dm:has(.dm-stage) .dm-roster > .dm-slot { height: clamp(34px, 5.2vh, 60px); }
+  .dm:has(.dm-stage) .dm-score { padding: 12px; }
+  .dm:has(.dm-stage) .dm-score-budget { font-size: 24px; }
+
+  /* In a solo game there are no cameras and nobody to chat to, so the running
+     feed of bids and sales takes the space instead — the one thing on this
+     screen that is genuinely a live document. */
+  .dm:has(.dm-stage) .dm-ticker {
+    display: flex; flex: 1 1 auto;
+    min-height: 140px; max-height: none;
+    margin-top: 0;
+  }
+  .dm:has(.dm-stage) .dm-ticker-line { font-size: 13.5px; }
+}
+
+/* ── Cameras and chat, filling the rail ───────────────────────────────────
+   A PvP room has something better to put there than the feed. The tiles keep
+   their shape at the top and the chat log absorbs the rest, so the message
+   box sits at the bottom of the screen where a message box belongs. */
+
+/* min-height guards the landscape split defined above: a sideways phone is
+   844x390, which clears max-width:1023 and would otherwise be turned back into
+   a single column by this block and scroll. Anything actually upright, or wide
+   with room to stack, lands here. */
+@media (max-width: 1023px) and (min-height: 561px), (orientation: portrait) {
+  .dm:has(.dm-stage) .dm-media {
+    display: flex; flex-direction: column;
+    flex: 1 1 auto; min-height: 0; margin-top: 0;
+  }
+  .dm:has(.dm-stage) .dm-media .dm-tiles { flex: 0 0 auto; }
+  .dm:has(.dm-stage) .dm-chat { flex: 1 1 auto; min-height: 0; }
+  .dm:has(.dm-stage) .dm-chat-log { flex: 1 1 auto; min-height: 84px; max-height: none; }
+  /* With cameras present the feed would be a third thing competing for the
+     same space, and it is the least of the three. */
+  .dm:has(.dm-stage) .dm-stage-rail:has(.dm-media) .dm-ticker { display: none; }
+}
+/* ── Arena note ───────────────────────────────────────────────────────────
+   What the pin says when you tap it. A grey card rather than a modal: it
+   belongs to the lot bar it drops out of, it does not stop the auction, and
+   it goes away with one tap on the ✕ or on the pin again. */
+
+.dm-arena-pill { cursor: pointer; font: inherit; }
+.dm-arena-pill[data-open="1"] {
+  border-color: var(--dm-gold); color: var(--dm-gold-hot);
+}
+.dm-arena-note {
+  position: relative;
+  margin: 0 0 10px;
+  padding: 12px 34px 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--dm-line-hot);
+  background: var(--dm-panel-2);
+  animation: dm-arena-in .16s ease-out;
+}
+.dm-arena-note strong { display: block; font-size: 13px; color: var(--dm-gold); margin-bottom: 5px; }
+.dm-arena-note p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--dm-text); }
+.dm-arena-note .dm-arena-note-scenario {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--dm-line);
+  color: var(--dm-dim); font-size: 12.5px;
+}
+.dm-arena-note-x {
+  position: absolute; top: 7px; right: 8px;
+  width: 26px; height: 26px; border-radius: 8px;
+  border: 1px solid var(--dm-line);
+  background: var(--dm-panel);
+  color: var(--dm-dim); font-size: 12px; cursor: pointer;
+  display: grid; place-items: center;
+}
+.dm-arena-note-x:hover { color: var(--dm-text); border-color: var(--dm-line-hot); }
+@keyframes dm-arena-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .dm-arena-note { animation: none; } }
+
+/* The note is in the flow, not floating over the card — it reads as part of
+   the lot bar it drops out of, and it survives all three layouts without
+   needing a positioned ancestor. The cost is its height, so the art lends it:
+   while the note is open the card gives back rather more than the note takes,
+   which keeps the one-screen fit that the whole phone layout is built on. */
+@media (max-width: 1023px), (orientation: portrait) {
+  .dm[data-standalone="1"]:has(.dm-arena-note) .dm-portrait-wrap {
+    height: min(30dvh, 240px);
+  }
+  .dm-arena-note { padding: 10px 32px 10px 12px; }
+  .dm-arena-note p { font-size: 12.5px; }
+  /* On a phone the arena is the answer to "what does this change"; the board
+     scenario is background the player already read on the prep screen. */
+  .dm-arena-note .dm-arena-note-scenario { display: none; }
+}
+/* ── Phones: voice yes, camera and chat no ────────────────────────────────
+   Mic stays, because arguing about the picks is the reason you play a friend
+   and it costs no screen. The camera tiles and the chat box go, for three
+   reasons that all bite hardest on the smallest screen:
+
+   THE KEYBOARD. Tapping a chat box raises the software keyboard, which shrinks
+   the visual viewport on Android and scrolls the document on iOS. This layout
+   fits the auction into the screen exactly; either behaviour pushes the bid
+   buttons out of reach at the moment you need them.
+
+   THE SPACE. A 375x812 phone finishes the table about 50px from the bottom.
+   Two video tiles and a scrolling log do not go in 50px, and taking it out of
+   the lot card means bidding on a thumbnail.
+
+   THE POINT. The mic is already open. Typing at someone you can hear is the
+   worse half of the feature, and holding a phone steady enough to be a
+   webcam while bidding on it is not a thing anyone does twice.
+
+   Above this height there IS room — a tablet, a desktop, or a phone in
+   desktop-site mode at 980x2080 — so the full rail comes back untouched. */
+
+/* The header's mic reads as live rather than as just another grey icon —
+   at a glance, from across the room, is my mic open. */
+.dm-head-actions .dm-btn[data-live="1"] {
+  border-color: var(--dm-green);
+  box-shadow: 0 0 0 1px rgba(76,175,125,.25), 0 0 12px rgba(76,175,125,.2);
+}
+.dm-head-actions .dm-btn[data-live="0"] { opacity: .75; }
+
+@media (max-height: 859px) {
+  /* The whole rail goes, controls included — the mic toggle it used to carry
+     now lives in the floating header, where it is on screen for the entire
+     draft instead of below the fold. Voice is unaffected: it is running
+     whether or not anything is drawn for it. */
+  .dm:has(.dm-stage) .dm-media { display: none; }
+}
+/* ── An uber lot, as an object ────────────────────────────────────────────
+   About one lot in five hundred. Most players will never be dealt one, so the
+   card itself changes, not just the chip on it: a platinum frame, a cold
+   highlight instead of the warm gold every other card uses, and a slow sweep
+   across the whole face. Deliberately silver where the shiny treatment is
+   gold, so the two rarities never read as the same event. */
+
+.dm-portrait-wrap[data-grade="uber"] {
+  border-color: rgba(226,234,245,.9);
+  box-shadow:
+    0 24px 60px rgba(0,0,0,.6),
+    0 0 0 1px rgba(255,255,255,.55) inset,
+    0 0 34px rgba(198,214,236,.42);
+}
+.dm-portrait-wrap[data-grade="uber"]::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(103deg,
+    transparent 34%, rgba(255,255,255,.10) 44%, rgba(255,255,255,.42) 50%,
+    rgba(214,228,246,.14) 56%, transparent 66%);
+  background-size: 240% 100%;
+  animation: dm-uber-sweep 4.6s ease-in-out infinite;
+}
+@keyframes dm-uber-sweep {
+  0%       { background-position: 140% 0; }
+  60%,100% { background-position: -50% 0; }
+}
+/* The name plate goes silver to match, so the card reads as one object. */
+.dm-portrait-wrap[data-grade="uber"] .dm-lot-name {
+  background: linear-gradient(103deg, #ffffff 0%, #cfd7e4 45%, #ffffff 70%, #aab4c4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* ── The shelf ────────────────────────────────────────────────────────────
+   Each universe is a sealed foil pack, not a card with a photo on it. The
+   pack is a real photograph — black foil, crimped brass ends — and everything
+   else is composited onto its face: the house mark at the crimp, the board's
+   own character in a lit window, a brass band, and the name.
+
+   That is the difference between a picker and a shelf. You are not reading
+   twenty options, you are looking at twenty things you could open. */
+
+.dm-deck-wrap { margin: 0 -14px; }
+
+.dm-deck {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  /* Vertical room for the lift on the selected pack. */
+  padding: 18px 14px 22px;
+  scroll-padding-left: 14px;
+  perspective: 1200px;
+}
+.dm-deck::-webkit-scrollbar { display: none; }
+
+.dm-pack {
+  scroll-snap-align: center;
+  flex: 0 0 clamp(206px, 63vw, 250px);
+  position: relative;
+  aspect-ratio: 760 / 1210;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  /* The pack's own silhouette is the shape — no card frame around it. */
+  filter: drop-shadow(0 16px 26px rgba(0,0,0,.6));
+  transition: transform .28s cubic-bezier(.2,.8,.25,1), filter .28s ease;
+  transform-style: preserve-3d;
+}
+.dm-pack:hover { transform: translateY(-6px) rotateY(-4deg); }
+.dm-pack[data-on="1"] {
+  transform: translateY(-10px) scale(1.03);
+  filter: drop-shadow(0 22px 34px rgba(0,0,0,.72)) drop-shadow(0 0 18px rgba(201,162,39,.42));
+}
+
+/* The photograph. */
+.dm-pack-foil {
+  position: absolute; inset: 0;
+  background: url("/draftmasters/pack.webp") center / 100% 100% no-repeat;
+}
+
+/* Everything printed on it. */
+.dm-pack-face {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  justify-items: center;
+  gap: 4px;
+  /* Clear of the crimps at both ends. */
+  padding: 11% 10% 10%;
+  text-align: center;
+}
+
+.dm-pack-house {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(236,229,216,.62);
+}
+.dm-pack-chip {
+  font-size: 8.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+  color: #17110a;
+  background: linear-gradient(100deg, var(--dm-gold-hot), var(--dm-gold));
+  padding: 3px 9px; border-radius: 3px;
+  /* The chip is cut on the skew, like the band below it. */
+  transform: skewX(-10deg);
+  max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* The lit window — the pack's one bright thing. */
+.dm-pack-window {
+  position: relative;
+  align-self: center;
+  width: 66%; aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 34%, rgba(201,162,39,.30), rgba(0,0,0,.55) 72%);
+  box-shadow: 0 0 0 2px rgba(201,162,39,.55), 0 0 26px rgba(201,162,39,.28), 0 8px 20px rgba(0,0,0,.6) inset;
+}
+.dm-pack-window img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%;
+}
+.dm-pack-emoji { font-size: 40px; opacity: .8; }
+
+/* The brass band IS the nameplate.
+   It was a sibling element with a negative margin, which in a grid row still
+   leaves the name in the row below it — so the name landed on black foil in
+   near-black ink and vanished. Painting the band as the name's own backing
+   means the two can never come apart. */
+.dm-pack-name {
+  position: relative;
+  align-self: stretch;
+  display: grid; place-items: center;
+  font-family: var(--dm-display);
+  font-size: clamp(14px, 4.3vw, 18px);
+  font-weight: 800; line-height: 1.05; letter-spacing: -0.01em;
+  color: #14100a;
+  text-wrap: balance;
+  padding: 7px 6px;
+  margin: 6px -13% 0;
+  isolation: isolate;
+}
+.dm-pack-name::before {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: -1;
+  background: linear-gradient(100deg, #a8801a 0%, var(--dm-gold-hot) 44%, var(--dm-gold) 72%, #8f6d14 100%);
+  transform: skewY(-6deg);
+  box-shadow: 0 3px 10px rgba(0,0,0,.45);
+}
+.dm-pack-foot {
+  position: relative;
+  font-size: 9.5px; line-height: 1.35;
+  color: rgba(236,229,216,.6);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* Custom is the one pack with nothing photographed inside it yet. */
+.dm-pack-multiverse {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(58% 44% at 24% 22%, rgba(126,249,255,.55), transparent 70%),
+    radial-gradient(54% 44% at 78% 30%, rgba(255,95,158,.52), transparent 70%),
+    radial-gradient(70% 56% at 50% 86%, rgba(155,123,255,.58), transparent 72%),
+    conic-gradient(from 210deg at 50% 50%, #16162a, #241640, #0e1622, #16162a);
+  animation: dm-multiverse 20s ease-in-out infinite alternate;
+}
+@keyframes dm-multiverse {
+  from { transform: scale(1) rotate(0deg); }
+  to   { transform: scale(1.22) rotate(10deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-pack-multiverse { animation: none; }
+  .dm-pack { transition: none; }
+}
+
+/* The compose box only exists once the custom pack is chosen. */
+.dm-deck-compose { padding: 0 14px; margin-top: 4px; }
+.dm-deck-compose .dm-textarea { width: 100%; }
+
+@media (min-width: 900px) {
+  .dm-deck-wrap { margin: 0; }
+  .dm-deck { padding-left: 0; padding-right: 0; scroll-padding-left: 0; }
+  .dm-pack { flex-basis: 210px; }
+  .dm-deck-compose { padding: 0; }
+}
+
+/* ── Shelf head: the mark, and the way to skip the swipe ──────────────── */
+
+/* Only one control lives above the shelf, so it sits at the end of the row
+   on its own rather than balancing a heading that no longer exists. */
+.dm-shelf-head {
+  display: flex; align-items: center; justify-content: flex-start;
+  gap: 12px; margin-bottom: 12px;
+}
+.dm-shelf-head[data-hide="1"] { display: none; }
+
+/* The way back to the shelf, on the settings page. */
+.dm-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 6px 12px 6px 8px; margin-bottom: 6px;
+  border: 0; border-radius: 10px;
+  background: transparent; color: var(--dm-dim);
+  font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;
+}
+.dm-back:hover { color: var(--dm-gold-hot); background: rgba(255,255,255,.04); }
+
+/* Setup wants nothing above the shelf. The mute and the exit are controls for
+   a draft in progress; they float into the corner once one starts. */
+.dm-head-actions[data-hide="1"] { display: none; }
+
+.dm-usel { position: relative; flex-shrink: 0; }
+
+/* Not a pill. A bordered chip made the picker read as a minor setting sitting
+   beside the shelf; it is the only control on the screen, so it is set as a
+   heading you can open — the mark, the name, the chevron, and nothing drawn
+   around them. */
+.dm-usel-trigger {
+  display: inline-flex; align-items: center; gap: 9px;
+  min-height: 44px; padding: 4px 2px 4px 6px;
+  border: 0; border-radius: 10px;
+  background: transparent;
+  color: var(--dm-text);
+  font: inherit; font-size: 17px; font-weight: 700; letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: color .15s ease, opacity .15s ease;
+}
+.dm-usel-trigger:hover { color: var(--dm-gold-hot); }
+.dm-usel-trigger:active { opacity: .75; }
+/* The mark gets the ring Triumph's category icon has. */
+.dm-usel-mark {
+  display: grid; place-items: center;
+  width: 26px; height: 26px; flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 14px; line-height: 1;
+  background: rgba(201,162,39,.14);
+  box-shadow: inset 0 0 0 1.5px rgba(201,162,39,.55);
+}
+.dm-usel-label { max-width: 54vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-usel-chev {
+  width: 17px; height: 17px; flex-shrink: 0;
+  color: var(--dm-dim);
+  /* An SVG box is centred by the flex row on its own — no nudging needed. */
+  transition: transform .18s ease;
+}
+.dm-usel-chev[data-open="1"] { transform: rotate(180deg); }
+
+/* A full-screen invisible button, so a tap anywhere closes the menu and
+   keyboard users still get a focusable escape. */
+.dm-usel-scrim {
+  position: fixed; inset: 0; z-index: 40;
+  border: 0; padding: 0; background: transparent; cursor: default;
+}
+
+.dm-usel-menu {
+  position: absolute; z-index: 41;
+  top: calc(100% + 8px); right: 0;
+  width: max(220px, 62vw); max-width: 300px;
+  max-height: min(52vh, 420px); overflow-y: auto;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--dm-line-hot);
+  background: rgba(16,22,20,.98);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0,0,0,.7);
+  animation: dm-usel-in .14s ease-out;
+}
+@keyframes dm-usel-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.dm-usel-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 40px; padding: 8px 10px;
+  border: 0; border-radius: 9px;
+  background: transparent; color: var(--dm-text);
+  font: inherit; font-size: 13.5px; text-align: left;
+  cursor: pointer;
+}
+.dm-usel-item .dm-usel-mark { width: 22px; height: 22px; font-size: 12px; }
+.dm-usel-item:hover { background: var(--dm-panel-2); }
+.dm-usel-item[data-on="1"] { background: rgba(201,162,39,.16); color: var(--dm-gold-hot); font-weight: 700; }
+
+/* The settings arrive rather than appear — a block of four sections popping
+   in under the thumb reads as a layout shift, not as a reveal. */
+.dm-after-pick { animation: dm-reveal .3s cubic-bezier(.2,.8,.25,1); }
+@keyframes dm-reveal {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-after-pick, .dm-usel-menu { animation: none; }
+}
+
+/* ── Controls with weight ─────────────────────────────────────────────────
+   The primitives were a dark dashboard: flat fills, one radius everywhere, a
+   grey hairline round each. Nothing on the screen looked pressable, and the
+   labels were sentence-case body copy, so a button and a paragraph read at
+   the same volume.
+
+   Three changes do most of the work. Every control gets a LOWER EDGE — a
+   solid dark line beneath it that shortens on press — so it behaves like a
+   physical key instead of a rectangle changing colour. Radii get tighter and
+   stop being uniform, so a pill, a key and a panel are different objects.
+   And the labels get set: uppercase, letterspaced, heavier, at a size that
+   says "operate me" rather than "read me". */
+
+.dm-btn {
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 750;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #1b2321, #131a18);
+  border-color: #2c3733;
+  /* The key's edge. */
+  box-shadow: 0 2px 0 #0a0f0e, 0 3px 8px rgba(0,0,0,.45);
+  transition: background .14s ease, border-color .14s ease, box-shadow .1s ease,
+              transform .1s ease, opacity .15s ease;
+}
+.dm-btn:hover:not(:disabled) {
+  border-color: var(--dm-line-hot);
+  background: linear-gradient(180deg, #222c29, #161e1c);
+}
+.dm-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 #0a0f0e, 0 1px 3px rgba(0,0,0,.4);
+}
+.dm-btn:disabled { box-shadow: none; }
+
+.dm-btn-primary {
+  background: linear-gradient(180deg, var(--dm-gold-hot) 0%, var(--dm-gold) 62%, #a8801a 100%);
+  border-color: #e2c469;
+  color: #17110a;
+  font-weight: 850;
+  letter-spacing: .06em;
+  /* Brass sits on a darker brass edge, not on black. */
+  box-shadow: 0 2px 0 #7a5c10, 0 4px 14px rgba(201,162,39,.32);
+}
+.dm-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f6dc8a 0%, var(--dm-gold-hot) 62%, var(--dm-gold) 100%);
+  border-color: #f2dc9a;
+}
+.dm-btn-primary:active:not(:disabled) { box-shadow: 0 0 0 #7a5c10, 0 2px 6px rgba(201,162,39,.28); }
+
+/* Ghost stays quiet — it is the way out, not the way on. */
+.dm-btn-ghost {
+  background: transparent;
+  border-color: var(--dm-line);
+  color: var(--dm-dim);
+  box-shadow: none;
+}
+.dm-btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.04); color: var(--dm-text); }
+.dm-btn-icon { text-transform: none; letter-spacing: 0; }
+
+/* Fields are wells cut into the surface, not boxes sitting on it. */
+.dm-input, .dm-textarea {
+  border-radius: 10px;
+  background: #0a0f0d;
+  border-color: #232d2a;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.55);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dm-input::placeholder, .dm-textarea::placeholder {
+  color: #5b6560;
+}
+.dm-input:focus, .dm-textarea:focus {
+  border-color: var(--dm-gold);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.55), 0 0 0 3px rgba(201,162,39,.18);
+}
+
+/* Chips are the one genuinely soft thing — they are suggestions. */
+.dm-chip {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  background: rgba(255,255,255,.03);
+}
+.dm-chip:hover { border-color: var(--dm-gold); color: var(--dm-gold-hot); }
+
+/* A segment is a choice you can see the state of from across the room. */
+.dm-seg-item {
+  border-radius: 12px;
+  background: linear-gradient(180deg, #141c1a, #0f1615);
+  box-shadow: 0 2px 0 #0a0f0e;
+}
+.dm-seg-item[data-on="1"] {
+  border-color: var(--dm-gold);
+  background: linear-gradient(180deg, rgba(201,162,39,.16), rgba(201,162,39,.05));
+  box-shadow: 0 2px 0 #7a5c10, 0 0 0 1px rgba(201,162,39,.45), 0 6px 18px rgba(201,162,39,.14);
+}
+.dm-seg-label {
+  font-weight: 750;
+  letter-spacing: .01em;
+}
+.dm-seg-note { color: var(--dm-mute); }
+.dm-seg-item[data-on="1"] .dm-seg-note { color: rgba(236,229,216,.62); }
+
+/* Eyebrows are structure, so they read as structure. */
+.dm-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: .2em;
+  color: var(--dm-gold);
+  opacity: .75;
+}
+
+/* Panels are lit from above, matching the spotlight over the block. */
+.dm-panel {
+  background: linear-gradient(180deg, #141c1a, var(--dm-panel));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.35);
+}
+
+/* ── Pack legibility ──────────────────────────────────────────────────────
+   The mark and the strapline sit on black foil with a specular highlight
+   running through it, so flat grey text disappears into the shine. */
+
+.dm-pack-house {
+  color: rgba(236,229,216,.78);
+  text-shadow: 0 1px 3px rgba(0,0,0,.9);
+}
+.dm-pack-foot {
+  color: rgba(236,229,216,.74);
+  text-shadow: 0 1px 3px rgba(0,0,0,.95);
+}
+.dm-pack-name {
+  /* Dark ink on brass needs no shadow, but it does need to not be muddied by
+     the plate's own gradient. */
+  text-shadow: 0 1px 0 rgba(255,255,255,.22);
+}
+/* A soft floor under the lower half of the face so the strapline always has
+   something to sit on, whatever the foil is doing behind it. */
+.dm-pack-face::after {
+  content: "";
+  position: absolute; inset: 42% 4% 6%;
+  z-index: -1;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.55) 55%, rgba(0,0,0,.72));
+  border-radius: 0 0 10px 10px;
+}
+.dm-pack-face { isolation: isolate; }
+
+/* ── Under the shelf: look inside, or draft ───────────────────────────── */
+
+.dm-shelf-foot {
+  display: grid; grid-template-columns: auto 1fr; align-items: center;
+  gap: 10px; margin-top: 2px;
+}
+.dm-inside-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 48px; padding: 10px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--dm-line-hot);
+  background: rgba(255,255,255,.04);
+  color: var(--dm-dim);
+  font: inherit; font-size: 13px; font-weight: 650;
+  cursor: pointer; white-space: nowrap;
+}
+.dm-inside-btn:hover { color: var(--dm-text); border-color: var(--dm-gold); }
+.dm-draft-now { width: 100%; min-height: 52px; font-size: 15px; }
+
+/* ── The contents sheet ───────────────────────────────────────────────── */
+
+.dm-sheet-scrim {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(4,6,5,.72);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: dm-fade .16s ease-out;
+}
+@keyframes dm-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.dm-sheet {
+  width: min(560px, 100%);
+  max-height: 86dvh; overflow-y: auto;
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+  border: 1px solid var(--dm-line-hot); border-bottom: 0;
+  background: linear-gradient(180deg, #16201d, var(--dm-panel));
+  box-shadow: 0 -20px 60px rgba(0,0,0,.7);
+  animation: dm-sheet-up .24s cubic-bezier(.2,.8,.25,1);
+}
+@keyframes dm-sheet-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dm-sheet, .dm-sheet-scrim { animation: none; }
+}
+
+.dm-sheet-grip {
+  width: 38px; height: 4px; margin: 2px auto 10px;
+  border-radius: 999px; background: var(--dm-line-hot);
+}
+.dm-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dm-sheet-title {
+  margin: 0; font-family: var(--dm-display);
+  font-size: 22px; font-weight: 800; letter-spacing: -0.01em;
+}
+.dm-sheet-x {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 50%; border: 1px solid var(--dm-line);
+  background: var(--dm-panel-2); color: var(--dm-dim);
+  font-size: 13px; cursor: pointer;
+}
+.dm-sheet-x:hover { color: var(--dm-text); border-color: var(--dm-line-hot); }
+
+/* Your record, three ways. */
+.dm-rec {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px;
+}
+.dm-rec-cell {
+  display: flex; flex-direction: column; gap: 3px; align-items: center;
+  padding: 10px 6px; border-radius: 12px;
+  border: 1px solid var(--dm-line);
+  background: linear-gradient(180deg, #141c1a, #0f1615);
+}
+.dm-rec-k {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--dm-mute);
+}
+.dm-rec-v { font-size: 18px; font-weight: 800; color: var(--dm-gold-hot); }
+
+/* The contents themselves. */
+.dm-inside-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px; margin-top: 8px;
+}
+.dm-inside-cell { display: flex; flex-direction: column; gap: 5px; align-items: center; min-width: 0; }
+.dm-inside-art {
+  position: relative;
+  width: 100%; aspect-ratio: 4 / 5;
+  border-radius: 9px; overflow: hidden;
+  display: grid; place-items: center;
+  border: 1px solid var(--dm-line);
+  background: var(--dm-panel-2);
+  color: var(--dm-mute); font-size: 18px; font-weight: 800;
+}
+.dm-inside-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.dm-inside-name {
+  font-size: 10px; line-height: 1.25; text-align: center; color: var(--dm-dim);
+  width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* A sealed slot reads as foil, not as a missing picture. */
+.dm-inside-cell[data-sealed="1"] .dm-inside-art {
+  border-color: rgba(201,162,39,.45);
+  background:
+    repeating-linear-gradient(115deg, rgba(201,162,39,.10) 0 6px, rgba(201,162,39,.03) 6px 12px),
+    var(--dm-panel-2);
+  color: var(--dm-gold);
+  box-shadow: inset 0 0 18px rgba(201,162,39,.16);
+}
+.dm-inside-cell[data-sealed="1"] .dm-inside-name { color: var(--dm-gold); opacity: .8; }
+
+/* ── Tab bar ──────────────────────────────────────────────────────────── */
+
+.dm-tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  background: rgba(10,15,13,.94);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--dm-line);
+}
+.dm-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 4px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  color: var(--dm-mute); text-decoration: none;
+}
+.dm-tab-mark { font-size: 18px; line-height: 1; }
+.dm-tab[data-on="1"] { color: var(--dm-gold-hot); }
+.dm-tab:hover { color: var(--dm-text); }
+
+/* The bar is fixed, so the page needs a floor to scroll to. */
+.dm:has(.dm-tabs) { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
 `;
