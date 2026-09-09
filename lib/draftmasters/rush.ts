@@ -42,56 +42,44 @@ import { DBZ_RUSH } from "./boards/dbz";
 /**
  * How fast, on a scale nobody needs a manual for.
  *
- *   0      almost everyone, and it is meant to be almost everyone
- *   1-2    quick — Arya, Bronn, the Green Ranger, most trained fighters
- *   3      genuinely superhuman — Naruto, Itachi, Spider-Man
- *   5      Goku, Vegeta, the ones who blitz
- *   7-8    the handful whose ENTIRE character is speed — Flash, Sonic, Whis
+ *   0      ALMOST EVERYONE. Two zeroes trade blows, and trading is the
+ *          default the whole game is built on -- it is what makes carried
+ *          damage matter.
+ *   2-3    quick enough to be worth saying so: Arya, Syrio, Legolas
+ *   4-6    genuinely superhuman: Naruto, Itachi, Spider-Man
+ *   7-10   speed as the entire character: Goku, the Flash, Whis
  *
- * The scale used to run to twelve and had most of the mid-table on four to
- * six, which meant "good at fighting" and "fast" had quietly become the same
- * stat. They are not.
+ * This list was three times longer, with most of the mid-table on one or two,
+ * and the result was that nearly every exchange came down to a roll instead of
+ * the numbers on the cards. Being fast is only worth drafting for while most
+ * cards are not.
  */
 const RUSH: [string, number][] = [
-  // ── Speed as a whole personality ──────────────────────────────────────
+  // ── Speed as an entire personality ────────────────────────────────────
   ["the flash", 10], ["barry allen", 10], ["wally west", 10], ["godspeed", 10],
   ["quicksilver", 9], ["sonic", 9], ["zoom", 9], ["reverse-flash", 9],
-  ["hermes", 8], ["northstar", 8], ["nightcrawler", 7], ["silver surfer", 7],
+  ["hermes", 8], ["northstar", 8], ["nightcrawler", 7],
 
-  // ── Dragon Ball ───────────────────────────────────────────────────────
-  // The board where getting there first IS the franchise. These are the
-  // numbers everything else on the scale is measured against.
+  // ── Dragon Ball, where arriving first IS the franchise ────────────────
   ["whis", 10], ["vados", 10], ["beerus", 9], ["ultra instinct", 9],
   ["super saiyan 4", 9], ["ssj4", 9], ["super saiyan blue", 9],
   ["super saiyan 3", 8], ["super saiyan 2", 8], ["super saiyan", 7],
   ["goku", 7], ["vegeta", 7], ["gohan", 6], ["frieza", 7], ["cell", 6],
-  ["trunks", 6], ["piccolo", 5], ["majin buu", 5], ["jiren", 8], ["hit", 8],
-  ["krillin", 3], ["tien shinhan", 3], ["yamcha", 2], ["master roshi", 2],
-  ["hercule", 0], ["mr. satan", 0], ["bulma", 0], ["chiaotzu", 2],
+  ["trunks", 6], ["jiren", 8], ["hit the assassin", 8], ["burter", 8],
 
   // ── Shinobi: between Westeros and the Saiyans, which is the point ─────
-  ["minato", 5], ["itachi", 4], ["madara", 4], ["kakashi", 4],
-  ["sasuke", 4], ["rock lee", 4], ["naruto", 3], ["jiraiya", 3],
-  ["orochimaru", 3], ["pain", 3], ["nagato", 3], ["hinata", 2],
-  ["gaara", 1], ["shikamaru", 1],
+  ["minato", 6], ["itachi", 5], ["kakashi", 4], ["sasuke", 4],
+  ["rock lee", 4], ["naruto", 3],
 
-  // ── Superheroes who move, on a human scale ────────────────────────────
-  ["superman", 8], ["captain marvel", 6], ["wonder woman", 5], ["thor", 4],
-  ["spider-man", 4], ["spider man", 4], ["deathstroke", 3], ["shang-chi", 3],
-  ["catwoman", 2], ["nightwing", 2], ["daredevil", 2], ["captain america", 2],
-  ["black widow", 2], ["batman", 2], ["wolverine", 2], ["deadpool", 2],
-  ["iron fist", 2],
+  // ── The few superheroes whose speed is the character ──────────────────
+  ["superman", 8], ["captain marvel", 6], ["silver surfer", 7],
+  ["spider-man", 4], ["spider man", 4], ["shang-chi", 3],
 
-  // ── Fantasy and swords. Most of Westeros is a zero, and it matters. ───
-  ["arya", 2], ["oberyn", 2], ["syrio forel", 2], ["arthur dayne", 2],
-  ["legolas", 3], ["glorfindel", 2], ["bronn", 1], ["jaime", 1],
-  ["aragorn", 1], ["griffith", 2], ["guts", 1],
-
-  // ── Fighters, rangers, monsters ───────────────────────────────────────
-  ["akuma", 3], ["cammy", 2], ["chun-li", 2], ["scorpion", 2], ["sub-zero", 2],
-  ["raiden", 3], ["green ranger", 2], ["tommy oliver", 2], ["white ranger", 2],
-  ["michael myers", 0], ["pennywise", 2], ["freddy", 1],
-  ["deoxys", 5], ["ninjask", 5], ["jolteon", 4], ["pikachu", 3],
+  // ── Everybody else on every other board is a ZERO. These are the
+  //    exceptions, and they are exceptions because being quick is the first
+  //    thing anybody says about them.
+  ["arya", 3], ["syrio forel", 3], ["legolas", 3], ["oberyn", 2],
+  ["akuma", 3], ["deoxys", 5], ["ninjask", 5], ["jolteon", 4], ["pikachu", 3],
 ];
 
 const RUSH_SORTED = [...RUSH, ...DBZ_RUSH].sort((a, b) => b[0].length - a[0].length);

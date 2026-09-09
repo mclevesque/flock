@@ -31,6 +31,38 @@ export const BATTLE_STYLES = `
    One card each side and a gap between them. Fixed positions: the pair on
    screen is the pair the rules are resolving, and it should not move around
    as the narrator changes who it is talking about. */
+/* ── The rail ───────────────────────────────────────────────────────────── */
+
+/* Where this card stands in the line. The single most useful thing the rail
+   can say once a fight is under way. */
+.dm-bt-ord {
+  position: absolute; left: 4px; top: 4px; z-index: 2;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  display: grid; place-items: center; border-radius: 4px;
+  background: rgba(8,8,10,.82); border: 1px solid rgb(var(--dm-glow) / .3);
+  font-family: var(--dm-display); font-size: 9.5px; font-weight: 700;
+  color: rgb(var(--dm-glow) / .85);
+}
+
+/* Whoever is in the slot right now. Lit rather than moved, so the rail never
+   reorders itself under the player's eye. */
+.dm-bt-card[data-now="1"] {
+  border-color: var(--dm-gold);
+  box-shadow: 0 0 0 1px rgb(var(--dm-glow) / .45), 0 0 20px rgb(var(--dm-glow) / .28);
+}
+.dm-bt-card[data-now="1"] .dm-bt-card-name { color: var(--dm-gold); }
+
+/* The captain, set apart from the line they are standing behind. */
+.dm-bt-rail-cap {
+  margin-top: 10px; padding-top: 9px;
+  border-top: 1px dashed rgb(var(--dm-glow) / .22);
+}
+.dm-bt-rail-label {
+  display: block; margin-bottom: 5px;
+  font-family: var(--dm-display); font-size: 9px; letter-spacing: .2em;
+  text-transform: uppercase; color: rgb(var(--dm-glow) / .55);
+}
+
 .dm-bt-slots {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -81,6 +113,14 @@ export const BATTLE_STYLES = `
   font-family: var(--dm-display); font-size: 13.5px; line-height: 1.2;
   color: #f0e6d2; text-wrap: balance;
 }
+/* The condition, kept to one line. It is worth knowing and it is not worth
+   three lines of the only card on screen. */
+.dm-bt-name em {
+  display: block; margin-top: 2px;
+  font-family: var(--dm-ui); font-style: normal; font-size: 10.5px;
+  color: rgba(240,230,210,.5);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* Health: a bar for the glance, a number for the detail. */
 .dm-bt-hp {
@@ -93,9 +133,12 @@ export const BATTLE_STYLES = `
   border-radius: 999px; transition: width .3s ease, background .3s ease;
 }
 .dm-bt-hp b {
-  position: relative; display: block; text-align: center;
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 5px;
   font-size: 10.5px; font-weight: 800; line-height: 15px;
   font-variant-numeric: tabular-nums; color: #100d08;
+}
+.dm-bt-hp b s {
+  text-decoration: none; font-size: 8px; letter-spacing: .14em; opacity: .62;
 }
 .dm-bt-hp[data-health="ok"]    i { background: linear-gradient(90deg, #b7902f, var(--dm-gold)); }
 .dm-bt-hp[data-health="hurt"]  i { background: linear-gradient(90deg, #c07524, #e8973a); }
@@ -266,7 +309,9 @@ export const BATTLE_STYLES = `
 .dm-bt-card {
   position: relative; display: flex; align-items: center; gap: 8px;
   padding: 5px; border-radius: 9px; background: var(--dm-panel-2);
-  transition: opacity .5s ease, filter .5s ease, transform .5s ease;
+  border: 1px solid transparent;
+  transition: opacity .5s ease, filter .5s ease, transform .5s ease,
+              border-color .3s ease, box-shadow .3s ease;
   min-width: 0;
 }
 .dm-bt-card img, .dm-bt-card .dm-bt-initial {

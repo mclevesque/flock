@@ -26,6 +26,8 @@ export interface Beat {
   kind: BeatKind;
   intensity: number;
   eliminated?: string[];
+  /** Cards put back on their feet by this beat. Un-strikes them on screen. */
+  revived?: string[];
 
   // ── The same beat, as numbers ──────────────────────────────────────────
   /** The card swinging, and the card being swung at. */
@@ -138,7 +140,13 @@ export function scriptFromFight(
       atk: e.atk,
       atkBase: e.atkBase,
       // The dead card is whichever name the death line names first.
-      ...(e.kind === "death" && actors.length ? { eliminated: [actors[0]] } : {}),
+      // From the event, never from the sentence: `to` is the card that went
+      // down. Reading it out of the prose struck out whichever name happened
+      // to be longest, which was frequently the winner.
+      ...(e.kind === "death" && (e.to || actors.length)
+        ? { eliminated: [e.to ?? actors[0]] }
+        : {}),
+      ...((e.kind === "revive" || e.kind === "survive") && e.to ? { revived: [e.to] } : {}),
     });
   }
 

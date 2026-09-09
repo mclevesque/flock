@@ -59,6 +59,17 @@ export const STUDIO_STYLES = `
   font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
 }
 
+/* What the card IS, then what it COSTS. The two are allowed to disagree and
+   this grid is where you would spot it if one of them were wrong. */
+.ps-stats {
+  display: flex; align-items: baseline; justify-content: center; gap: 7px;
+  margin: 3px 0 0; font-variant-numeric: tabular-nums;
+}
+.ps-stats b { font-size: 14px; font-weight: 800; color: #f0e6d2; }
+.ps-stats b i { font-style: normal; opacity: .4; margin: 0 1px; }
+.ps-stats em { font-style: normal; font-size: 10.5px; color: #6fd0a0; }
+.ps-stats s { text-decoration: none; font-size: 11px; color: rgba(240,230,210,.35); }
+
 .ps-name {
   margin: 7px 2px 0; font-size: 12.5px; line-height: 1.3; color: var(--dm-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

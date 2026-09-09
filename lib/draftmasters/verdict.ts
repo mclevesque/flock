@@ -79,7 +79,9 @@ function contributions(all: Contribution[]): Map<string, number> {
     const raw = (weight(c) / top) * 10;
     // Standing to the end is worth something the damage numbers miss.
     const bonus = c.survived ? 1 : 0;
-    out.set(c.name, Math.max(0, Math.min(12, Math.round(raw + bonus))));
+    // Ten, because the screen prints this as "/10" and an 11/10 is a bug
+    // report rather than a compliment.
+    out.set(c.name, Math.max(0, Math.min(10, Math.round(raw + bonus))));
   }
   return out;
 }
@@ -92,17 +94,20 @@ function contributions(all: Contribution[]): Map<string, number> {
  * from reading like a rout.
  */
 function score(
-  myHp: number,
-  startHp: number,
+  myLeft: number,
+  myPrinted: number,
   theirDead: number,
   theirTotal: number,
   myDamage: number,
   theirDamage: number
 ): number {
-  const health = (Math.max(0, myHp) / Math.max(1, startHp)) * 52;
-  const removed = (theirDead / Math.max(1, theirTotal)) * 30;
+  // How much of the line you brought is still on its feet. This used to read
+  // a player health bar; there is no player in the fight any more, so it reads
+  // the line -- which is what it was really measuring all along.
+  const health = Math.min(1, Math.max(0, myLeft) / Math.max(1, myPrinted)) * 52;
+  const removed = Math.min(1, theirDead / Math.max(1, theirTotal)) * 30;
   const pressure = (myDamage / Math.max(1, myDamage + theirDamage)) * 18;
-  return Math.round(health + removed + pressure);
+  return Math.max(0, Math.min(100, Math.round(health + removed + pressure)));
 }
 
 const nameOnly = (label: string) => label.replace(/\s*\(.*?\)\s*$/, "");
@@ -139,9 +144,12 @@ export function readVerdict(
       : null;
 
     const sum = (rows: Contribution[]) => rows.reduce((n, c) => n + c.damage + c.breakthrough, 0);
+    // What this side has left, against what it was printed with.
+    const printed = mine.reduce((n, c) => n + Math.max(1, c.printedDef), 0);
+    const left = mine.reduce((n, c) => n + c.leftHp, 0);
     const s = score(
-      battle.sides[sd].hp,
-      startHp,
+      left,
+      printed,
       theirs.filter((c) => !c.survived).length,
       theirs.length,
       sum(mine),
@@ -161,13 +169,28 @@ export function readVerdict(
     };
   };
 
-  const winner = battle.winner === null ? sideIds[0] : sideIds[battle.winner];
+  const sides: [VerdictSide, VerdictSide] = [build(0), build(1)];
+
+  // A true draw still has to name somebody, because the room needs a result to
+  // report. Defaulting to side 0 made the scorecard contradict itself whenever
+  // side 1 had scored higher, so the better card takes it.
+  const drawWinner = sides[1].score > sides[0].score ? 1 : 0;
+  const winner = sideIds[battle.winner ?? drawWinner];
+
+  // The fight is the source of truth and this is a summary of it. If the
+  // summary came out the other way round -- a close one where the loser led on
+  // damage share -- the summary is what is wrong.
+  if (battle.winner !== null) {
+    const won = sides[battle.winner];
+    const lost = sides[battle.winner === 0 ? 1 : 0];
+    if (lost.score >= won.score) lost.score = Math.max(0, won.score - 1);
+  }
 
   return {
     winnerId: winner,
     headline: battle.headline,
     reasoning: reasoning(battle),
-    sides: [build(0), build(1)],
+    sides,
   };
 }
 

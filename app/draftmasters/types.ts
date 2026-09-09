@@ -73,6 +73,8 @@ export interface BattleBeat {
   /** 0–3; drives screen shake, slashes and musical accents */
   intensity: number;
   eliminated?: string[];
+  /** Cards put back on their feet by this beat. Un-strikes them on screen. */
+  revived?: string[];
 
   /** The rules line, for the technical log beside the stage. */
   plain?: string;
@@ -94,6 +96,13 @@ export interface BattleScript {
   winnerId: string;
   /** Which board these cards came from, so the screen can rebuild their stats. */
   boardId?: string;
+  /**
+   * The order each side actually fights in, and who is holding back.
+   *
+   * The roster is in DRAFT order, which is the order lots came up at auction
+   * and tells a player nothing during a battle.
+   */
+  lineup?: { sideId: string; order: string[]; captain: string | null }[];
   scripted: "ai" | "offline";
   /** FormatId the contest was staged as — see lib/draftmasters/contest */
   format?: string;

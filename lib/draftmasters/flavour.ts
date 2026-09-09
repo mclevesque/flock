@@ -162,6 +162,29 @@ const EXPOSED = [
   "{P} is out of people.",
 ];
 
+/**
+ * Somebody stepping onto the field.
+ *
+ * The clearest beat a team fight has, and the one the old log buried under a
+ * round marker that looked the same whether anybody had moved or not.
+ */
+const SEND = [
+  "Get out there, {D}!",
+  "{D}, you are up!",
+  "{P} sends in {D}!",
+  "Next up: {D}!",
+  "{D} steps out.",
+  "That is {D}'s cue.",
+];
+
+/** The captain, finally, because there is nobody left to send. */
+const SEND_CAPTAIN = [
+  "There is nobody left. {D} goes out themselves!",
+  "{D} has run out of people to send. {D} is going.",
+  "Last one standing — {D} takes the field!",
+  "{D} was never supposed to have to do this.",
+];
+
 const HOLD = [
   "{A} holds!",
   "{A} is still standing. Somehow.",
@@ -190,6 +213,20 @@ export interface NarratedEvent extends BattleEvent {
    * correctly — it just says it twice.
    */
   hidden?: boolean;
+}
+
+/**
+ * Fill a line's placeholders.
+ *
+ * All of them: `String.replace` with a string pattern substitutes only the
+ * first match, which printed a literal "{D}" at the player the first time a
+ * pool line named the same card twice.
+ */
+function fill(line: string, parts: { A?: string; D?: string; P?: string }): string {
+  return line
+    .replaceAll("{A}", parts.A ?? "")
+    .replaceAll("{D}", parts.D ?? "")
+    .replaceAll("{P}", parts.P ?? "");
 }
 
 const NAME_IN = (text: string) => text.replace(/\s*\(.*?\)\s*$/, "");
@@ -240,6 +277,16 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
     const ev: NarratedEvent = { ...e };
 
     switch (e.kind) {
+      case "captain": {
+        // Two shapes share this kind: an arrival, and a captain's aura note.
+        // Only the arrival has a name to put on screen.
+        const send = e.text.match(/^(.+?) sends out (.+?)[.!]$/);
+        if (send) { ev.said = fill(pick(SEND), { P: send[1], D: NAME_IN(send[2]) }); break; }
+        const last = e.text.match(/^(.+?) has nobody left to send\. (.+?) takes the field\.$/);
+        if (last) ev.said = fill(pick(SEND_CAPTAIN), { P: last[1], D: NAME_IN(last[2]) });
+        break;
+      }
+
       case "round": {
         const m = e.text.match(/^(.+?) \((\d+)\) faces (.+?) \((\d+)\)\.$/);
         if (m) {
@@ -276,7 +323,7 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         }
         const share = n / Math.max(had, 1);
         const pool = share >= 0.6 ? HEAVY : share >= 0.3 ? SOLID : GLANCING;
-        ev.said = pick(pool).replace("{A}", NAME_IN(att)).replace("{D}", NAME_IN(def)) + ` (${n})`;
+        ev.said = fill(pick(pool), { A: NAME_IN(att), D: NAME_IN(def) }) + ` (${n})`;
         break;
       }
 
@@ -290,7 +337,7 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         // Died without ever getting to answer: the other card was simply
         // faster. This is the moment rushdown is drafted for.
         if (firstMover && killer === firstMover && !struckBack) {
-          ev.said = pick(RUSHDOWN_KILL).replace("{A}", a2).replace("{D}", d);
+          ev.said = fill(pick(RUSHDOWN_KILL), { A: a2, D: d });
           break;
         }
 
@@ -299,9 +346,9 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         const traits = ctx.traits?.[killer] ?? [];
         const special = traits.map((t) => KILL_BY_TRAIT[t]).find(Boolean);
         ev.said = special
-          ? pick(special).replace("{A}", a2).replace("{D}", d)
+          ? fill(pick(special), { A: a2, D: d })
           : killer
-            ? pick(KILL).replace("{A}", a2).replace("{D}", d)
+            ? fill(pick(KILL), { A: a2, D: d })
             : `${d} ${vocab.out}.`;
         break;
       }
@@ -310,15 +357,13 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         const m = e.text.match(/^(\d+) gets past and hits (.+?) — (\d+) health left\.$/);
         if (!m) break;
         ev.said =
-          pick(BREAKTHROUGH)
-            .replace("{P}", m[2])
-            .replace("{D}", NAME_IN(fallen) || "the line") + ` (${m[1]}, ${m[3]} left)`;
+          fill(pick(BREAKTHROUGH), { P: m[2], D: NAME_IN(fallen) || "the line" }) + ` (${m[1]}, ${m[3]} left)`;
         break;
       }
 
       case "exposed": {
         const m = e.text.match(/^(.+?) has nobody left to send out\.$/);
-        if (m) ev.said = pick(EXPOSED).replace("{P}", m[1]);
+        if (m) ev.said = fill(pick(EXPOSED), { P: m[1] });
         break;
       }
 
@@ -327,7 +372,7 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         // exactly why nothing happened, which is the interesting part. Only the
         // bare "lands nothing" line needs help.
         const m = e.text.match(/^(.+?) lands nothing on (.+?)\.$/);
-        if (m) ev.said = pick(HOLD).replace("{A}", NAME_IN(m[2]));
+        if (m) ev.said = fill(pick(HOLD), { A: NAME_IN(m[2]) });
         break;
       }
     }

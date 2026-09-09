@@ -84,7 +84,9 @@ export const STYLES = `
 
 .dm-logo {
   display: block; width: auto;
-  /* Knocks the source's black ground out against any dark surface. */
+  /* Knocks the source's black ground out against any dark surface. Requires
+     that no ancestor between here and the page background makes a stacking
+     context. */
   mix-blend-mode: screen;
 }
 .dm-tagline {
@@ -1093,6 +1095,11 @@ export const STYLES = `
 .dm:has(.dm-stage) .dm-head {
   position: absolute; top: 10px; right: 14px; z-index: 6;
   width: auto; margin: 0; gap: 6px;
+  /* Only enough to clear the face, which is absolute at right: 24px. The
+     shelf's 360px reserves room for the universe selector; this screen has
+     no selector, and inheriting it pushed these two buttons over the top of
+     the opponent's picks. */
+  padding-right: 52px;
 }
 /* Lifting the controls out of the flow means nothing reserves their space, so
    the lot bar ran underneath them. This is the band they now occupy — ~50px
@@ -1713,7 +1720,11 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
    setting them to relative drops both into flow and pushes the page down the
    screen. (No backticks in this file: the sheet is one template literal and a
    backtick in a comment still closes it.) */
-.dm-shell { position: relative; z-index: 1; }
+/* NO z-index. A stacking context here seals the wordmark's screen blend off
+   from the page background and the mark renders as a black box -- see
+   Wordmark.tsx. Ordering is fine without one: the canvas is the first child,
+   so everything after it paints above it anyway. */
+.dm-shell { position: relative; }
 .dm-tabs, .dm-rail { z-index: 30; }
 
 .dm-case[data-on="1"]::before,

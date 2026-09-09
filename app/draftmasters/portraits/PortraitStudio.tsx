@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cardFor } from "@/lib/draftmasters/battle";
 import Link from "next/link";
 import type { Pack } from "@/lib/draftmasters/packs";
 import { STYLES } from "../styles";
@@ -25,6 +26,9 @@ interface Entry {
   n: string;
   s?: string;
   wiki?: string;
+  /** The auction price, 1-5. Deliberately NOT the stat line. */
+  t?: number;
+  from?: string;
 }
 
 type Status = "idle" | "saving" | "saved" | "error";
@@ -297,6 +301,7 @@ export default function PortraitStudio({ packs }: { packs: Pack[] }) {
               <PortraitCard
                 key={entry.n}
                 entry={entry}
+                stats={statsFor(entry, packId)}
                 url={url ?? null}
                 status={st}
                 onFocus={() => (focused.current = entry.n)}
@@ -319,8 +324,28 @@ export default function PortraitStudio({ packs }: { packs: Pack[] }) {
   );
 }
 
+/**
+ * A card's real numbers, from the same builder the battle uses.
+ *
+ * Cheap enough to do inline: it is a couple of table lookups per card, and
+ * memoising it would mean keeping a cache in sync with a board the user is
+ * actively editing.
+ */
+function statsFor(entry: Entry, board: string): { atk: number; def: number; rush: number } {
+  try {
+    const c = cardFor(
+      { name: entry.n, baseTier: entry.t ?? 3, tier: entry.t ?? 3, from: entry.from },
+      board
+    );
+    return { atk: c.atk, def: c.def, rush: c.rush };
+  } catch {
+    return { atk: 0, def: 0, rush: 0 };
+  }
+}
+
 function PortraitCard({
   entry,
+  stats,
   url,
   status,
   onFile,
@@ -328,6 +353,7 @@ function PortraitCard({
   onBlur,
 }: {
   entry: Entry;
+  stats: { atk: number; def: number; rush: number };
   url: string | null;
   status: Status;
   onFile: (f: File) => void;
@@ -370,6 +396,14 @@ function PortraitCard({
         {over && <span className="ps-drop">drop to replace</span>}
       </div>
       <p className="ps-name">{entry.n}</p>
+      {/* What this card actually is, next to what it costs. They are allowed
+          to disagree -- that is the design -- and this is the screen where
+          you would notice if one of them were wrong. */}
+      <p className="ps-stats">
+        <b>{stats.atk}<i>/</i>{stats.def}</b>
+        {stats.rush > 0 && <em>rush {stats.rush}</em>}
+        <s>${entry.t ?? 3}</s>
+      </p>
       <input
         ref={input}
         type="file"

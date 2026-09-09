@@ -15,7 +15,7 @@
  * The one constraint: it needs a DARK surface behind it. On DraftMasters that
  * is always true.
  */
-export default function Wordmark({ height = 34 }: { height?: number }) {
+export default function Wordmark({ height = 46 }: { height?: number }) {
   return (
     <img
       className="dm-logo"

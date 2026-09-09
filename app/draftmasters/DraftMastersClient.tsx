@@ -1534,6 +1534,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       ...scriptFromFight(result, narrate(result, { terrain: ground ?? undefined }), ids),
       scripted: "offline",
       boardId,
+      lineup: [
+        {
+          sideId: (mineIsA ? a : b).id,
+          order: myLine.map((x) => x.name),
+          captain: myCap?.name ?? null,
+        },
+        // An NPC fights as drafted and holds nobody back.
+        { sideId: theirSide.id, order: theirLine.map((x) => x.name), captain: null },
+      ],
     };
     setWatchedBattle(false);
     setBattle(script);

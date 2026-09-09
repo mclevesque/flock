@@ -117,6 +117,15 @@ const mentions = (f: { name: string; variant: string | null }, needle: string) =
   return hay.includes(n) || n.includes(f.name.toLowerCase());
 };
 
+/**
+ * How much health a point of defence is worth.
+ *
+ * Two, so an even matchup takes two exchanges instead of one. At one, nothing
+ * in the game ever survived a blow and every fight was a chain of one-shots
+ * settled by a single rushdown roll.
+ */
+export const HP_PER_DEF = 2;
+
 /** Hard stop, so a mutual stalemate can never hang the tab. */
 const MAX_ROUNDS = 300;
 
@@ -982,8 +991,12 @@ export interface Contribution {
   damage: number;
   /** Cards taken off the board. */
   kills: number;
-  /** Damage that got past a falling defender and onto their player. */
+  /** Damage past a falling defender. Wasted now, but still a fact about the card. */
   breakthrough: number;
+  /** Defence printed on the card, so the verdict can measure what is left. */
+  printedDef: number;
+  /** Health remaining. Zero for anybody who fell. */
+  leftHp: number;
   /** Damage taken. A card that soaked a great deal did a job too. */
   absorbed: number;
   /** Still standing at the end. */
@@ -1136,7 +1149,7 @@ export function resolveBattle(
     atk: atk2,
     def: def2,
     fx,
-    hp: def2,
+    hp: def2 * HP_PER_DEF,
     side,
     captain: isCaptain,
     grace: aura?.grace ?? 0,
@@ -1269,7 +1282,9 @@ export function resolveBattle(
     fallen.dead = false;
     fallen.revived = true;
     fallen.hp = Math.max(1, Math.ceil(fallen.def / 2));
-    say("revive", `${label(healer)} raises ${label(fallen)}, back up at ${fallen.hp}.`, s);
+    say("revive", `${label(healer)} raises ${label(fallen)}, back up at ${fallen.hp}.`, s, {
+      from: label(healer), to: label(fallen), hpAfter: fallen.hp, hpMax: fallen.def,
+    });
   };
 
   /**
@@ -1343,7 +1358,7 @@ export function resolveBattle(
     const mend = att.fx.find((f) => f.k === "mend");
     if (mend && mend.k === "mend") {
       const before = att.hp;
-      att.hp = Math.min(att.def, before + mend.n);
+      att.hp = Math.min(att.def * HP_PER_DEF, before + mend.n);
       if (att.hp > before) {
         say("mend", `${mend.label}: ${label(att)} back to ${att.hp}.`, att.side);
       }
@@ -1430,7 +1445,7 @@ export function resolveBattle(
       f.atk = Math.max(0, f.atk + atk);
       f.def = Math.max(1, f.def + def);
       // Healing tops a card up towards what it was printed with, never past.
-      if (heal) f.hp = Math.min(f.def, f.hp + heal);
+      if (heal) f.hp = Math.min(f.def * HP_PER_DEF, f.hp + heal);
     }
     const bits = [
       atk || def ? `${atk >= 0 ? "+" : ""}${atk}/${def >= 0 ? "+" : ""}${def}` : null,
@@ -1455,8 +1470,10 @@ export function resolveBattle(
     raises[s] -= 1;
     back.dead = false;
     back.revived = true;
-    back.hp = Math.max(1, Math.round(back.def / 2));
-    say("revive", `${au.label}: ${label(back)} is back on their feet, on ${back.hp}.`, s);
+    back.hp = Math.max(1, Math.round(back.def * HP_PER_DEF / 2));
+    say("revive", `${au.label}: ${label(back)} is back on their feet, on ${back.hp}.`, s, {
+      to: label(back), hpAfter: back.hp, hpMax: back.def,
+    });
   };
 
   /** Somebody went down on this side. Anyone watching who can turn, turns. */
@@ -1687,7 +1704,7 @@ export function resolveBattle(
     const regen = f.fx.find((x) => x.k === "regen");
     if (regen && regen.k === "regen" && f.hp < f.def) {
       const before = f.hp;
-      f.hp = Math.min(f.def, f.hp + regen.n);
+      f.hp = Math.min(f.def * HP_PER_DEF, f.hp + regen.n);
       if (f.hp > before) say("regen", `${label(f)} closes back to ${f.hp}.`, f.side);
     }
 
@@ -1696,6 +1713,8 @@ export function resolveBattle(
 
   // ── Rounds ────────────────────────────────────────────────────────────────
   const standing = (s: 0 | 1) => teams[s].some((f) => !f.dead);
+  /** Who was in each slot last round, so an arrival can be announced. */
+  const held: [string, string] = ["", ""];
   while (round < MAX_ROUNDS && standing(0) && standing(1)) {
     round += 1;
     captainTrigger(0, "round");
@@ -1735,6 +1754,26 @@ export function resolveBattle(
     if (maybeWithdraw(0, f1) || maybeWithdraw(1, f0)) {
       round -= 1;
       continue;
+    }
+
+    // Somebody new on the field is the clearest beat a team fight has. Said
+    // before the pairing so the screen can put them on screen arriving rather
+    // than already standing there.
+    for (const [s, f] of [[0, f0], [1, f1]] as const) {
+      const who = label(f);
+      if (held[s] === who) continue;
+      const first = held[s] === "";
+      held[s] = who;
+      say(
+        "captain",
+        f.captain
+          ? `${names[s]} has nobody left to send. ${who} takes the field.`
+          : first
+            ? `${names[s]} sends out ${who}.`
+            : `${names[s]} sends out ${who}!`,
+        s,
+        { to: who }
+      );
     }
 
     // Carries both fighters so the screen can fill its two slots before a
@@ -1848,6 +1887,8 @@ export function resolveBattle(
       damage: f.did.damage,
       kills: f.did.kills,
       breakthrough: f.did.breakthrough,
+      printedDef: f.def,
+      leftHp: f.dead ? 0 : Math.max(0, f.hp),
       absorbed: f.did.absorbed,
       survived: !f.dead,
       // A captain the line never ran out in front of never fought. That is not

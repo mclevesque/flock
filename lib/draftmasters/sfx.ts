@@ -27,7 +27,10 @@ export function initAudio(): void {
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx = new Ctor();
     master = ctx.createGain();
-    master.gain.value = 0.26; // deliberately quiet — this plays under conversation
+    // Was 0.26, on the theory that this plays under conversation. It does, but
+    // it also plays when somebody presses a button, and at that level a press
+    // read as nothing happening. Loud enough to feel, quiet enough to talk over.
+    master.gain.value = 0.42;
     master.connect(ctx.destination);
     try {
       muted = localStorage.getItem(STORAGE_KEY) === "1";
@@ -214,6 +217,9 @@ export const sfx = {
 
   /** Generic UI press. */
   click() {
-    tone({ freq: 660, type: "triangle", dur: 0.045, gain: 0.16 });
+    // Two tones, the lower one a beat behind, so the press has a body under
+    // it rather than just a tick on top.
+    tone({ freq: 880, type: "triangle", dur: 0.04, gain: 0.2 });
+    tone({ freq: 440, type: "triangle", dur: 0.075, gain: 0.16, delay: 0.012 });
   },
 };

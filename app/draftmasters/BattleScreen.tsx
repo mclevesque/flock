@@ -12,7 +12,7 @@ import {
   victorySting,
 } from "@/lib/draftmasters/battle-music";
 import { isMuted } from "@/lib/draftmasters/sfx";
-import { cardFor } from "@/lib/draftmasters/battle";
+import { HP_PER_DEF, cardFor } from "@/lib/draftmasters/battle";
 import type { BattleBeat, BattleScript, PortraitMap } from "./types";
 
 /** What a card looks like right now, replayed from the beats so far. */
@@ -103,7 +103,7 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
         // The log labels a fighter with its variant attached, so register
         // both spellings and let either resolve.
         const label = p.variant ? `${p.name} (${p.variant})` : p.name;
-        const card: Live = { name: label, atk: c.atk, def: c.def, atkBase: c.atk, hp: c.def, dead: false };
+        const card: Live = { name: label, atk: c.atk, def: c.def, atkBase: c.atk, hp: c.def * HP_PER_DEF, dead: false };
         map.set(label, card);
         map.set(p.name, card);
       }
@@ -122,6 +122,10 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
       bt.eliminated?.forEach((n) => {
         const d = find(n);
         if (d) { d.dead = true; d.hp = 0; }
+      });
+      bt.revived?.forEach((n) => {
+        const d = find(n);
+        if (d) d.dead = false;
       });
     }
     return map;
@@ -149,6 +153,9 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
     return [l, r] as const;
   }, [beats, index, live, left]);
 
+  const lineFor = (id?: string) =>
+    id ? script.lineup?.find((l) => l.sideId === id) : undefined;
+
   /** The most recent beat that actually had something to say. */
   const [told, toldAt] = useMemo(() => {
     for (let i = Math.min(index, beats.length - 1); i >= 0; i--) {
@@ -160,7 +167,12 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
   /** Everyone knocked out at or before the current beat. */
   const eliminated = useMemo(() => {
     const dead = new Set<string>();
-    for (let i = 0; i <= index && i < beats.length; i++) beats[i].eliminated?.forEach((n) => dead.add(n));
+    for (let i = 0; i <= index && i < beats.length; i++) {
+      beats[i].eliminated?.forEach((n) => dead.add(n));
+      // Somebody raised them. The set used to only grow, so a revived card
+      // stayed crossed out for the rest of the fight.
+      beats[i].revived?.forEach((n) => dead.delete(n));
+    }
     return dead;
   }, [beats, index]);
 
@@ -268,7 +280,7 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
 
       {/* ── Arena ───────────────────────────────────────────────────────── */}
       <div className="dm-bt-arena">
-        <Rail side={left} align="left" eliminated={eliminated} portraitOf={portraitOf} rules={rules} meId={meId} acting={actingSide === left?.id} />
+        <Rail side={left} align="left" eliminated={eliminated} portraitOf={portraitOf} rules={rules} meId={meId} acting={actingSide === left?.id} lineup={lineFor(left?.id)} fighting={slotL?.name} />
 
         <div className="dm-bt-center">
           {/* The two slots. Held by whoever is fighting, not by whoever the
@@ -313,7 +325,7 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
           </div>
         </div>
 
-        <Rail side={right} align="right" eliminated={eliminated} portraitOf={portraitOf} rules={rules} meId={meId} acting={actingSide === right?.id} />
+        <Rail side={right} align="right" eliminated={eliminated} portraitOf={portraitOf} rules={rules} meId={meId} acting={actingSide === right?.id} lineup={lineFor(right?.id)} fighting={slotR?.name} />
       </div>
 
       {/* ── Caption ─────────────────────────────────────────────────────── */}
@@ -378,7 +390,8 @@ function Slot({
 }) {
   if (!live) return <span className="dm-bt-slot" data-side={side} data-empty="1" />;
 
-  const frac = live.def > 0 ? Math.max(0, live.hp) / live.def : 0;
+  const maxHp = live.def * HP_PER_DEF;
+  const frac = maxHp > 0 ? Math.max(0, live.hp) / maxHp : 0;
   const health = frac > 0.6 ? "ok" : frac > 0.3 ? "hurt" : "dying";
   const boosted = live.atk > live.atkBase;
 
@@ -397,11 +410,18 @@ function Slot({
         )}
       </span>
 
-      <figcaption className="dm-bt-name">{live.name}</figcaption>
+      <figcaption className="dm-bt-name">
+        {BARE(live.name)}
+        {live.name !== BARE(live.name) && (
+          <em title={live.name}>{live.name.slice(BARE(live.name).length + 2, -1)}</em>
+        )}
+      </figcaption>
 
+      {/* Labelled, because an unlabelled number on a card that already has two
+          numbers on it is a third mystery rather than a health bar. */}
       <span className="dm-bt-hp" data-health={health}>
         <i style={{ width: `${Math.round(frac * 100)}%` }} />
-        <b>{Math.max(0, live.hp)}</b>
+        <b><s>HEALTH</s>{Math.max(0, live.hp)} / {maxHp}</b>
       </span>
 
       {/* Bottom right, like every card game anybody has played. */}
@@ -423,6 +443,8 @@ function Rail({
   rules,
   meId,
   acting,
+  lineup,
+  fighting,
 }: {
   side: Side | undefined;
   align: "left" | "right";
@@ -431,9 +453,35 @@ function Rail({
   rules: Rules;
   meId: string;
   acting: boolean;
+  lineup?: { order: string[]; captain: string | null };
+  /** Whoever is holding the slot for this side right now. */
+  fighting?: string;
 }) {
   if (!side) return <div className="dm-bt-rail" />;
+
+  const byName = new Map(side.roster.map((p) => [p.name, p]));
+  // Fighting order when we have it. The roster is in draft order, which is
+  // the order lots came up at auction and means nothing during a battle.
+  const line = lineup?.order.length
+    ? lineup.order.map((n) => byName.get(n)).filter(Boolean)
+    : side.roster.filter((p) => p.name !== lineup?.captain);
+  const captain = lineup?.captain ? byName.get(lineup.captain) : undefined;
+
   const standing = side.roster.filter((p) => !eliminated.has(p.name)).length;
+  const row = (p: NonNullable<ReturnType<typeof byName.get>>, i: number | null) => (
+    <div
+      key={p.id}
+      className="dm-bt-card"
+      data-dead={eliminated.has(p.name) ? "1" : "0"}
+      data-now={BARE(fighting ?? "") === p.name ? "1" : "0"}
+      title={p.name}
+    >
+      {i !== null && <span className="dm-bt-ord">{i + 1}</span>}
+      <ActorPortrait url={portraitOf.get(p.name) ?? null} name={p.name} />
+      <span className="dm-bt-card-name">{p.name}</span>
+    </div>
+  );
+
   return (
     <div className="dm-bt-rail" data-align={align} data-acting={acting ? "1" : "0"}>
       <div className="dm-bt-rail-head">
@@ -442,14 +490,17 @@ function Rail({
           {standing}/{side.roster.length || rules.rosterSize}
         </span>
       </div>
-      <div className="dm-bt-rail-cards">
-        {side.roster.map((p) => (
-          <div key={p.id} className="dm-bt-card" data-dead={eliminated.has(p.name) ? "1" : "0"} title={p.name}>
-            <ActorPortrait url={portraitOf.get(p.name) ?? null} name={p.name} />
-            <span className="dm-bt-card-name">{p.name}</span>
-          </div>
-        ))}
-      </div>
+
+      <div className="dm-bt-rail-cards">{line.map((p, i) => row(p!, i))}</div>
+
+      {/* Apart from the line, because that is what a captain is: somebody
+          standing behind it who does not fight until it is gone. */}
+      {captain && (
+        <div className="dm-bt-rail-cap">
+          <span className="dm-bt-rail-label">Captain</span>
+          {row(captain, null)}
+        </div>
+      )}
     </div>
   );
 }
