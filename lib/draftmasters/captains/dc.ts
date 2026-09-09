@@ -50,7 +50,7 @@ export const DC_CAPTAINS: CaptainRow[] = [
     },
   },
   {
-    match: "brainiac",
+    match: "brainiac", not: ["brainiac 5"],
     fx: {
       k: "command", atk: 1, def: 1, grace: 1, when: "kill", then: { atk: 1, def: 1 },
       label: "Added to the collection",

@@ -320,7 +320,7 @@ export type EffectKind = CardEffect["k"];
  * First match of each KIND wins, so a card can pick up several effects from
  * several rows but never two of the same kind.
  */
-const EFFECTS_CORE: { match: string; fx: CardEffect }[] = [
+const EFFECTS_CORE: { match: string; not?: string[]; fx: CardEffect }[] = [
   {
     match: "night king",
     fx: {
@@ -471,7 +471,7 @@ const EFFECTS_CORE: { match: string; fx: CardEffect }[] = [
   { match: "gandalf", fx: { k: "command", atk: 1, def: 2, lends: "ward", label: "A servant of the Secret Fire", note: "Everyone in front of him takes two less from every blow. He was never here to fight; he was here to make sure they could." } },
   { match: "tyrion", fx: { k: "command", swap: 2, atk: 2, def: 1, label: "Wins the war from a tent", note: "+2/+1 to the line. He is a 1/1 who has never won a fight and he is one of the best captains in the game, which is the joke and also correct." } },
   { match: "cersei", fx: { k: "command", atk: 3, def: -1, label: "No middle ground", note: "+3 attack and −1 health to everyone. Under Cersei the line hits harder and dies faster, and she would tell you that is the same thing." } },
-  { match: "griffith", fx: { k: "command", atk: 3, def: 1, label: "The Band of the Hawk", note: "+3/+1 to the entire line. Everybody follows him. It has never once ended well and they follow him anyway." } },
+  { match: "griffith", not: ["vincent"], fx: { k: "command", atk: 3, def: 1, label: "The Band of the Hawk", note: "+3/+1 to the entire line. Everybody follows him. It has never once ended well and they follow him anyway." } },
   { match: "shikamaru", fx: { k: "command", swap: 2, atk: 1, def: 1, grace: 1, label: "Two hundred moves ahead", note: "The line fights a plane closer to whatever is above it, because he has already worked out where it is weak." } },
   { match: "ozymandias", fx: { k: "command", swap: 2, atk: 2, def: 1, grace: 1, label: "Already accounted for", note: "The line fights a plane closer and hits harder. He set this up long before the draft." } },
   { match: "lex luthor", fx: { k: "command", swap: 1, atk: 1, def: 1, grace: 1, label: "Man of tomorrow", note: "The line fights a plane closer to whatever is opposite it. Luthor's whole life is the argument that a man with a plan beats a god." } },
@@ -568,7 +568,7 @@ const EFFECTS_CORE: { match: string; fx: CardEffect }[] = [
  * file can name a character that already has an effect here without quietly
  * replacing it — first match of each kind wins.
  */
-const EFFECTS: { match: string; fx: CardEffect }[] = [...EFFECTS_CORE, ...CAPTAINS];
+const EFFECTS: { match: string; not?: string[]; fx: CardEffect }[] = [...EFFECTS_CORE, ...CAPTAINS];
 
 
 /** Every effect a card carries, from the registry and from its declared counter. */
@@ -583,6 +583,10 @@ export function effectsFor(name: string, variant?: string | null): CardEffect[] 
     // the variant too, because that is where transformations live.
     const against = row.fx.k === "command" ? bare : hay;
     if (!hits(against, row.match)) continue;
+    // Some fragments cannot be made specific enough: the Berserk card is
+    // named simply "Griffith", so nothing distinguishes it from Vincent
+    // Griffith except saying so.
+    if (row.not?.some((n) => bare.includes(n))) continue;
     if (taken.has(row.fx.k)) continue;
     taken.add(row.fx.k);
     out.push(row.fx);

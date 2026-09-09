@@ -28,7 +28,7 @@ export const XMEN_CAPTAINS: CaptainRow[] = [
     },
   },
   {
-    match: "cyclops",
+    match: "cyclops", not: ["forge"],
     fx: {
       k: "command", atk: 1, def: 1, grace: 2, swap: 2, lends: "first",
       label: "Around the one eye",

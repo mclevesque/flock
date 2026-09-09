@@ -17,7 +17,7 @@
  */
 import type { CardEffect } from "../battle";
 
-export type CaptainRow = { match: string; fx: CardEffect };
+export type CaptainRow = { match: string; not?: string[]; fx: CardEffect };
 
 import { GOT_CAPTAINS } from "./got";
 import { XMEN_CAPTAINS } from "./xmen";
