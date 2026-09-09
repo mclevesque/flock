@@ -34,7 +34,6 @@ interface Props {
    */
   busy: "judging" | "staging" | null;
   onBattle: () => void;
-  onJudge: () => void;
   onPlayAgain: () => void;
 }
 
@@ -54,7 +53,6 @@ export default function VerdictScreen({
   battleLoading,
   busy,
   onBattle,
-  onJudge,
   onPlayAgain,
 }: Props) {
   if (!verdict) {
@@ -65,7 +63,7 @@ export default function VerdictScreen({
           Both rosters are set
         </h2>
         <p className="dm-tagline" style={{ maxWidth: 460, margin: "10px auto 0" }}>
-          Hand it to the judge and find out who actually drafted better.
+          Set your line, name a captain, and send them out.
         </p>
 
         <div className="dm-verdict-sides" style={{ marginTop: 26 }}>
@@ -91,16 +89,16 @@ export default function VerdictScreen({
         <div style={{ marginTop: 24 }}>
           {busy ? null : canJudge ? (
             <>
+              {/* One button, because there is now only one answer. The
+                  result is read off the fight, so a "just calculate it" path
+                  would have to run the same fight and then hide it. */}
               <div className="dm-row" style={{ justifyContent: "center" }}>
                 <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={loading || battleLoading}>
                   {battleLoading ? "Staging the fight…" : <><Icon name="swords" size={15} /> BATTLE!</>}
                 </button>
-                <button className="dm-btn dm-btn-lg" onClick={onJudge} disabled={loading || battleLoading}>
-                  {loading ? "Deliberating…" : <><Icon name="scales" size={15} /> Just calculate it</>}
-                </button>
               </div>
               <p className="dm-note" style={{ marginTop: 10 }}>
-                Same winner either way — Battle shows you how it went down.
+                Nobody has judged anything yet — the fight decides it.
               </p>
             </>
           ) : (

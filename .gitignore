@@ -65,3 +65,8 @@ setup_supabase.ts
 flock_db_dump.json
 flock_db_dump.sql
 outbreak_debug.json
+
+# DraftMasters balance harness + one-off probes (see scratch/sim.mts)
+/scratch/
+emoji-audit.txt
+/.partykit/

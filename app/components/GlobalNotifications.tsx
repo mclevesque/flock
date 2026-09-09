@@ -126,7 +126,7 @@ export default function GlobalNotifications() {
     if (isMessagesPage) dismiss();
   }, [isMessagesPage, dismiss]);
 
-  if (!notification || isMessagesPage || pathname?.startsWith("/budi")) return null;
+  if (!notification || isMessagesPage || pathname?.startsWith("/budi") || pathname?.startsWith("/draftmasters")) return null;
 
   const { senders, preview, count, partyId } = notification;
   const multi = senders.length > 1;

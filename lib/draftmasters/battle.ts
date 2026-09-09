@@ -44,6 +44,7 @@
 
 import { effectiveTier, variantGrade, type Entry, type Pack, type Variant } from "./packs";
 import { counterOf, traitsOf, type Trait } from "./traits";
+import { powerOf } from "./power";
 import { terrainSwing, type Terrain } from "./terrain";
 import {
   BOARD_PLANES,
@@ -55,17 +56,111 @@ import {
 } from "./planes";
 
 /**
- * Health every player starts with.
+ * Health a player starts with, when nothing better is known.
  *
- * Twenty, and it stays twenty. Raising it is the obvious response to a big
- * dragon putting a lot on you at once, and it is the wrong one: at 40 the
- * simulation never once produced a player dying behind a line that was still
- * standing, because breakthrough could no longer add up to a health bar before
- * somebody's team ran out. The whole second way to lose quietly stopped
- * existing. The single-blow cap below is the fix for the dragon; the health
- * total is what keeps the mechanic real.
+ * Kept as the Westeros-sized default — mean card defence there is about
+ * seven, and twenty is what that wants. Prefer `playerHpFor`, which reads the
+ * cards actually drafted.
  */
 export const PLAYER_HP = 20;
+
+/**
+ * Health scaled to the fight you are actually in.
+ *
+ * The ratio, not the number, is what was tuned. A player should be able to
+ * absorb roughly three good cards' worth of overflow before dying behind a
+ * line that is still standing — that is the second way to lose, and it has to
+ * stay rare enough to be a shock and common enough to be real.
+ *
+ * A flat twenty held that ratio only on the board it was measured on. Once
+ * stats described what a card IS rather than what it cost, mean defence
+ * ranged from 7 in Westeros to 15 among the Avengers, and the same twenty
+ * meant two different games: measured over 300 fights a board, breakthrough
+ * killed the player 11% of the time on Game of Thrones and 58% on Marvel.
+ *
+ * At this multiplier every board lands between 11% and 19%.
+ */
+export const HP_PER_DEFENCE = 2.8;
+
+export function playerHpFor(cards: Card[]): number {
+  const live = cards.filter(Boolean);
+  if (!live.length) return PLAYER_HP;
+  const meanDef = live.reduce((n, c) => n + c.def, 0) / live.length;
+  return Math.max(12, Math.round(meanDef * HP_PER_DEFENCE));
+}
+
+/**
+ * A model's read on one card, bounded so it can never decide a fight.
+ *
+ * `vs` narrows it to a single opponent — "Qyburn's scorpion, but only against
+ * the dragon" — which is where most of the interesting ones live.
+ */
+export interface Adjustment {
+  /** Card name, matched loosely against the drafted name and its variant. */
+  card: string;
+  /** Only when facing this one. Omit for an adjustment that always applies. */
+  vs?: string;
+  atk?: number;
+  def?: number;
+  plane?: number;
+  /** Shown to the player. An unexplained adjustment is not applied. */
+  why: string;
+}
+
+/**
+ * The ceiling. A model advises inside this and cannot argue with it.
+ *
+ * Measured rather than guessed. Across 500 simulated fights, advice at these
+ * bounds changes the winner in about one game in eleven overall — but in
+ * roughly a THIRD of the close ones, and hardly ever in a blowout. That is the
+ * shape the influence should have: a well-judged read on a matchup can decide
+ * a fight that was already balanced on a knife edge, and cannot rescue a side
+ * that was being taken apart.
+ *
+ * Raising it to 4 pushes close-fight flips past 60%, which stops being
+ * influence and starts being the model picking winners. Three is the number.
+ */
+export const ADJUST_LIMITS = { atk: 3, def: 3, plane: 1, count: 8 } as const;
+
+const clampBy = (n: number | undefined, max: number) =>
+  typeof n === "number" && Number.isFinite(n) ? Math.max(-max, Math.min(max, Math.round(n))) : 0;
+
+/**
+ * Take only what is inside the rules.
+ *
+ * Applied to anything a model returns before it reaches the resolver, so a
+ * hallucinated "+40 attack" becomes +2 and a nameless one is dropped. The
+ * engine never sees an unclamped number.
+ */
+export function sanitiseAdjustments(raw: unknown): Adjustment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Adjustment[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as Record<string, unknown>;
+    const card = typeof o.card === "string" ? o.card.trim() : "";
+    const why = typeof o.why === "string" ? o.why.trim() : "";
+    if (!card || !why) continue;
+    const adj: Adjustment = {
+      card,
+      why: why.slice(0, 180),
+      atk: clampBy(o.atk as number, ADJUST_LIMITS.atk),
+      def: clampBy(o.def as number, ADJUST_LIMITS.def),
+      plane: clampBy(o.plane as number, ADJUST_LIMITS.plane),
+    };
+    if (typeof o.vs === "string" && o.vs.trim()) adj.vs = o.vs.trim();
+    if (!adj.atk && !adj.def && !adj.plane) continue;
+    out.push(adj);
+    if (out.length >= ADJUST_LIMITS.count) break;
+  }
+  return out;
+}
+
+const mentions = (f: { name: string; variant: string | null }, needle: string) => {
+  const hay = `${f.name} ${f.variant ?? ""}`.toLowerCase();
+  const n = needle.toLowerCase();
+  return hay.includes(n) || n.includes(f.name.toLowerCase());
+};
 
 /** Hard stop, so a mutual stalemate can never hang the tab. */
 const MAX_ROUNDS = 300;
@@ -655,23 +750,6 @@ export interface Card {
   obeys: number;
 }
 
-/**
- * How a card's tier splits into attack and defence.
- *
- * A flat T/T for everything would be honest and dull — every fight would be
- * decided by who paid more. So the split leans on what the card already tells
- * us through its traits: something enormous is a wall, something that opens
- * with fire from above is a bruiser, a person is even. It costs no authoring
- * and it makes two same-tier picks play differently, which is the point.
- */
-function split(tier: number, traits: Trait[]): { atk: number; def: number } {
-  const wall = traits.includes("giant") || traits.includes("large") || traits.includes("sluggish");
-  const bruiser = traits.includes("dragon") || traits.includes("flying");
-  const lean = wall && !bruiser ? -1 : bruiser && !wall ? 1 : 0;
-  const clamp = (n: number) => Math.max(1, Math.min(14, n));
-  return { atk: clamp(tier + lean), def: clamp(tier - lean) };
-}
-
 export interface PickLike {
   name: string;
   variant?: string | null;
@@ -693,7 +771,7 @@ export function cardFor(pick: PickLike, packId?: string): Card {
   const base = pick.baseTier ?? pick.tier ?? 3;
   const tier = pick.tier ?? base;
   const traits = traitsOf(pick.name, pick.variant);
-  const { atk, def } = split(tier, traits);
+  // The plane feeds the stats now, so it has to be settled first.
   const plane = planeOf({
     name: pick.name,
     variant: pick.variant,
@@ -702,6 +780,34 @@ export function cardFor(pick: PickLike, packId?: string): Card {
     packId: board,
     grade: pick.grade,
     band: board ? BOARD_PLANES[board] : undefined,
+  });
+  // Note what is NOT passed: `tier`. That is the auction price, and a card's
+  // stat line is not allowed to know what anybody paid for it. See power.ts.
+  // What the card would be with no variant at all. If the grade already
+  // bought a higher plane, it does not also get to buy the stat bonus.
+  const barePlane = planeOf({
+    name: pick.name,
+    variant: null,
+    tier: base,
+    baseTier: base,
+    packId: board,
+    grade: null,
+    band: board ? BOARD_PLANES[board] : undefined,
+  });
+
+  // Stats read the card's own world; the fight reads the rung it earned. A
+  // grade that lifted the plane past the board's ceiling bought reach, not
+  // muscle — see the comment above planeOf's `ceilingPlane`.
+  const band = board ? BOARD_PLANES[board] : undefined;
+  const statPlane = band ? (Math.min(plane, band[1]) as Plane) : plane;
+
+  const { atk, def } = powerOf({
+    name: pick.name,
+    variant: pick.variant,
+    plane: statPlane,
+    traits,
+    grade: pick.grade,
+    planeAlreadyPaid: statPlane > barePlane,
   });
 
   return {
@@ -746,6 +852,8 @@ interface Fighter extends Card {
   dead: boolean;
   /** Set when it comes back, so the log can say so and it cannot be revived twice. */
   revived: boolean;
+  /** What this one did. Accumulated as the fight runs. */
+  did: { damage: number; kills: number; breakthrough: number; absorbed: number; fought: boolean };
   /** Prep is once per battle, win or lose on the roll. */
   prepped: boolean;
   /** The first killing blow has already been shrugged off. */
@@ -779,6 +887,7 @@ export interface BattleEvent {
     | "lastStand"
     | "captain"
     | "swap"
+    | "advice"
     | "terrain"
     | "end";
   side?: 0 | 1;
@@ -809,9 +918,29 @@ export interface BattleSide {
   captain?: Card;
 }
 
+/** What one card did with the time it had. */
+export interface Contribution {
+  side: 0 | 1;
+  name: string;
+  /** Damage put into enemy cards. */
+  damage: number;
+  /** Cards taken off the board. */
+  kills: number;
+  /** Damage that got past a falling defender and onto their player. */
+  breakthrough: number;
+  /** Damage taken. A card that soaked a great deal did a job too. */
+  absorbed: number;
+  /** Still standing at the end. */
+  survived: boolean;
+  /** Never fought — a captain the line never ran out in front of. */
+  benched: boolean;
+}
+
 export interface BattleResult {
   winner: 0 | 1 | null;
   rounds: number;
+  /** Per-card, both sides. The verdict is read off this. */
+  contributions: Contribution[];
   sides: [
     { name: string; hp: number; survivors: string[]; fallen: string[] },
     { name: string; hp: number; survivors: string[]; fallen: string[] }
@@ -830,15 +959,27 @@ interface StrikeOutcome {
 }
 
 /** What one fighter does to another, before anything is applied. */
-function computeStrike(a: Fighter, d: Fighter): StrikeOutcome {
+function computeStrike(a: Fighter, d: Fighter, advice: Adjustment[] = []): StrikeOutcome {
   const raw = a.atk;
   const notes: string[] = [];
 
   // A captain's grace raises the attacker's plane for the purposes of this hit
   // only. It never changes what the card IS — it changes what they were told
   // about the thing in front of them.
-  const from = Math.min(7, a.plane + a.grace) as Plane;
-  let dealt = planarAttack(raw, from, d.plane);
+  // A "only against the dragon" adjustment is decided here, where both cards
+  // are known, rather than being baked into either of them.
+  let bonus = 0;
+  let planeBonus = 0;
+  for (const adj of advice) {
+    if (!adj.vs) continue;
+    if (!mentions(a, adj.card) || !mentions(d, adj.vs)) continue;
+    bonus += adj.atk ?? 0;
+    planeBonus += adj.plane ?? 0;
+    notes.push(`${adj.why}`);
+  }
+
+  const from = Math.min(7, Math.max(1, a.plane + a.grace + planeBonus)) as Plane;
+  let dealt = planarAttack(Math.max(1, raw + bonus), from, d.plane);
 
   // Only say the captain helped when the captain actually helped. Announcing
   // "knows exactly where to hit Superman" and then dealing zero anyway is the
@@ -896,9 +1037,16 @@ const label = (f: { name: string; variant: string | null }) =>
 export function resolveBattle(
   a: BattleSide,
   b: BattleSide,
-  opts: { seed?: number; breakthroughCap?: number; terrain?: Terrain | null } = {}
+  opts: {
+    seed?: number;
+    breakthroughCap?: number;
+    terrain?: Terrain | null;
+    /** A model's bounded read on specific matchups. Empty is the norm. */
+    adjustments?: Adjustment[];
+  } = {}
 ): BattleResult {
   const ground = opts.terrain ?? null;
+  const advice = sanitiseAdjustments(opts.adjustments ?? []);
 
   const mk = (c: Card, side: 0 | 1, isCaptain = false, aura?: Aura): Fighter => {
     // The ground first, then the captain. Both are flat swings applied once, so
@@ -911,15 +1059,27 @@ export function resolveBattle(
     // A dampening field drags the whole room down to one ceiling. Stats are
     // untouched: a god in a red-sun room is still a god's stat line, they simply
     // stop being unreachable.
-    const plane = ground?.planeCap ? (Math.min(c.plane, ground.planeCap) as Plane) : c.plane;
+    let plane = ground?.planeCap ? (Math.min(c.plane, ground.planeCap) as Plane) : c.plane;
+
+    // The always-on ones are printed onto the card before a blow is thrown, so
+    // the player sees the number they are actually fighting with.
+    let atk2 = atk;
+    let def2 = def;
+    for (const adj of advice) {
+      if (adj.vs || !mentions(c, adj.card)) continue;
+      atk2 = Math.max(1, atk2 + (adj.atk ?? 0));
+      def2 = Math.max(1, def2 + (adj.def ?? 0));
+      plane = Math.max(1, Math.min(7, plane + (adj.plane ?? 0))) as Plane;
+    }
+
     return {
     ...c,
-    atk,
-    def,
+    atk: atk2,
+    def: def2,
     plane,
     planeLabel: planeInfo(plane).label,
     fx,
-    hp: def,
+    hp: def2,
     side,
     captain: isCaptain,
     grace: aura?.grace ?? 0,
@@ -930,6 +1090,7 @@ export function resolveBattle(
     prepped: false,
     survived: false,
     alone: false,
+    did: { damage: 0, kills: 0, breakthrough: 0, absorbed: 0, fought: false },
   };
   };
 
@@ -983,6 +1144,10 @@ export function resolveBattle(
 
   const front = (s: 0 | 1) => teams[s].find((f) => !f.dead) ?? null;
 
+  for (const adj of advice) {
+    say("advice", `${adj.card}: ${adj.why}`);
+  }
+
   if (ground && (ground.rules.length || ground.breakthrough)) {
     say("terrain", `${ground.name}. ${ground.rules.map((r) => r.note).join(" ")}`.trim());
   }
@@ -1023,6 +1188,10 @@ export function resolveBattle(
 
     const hpBefore = def.hp;
     def.hp -= out.dealt;
+    att.did.damage += out.dealt;
+    att.did.fought = true;
+    def.did.absorbed += out.dealt;
+    def.did.fought = true;
     say("strike", `${label(att)} hits ${label(def)} for ${out.dealt}.`, att.side);
     if (def.hp > 0 || def.dead) return;
 
@@ -1038,11 +1207,13 @@ export function resolveBattle(
 
     def.dead = true;
     def.hp = 0;
+    att.did.kills += 1;
     say("death", `${label(def)} is down.`, def.side);
 
     // Raw attack against the health it actually had. Recomputed here rather
     // than trusted from `out` because a simultaneous partner may have moved it.
     const through = Math.min(cap, Math.max(0, out.raw - hpBefore));
+    att.did.breakthrough += through;
     if (through > 0) {
       const victim = def.side;
       hp[victim] = Math.max(0, hp[victim] - through);
@@ -1078,7 +1249,7 @@ export function resolveBattle(
   /** One fighter swings at another, resolving immediately. */
   const swing = (att: Fighter, def: Fighter): void => {
     if (att.dead || def.dead) return;
-    apply(att, def, computeStrike(att, def));
+    apply(att, def, computeStrike(att, def, advice));
   };
 
   /** A double-striker's second swing, taken only if it is still standing. */
@@ -1144,16 +1315,16 @@ export function resolveBattle(
     const up = front(self);
     if (!up || up === cap) return false;
 
-    const dealsNow = computeStrike(up, foe).dealt;
-    const takes = computeStrike(foe, up).dealt;
+    const dealsNow = computeStrike(up, foe, advice).dealt;
+    const takes = computeStrike(foe, up, advice).dealt;
     const doomed = takes >= up.hp;
     if (dealsNow > 0 && !doomed) return false;
 
     // Two points a card is worth here: what it does to this opponent, and
     // whether it is still standing afterwards.
     const worth = (f: Fighter) => {
-      const out = computeStrike(f, foe).dealt;
-      const back = computeStrike(foe, f).dealt;
+      const out = computeStrike(f, foe, advice).dealt;
+      const back = computeStrike(foe, f, advice).dealt;
       return out * 2 + (back < f.hp ? 3 : 0);
     };
     const here = worth(up);
@@ -1305,6 +1476,8 @@ export function resolveBattle(
       for (const att of attackers) {
         if (hp[victim] <= 0) break;
         hp[victim] = Math.max(0, hp[victim] - att.atk);
+        att.did.breakthrough += att.atk;
+        att.did.fought = true;
         say("direct", `${label(att)} hits ${names[victim]} for ${att.atk} — ${hp[victim]} left.`, att.side);
       }
       continue;
@@ -1347,8 +1520,8 @@ export function resolveBattle(
       // Both worked out against the same instant, then both landed — so a
       // fatal blow does not stop the answer to it, and two evenly matched
       // cards can take each other off the board together.
-      const out0 = computeStrike(f0, f1);
-      const out1 = computeStrike(f1, f0);
+      const out0 = computeStrike(f0, f1, advice);
+      const out1 = computeStrike(f1, f0, advice);
       apply(f0, f1, out0);
       apply(f1, f0, out1);
       followUp(f0, f1);
@@ -1393,7 +1566,23 @@ export function resolveBattle(
 
   say("end", headline);
 
-  return { winner, rounds: round, sides: [side(0), side(1)], log, headline };
+  const contributions: Contribution[] = ([0, 1] as const).flatMap((sd) =>
+    teams[sd].map((f) => ({
+      side: sd,
+      name: label(f),
+      damage: f.did.damage,
+      kills: f.did.kills,
+      breakthrough: f.did.breakthrough,
+      absorbed: f.did.absorbed,
+      survived: !f.dead,
+      // A captain the line never ran out in front of never fought. That is not
+      // a bust — it is the aura doing its job — so it is flagged rather than
+      // scored as zero.
+      benched: !f.did.fought,
+    }))
+  );
+
+  return { winner, rounds: round, sides: [side(0), side(1)], log, headline, contributions };
 }
 
 // ── Telling the judge the same story ─────────────────────────────────────────

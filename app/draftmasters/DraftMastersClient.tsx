@@ -1,6 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cardFor, playerHpFor, resolveBattle, type Adjustment, type BattleResult } from "@/lib/draftmasters/battle";
+import type { RosterPick } from "@/lib/draftmasters/engine";
+import { terrainFor } from "@/lib/draftmasters/terrain";
+import { readVerdict } from "@/lib/draftmasters/verdict";
+import { narrate } from "@/lib/draftmasters/flavour";
+import { scriptFromFight } from "@/lib/draftmasters/script";
+import BottomTabs from "./BottomTabs";
+import UniversePicker from "./UniversePicker";
+import LineupScreen, { type LineupResult } from "./LineupScreen";
+import Scene, { SceneDefs } from "./Scene";
+import Crest from "./Crest";
 import Link from "next/link";
 import {
   BUDGET_PRESETS,
@@ -80,7 +91,9 @@ const SYNC_INTERVAL_MS = 8000;
 /** Room to describe a board properly — qualifiers, exclusions, the lot. Mirrors the API cap. */
 const TOPIC_MAX_CHARS = 600;
 
-type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "arguments" | "verdict";
+/* `lineup` sits between the last lot and the verdict: the draft decides who
+   you have, the line-up decides what they do with it. */
+type Screen = "setup" | "room" | "prep" | "ready" | "auction" | "arguments" | "lineup" | "verdict";
 type Mode = "solo" | "pvp";
 type Action = { kind: "bid"; amount: number } | { kind: "pass" } | { kind: "match" };
 
@@ -180,6 +193,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   // ── Screen + config ────────────────────────────────────────────────────────
   const [screen, setScreen] = useState<Screen>("setup");
+  /** Set on the line-up screen and handed to the judge with the roster. */
+  const [lineup, setLineup] = useState<LineupResult | null>(null);
   const [mode, setMode] = useState<Mode>("solo");
   /**
    * Deliberately null.
@@ -193,6 +208,23 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    */
   const [presetId, setPresetId] = useState<string | null>(null);
   const [customTopic, setCustomTopic] = useState("");
+  /**
+   * Universes chosen for this game.
+   *
+   * One is that board. Two or more is a crossover dealt from all of them —
+   * which is what people were reaching for when they typed "Marvel vs DC"
+   * into the custom box and waited twenty seconds for a model to invent a
+   * worse version of a board we already had.
+   */
+  const [mixIds, setMixIds] = useState<string[]>([]);
+  /**
+   * Whether a model rewrites the battle's prose.
+   *
+   * Off by default. The fight is decided and scored in code either way —
+   * this only chooses who writes it up, and the built-in narrator costs
+   * nothing, never times out and works on a plane.
+   */
+  const [aiFlavour, setAiFlavour] = useState(false);
   const [rulesIdx, setRulesIdx] = useState(0);
   /**
    * The variant dials, 0-10 each. Frequency is how many entries get a
@@ -251,7 +283,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   // ── Verdict + records ──────────────────────────────────────────────────────
   const [verdict, setVerdict] = useState<Verdict | null>(null);
-  const [judging, setJudging] = useState(false);
   const [battle, setBattle] = useState<BattleScript | null>(null);
   const [battleLoading, setBattleLoading] = useState(false);
   /**
@@ -668,7 +699,17 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
     let board: Pack | null = null;
     try {
-      if (customTopic.trim()) {
+      if (mixIds.length > 1) {
+        // No model in this path at all: the boards already exist.
+        const res = await fetch("/api/draftmasters/mix", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: mixIds, variantRate, variantWild }),
+        });
+        const data = await readJson(res, "Could not mix those universes.");
+        if (!res.ok) throw new Error(data?.error ?? "Could not mix those universes.");
+        board = data.pack as Pack;
+      } else if (customTopic.trim()) {
         const res = await fetch("/api/draftmasters/topic", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -718,7 +759,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     setPrep({ phase: "room", done: 0, total: 0 });
     sfx.boardReady();
     return board;
-  }, [customTopic, presetId, prefetchPortraits, variantRate, variantWild]);
+  }, [customTopic, mixIds, presetId, prefetchPortraits, variantRate, variantWild]);
 
   /** Names drafted in recent games on this board, so they get demoted. */
   const recentKey = (id: string) => `dm_recent_${id.split("#")[0]}`;
@@ -778,6 +819,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const startDiceRef = useRef<(reason: DiceState["reason"], ids: [string, string], price: number) => void>(() => {});
   const rollRoundRef = useRef<() => void>(() => {});
   const scheduleNpcRef = useRef<() => void>(() => {});
+  /** The last fight, kept so the battle screen can replay the real thing. */
+  const battleLogRef = useRef<BattleResult | null>(null);
   const finishVerdictRef = useRef<(v: Verdict) => void>(() => {});
   const verdictRef = useRef<Verdict | null>(null);
   verdictRef.current = verdict;
@@ -1396,6 +1439,108 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     }
   }, [mode, send, soloAdvance, view.phase, view.dice?.rounds.length]);
 
+  /**
+   * Fight it, then read the verdict off the fight.
+   *
+   * This replaces asking a model who won. Every figure on the verdict screen
+   * now comes from a battle that happened under the rules on the cards, which
+   * is why the verdict can no longer contradict itself — the Sheik marked BUST
+   * at 8/10 contribution was a free-text answer disagreeing with another
+   * free-text answer, and there is no free text left in the scoring.
+   */
+  const settleWithTheFight = useCallback(async (line: LineupResult) => {
+    const g = gameRef.current;
+    const [a, b] = g.sides;
+    if (!a || !b) return;
+
+    const boardId = pack?.id?.split("#")[0];
+    const toCard = (p: RosterPick) =>
+      cardFor(
+        { name: p.name, variant: p.variant, baseTier: p.tier, tier: p.tier, grade: p.variantGrade },
+        boardId
+      );
+
+    // My side fights in the order I just set; theirs fights as drafted, since
+    // an NPC has no line-up screen. A human opponent's order arrives with the
+    // room state in PvP.
+    const mineIsA = a.id === meId;
+    const myLine = line.order.map(toCard);
+    const myCap = line.captain ? toCard(line.captain) : undefined;
+    const theirSide = mineIsA ? b : a;
+    const theirLine = theirSide.roster.map(toCard);
+
+    const ground = pack?.arenaName ? terrainFor(pack.arenaName, pack.arenaDesc) : null;
+
+    // Both sides get the same bar, read off every card on the table, so the
+    // number is a property of the fight rather than of who drafted heavier.
+    const hp = playerHpFor([...myLine, ...(myCap ? [myCap] : []), ...theirLine]);
+    const mine = { name: (mineIsA ? a : b).name, hp, cards: myLine, captain: myCap };
+    const theirs = { name: theirSide.name, hp, cards: theirLine };
+
+    /**
+     * Ask the model what the rules cannot know — but only if it was asked for.
+     *
+     * It never sees who is winning and cannot return an outcome: the only
+     * shape it can answer in is a handful of bounded, reasoned nudges, each
+     * clamped again on the way back. If it is slow, down or daft, the fight
+     * happens without it and nothing is said about it, because offline is not
+     * a degraded mode. It is the game.
+     */
+    let adjustments: Adjustment[] = [];
+    if (aiFlavour) {
+      try {
+        const res = await fetch("/api/draftmasters/adjust", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            arena: pack?.arenaName ? `${pack.arenaName} — ${pack.arenaDesc ?? ""}` : undefined,
+            sides: [
+              { name: mine.name, cards: [...myLine, ...(myCap ? [myCap] : [])] },
+              { name: theirs.name, cards: theirLine },
+            ],
+          }),
+        });
+        if (res.ok) adjustments = (await res.json()).adjustments ?? [];
+      } catch { /* no advice this time */ }
+    }
+
+    const result = mineIsA
+      ? resolveBattle(mine, theirs, { terrain: ground, adjustments })
+      : resolveBattle(theirs, mine, { terrain: ground, adjustments });
+
+    const ids: [string, string] = [a.id, b.id];
+    const read = readVerdict(result, ids, hp);
+
+    const verdict: Verdict = {
+      winnerId: read.winnerId,
+      headline: read.headline,
+      reasoning: read.reasoning,
+      judged: "offline",
+      sideNotes: read.sides.map((s) => ({
+        sideId: s.sideId,
+        score: s.score,
+        mvp: s.mvp,
+        bust: s.bust,
+        note: s.note,
+        picks: s.picks.map((p) => ({ name: p.name, contribution: p.contribution })),
+      })),
+    };
+
+    battleLogRef.current = result;
+
+    // The show and the verdict come off the same log, in that order: the
+    // cinematic plays over the verdict screen and `endBattle` uncovers it.
+    const script: BattleScript = {
+      ...scriptFromFight(result, narrate(result, { terrain: ground ?? undefined }), ids),
+      scripted: "offline",
+    };
+    setWatchedBattle(false);
+    setBattle(script);
+    if (mode === "pvp") send({ type: "battle", battle: script });
+
+    finishVerdictRef.current?.(verdict);
+  }, [aiFlavour, meId, mode, pack, send]);
+
   finishVerdictRef.current = (final: Verdict) => {
     const g = gameRef.current;
     g.phase = "complete";
@@ -1407,72 +1552,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     void reportMatch(final, g.sides, matchIdRef.current, "solo");
   };
 
-  const handleJudge = useCallback(async () => {
-    setJudging(true);
-    setError(null);
-    // Hold the room while the judge works, so the player who didn't press the
-    // button gets the same bar instead of a blank "waiting for the host".
-    if (mode === "pvp") send({ type: "battle", staging: true, stage: "judging" });
-    try {
-      const res = await fetch("/api/draftmasters/judge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          packId: pack?.id?.split("#")[0],
-          pack: pack
-            ? {
-                name: pack.name,
-                scenario: pack.scenario,
-                criteria: pack.criteria,
-                // Lets the judge pull scouting notes off the right wiki, and
-                // tells it what kind of contest the board was written as.
-                wiki: pack.wiki,
-                format: pack.format,
-              }
-            : undefined,
-          sides: view.sides,
-          // Only the accepted points travel — see argumentBriefing.
-          rulings: rulingsRef.current,
-        }),
-      });
-      const data = (await res.json()) as Verdict;
-      if (!res.ok) throw new Error("The judge is out to lunch. Try again.");
-
-      if (mode === "pvp") {
-        // The room decides whether it's a tie and runs the dice.
-        send({ type: "battle", staging: false });
-        send({ type: "verdict", verdict: data });
-        return;
-      }
-
-      const notes = data.sideNotes ?? [];
-      if (notes.length === 2 && notes[0].score === notes[1].score) {
-        setVerdict(data);
-        verdictRef.current = data;
-        const g = gameRef.current;
-        setScreen("auction");
-        startDiceRef.current("verdict", [g.sides[0].id, g.sides[1].id], 0);
-        return;
-      }
-      finishVerdictRef.current(data);
-    } catch (e) {
-      if (mode === "pvp") send({ type: "battle", staging: false });
-      setError(e instanceof Error ? e.message : "Could not reach the judge.");
-    } finally {
-      setJudging(false);
-    }
-  }, [mode, pack, send, view.sides]);
-
-  /**
-   * "Battle!" — the same verdict, dramatised. The winner is decided first and
-   * handed to the script generator, so the fight can never contradict the
-   * judge. In a room the driver posts the script so both watch the same one.
-   */
-  /**
-   * Seal this player's case and, once every case is in, fetch the panel's
-   * ruling. In PvP the text goes to the server and comes back only as a
-   * ruling — the driver is handed the sealed texts privately by the room.
-   */
   const submitArgument = useCallback(
     async (text: string) => {
       setError(null);
@@ -1513,107 +1592,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     },
     [meId, mode, pack, send]
   );
-
-  const handleBattle = useCallback(async () => {
-    setBattleLoading(true);
-    setError(null);
-    // Hold the reveal room-wide before anything is fetched — the other player
-    // gets the verdict from the same state push the driver does.
-    if (mode === "pvp") send({ type: "battle", staging: true });
-    try {
-      let decided = verdict;
-
-      if (!decided) {
-        const res = await fetch("/api/draftmasters/judge", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            packId: pack?.id?.split("#")[0],
-            pack: pack
-            ? {
-                name: pack.name,
-                scenario: pack.scenario,
-                criteria: pack.criteria,
-                // Lets the judge pull scouting notes off the right wiki, and
-                // tells it what kind of contest the board was written as.
-                wiki: pack.wiki,
-                format: pack.format,
-              }
-            : undefined,
-            sides: view.sides,
-            // Only the accepted points travel — see argumentBriefing.
-            rulings: rulingsRef.current,
-          }),
-        });
-        if (!res.ok) throw new Error("The judge is out to lunch. Try again.");
-        decided = (await res.json()) as Verdict;
-
-        // If the judge returned equal scores, resolve with a quick dice roll
-        // right now so we have a winner to hand to the battle. No early return —
-        // the battle must still run. The dice result is stored on the verdict
-        // so the verdict screen can display it.
-        const notes = decided.sideNotes ?? [];
-        if (notes.length === 2 && notes[0].score === notes[1].score) {
-          const idA = view.sides[0].id;
-          const idB = view.sides[1].id;
-          let a: number, b: number;
-          do { a = rollDie(); b = rollDie(); } while (a === b);
-          const tieWinnerId = a > b ? idA : idB;
-          decided = {
-            ...decided,
-            winnerId: tieWinnerId,
-            diceBreak: { sideIds: [idA, idB] as [string, string], rounds: [{ a, b }], winnerId: tieWinnerId, reason: "verdict" as const, price: 0 },
-          };
-        }
-
-        setVerdict(decided);
-        verdictRef.current = decided;
-        if (mode === "pvp") send({ type: "verdict", verdict: decided });
-        else void reportMatch(decided, gameRef.current.sides, matchIdRef.current, "solo");
-      }
-
-      const res = await fetch("/api/draftmasters/battle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          packId: pack?.id?.split("#")[0],
-          pack: pack
-            ? {
-                name: pack.name,
-                scenario: pack.scenario,
-                criteria: pack.criteria,
-                // Lets the judge pull scouting notes off the right wiki, and
-                // tells it what kind of contest the board was written as.
-                wiki: pack.wiki,
-                format: pack.format,
-              }
-            : undefined,
-          sides: view.sides,
-          winnerId: decided.winnerId,
-          reasoning: decided.reasoning,
-          // The judge already worked out the format, the panel's biases and
-          // the twists — the fight is staged from that, not re-derived.
-          plan: decided.plan,
-          // ...and who carried vs who was dead weight, so the show can't hand
-          // the heroic moment to the pick the verdict is calling a bust.
-          sideNotes: decided.sideNotes,
-        }),
-      });
-      if (!res.ok) throw new Error("Couldn't stage the battle. Try again.");
-      const script = (await res.json()) as BattleScript;
-      if (!script.beats?.length) throw new Error("The battle came back empty. Try again.");
-
-      setWatchedBattle(false);
-      setBattle(script);
-      if (mode === "pvp") send({ type: "battle", battle: script });
-    } catch (e) {
-      // Nothing to watch — let the room show the verdict rather than hang.
-      if (mode === "pvp") send({ type: "battle", staging: false });
-      setError(e instanceof Error ? e.message : "Couldn't stage the battle.");
-    } finally {
-      setBattleLoading(false);
-    }
-  }, [mode, pack, reportMatch, send, verdict, view.sides]);
 
   /**
    * Hold the crown back while a fight is being staged or played out. The
@@ -1714,6 +1692,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         </nav>
       )}
       <div className="dm-shell">
+        {screen === "setup" && <BottomTabs />}
+
         <header className="dm-head">
           <div>
             <h1 className="dm-wordmark"><Wordmark /></h1>
@@ -1728,6 +1708,18 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
               and on the shelf they were two buttons of chrome above the thing
               the player came for. Both reappear, floated into the corner, the
               moment the auction starts. */}
+          {/* The one header control that stays on the shelf. Everything else
+              in this row is for a draft that is running; a way into your own
+              profile is not, and the design puts a face in the top corner. */}
+          <Link href="/profile" className="dm-head-me" title={`Signed in as ${myName}`}>
+            {myAvatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={myAvatar} alt="" />
+            ) : (
+              <span>{myName.charAt(0).toUpperCase()}</span>
+            )}
+          </Link>
+
           <div className="dm-head-actions" data-hide={screen === "setup" ? "1" : "0"}>
             {/* Voice, one tap, wherever you are in the game.
                 It used to live inside the media rail, which is PvP-only, sits
@@ -1773,11 +1765,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         {screen === "setup" && (
           <SetupScreen
             standalone={standalone}
+            mixIds={mixIds}
+            setMixIds={setMixIds}
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
+            aiFlavour={aiFlavour}
+            setAiFlavour={setAiFlavour}
             variantRate={variantRate}
             setVariantRate={setVariantRate}
             variantWild={variantWild}
@@ -1813,8 +1809,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
+            mixIds={mixIds}
+            onChangeUniverse={() => setScreen("setup")}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
+            aiFlavour={aiFlavour}
+            setAiFlavour={setAiFlavour}
             variantRate={variantRate}
             setVariantRate={setVariantRate}
             variantWild={variantWild}
@@ -1887,14 +1887,28 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             error={error}
             onSubmit={(t) => void submitArgument(t)}
             onSkip={() => void submitArgument("")}
-            onContinue={() => setScreen("verdict")}
+            onContinue={() => setScreen("lineup")}
           />
         )}
+
+        {screen === "lineup" && (() => {
+          const me = view.sides.find((s) => s.id === meId) ?? view.sides[0];
+          const them = view.sides.find((s) => s.id !== me?.id);
+          if (!me || !me.roster.length) return null;
+          return (
+            <LineupScreen
+              roster={me.roster}
+              packId={pack?.id ?? "custom"}
+              portraits={portraits}
+              onConfirm={(r) => { setLineup(r); void settleWithTheFight(r); }}
+            />
+          );
+        })()}
 
         {screen === "verdict" && (
           <VerdictScreen
             verdict={revealHeld ? null : verdict}
-            loading={judging}
+            loading={false}
             error={error}
             sides={view.sides}
             rules={rules}
@@ -1906,9 +1920,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             ratingDelta={ratingDelta}
             mode={mode}
             battleLoading={battleLoading}
-            busy={judging ? "judging" : battleLoading ? "staging" : peerStaging ? peerStagingKind : null}
-            onBattle={() => void handleBattle()}
-            onJudge={handleJudge}
+            busy={battleLoading ? "staging" : peerStaging ? peerStagingKind : null}
+            onBattle={() => setScreen("lineup")}
             onPlayAgain={playAgain}
           />
         )}
@@ -1999,6 +2012,36 @@ function VariantDials({
         by how hard it hits, from <span className="dm-grade-swatch" data-grade="crippling">crippling</span> up to{" "}
         <span className="dm-grade-swatch" data-grade="mythic">mythic</span>.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Who writes the fight up.
+ *
+ * Not who decides it — that is settled in code either way, off a battle fought
+ * under the rules printed on the cards. This only chooses the prose. Off by
+ * default because the built-in narrator costs nothing, never times out, works
+ * offline, and is getting better every time we add to it.
+ */
+function FlavourToggle({ on, setOn }: { on: boolean; setOn: (b: boolean) => void }) {
+  return (
+    <div className="dm-flavour">
+      <button
+        type="button"
+        className="dm-flavour-switch"
+        role="switch"
+        aria-checked={on}
+        onClick={() => setOn(!on)}
+      >
+        <span className="dm-flavour-knob" />
+      </button>
+      <span className="dm-flavour-text">
+        <b>AI writes the battle</b>
+        {on
+          ? "A model narrates it, with the actual characters in mind. Slower, and it can fail — the result stands either way."
+          : "Our own narrator. Instant, works offline, and it cannot invent anything the fight did not do."}
+      </span>
     </div>
   );
 }
@@ -2154,7 +2197,7 @@ function WhatsInside({
       <div className="dm-sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`What's inside ${pack.name}`}>
         <div className="dm-sheet-grip" aria-hidden="true" />
         <div className="dm-sheet-head">
-          <h2 className="dm-sheet-title">{pack.emoji} {pack.name}</h2>
+          <h2 className="dm-sheet-title"><Crest pack={pack.id} size={18} /> {pack.name}</h2>
           <button type="button" className="dm-sheet-x" onClick={onClose} aria-label="Close"><Icon name="close" size={15} /></button>
         </div>
 
@@ -2232,7 +2275,6 @@ function UniverseSelect({
   const [open, setOpen] = useState(false);
   const current = packs.find((p) => p.id === presetId);
   const label = usingCustom ? "Custom" : current?.name ?? "Pick a universe";
-  const mark = usingCustom ? "◈" : current?.emoji ?? "◈";
 
   // Escape closes it, and a click anywhere else does too.
   useEffect(() => {
@@ -2245,10 +2287,12 @@ function UniverseSelect({
   const jump = (id: string) => {
     onPick(id);
     setOpen(false);
+    // Same reason as glideTo: "smooth" is a no-op in some engines, so this
+    // asks for the jump plainly rather than an animation that may not happen.
     requestAnimationFrame(() => {
       document
         .querySelector(`[data-card="${id}"]`)
-        ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        ?.scrollIntoView({ inline: "center", block: "nearest" });
     });
   };
 
@@ -2261,7 +2305,7 @@ function UniverseSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="dm-usel-mark">{mark}</span>
+        <span className="dm-usel-mark"><Crest pack={usingCustom ? "custom" : presetId ?? "custom"} size={13} /></span>
         <span className="dm-usel-label">{label}</span>
         {/* An SVG, not "⌄". The glyph sits high in its em box, so it reads as
             floating above the label however the flexbox is aligned. */}
@@ -2287,7 +2331,7 @@ function UniverseSelect({
               data-on={usingCustom ? "1" : "0"}
               onClick={() => jump("custom")}
             >
-              <span className="dm-usel-mark">◈</span>
+              <span className="dm-usel-mark"><Crest pack="custom" size={13} /></span>
               <span>Custom</span>
             </button>
             {packs.map((p) => (
@@ -2300,7 +2344,7 @@ function UniverseSelect({
                 data-on={!usingCustom && presetId === p.id ? "1" : "0"}
                 onClick={() => jump(p.id)}
               >
-                <span className="dm-usel-mark">{p.emoji}</span>
+                <span className="dm-usel-mark"><Crest pack={p.id} size={13} /></span>
                 <span>{p.name}</span>
               </button>
             ))}
@@ -2328,6 +2372,7 @@ function UniverseSelect({
  *   the difference between scrolling a list and handling something.
  */
 function PackDeck({
+  onOpenCustom,
   packs,
   presetId,
   usingCustom,
@@ -2341,6 +2386,7 @@ function PackDeck({
   usingCustom: boolean;
   customTopic: string;
   setCustomTopic: (v: string) => void;
+  onOpenCustom: () => void;
   onPick: (id: string) => void;
   onContinue: () => void;
 }) {
@@ -2385,6 +2431,10 @@ function PackDeck({
    * a detent. Silent on anything without a vibration motor, which includes
    * every desktop browser and iOS Safari.
    */
+  const [pickedCustom, setPickedCustom] = useState(false);
+  /** Which case is under the middle of the shelf. Drives the dots and the count. */
+  const [centred, setCentred] = useState("custom");
+
   const onScroll = useCallback(() => {
     const rail = railRef.current;
     if (!rail) return;
@@ -2396,108 +2446,216 @@ function PackDeck({
       const d = Math.abs(c - mid);
       if (d < best) { best = d; closest = el.dataset.card ?? ""; }
     }
+    // Which case is centred is set FIRST and unconditionally. The haptic guard
+    // below used to `return` on the very first measurement, which was harmless
+    // when that measurement came from mount — but the shelf no longer fires one
+    // on mount, so the first thing it swallowed was the player's first swipe,
+    // and the dots and the count sat on "Custom" while the shelf moved.
+    if (closest) setCentred(closest);
+
     if (closest && closest !== lastHaptic.current) {
       const first = lastHaptic.current === "";
       lastHaptic.current = closest;
-      // Silent on the very first measurement — that one fires on mount, before
-      // anybody has swiped anything.
-      if (first) return;
-      try { navigator.vibrate?.(8); } catch { /* no motor, no problem */ }
-      sfx.swipe();
+      // Silent on arrival at the case you started on; a detent needs a
+      // departure to be a detent.
+      if (!first) {
+        try { navigator.vibrate?.(8); } catch { /* no motor, no problem */ }
+        sfx.swipe();
+      }
     }
   }, []);
 
-  const [pickedCustom, setPickedCustom] = useState(false);
+
+  /**
+   * Glide the shelf to a slot.
+   *
+   * Hand-animated rather than `behavior: "smooth"`, which is silently a no-op
+   * in some engines — including the one this was tested in, where `auto`
+   * scrolled and `smooth` did nothing at all. The arrows looked broken and the
+   * code looked correct, which is the worst combination. One rAF loop works
+   * everywhere and lets the easing match the rest of the app.
+   */
+  const glideTo = useCallback((el: HTMLElement) => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const to = el.offsetLeft + el.offsetWidth / 2 - rail.clientWidth / 2;
+    const target = Math.max(0, Math.min(rail.scrollWidth - rail.clientWidth, to));
+    const from = rail.scrollLeft;
+    const dist = target - from;
+    if (Math.abs(dist) < 1) return;
+
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      rail.scrollLeft = target;
+      return;
+    }
+
+    const started = performance.now();
+    const ms = 380;
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - started) / ms);
+      rail.scrollLeft = from + dist * ease(t);
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, []);
+
+  /** Step one case left or right. */
+  const stepCase = useCallback((dir: 1 | -1) => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const slots = Array.from(rail.children) as HTMLElement[];
+    if (!slots.length) return;
+    // Index-based rather than a fixed nudge: with mandatory snap the resting
+    // position is not a clean multiple of the slot width.
+    const mid = rail.scrollLeft + rail.clientWidth / 2;
+    let here = 0;
+    let best = Infinity;
+    slots.forEach((el, i) => {
+      const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid);
+      if (d < best) { best = d; here = i; }
+    });
+    const next = Math.max(0, Math.min(slots.length - 1, here + dir));
+    if (next === here) return;
+    glideTo(slots[next]);
+    sfx.swipe();
+  }, [glideTo]);
+
+  const jumpToCase = useCallback((id: string) => {
+    const el = railRef.current?.querySelector<HTMLElement>(`[data-card="${id}"]`);
+    if (!el) return;
+    glideTo(el);
+    sfx.swipe();
+  }, [glideTo]);
 
   return (
     <div className="dm-deck-wrap">
+      <SceneDefs />
       <div className="dm-deck" ref={railRef} onScroll={onScroll}>
-        {/* Custom leads: the only pack whose contents do not exist yet. */}
+        {/* Custom leads: the only pack whose contents do not exist yet, so it
+            is the one case with no cover photo. */}
+        <div className="dm-case-slot" data-card="custom">
         <button
           type="button"
-          className="dm-pack dm-pack-custom"
-          data-card="custom"
+          className="dm-case dm-case-custom"
           data-on={pickedCustom || usingCustom ? "1" : "0"}
-          onClick={() => {
-            setPickedCustom(true);
-            requestAnimationFrame(() => document.getElementById("dm-custom-topic")?.focus());
-          }}
+          onClick={() => { setPickedCustom(true); onOpenCustom(); }}
         >
-          <span className="dm-pack-foil" aria-hidden="true" />
-          <span className="dm-pack-face">
-            <span className="dm-pack-house">◈ DraftMasters</span>
-            <span className="dm-pack-chip">Anything you can type</span>
-            <span className="dm-pack-window">
-              <span className="dm-pack-multiverse" />
+          <span className="dm-case-motes" aria-hidden="true" />
+          <span className="dm-case-motes" data-layer="2" aria-hidden="true" />
+          <span className="dm-case-3d">
+            <span className="dm-case-side" aria-hidden="true" />
+            <span className="dm-case-top" aria-hidden="true" />
+            <span className="dm-case-face">
+              <span className="dm-case-plate">
+                <Scene pack="custom" className="dm-case-cover" />
+                <span className="dm-case-scrim" aria-hidden="true" />
+                <span className="dm-case-rule" aria-hidden="true" />
+                <span className="dm-case-body">
+                  <Crest pack="custom" size={16} className="dm-case-crest" />
+                  <span className="dm-case-name">Custom</span>
+                  <span className="dm-case-blurb">
+                    Pick up to five universes and draft across all of them.
+                  </span>
+                  <span className="dm-case-draft">DRAFT</span>
+                </span>
+              </span>
             </span>
-            <span className="dm-pack-band" aria-hidden="true" />
-            <span className="dm-pack-name">Custom</span>
-            <span className="dm-pack-foot">Build a board out of any idea — and any setting for it.</span>
           </span>
         </button>
+        </div>
 
         {packs.map((p, i) => (
+          <div className="dm-case-slot" key={p.id} data-card={p.id}>
           <button
-            key={p.id}
             type="button"
-            className="dm-pack"
-            data-card={p.id}
+            className="dm-case"
             data-on={!pickedCustom && !usingCustom && presetId === p.id ? "1" : "0"}
             onClick={() => { setPickedCustom(false); onPick(p.id); }}
           >
-            <span className="dm-pack-foil" aria-hidden="true" />
-            <span className="dm-pack-face">
-              <span className="dm-pack-house">◈ DraftMasters</span>
-              <span className="dm-pack-chip">Ready-made</span>
-              <span className="dm-pack-window">
-                <span className="dm-pack-emoji">{p.emoji}</span>
-                {art[p.id] && (
-                  <img
-                    src={art[p.id]!}
-                    alt=""
-                    /* The packs in and beside the first screenful load at once —
-                       lazy-loading the one peeking past the margin leaves a hole
-                       exactly where the eye lands. */
-                    loading={i < 3 ? "eager" : "lazy"}
-                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                  />
-                )}
+            <span className="dm-case-motes" aria-hidden="true" />
+          <span className="dm-case-motes" data-layer="2" aria-hidden="true" />
+          <span className="dm-case-3d">
+              <span className="dm-case-side" aria-hidden="true" />
+              <span className="dm-case-top" aria-hidden="true" />
+              <span className="dm-case-face">
+                <span className="dm-case-plate">
+                  <Scene pack={p.id} className="dm-case-cover" />
+                  <span className="dm-case-scrim" aria-hidden="true" />
+                  <span className="dm-case-rule" aria-hidden="true" />
+                  <span className="dm-case-body">
+                    <Crest pack={p.id} size={16} className="dm-case-crest" />
+                    <span className="dm-case-name">{p.name}</span>
+                    <span className="dm-case-blurb">{p.blurb}</span>
+                    {/* Tapping DRAFT picks the board AND moves on; tapping the
+                        case only selects it. Two intentions, two targets. */}
+                    <span
+                      className="dm-case-draft"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setPickedCustom(false); onPick(p.id); onContinue(); }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault(); e.stopPropagation();
+                        setPickedCustom(false); onPick(p.id); onContinue();
+                      }}
+                    >
+                      DRAFT
+                    </span>
+                  </span>
+                </span>
               </span>
-              <span className="dm-pack-name">{p.name}</span>
-              <span className="dm-pack-foot">{p.blurb}</span>
             </span>
           </button>
+          </div>
         ))}
       </div>
 
-      {/* The compose box is not on the shelf. It appears when you pick the
-          custom pack, because until then it is a text field asking a question
-          nobody has been asked yet. */}
-      {(pickedCustom || usingCustom) && (
-        <div className="dm-deck-compose">
-          <textarea
-            id="dm-custom-topic"
-            className="dm-input dm-textarea"
-            value={customTopic}
-            onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — “GoT warriors on a frozen lake”, “Pokémon, but the arena is flooded”…"
-            maxLength={TOPIC_MAX_CHARS}
-            rows={2}
-            aria-label="Custom topic"
-          />
-          {/* A ready-made pack advances on the tap; a custom one cannot, since
-              the board does not exist until it is named. */}
-          <button
-            type="button"
-            className="dm-btn dm-btn-primary dm-btn-lg"
-            style={{ width: "100%", marginTop: 10 }}
-            disabled={!customTopic.trim()}
-            onClick={onContinue}
-          >
-            {customTopic.trim() ? "Use this topic" : "Name your topic first"}
-          </button>
+      {/* With nothing peeking at the edge there is no other sign a second case
+          exists, so the shelf says so itself. There is no way to look inside
+          one: a sealed case you can read is not sealed, and a lot arriving
+          unannounced is most of what the draft is for. */}
+      <div className="dm-carousel">
+        <button type="button" className="dm-carousel-arrow" data-dir="back"
+          aria-label="Previous universe" onClick={() => stepCase(-1)}>
+          <Icon name="chevron" size={18} />
+        </button>
+
+        {/* Four dots, not twenty-seven. With this many boards a full row stops
+            being a position indicator and becomes a decorative smear — it says
+            "there are lots" and nothing about where you are. A window of four
+            around the current one says both. */}
+        <div className="dm-carousel-dots" role="tablist" aria-label="Universes">
+          {(() => {
+            const ids = ["custom", ...packs.map((p) => p.id)];
+            const at = Math.max(0, ids.indexOf(centred));
+            const start = Math.max(0, Math.min(ids.length - 4, at - 1));
+            return ids.slice(start, start + 4).map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                className="dm-carousel-dot"
+                aria-selected={id === centred}
+                aria-label={id === "custom" ? "Custom" : packs.find((p) => p.id === id)?.name ?? id}
+                onClick={() => jumpToCase(id)}
+              />
+            ));
+          })()}
         </div>
-      )}
+
+        <button type="button" className="dm-carousel-arrow" data-dir="next"
+          aria-label="Next universe" onClick={() => stepCase(1)}>
+          <Icon name="chevron" size={18} />
+        </button>
+      </div>
+
+      <p className="dm-shelf-count">
+        {centred === "custom"
+          ? "Mix up to five universes"
+          : `${packs.find((p) => p.id === centred)?.count ?? 0} characters`}
+      </p>
+
     </div>
   );
 }
@@ -2505,6 +2663,8 @@ function PackDeck({
 function SetupScreen({
   standalone,
   packs,
+  mixIds,
+  setMixIds,
   presetId,
   setPresetId,
   customTopic,
@@ -2513,6 +2673,8 @@ function SetupScreen({
   setVariantRate,
   variantWild,
   setVariantWild,
+  aiFlavour,
+  setAiFlavour,
   rulesIdx,
   setRulesIdx,
   npc,
@@ -2533,6 +2695,9 @@ function SetupScreen({
   /** DraftMasters' own domain — see the Props note above. */
   standalone: boolean;
   packs: PackSummary[];
+  /** Universes chosen on the Custom sheet. One plays alone; several get mixed. */
+  mixIds: string[];
+  setMixIds: (ids: string[]) => void;
   presetId: string | null;
   setPresetId: (id: string | null) => void;
   customTopic: string;
@@ -2541,6 +2706,9 @@ function SetupScreen({
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
+  /** Whether a model rewrites the battle's prose. It never changes the result. */
+  aiFlavour: boolean;
+  setAiFlavour: (b: boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   npc: NpcPersonality;
@@ -2561,7 +2729,10 @@ function SetupScreen({
   // Arriving on an invite link prefills the code, so open the join panel
   // rather than hiding the one thing they came here to do.
   const [showJoin, setShowJoin] = useState(Boolean(joinCode));
-  const usingCustom = customTopic.trim().length > 0;
+  /* Custom is no longer a typed topic — it is a mix of several universes.
+     One chosen universe becomes an ordinary preset, so only two or more
+     counts as custom. */
+  const usingCustom = mixIds.length > 1;
   const hasTopic = usingCustom || Boolean(presetId);
 
   /**
@@ -2573,6 +2744,8 @@ function SetupScreen({
    * get one screen each: the shelf, then the table.
    */
   const [stage, setStage] = useState<"pick" | "tune">("pick");
+  /** The Custom case opens this; it is the only way to build a mixed board. */
+  const [customOpen, setCustomOpen] = useState(false);
   const [insideOpen, setInsideOpen] = useState(false);
   const selectedPack = packs.find((p) => p.id === presetId) ?? null;
 
@@ -2605,6 +2778,25 @@ function SetupScreen({
           below the packs, where it is a reason to come back rather than an
           obstacle to starting. */}
 
+      {customOpen && (
+        <div className="dm-sheet-scrim" role="dialog" aria-modal="true">
+          <UniversePicker
+            boards={packs.map((b) => ({ id: b.id, name: b.name, count: b.count }))}
+            chosen={mixIds}
+            onChange={setMixIds}
+            onClose={() => setCustomOpen(false)}
+            onConfirm={() => {
+              setCustomOpen(false);
+              // One universe chosen plays as itself, so it is just that board.
+              // Two or more is a mix, which has no preset id at all.
+              setPresetId(mixIds.length === 1 ? mixIds[0] : null);
+              setCustomTopic("");
+              setStage("tune");
+            }}
+          />
+        </div>
+      )}
+
       <section className="dm-section">
         {/* ── The deck ─────────────────────────────────────────────────────
             One card per universe, swiped rather than scanned. The old picker
@@ -2629,6 +2821,7 @@ function SetupScreen({
         </div>
         {stage === "pick" && (
           <PackDeck
+            onOpenCustom={() => setCustomOpen(true)}
             packs={packs}
             presetId={presetId}
             usingCustom={usingCustom}
@@ -2642,29 +2835,7 @@ function SetupScreen({
           />
         )}
 
-        {/* The pack's own controls, under the shelf: what is in it, and the
-            one button that matters. Selecting a pack no longer jumps straight
-            to the table — you get to look inside first, which is the whole
-            reason a sealed pack is interesting. */}
-        {stage === "pick" && selectedPack && (
-          <div className="dm-shelf-foot">
-            <button type="button" className="dm-inside-btn" onClick={() => setInsideOpen(true)}>
-              <Icon name="eye" size={16} /> What&apos;s inside
-            </button>
-            <button
-              type="button"
-              className="dm-btn dm-btn-primary dm-btn-lg dm-draft-now"
-              onClick={() => setStage("tune")}
-            >
-              Draft Now
-            </button>
-          </div>
-        )}
       </section>
-
-      {insideOpen && selectedPack && (
-        <WhatsInside pack={selectedPack} onClose={() => setInsideOpen(false)} />
-      )}
 
       {/* ── Everything past this point waits for a universe ─────────────────
           The dials, the budget, the opponent and the name were all on screen
@@ -2682,10 +2853,15 @@ function SetupScreen({
             ← {usingCustom ? "Custom" : packs.find((p) => p.id === presetId)?.name ?? "Change universe"}
           </button>
           <section className="dm-section">
+            {/* The numbering started at 2, because this section never had a
+                heading -- three steps on the page and only two of them said
+                which step they were. */}
+            <p className="dm-eyebrow">1 · Variants</p>
             {/* These govern whichever board you picked — a ready-made one
                 rolls its authored variants at these settings, a generated one
                 is written to them as well. */}
             <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
+            <FlavourToggle on={aiFlavour} setOn={setAiFlavour} />
           </section>
 
       <section className="dm-section">
@@ -2713,7 +2889,7 @@ function SetupScreen({
           {NPC_PERSONALITIES.map((p) => (
             <button key={p.id} className="dm-seg-item" data-on={npc.id === p.id ? "1" : "0"} onClick={() => setNpc(p)}>
               <span className="dm-seg-label">
-                {p.emoji} {p.name}
+                <Icon name={p.icon} size={15} /> {p.name}
               </span>
               <span className="dm-seg-note">{p.tagline}</span>
             </button>
@@ -2838,12 +3014,16 @@ function RoomLobby({
   packs,
   presetId,
   setPresetId,
+  mixIds,
+  onChangeUniverse,
   customTopic,
   setCustomTopic,
   variantRate,
   setVariantRate,
   variantWild,
   setVariantWild,
+  aiFlavour,
+  setAiFlavour,
   rulesIdx,
   setRulesIdx,
   error,
@@ -2859,21 +3039,33 @@ function RoomLobby({
   packs: PackSummary[];
   presetId: string | null;
   setPresetId: (id: string | null) => void;
+  /** Two or more ids means a mix, which by design has no presetId. */
+  mixIds: string[];
+  /** Back to the shelf. The universe is picked there, not here. */
+  onChangeUniverse: () => void;
   customTopic: string;
   setCustomTopic: (s: string) => void;
   variantRate: number;
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
+  /** Whether a model rewrites the battle's prose. It never changes the result. */
+  aiFlavour: boolean;
+  setAiFlavour: (b: boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   error: string | null;
   onStart: () => void;
 }) {
   const others = members.filter((m) => m.userId !== meId);
-  const usingCustom = customTopic.trim().length > 0;
-  const hasTopic = usingCustom || Boolean(presetId);
-  const chosen = usingCustom ? customTopic.trim() : (packs.find((p) => p.id === presetId)?.name ?? "topic");
+  const mixing = mixIds.length > 1;
+  const hasTopic = mixing || Boolean(presetId);
+  const chosen = mixing
+    ? mixIds.map((id) => packs.find((p) => p.id === id)?.name ?? id).join(" + ")
+    : (packs.find((p) => p.id === presetId)?.name ?? "topic");
+  const pool = mixing
+    ? mixIds.reduce((n, id) => n + (packs.find((p) => p.id === id)?.count ?? 0), 0)
+    : (packs.find((p) => p.id === presetId)?.count ?? 0);
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -2884,8 +3076,33 @@ function RoomLobby({
       )}
 
       <div className="dm-panel" style={{ marginBottom: 18 }}>
-        <p className="dm-eyebrow">Invite your opponent</p>
-        {roomCode ? <RoomCode code={roomCode} /> : <p className="dm-note">Opening room…</p>}
+        <p className="dm-eyebrow">The other seat</p>
+        {/* The seat is the whole state of this screen: until somebody is in it
+            nothing else on the page can happen, so it is the thing that looks
+            like it matters rather than a line of small print under a button. */}
+        <div className="dm-seat-card" data-filled={others.length ? "1" : "0"}>
+          <span className="dm-seat-face">
+            {others.length ? others[0].name.charAt(0).toUpperCase() : "?"}
+          </span>
+          <span className="dm-seat-who">
+            <b>{others.length ? others[0].name : "Nobody yet"}</b>
+            <em>{others.length ? "Joined · mic on" : "A draft needs two."}</em>
+          </span>
+          {others.length ? (
+            <span className="dm-seat-dot" aria-label="in the room" />
+          ) : (
+            <span className="dm-seat-empty">Empty</span>
+          )}
+        </div>
+
+        {others.length === 0 &&
+          (roomCode ? (
+            <div style={{ marginTop: 12 }}>
+              <RoomCode code={roomCode} />
+            </div>
+          ) : (
+            <p className="dm-note" style={{ marginTop: 12 }}>Opening room…</p>
+          ))}
       </div>
 
       <div className="dm-panel" style={{ marginBottom: 18 }}>
@@ -2902,32 +3119,20 @@ function RoomLobby({
 
       {isHost ? (
         <div className="dm-panel">
-          <p className="dm-eyebrow">Pick the topic</p>
-          <textarea
-            className="dm-input dm-textarea"
-            value={customTopic}
-            onChange={(e) => setCustomTopic(e.target.value)}
-            placeholder="Type any topic — and a setting if you want one. “GoT warriors fighting on a frozen lake” or “Pokémon, but the arena is flooded”…"
-            maxLength={TOPIC_MAX_CHARS}
-            rows={2}
-            aria-label="Custom topic"
-            style={{ width: "100%" }}
-          />
-          <div className="dm-topics" style={{ marginTop: 12 }}>
-            {packs.map((p) => (
-              <button
-                key={p.id}
-                className="dm-topic"
-                data-on={!usingCustom && presetId === p.id ? "1" : "0"}
-                onClick={() => {
-                  setCustomTopic("");
-                  setPresetId(p.id);
-                }}
-              >
-                <span className="dm-topic-emoji">{p.emoji}</span>
-                <span className="dm-topic-name">{p.name}</span>
-              </button>
-            ))}
+          {/* The universe is settled on the shelf before this room exists.
+              Asking again here -- in a text box the game no longer has, over
+              a grid of emoji the crests replaced -- was a second answer to a
+              question already answered, and the two could disagree. */}
+          <p className="dm-eyebrow">The universe</p>
+          <div className="dm-room-board">
+            {!mixing && presetId ? <Crest pack={presetId} size={22} /> : <Icon name="cards" size={20} />}
+            <span className="dm-room-board-who">
+              <b>{hasTopic ? chosen : "Nothing picked yet"}</b>
+              <em>{hasTopic ? `${pool} characters in the pool` : "Go back and open a case."}</em>
+            </span>
+            <button type="button" className="dm-btn dm-btn-ghost" onClick={onChangeUniverse}>
+              Change
+            </button>
           </div>
 
           <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
@@ -2953,8 +3158,8 @@ function RoomLobby({
             {others.length === 0
               ? "Waiting for your opponent…"
               : !hasTopic
-                ? "Pick a topic to build the board"
-                : `Build the board — ${chosen}`}
+                ? "Go back and pick a universe"
+                : `Start the draft — ${chosen}`}
           </button>
         </div>
       ) : (
@@ -3160,7 +3365,7 @@ function ReadyScreen({
 
   return (
     <div className="dm-prep" style={{ maxWidth: 620 }}>
-      <p className="dm-eyebrow">{pack?.emoji} The house is open</p>
+      <p className="dm-eyebrow">The house is open</p>
       <h2 className="dm-wordmark" style={{ fontSize: "clamp(26px, 7vw, 40px)" }}>
         {pack?.name ?? "Draft"}
       </h2>

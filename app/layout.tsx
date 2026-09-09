@@ -57,8 +57,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <VibeProvider>
               {!standalone && <Navbar />}
               <main className="min-h-screen">{children}</main>
-              <ChallengePopup />
-              <GlobalNotifications />
+              {/* The hub's floating furniture — a challenge popup and a
+                  notifications tray for games DraftMasters players have never
+                  heard of. Same reasoning as the nav bar: on the game's own
+                  domain it is another product's chrome. */}
+              {!standalone && (
+                <>
+                  <ChallengePopup />
+                  <GlobalNotifications />
+                </>
+              )}
             </VibeProvider>
           </VoiceProvider>
           </PortalProvider>

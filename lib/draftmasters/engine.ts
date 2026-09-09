@@ -541,6 +541,8 @@ export interface NpcPersonality {
   id: string;
   name: string;
   emoji: string;
+  /** A key in the app's Icon set — the emoji's replacement on screen. */
+  icon: "flame" | "down" | "dice" | "scales";
   /** Multiplier on their valuation — >1 overpays, <1 hunts bargains */
   aggro: number;
   /** How much random noise they add to a valuation */
@@ -549,10 +551,10 @@ export interface NpcPersonality {
 }
 
 export const NPC_PERSONALITIES: NpcPersonality[] = [
-  { id: "shark", name: "The Shark", emoji: "🦈", aggro: 1.18, chaos: 0.12, tagline: "Overpays for studs. Regrets nothing." },
-  { id: "scrooge", name: "Old Scrooge", emoji: "🪙", aggro: 0.82, chaos: 0.1, tagline: "Bargain hunter. Will let you have it." },
-  { id: "gambler", name: "The Gambler", emoji: "🎲", aggro: 1.0, chaos: 0.38, tagline: "Nobody knows what he's doing. Including him." },
-  { id: "professor", name: "The Professor", emoji: "🎓", aggro: 1.0, chaos: 0.05, tagline: "Values everything correctly. Boring. Effective." },
+  { id: "shark", name: "The Shark", emoji: "🦈", icon: "flame", aggro: 1.18, chaos: 0.12, tagline: "Overpays for studs. Regrets nothing." },
+  { id: "scrooge", name: "Old Scrooge", emoji: "🪙", icon: "down", aggro: 0.82, chaos: 0.1, tagline: "Bargain hunter. Will let you have it." },
+  { id: "gambler", name: "The Gambler", emoji: "🎲", icon: "dice", aggro: 1.0, chaos: 0.38, tagline: "Nobody knows what he's doing. Including him." },
+  { id: "professor", name: "The Professor", emoji: "🎓", icon: "scales", aggro: 1.0, chaos: 0.05, tagline: "Values everything correctly. Boring. Effective." },
 ];
 
 /** Rough "fair" price for a tier, before personality and situation. */

@@ -8,18 +8,23 @@
  */
 
 export const BATTLE_STYLES = `
-/* The Battle button — the loud one, so it reads as the main event. */
+/* The Battle button — the main event, and now the only button on that screen,
+   so it can be loud in the game's own metal instead of in the hub's orange. */
 .dm-btn-battle {
-  background: linear-gradient(180deg, #e8703a, var(--dm-ember));
-  border-color: #a8401a;
-  color: #fff;
-  font-weight: 850;
-  letter-spacing: .03em;
-  text-shadow: 0 1px 4px rgba(0,0,0,.35);
+  background: linear-gradient(180deg, #f7e2ac, var(--dm-gold));
+  border-color: #b08c37;
+  color: #17130a;
+  font-family: var(--dm-display);
+  font-weight: 700;
+  letter-spacing: .12em;
+  min-width: 240px;
+  box-shadow: 0 0 34px rgb(var(--dm-glow) / .3), 0 2px 0 rgba(0,0,0,.35);
+  text-shadow: none;
 }
 .dm-btn-battle:hover:not(:disabled) {
-  background: linear-gradient(180deg, #f28250, #d05c22);
-  border-color: #c05226;
+  background: linear-gradient(180deg, #fdf0cd, var(--dm-gold-hot));
+  border-color: var(--dm-gold);
+  box-shadow: 0 0 48px rgb(var(--dm-glow) / .45), 0 2px 0 rgba(0,0,0,.35);
 }
 
 .dm-bt {

@@ -32,7 +32,8 @@ const gameSections = [
 export default function Navbar() {
   const path = usePathname();
   if (path === "/voice-popup") return null;
-  if (path.startsWith("/budi")) return null; // Budi is a standalone app — no Great Souls chrome
+  // Budi and DraftMasters are standalone apps — no Great Souls chrome
+  if (path.startsWith("/budi") || path.startsWith("/draftmasters")) return null;
 
   const router = useRouter();
   const { data: session } = useSession();
@@ -105,7 +106,7 @@ export default function Navbar() {
   };
 
   return (
-    <header style={{ background: "rgba(10,8,4,0.97)", borderBottom: "1px solid rgba(212,169,66,0.2)", position: "sticky", top: 0, zIndex: 1000 }}>
+    <header data-site-chrome="1" style={{ background: "rgba(10,8,4,0.97)", borderBottom: "1px solid rgba(212,169,66,0.2)", position: "sticky", top: 0, zIndex: 1000 }}>
 
       {/* ── Desktop ──────────────────────────────────────────────────────────── */}
       <div className="desktop-only" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 16px", height: 52, display: "flex", alignItems: "center", gap: 8 }}>

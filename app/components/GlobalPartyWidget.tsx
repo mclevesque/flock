@@ -396,7 +396,7 @@ export default function GlobalPartyWidget() {
     : { position: "fixed", bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 16, left: 16, zIndex: 9800 };
 
   return (
-    <div ref={pillRef} style={containerStyle}>
+    <div ref={pillRef} data-site-chrome="1" style={containerStyle}>
 
       {/* Pill */}
       <button

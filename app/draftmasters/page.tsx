@@ -79,6 +79,7 @@ export default async function DraftMastersPage({
       name: p.name,
       emoji: p.emoji,
       blurb: p.blurb,
+      count: p.entries.length,
       heroName: hero?.n ?? "",
       heroQuery: hero ? `${hero.s ? `${hero.n} ${hero.s}` : hero.n} ${p.imgContext}`.trim() : "",
       heroWiki: hero?.wiki ?? p.wiki ?? "",

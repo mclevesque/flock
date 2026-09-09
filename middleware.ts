@@ -34,6 +34,13 @@ const SHARED_PREFIXES = [
   "/share",
   "/_next",
   "/.netlify",
+  // The bottom tabs point here. Friends, the ladder and the profile are the
+  // same rows in the same database on both sites — that shared account layer
+  // is the entire reason the second domain needed no migration — so they are
+  // part of this product too, not a hub page leaking through.
+  "/friends",
+  "/leaderboards",
+  "/profile",
 ];
 
 function isDraftMastersHost(req: NextRequest): boolean {

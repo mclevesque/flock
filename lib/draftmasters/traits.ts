@@ -48,11 +48,16 @@ export type Trait =
 const TRAIT_WORDS: Record<Trait, string[]> = {
   dragon: [
     "dragon", "drogon", "viserion", "rhaegal", "balerion", "smaug", "wyvern",
+    // The Dance of the Dragons. Every one of these was classed as infantry.
+    "meleys", "vhagar", "caraxes", "syrax", "seasmoke", "sunfyre", "vermithor", "silverwing", "tessarion", "moondancer", "arrax", "dreamfyre", "vermax", "tyraxes", "morghul", "shrykos", "grey ghost", "cannibal",
+    "falkor", "spyro", "mushu", "king ghidorah", "rodan", "blue-eyes white",
     "ancalagon", "glaurung", "shenron", "bahamut", "ridley", "alduin", "toothless",
     "charizard", "dragonite", "salamence", "rayquaza", "reshiram", "zekrom", "haku",
   ],
   giant: [
     "giant", "wun wun", "titan", "colossus", "ogre", "troll", "cyclops", "ent ",
+    // Gregor Clegane is eight feet of him and was reading as infantry.
+    "the mountain", "gregor clegane", "ser gregor", "sandor", "the hound",
     "treebeard", "groot", "gigantamax", "goliath", "jotun", "frost giant", "ice giant",
     "attack titan", "colossal titan", "regigigas", "golem", "juggernaut",
   ],
@@ -70,6 +75,8 @@ const TRAIT_WORDS: Record<Trait, string[]> = {
   ],
   flying: [
     "dragon", "drogon", "viserion", "rhaegal", "smaug", "wyvern", "eagle", "hawk",
+    "meleys", "vhagar", "caraxes", "syrax", "seasmoke", "sunfyre", "vermithor", "silverwing", "tessarion", "moondancer", "arrax", "dreamfyre", "vermax", "tyraxes", "morghul", "shrykos", "grey ghost", "cannibal",
+    "king ghidorah", "rodan", "mothra",
     "falcon", "raven", "owl", "pterodactyl", "charizard", "rayquaza", "zapdos",
     "moltres", "articuno", "superman", "iron man", "thor", "angel", "banshee",
   ],

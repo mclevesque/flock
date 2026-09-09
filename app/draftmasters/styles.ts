@@ -24,19 +24,23 @@ export const STYLES = `
 .dm {
   /* The ground the collector's case sits on: black, barely warm, so the brass
      is the only colour in the room and reads as metal rather than as yellow. */
+  /* The glow, as an unquoted triple so rules can set their own alpha. */
+  --dm-glow: 217 178 106;
+
   --dm-bg: #08080a;
-  --dm-panel: #121214;
-  --dm-panel-2: #17171a;
-  --dm-line: #24242a;
-  --dm-line-hot: #33333c;
+  /* Warm, not neutral. A flat grey card next to the case reads as a different
+     product's furniture; a panel with the same faint brass bias in it reads as
+     the same room with the lights lower. */
+  --dm-panel: #100e0b;
+  --dm-panel-2: #17140f;
+  --dm-line: rgb(var(--dm-glow) / .17);
+  --dm-line-hot: rgb(var(--dm-glow) / .42);
 
   /* The fittings. Brighter and lighter than the old dull gold — this is the
      brass off the case frame, and it has to survive being a thin 1px edge. */
   --dm-gold: #d4af5f;
   --dm-gold-hot: #f2dfa4;
   --dm-gold-deep: #8a6a24;
-  /* The glow, as an unquoted triple so rules can set their own alpha. */
-  --dm-glow: 217 178 106;
 
   /* Spent only where it means something: the standing bid, and the hammer. */
   --dm-hammer: #d9522b;
@@ -89,18 +93,22 @@ export const STYLES = `
   font-size: 15px;
   line-height: 1.5;
 }
+/* Every small caps label in the game. Cinzel and brass, like the case, so a
+   section heading looks stamped rather than typed. */
 .dm-eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-family: var(--dm-display);
+  font-size: 11.5px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--dm-mute);
-  font-weight: 700;
+  color: rgb(var(--dm-glow) / .72);
+  font-weight: 600;
   margin: 0 0 10px;
 }
 .dm-h2 {
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: var(--dm-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
   margin: 0 0 12px;
 }
 .dm-money {
@@ -188,7 +196,7 @@ export const STYLES = `
 .dm-topic:hover { border-color: var(--dm-line-hot); background: var(--dm-panel-2); transform: translateY(-2px); }
 .dm-topic[data-on="1"] {
   border-color: var(--dm-gold);
-  background: linear-gradient(180deg, rgba(212,169,66,.12), rgba(212,169,66,.03));
+  background: linear-gradient(180deg, rgb(var(--dm-glow) / .12), rgb(var(--dm-glow) / .03));
 }
 .dm-topic-emoji { font-size: 24px; line-height: 1; }
 .dm-topic-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
@@ -233,7 +241,7 @@ export const STYLES = `
   display: flex; flex-direction: column; gap: 3px; justify-content: center;
 }
 .dm-seg-item:hover { border-color: var(--dm-line-hot); }
-.dm-seg-item[data-on="1"] { border-color: var(--dm-gold); background: rgba(212,169,66,.1); }
+.dm-seg-item[data-on="1"] { border-color: var(--dm-gold); background: rgb(var(--dm-glow) / .1); }
 .dm-seg-label { font-weight: 700; font-size: 14.5px; }
 .dm-seg-note { font-size: 11.5px; color: var(--dm-mute); }
 
@@ -312,7 +320,8 @@ export const STYLES = `
   border: 1px solid var(--dm-line); background: var(--dm-panel);
   transition: all .2s ease;
 }
-.dm-ready-card[data-ready="1"] { border-color: var(--dm-green); background: rgba(76,175,125,.07); }
+.dm-ready-card[data-ready="1"] { border-color: var(--dm-gold); background: rgb(var(--dm-glow) / .09); }
+.dm-ready-card[data-ready="1"] .dm-ready-state { color: var(--dm-gold); }
 .dm-ready-state { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; margin-top: 8px; }
 
 /* ── Auction stage ────────────────────────────────────────────────────── */
@@ -354,7 +363,7 @@ export const STYLES = `
   overflow: hidden;
   border: 1px solid var(--dm-line-hot);
   background: linear-gradient(160deg, #23232a, #131316);
-  box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(212,169,66,.12) inset;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgb(var(--dm-glow) / .12) inset;
 }
 @media (min-width: 900px) and (orientation: landscape) { .dm-portrait-wrap { height: min(52dvh, 430px); } }
 
@@ -383,7 +392,7 @@ export const STYLES = `
 }
 .dm-portrait-fallback {
   width: 100%; height: 100%; display: grid; place-items: center;
-  font-size: 76px; font-weight: 800; color: rgba(212,169,66,.34);
+  font-size: 76px; font-weight: 800; color: rgb(var(--dm-glow) / .34);
   background: radial-gradient(70% 70% at 50% 35%, #2b2b33, #131316);
 }
 .dm-portrait-vignette {
@@ -483,7 +492,7 @@ export const STYLES = `
   border: 1px solid var(--dm-line); background: var(--dm-panel);
   transition: border-color .2s ease, background .2s ease;
 }
-.dm-score[data-turn="1"] { border-color: var(--dm-gold); background: rgba(212,169,66,.08); }
+.dm-score[data-turn="1"] { border-color: var(--dm-gold); background: rgb(var(--dm-glow) / .08); }
 .dm-score[data-high="1"] { border-color: var(--dm-green); }
 .dm-score-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dm-avatar {
@@ -493,7 +502,7 @@ export const STYLES = `
 }
 .dm-avatar[data-speaking="1"] {
   border-color: var(--dm-green);
-  box-shadow: 0 0 0 3px rgba(76,175,125,.24);
+  box-shadow: 0 0 0 3px rgb(var(--dm-glow) / .3);
 }
 .dm-score-name {
   font-weight: 700; font-size: 14px; white-space: nowrap;
@@ -525,7 +534,7 @@ export const STYLES = `
 .dm-slot[data-new="1"] { animation: dm-slot-pop .5s cubic-bezier(.2,1.5,.4,1); }
 @keyframes dm-slot-pop { from { transform: scale(.5); opacity: 0; } to { transform: none; opacity: 1; } }
 .dm-slot img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
-.dm-slot-initial { font-size: 15px; font-weight: 800; color: rgba(212,169,66,.4); }
+.dm-slot-initial { font-size: 15px; font-weight: 800; color: rgb(var(--dm-glow) / .4); }
 .dm-slot-price {
   position: absolute; bottom: 0; left: 0; right: 0;
   background: rgba(0,0,0,.82); color: var(--dm-gold);
@@ -556,7 +565,7 @@ export const STYLES = `
   background: var(--dm-panel-2); border: 1px solid var(--dm-line);
   display: grid; place-items: center;
 }
-.dm-tile[data-speaking="1"] { border-color: var(--dm-green); box-shadow: 0 0 0 2px rgba(76,175,125,.2); }
+.dm-tile[data-speaking="1"] { border-color: var(--dm-gold); box-shadow: 0 0 0 2px rgb(var(--dm-glow) / .26); }
 .dm-tile video { width: 100%; height: 100%; object-fit: cover; }
 .dm-tile-name {
   position: absolute; bottom: 5px; left: 6px; right: 6px;
@@ -600,7 +609,7 @@ export const STYLES = `
 }
 .dm-verdict-side[data-won="1"] {
   border-color: var(--dm-gold);
-  background: linear-gradient(180deg, rgba(212,169,66,.11), transparent);
+  background: linear-gradient(180deg, rgb(var(--dm-glow) / .11), transparent);
 }
 .dm-verdict-score {
   font-size: 30px; font-weight: 800; color: var(--dm-gold); line-height: 1;
@@ -620,7 +629,7 @@ export const STYLES = `
   display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .08em;
   text-transform: uppercase; padding: 2px 7px; border-radius: 5px; margin-left: 6px;
 }
-.dm-tag[data-kind="mvp"] { background: rgba(76,175,125,.2); color: var(--dm-green); }
+.dm-tag[data-kind="mvp"] { background: rgb(var(--dm-glow) / .2); color: var(--dm-gold-hot); }
 .dm-tag[data-kind="bust"] { background: rgba(217,83,79,.18); color: var(--dm-red); }
 
 /* ── Misc ─────────────────────────────────────────────────────────────── */
@@ -668,7 +677,7 @@ export const STYLES = `
 .dm-turn-pill {
   margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .08em;
   text-transform: uppercase; padding: 3px 7px; border-radius: 6px;
-  background: rgba(212,169,66,.18); color: var(--dm-gold); white-space: nowrap;
+  background: rgb(var(--dm-glow) / .18); color: var(--dm-gold); white-space: nowrap;
 }
 
 /* ── Connection + records ─────────────────────────────────────────────── */
@@ -712,7 +721,7 @@ export const STYLES = `
 .dm-photo-fb .dm-btn { min-height: 34px; padding: 6px 12px; font-size: 12.5px; }
 .dm-photo-note { text-align: center; font-size: 12px; color: var(--dm-dim); margin-top: 6px; }
 
-.dm-arena-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgba(212,169,66,.14); color: var(--dm-gold); border: 1px solid rgba(212,169,66,.3); white-space: nowrap; }
+.dm-arena-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgb(var(--dm-glow) / .14); color: var(--dm-gold); border: 1px solid rgb(var(--dm-glow) / .3); white-space: nowrap; }
 
 .dm-portrait-wrap[data-uploadable="1"] { cursor: pointer; border-style: dashed; border-color: var(--dm-line-hot); }
 .dm-portrait-wrap[data-uploadable="1"]:hover { border-color: var(--dm-gold); }
@@ -1001,7 +1010,7 @@ export const STYLES = `
 .dm-args-count[data-low="1"] { color: var(--dm-ember); }
 .dm-args-sealed {
   margin-top: 14px; padding: 14px; border-radius: 12px; text-align: center;
-  border: 1px solid var(--dm-gold); background: rgba(212,169,66,.08);
+  border: 1px solid var(--dm-gold); background: rgb(var(--dm-glow) / .08);
 }
 .dm-args-status { list-style: none; padding: 0; margin: 14px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .dm-args-status li {
@@ -1065,7 +1074,7 @@ export const STYLES = `
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--dm-mute); transition: transform .18s ease, background .18s ease;
 }
-.dm-toggle[data-on="1"]::before { background: rgba(212,169,66,.22); border-color: var(--dm-gold); }
+.dm-toggle[data-on="1"]::before { background: rgb(var(--dm-glow) / .22); border-color: var(--dm-gold); }
 .dm-toggle[data-on="1"]::after { transform: translateX(18px); background: var(--dm-gold); }
 .dm-toggle .dm-seg-label { grid-column: 2; }
 .dm-toggle .dm-seg-note { grid-column: 2; }
@@ -1100,6 +1109,727 @@ export const STYLES = `
    glance, and dead scroll under it invites you to go looking for more. */
 .dm:has(.dm-stage) { min-height: 0; }
 main.min-h-screen:has(.dm-stage) { min-height: 0; }
+
+/* ── The other seat ───────────────────────────────────────────────────── */
+.dm-seat-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1px dashed var(--dm-line-hot); background: rgba(255,255,255,.02);
+}
+.dm-seat-card[data-filled="1"] {
+  border-style: solid; border-color: rgba(212,175,95,.6); background: rgb(var(--dm-glow) / .08);
+}
+.dm-seat-face {
+  flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--dm-display); font-size: 15px; font-weight: 700; color: var(--dm-mute);
+  border: 1px dashed var(--dm-line-hot); background: transparent;
+}
+.dm-seat-card[data-filled="1"] .dm-seat-face {
+  border-style: solid; border-color: rgba(212,175,95,.5); color: var(--dm-gold);
+  background: radial-gradient(circle at 50% 32%, #2b2b2b, #0e0e0e);
+}
+.dm-seat-who { flex: 1; min-width: 0; }
+.dm-seat-who b { display: block; font-size: 14px; }
+.dm-seat-who em { display: block; font-style: normal; font-size: 11.5px; color: var(--dm-mute); margin-top: 2px; }
+.dm-seat-empty {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dm-mute);
+}
+.dm-seat-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--dm-green); flex-shrink: 0;
+  box-shadow: 0 0 0 4px rgba(91,189,138,.16);
+}
+
+/* ── Who writes it up ─────────────────────────────────────────────────── */
+.dm-flavour {
+  display: flex; align-items: flex-start; gap: 12px; margin-top: 14px;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel-2);
+}
+.dm-flavour-switch {
+  flex: 0 0 42px; width: 42px; height: 24px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--dm-line-hot); background: rgba(255,255,255,.05);
+  position: relative; padding: 0; transition: background .18s ease, border-color .18s ease;
+}
+.dm-flavour-switch[aria-checked="true"] {
+  background: rgb(var(--dm-glow) / .28); border-color: rgba(212,175,95,.7);
+}
+.dm-flavour-knob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--dm-mute); transition: transform .18s cubic-bezier(.2,.8,.25,1), background .18s ease;
+}
+.dm-flavour-switch[aria-checked="true"] .dm-flavour-knob {
+  transform: translateX(18px); background: var(--dm-gold-hot);
+}
+.dm-flavour-text { font-size: 11.5px; line-height: 1.55; color: var(--dm-mute); }
+.dm-flavour-text b { display: block; font-size: 13px; color: var(--dm-text); margin-bottom: 3px; }
+
+/* ── The universe, settled ────────────────────────────────────────────────
+   Same shape as the seat card above it, because they are the two facts the
+   host is waiting on: who is coming, and what they are drafting. */
+.dm-room-board {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: 14px;
+  border: 1px solid rgb(var(--dm-glow) / .22);
+  background: linear-gradient(180deg, rgba(24,20,12,.7), rgba(10,10,10,.7));
+  color: var(--dm-gold);
+}
+.dm-room-board-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.dm-room-board-who b {
+  font-family: var(--dm-display); font-size: 17px; letter-spacing: .01em;
+  color: #f0e6d2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-room-board-who em { font-style: normal; font-size: 12.5px; color: rgba(240,230,210,.5); }
+
+/* ── The face in the corner ───────────────────────────────────────────── */
+.dm-head-me {
+  flex: 0 0 auto; margin-left: auto; display: grid; place-items: center; overflow: hidden;
+  width: 38px; height: 38px; border-radius: 50%; text-decoration: none;
+  border: 1px solid rgba(212,175,95,.5);
+  background: radial-gradient(circle at 50% 32%, #2b2b2b, #0e0e0e);
+  color: var(--dm-gold); font-family: var(--dm-display); font-size: 15px; font-weight: 700;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dm-head-me:hover { border-color: var(--dm-gold); box-shadow: 0 0 18px rgb(var(--dm-glow) / .35); }
+.dm-head-me img { width: 100%; height: 100%; object-fit: cover; }
+
+/* On a wide screen the universe selector joins it in the top bar, which is
+   where the design puts it — the shelf below is then nothing but the case. */
+@media (min-width: 900px) {
+  /* Both pinned to the corner so they sit in a fixed order — selector, then
+     face — instead of floating wherever the header's flexbox leaves them. */
+  .dm-shelf-head { position: absolute; top: 20px; right: 82px; z-index: 25; margin: 0; }
+  .dm-head-me { position: absolute; top: 20px; right: 24px; z-index: 26; }
+  .dm-head { padding-right: 360px; }
+}
+
+/* ── The shelf's foot ─────────────────────────────────────────────────────
+   One case at a time means nothing peeks at the edge, so nothing says a second
+   case exists. These do. */
+
+.dm-carousel {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  margin-top: 6px;
+}
+/* Bare chevrons. A ring around each one made two more objects competing with
+   the case, which is the only thing on this screen worth looking at. */
+.dm-carousel-arrow {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  border: 0; background: none; padding: 0;
+  color: var(--dm-mute); cursor: pointer;
+  transition: color .15s ease, transform .15s ease;
+}
+.dm-carousel-arrow:hover { color: var(--dm-gold-hot); }
+.dm-carousel-arrow[data-dir="back"]:hover { transform: translateX(-2px); }
+.dm-carousel-arrow[data-dir="next"]:hover { transform: translateX(2px); }
+.dm-carousel-arrow[data-dir="back"] svg { transform: rotate(90deg); }
+.dm-carousel-arrow[data-dir="next"] svg { transform: rotate(-90deg); }
+
+.dm-carousel-dots {
+  display: flex; align-items: center; gap: 7px;
+  max-width: min(340px, 52vw); overflow-x: auto; scrollbar-width: none; padding: 6px 2px;
+}
+.dm-carousel-dots::-webkit-scrollbar { display: none; }
+.dm-carousel-dot {
+  flex: 0 0 auto; width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(255,255,255,.2); cursor: pointer;
+  transition: background .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+.dm-carousel-dot:hover { background: rgba(255,255,255,.4); }
+.dm-carousel-dot[aria-selected="true"] {
+  background: var(--dm-gold); transform: scale(1.45);
+  box-shadow: 0 0 10px rgb(var(--dm-glow) / .7);
+}
+
+.dm-shelf-count {
+  margin: 10px 0 0; text-align: center;
+  font-size: 12px; letter-spacing: .04em; color: var(--dm-mute);
+}
+
+/* ── The rail ─────────────────────────────────────────────────────────────
+   The desktop half of the same three destinations. A wide screen has room
+   going spare down the sides and nothing to put there, and using it keeps the
+   middle clear for the case — which is the only thing on this screen that is
+   supposed to be looked at. */
+
+.dm-rail { display: none; }
+
+@media (min-width: 900px) {
+  .dm-rail {
+    /* Tall on purpose: a short pill floating in a full-height column reads as
+       something that came loose. It runs most of the window and the support
+       link sits at the foot of it, set apart by a spacer that grows. */
+    position: fixed; left: 18px; top: 50%; transform: translateY(-50%); z-index: 30;
+    height: min(78vh, 620px);
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 16px 9px; border-radius: 22px;
+    border: 1px solid var(--dm-line); background: rgba(18,18,20,.82);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 18px 44px rgba(0,0,0,.55);
+  }
+  .dm-rail-gap { flex: 1 1 auto; }
+  /* A hairline above the last item, so support reads as separate from the
+     places you can go rather than a fifth one. */
+  .dm-rail-gap::after {
+    content: ""; display: block; height: 1px; margin: 0 6px;
+    background: var(--dm-line);
+    position: relative; top: 100%;
+  }
+  .dm-rail-item {
+    display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px;
+    color: var(--dm-mute); text-decoration: none;
+    transition: color .15s ease, background .15s ease;
+  }
+  .dm-rail-item:hover { color: var(--dm-gold-hot); background: rgb(var(--dm-glow) / .1); }
+  .dm-rail-item[data-on="1"] { color: var(--dm-gold-hot); background: rgb(var(--dm-glow) / .14); }
+  /* The label only exists for a screen reader and a hover title — the rail is
+     four icons wide and a caption under each would double its width. */
+  .dm-rail-item span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+  /* The rail takes the left margin, so the page stops fighting it. */
+  .dm:has(.dm-rail) { padding-left: 96px; }
+}
+
+/* ── The custom sheet, and the bottom bar ──────────────────────────────────
+   Picking the Custom case opens a sheet: up to five franchises, dealt into one
+   pool. There is no text box any more — arenas are declared per board and
+   rolled per game, so a typed sentence never changed what a board did. */
+
+.dm-sheet-scrim {
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; place-items: end center;
+  background: rgba(4,4,5,.72); backdrop-filter: blur(3px);
+  padding: 0;
+}
+@media (min-width: 720px) { .dm-sheet-scrim { place-items: center; padding: 24px; } }
+
+.dm-cusheet {
+  width: min(560px, 100%); max-height: min(86dvh, 760px);
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px 16px 18px;
+  background: var(--dm-panel); border: 1px solid var(--dm-line);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -18px 60px rgba(0,0,0,.7);
+}
+@media (min-width: 720px) { .dm-cusheet { border-radius: 18px; } }
+
+.dm-cusheet-head { display: flex; align-items: center; justify-content: space-between; }
+.dm-cusheet-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.dm-cuchip {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 6px 11px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 700;
+  border: 1px solid rgba(212,175,95,.55); background: rgb(var(--dm-glow) / .1);
+  color: var(--dm-gold-hot);
+}
+.dm-cuchip svg { opacity: .7; }
+.dm-cuchip:hover { border-color: var(--dm-gold); }
+
+.dm-usel-search {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px; border-radius: 12px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel-2);
+}
+.dm-usel-search svg { color: var(--dm-mute); flex-shrink: 0; }
+.dm-usel-search input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  color: var(--dm-text); font: inherit; font-size: 14px;
+}
+.dm-usel-search input::placeholder { color: var(--dm-mute); }
+
+.dm-cusheet-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 0 -4px; padding: 0 4px;
+}
+.dm-usel-row {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 8px 10px; border-radius: 11px; cursor: pointer;
+  border: 1px solid transparent; background: none; color: inherit; font: inherit;
+  text-align: left; transition: background .15s ease, border-color .15s ease;
+}
+.dm-usel-row:hover { background: rgba(255,255,255,.04); }
+.dm-usel-row[data-on="1"] { background: rgb(var(--dm-glow) / .1); border-color: rgba(212,175,95,.5); }
+/* At the cap, the ones you have not chosen stop inviting a tap. */
+.dm-usel-row[data-off="1"] { opacity: .38; cursor: not-allowed; }
+.dm-usel-chip {
+  position: relative; width: 34px; height: 43px; border-radius: 6px; overflow: hidden;
+  flex-shrink: 0; border: 1px solid rgba(212,175,95,.4); background: #08070a;
+}
+.dm-usel-chip svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.dm-usel-text { flex: 1; min-width: 0; }
+.dm-usel-text b { display: block; font-size: 14px; font-weight: 650; }
+.dm-usel-text em {
+  display: block; font-style: normal; font-size: 11.5px; color: var(--dm-mute); margin-top: 2px;
+}
+.dm-usel-add {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 13px; line-height: 1;
+  border: 1px solid var(--dm-line-hot); color: var(--dm-mute);
+}
+.dm-usel-row[data-on="1"] .dm-usel-add { border-color: rgba(212,175,95,.6); color: var(--dm-gold-hot); }
+
+.dm-cusheet-foot { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--dm-mute); }
+.dm-cusheet-go { width: 100%; }
+.dm-sheet-x {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--dm-line); background: none; color: var(--dm-mute); cursor: pointer;
+}
+.dm-sheet-x:hover { color: var(--dm-text); border-color: var(--dm-line-hot); }
+
+/* ── The bottom bar ───────────────────────────────────────────────────────
+   Three, not four. A "Packs" tab would point at the screen you are already
+   on, which is a button that does nothing. */
+/* Phones only. On a wide screen these three live in the left rail. */
+@media (min-width: 900px) { .dm-tabs { display: none !important; } }
+
+.dm-tabs {
+  position: sticky; bottom: 0; z-index: 20;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  margin: 26px -14px 0; padding: 9px 6px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--dm-line); background: rgba(8,8,10,.94);
+  backdrop-filter: blur(8px);
+}
+.dm-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 9.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dm-mute); text-decoration: none; padding: 4px 0;
+  transition: color .15s ease;
+}
+.dm-tab:hover { color: var(--dm-gold-hot); }
+@media (min-width: 720px) { .dm-tabs { margin-left: 0; margin-right: 0; border-radius: 14px 14px 0 0; } }
+
+/* ── The line-up ───────────────────────────────────────────────────────────
+   Between the draft and the fight. The row is the order they fight in; the
+   captain sits below and behind it, because that is literally where they
+   stand. More picks is more squares and nothing else changes. */
+
+.dm-lineup { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 4px 0 28px; }
+.dm-lineup-top {
+  width: 100%; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap;
+}
+.dm-blind {
+  display: flex; align-items: flex-start; gap: 10px; flex: 1 1 260px;
+  padding: 11px 13px; border-radius: 11px;
+  border: 1px dashed var(--dm-line-hot); background: rgba(255,255,255,.02);
+}
+.dm-blind svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--dm-mute); margin-top: 1px; }
+.dm-blind span { font-size: 11.5px; line-height: 1.55; color: var(--dm-mute); }
+.dm-blind b { color: var(--dm-dim); }
+
+.dm-lineup-clock { display: flex; align-items: center; gap: 11px; }
+.dm-ring { position: relative; width: 46px; height: 46px; flex-shrink: 0; }
+.dm-ring svg { transform: rotate(-90deg); }
+.dm-ring .bg { stroke: rgba(255,255,255,.09); }
+.dm-ring .fg { stroke: var(--dm-gold); stroke-linecap: round; transition: stroke-dasharray 1s linear; }
+.dm-ring b {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 13px; font-weight: 800; color: var(--dm-gold-hot);
+}
+.dm-lineup-clock p { margin: 0; font-size: 11px; line-height: 1.5; color: var(--dm-mute); max-width: 30ch; }
+.dm-lineup-clock p b { display: block; color: var(--dm-dim); font-weight: 700; }
+.dm-lineup-label { margin: 4px 0 0; }
+
+/* ── the cards ─────────────────────────────────────────────────────────── */
+.dm-row4 { display: flex; gap: 16px; justify-content: center; align-items: flex-end;
+  flex-wrap: wrap; touch-action: none; }
+
+/* Same 4:5 as the lot card, so a card is a card everywhere in this game. */
+.dm-lc {
+  --notch: 12px;
+  position: relative; width: clamp(112px, 21vw, 152px); aspect-ratio: 4 / 5;
+  padding: 1.5px; cursor: grab; touch-action: none;
+  transition: transform .26s cubic-bezier(.2,.9,.25,1), filter .2s ease;
+}
+/* The brass frame is a layer, not the element. Clipping the element itself
+   also clipped the order medallion and the crown, both of which are supposed
+   to hang off the edge. */
+.dm-lc::before {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  clip-path: polygon(var(--notch) 0, calc(100% - var(--notch)) 0, 100% var(--notch),
+    100% calc(100% - var(--notch)), calc(100% - var(--notch)) 100%, var(--notch) 100%,
+    0 calc(100% - var(--notch)), 0 var(--notch));
+  background: linear-gradient(150deg, #c9a558, #7a5a24 34%, #e8cd82 58%, #7a5a24 82%, #c9a558);
+}
+.dm-lc:hover { transform: translateY(-5px); filter: brightness(1.08); }
+/* No rotation on a card you are holding — a tilt reads as a glitch, not
+   as weight. Lift and light instead. */
+.dm-lc[data-held="1"] {
+  cursor: grabbing; transform: translateY(-12px) scale(1.04);
+  filter: brightness(1.2);
+  box-shadow: 0 0 0 2px rgba(240,220,160,.55), 0 0 44px rgb(var(--dm-glow) / .55);
+}
+.dm-lc-in {
+  --notch: 11px; position: absolute; inset: 1.5px; z-index: 1; overflow: hidden; background: #08070a;
+  clip-path: polygon(var(--notch) 0, calc(100% - var(--notch)) 0, 100% var(--notch),
+    100% calc(100% - var(--notch)), calc(100% - var(--notch)) 100%, var(--notch) 100%,
+    0 calc(100% - var(--notch)), 0 var(--notch));
+}
+.dm-lc-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
+.dm-lc-veil {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(6,5,8,.06) 42%, rgba(6,5,8,.66) 70%, rgba(6,5,8,.97));
+}
+/* Bottom padding clears the order medallion, which rides half-off the edge. */
+.dm-lc-txt { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 8px 19px; text-align: center; }
+.dm-lc-txt b { display: block; font-size: 12px; font-weight: 700; line-height: 1.2; text-wrap: balance; }
+.dm-lc-txt i {
+  display: block; font-style: normal; font-size: 12px; color: var(--dm-gold-hot);
+  margin-top: 3px; font-weight: 800;
+}
+.dm-lc-txt s {
+  display: block; text-decoration: none; font-size: 8.5px; color: var(--dm-mute);
+  margin-top: 2px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800;
+}
+/* The order number rides the bottom edge, half on the card and half off it, so
+   the row reads as a sequence before you have read a single name. */
+.dm-lc-pos {
+  position: absolute; left: 50%; bottom: -13px; translate: -50% 0; z-index: 3;
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--dm-display); font-size: 13px; font-weight: 700; color: #1a1207;
+  background: linear-gradient(180deg, #f6e3ae, #d0a95a 60%, #a17f2e);
+  box-shadow: 0 3px 10px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,250,230,.7);
+}
+.dm-lc-promote {
+  position: absolute; left: 50%; top: -11px; translate: -50% 0; z-index: 4;
+  padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(212,175,95,.5); background: rgba(10,9,8,.92);
+  color: var(--dm-gold); font-family: inherit; font-size: 9px; font-weight: 800;
+  letter-spacing: .08em; text-transform: uppercase;
+  opacity: 0; transition: opacity .18s ease;
+}
+.dm-lc:hover .dm-lc-promote, .dm-lc:focus-within .dm-lc-promote { opacity: 1; }
+
+/* The bracket that says the captain is standing BEHIND the line. */
+.dm-behind { position: relative; width: min(100%, 520px); height: 26px; }
+.dm-behind::before {
+  content: ""; position: absolute; left: 12%; right: 12%; top: 0; height: 26px;
+  border: 1px solid rgba(212,175,95,.28); border-top: 0; border-radius: 0 0 14px 14px;
+}
+.dm-behind span {
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%; padding: 2px 10px;
+  background: var(--dm-bg); font-size: 8.5px; font-weight: 800; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--dm-gold); opacity: .85;
+}
+
+/* margin-top clears the "behind the line" bracket, which the crown rides into. */
+.dm-capwrap { display: flex; flex-direction: column; align-items: center; gap: 11px; margin-top: 14px; }
+.dm-lc-cap {
+  --notch: 15px; width: clamp(148px, 26vw, 190px); cursor: default;
+  background: linear-gradient(150deg, #fbf0c8, #d9b26a 22%, #8a6a24 42%, #fbf0c8 60%, #8a6a24 80%, #e5c473);
+}
+.dm-lc-cap:hover { transform: none; }
+.dm-lc-cap::before {
+  content: ""; position: absolute; left: 50%; top: 52%; translate: -50% -50%;
+  width: 150%; aspect-ratio: 1; z-index: -1; filter: blur(20px); clip-path: none;
+  background: radial-gradient(circle, rgb(var(--dm-glow) / .34), rgba(5,5,5,0) 66%);
+}
+.dm-lc-crown {
+  position: absolute; left: 50%; top: -14px; translate: -50% 0; z-index: 3;
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #1a1207;
+  background: linear-gradient(180deg, #f6e3ae, #d0a95a 60%, #a17f2e);
+  box-shadow: 0 3px 12px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,250,230,.7);
+}
+.dm-cmdbar {
+  max-width: 460px; text-align: center; padding: 10px 14px; border-radius: 11px;
+  background: rgba(255,255,255,.03); border: 1px solid var(--dm-line);
+  font-size: 11.5px; line-height: 1.55; color: var(--dm-dim);
+}
+/* A captain with a COMMAND ability is doing something the others cannot, so it
+   is not painted in the same colour as a default aura. */
+.dm-cmdbar[data-command="1"] {
+  background: rgba(168,148,255,.09); border-color: rgba(168,148,255,.26); color: #c9bcff;
+}
+.dm-cmdbar b {
+  display: block; font-weight: 800; letter-spacing: .04em; margin-bottom: 3px;
+  font-family: var(--dm-display); font-size: 13px; color: var(--dm-text);
+}
+.dm-cmdbar[data-command="1"] b { color: #e2dcff; }
+
+.dm-lineup-them {
+  margin: 6px 0 0; font-size: 10px; font-weight: 800; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--dm-mute); text-align: center;
+}
+.dm-hidden-team { display: flex; gap: 6px; margin-top: 8px; justify-content: center; }
+.dm-hidden-team i {
+  width: 34px; aspect-ratio: 4 / 5; border-radius: 6px; display: grid; place-items: center;
+  border: 1px dashed rgba(255,255,255,.14); color: var(--dm-mute); font-size: 13px; font-style: normal;
+  background: repeating-linear-gradient(-45deg, rgba(255,255,255,.02) 0 5px, transparent 5px 10px);
+}
+.dm-lineup-go { width: min(320px, 100%); margin-top: 6px; }
+
+/* ── The case ──────────────────────────────────────────────────────────────
+   A board, as an object you would own. Replaces the foil pouch.
+
+   Everything inside .dm-case-face is on the turned plane because the face is
+   turned and they are its children — so the cover photo simply fills it, the
+   title sets normally, and the octagon is cut once and reused by every layer,
+   which is why none of it needs aligning by hand. */
+
+/* One slot per case, each a full screen wide, centring what it holds. This is
+   what keeps exactly one case visible at any width — putting the flex-basis on
+   the case itself made the case a screen wide instead.
+
+   Named dm-case-slot, not dm-slot: that one has been the auction roster's pick
+   slot since long before this, and it carries aspect-ratio 3/4 — which turned
+   a 1180px-wide shelf into a 1573px-tall one. */
+.dm-case-slot {
+  flex: 0 0 100%;
+  display: grid; place-items: center;
+  scroll-snap-align: center;
+}
+
+.dm-case {
+  --notch: 26px;          /* the 45deg corner cut */
+  --depth: 22px;          /* how thick the box is */
+  --frame: 2.5px;         /* the brass edge */
+  position: relative;
+  flex: none;
+  width: var(--case-w);
+  aspect-ratio: 3 / 4;
+  perspective: 1100px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The light behind it. A radial gradient has no edges to give away — a
+   drop-shadow traces the bounding box and reads as a rectangle on hover. */
+.dm-case::before {
+  content: "";
+  position: absolute; z-index: 0;
+  left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: 168%; aspect-ratio: 1;
+  /* The case is the only object on the screen, so it should look lit rather
+     than merely present. Three stops instead of two, a hotter core, and a
+     tighter blur — a wide soft wash over black reads as a slightly-less-black
+     rectangle, which is exactly what it looked like. */
+  background:
+    radial-gradient(circle,
+      rgb(var(--dm-glow) / .55) 0%,
+      rgb(var(--dm-glow) / .26) 26%,
+      rgb(var(--dm-glow) / .08) 48%,
+      rgba(5,5,5,0) 70%),
+    radial-gradient(52% 30% at 50% 84%, rgba(0,0,0,.94) 0%, rgba(0,0,0,0) 74%);
+  filter: blur(18px);
+  opacity: 1;
+  transition: opacity .35s ease, transform .35s ease;
+}
+/* Dust in the light. Two drifting layers of specks, offset in size, speed and
+   direction so they never read as a repeating tile — the case is lit, and lit
+   things have something floating in front of them. */
+.dm-case-motes {
+  position: absolute; z-index: 0; pointer-events: none;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 190%; height: 155%;
+  /* Sixteen sparks, not eight, and big enough to actually catch the eye at a
+     desk-sized window -- the first pass used 1px dots over an area two cases
+     wide, which is a layer you can measure but cannot see. */
+  background-image:
+    radial-gradient(4.0px 4.0px at 45.4% 55.6%, rgb(var(--dm-glow) / 0.71), transparent 62%),
+    radial-gradient(2.4px 2.4px at 50.8% 58.2%, rgb(var(--dm-glow) / 0.73), transparent 62%),
+    radial-gradient(2.2px 2.2px at 62.5% 77.5%, rgb(var(--dm-glow) / 0.62), transparent 62%),
+    radial-gradient(3.5px 3.5px at 10.7% 79.1%, rgb(var(--dm-glow) / 0.47), transparent 62%),
+    radial-gradient(3.4px 3.4px at 96.3% 93.7%, rgb(var(--dm-glow) / 0.79), transparent 62%),
+    radial-gradient(3.2px 3.2px at 17.1% 4.4%, rgb(var(--dm-glow) / 0.48), transparent 62%),
+    radial-gradient(2.1px 2.1px at 20.3% 25.7%, rgb(var(--dm-glow) / 0.71), transparent 62%),
+    radial-gradient(3.1px 3.1px at 44.3% 82.2%, rgb(var(--dm-glow) / 0.8), transparent 62%),
+    radial-gradient(3.0px 3.0px at 50.0% 65.3%, rgb(var(--dm-glow) / 0.6), transparent 62%),
+    radial-gradient(3.8px 3.8px at 97.8% 96.6%, rgb(var(--dm-glow) / 0.84), transparent 62%),
+    radial-gradient(2.6px 2.6px at 32.3% 24.6%, rgb(var(--dm-glow) / 0.49), transparent 62%),
+    radial-gradient(3.9px 3.9px at 75.6% 40.6%, rgb(var(--dm-glow) / 0.66), transparent 62%),
+    radial-gradient(2.0px 2.0px at 94.0% 82.6%, rgb(var(--dm-glow) / 0.57), transparent 62%),
+    radial-gradient(4.2px 4.2px at 89.4% 47.2%, rgb(var(--dm-glow) / 0.67), transparent 62%),
+    radial-gradient(3.7px 3.7px at 9.0% 62.2%, rgb(var(--dm-glow) / 0.6), transparent 62%),
+    radial-gradient(4.1px 4.1px at 10.4% 34.3%, rgb(var(--dm-glow) / 0.87), transparent 62%);
+  background-repeat: no-repeat;
+  animation: dm-motes 14s ease-in-out infinite alternate;
+  opacity: .9;
+}
+.dm-case-motes[data-layer="2"] {
+  width: 240%; height: 195%;
+  background-image:
+    radial-gradient(3.1px 3.1px at 54.6% 35.5%, rgb(var(--dm-glow) / 0.61), transparent 62%),
+    radial-gradient(2.3px 2.3px at 51.0% 35.3%, rgb(var(--dm-glow) / 0.99), transparent 62%),
+    radial-gradient(2.0px 2.0px at 12.0% 44.8%, rgb(var(--dm-glow) / 0.64), transparent 62%),
+    radial-gradient(2.7px 2.7px at 97.9% 34.0%, rgb(var(--dm-glow) / 0.68), transparent 62%),
+    radial-gradient(1.9px 1.9px at 72.1% 45.0%, rgb(var(--dm-glow) / 0.69), transparent 62%),
+    radial-gradient(2.6px 2.6px at 41.2% 77.5%, rgb(var(--dm-glow) / 0.56), transparent 62%),
+    radial-gradient(2.5px 2.5px at 66.7% 31.0%, rgb(var(--dm-glow) / 0.57), transparent 62%),
+    radial-gradient(2.5px 2.5px at 41.4% 76.9%, rgb(var(--dm-glow) / 0.86), transparent 62%),
+    radial-gradient(2.8px 2.8px at 74.6% 58.2%, rgb(var(--dm-glow) / 0.67), transparent 62%),
+    radial-gradient(1.8px 1.8px at 61.3% 76.1%, rgb(var(--dm-glow) / 0.97), transparent 62%),
+    radial-gradient(1.9px 1.9px at 37.3% 16.1%, rgb(var(--dm-glow) / 0.64), transparent 62%),
+    radial-gradient(2.3px 2.3px at 8.6% 40.4%, rgb(var(--dm-glow) / 0.81), transparent 62%),
+    radial-gradient(2.8px 2.8px at 46.8% 90.9%, rgb(var(--dm-glow) / 0.63), transparent 62%),
+    radial-gradient(3.3px 3.3px at 86.0% 68.7%, rgb(var(--dm-glow) / 0.85), transparent 62%),
+    radial-gradient(2.1px 2.1px at 94.7% 22.3%, rgb(var(--dm-glow) / 0.98), transparent 62%),
+    radial-gradient(3.2px 3.2px at 4.1% 89.8%, rgb(var(--dm-glow) / 0.52), transparent 62%);
+  animation: dm-motes-2 21s ease-in-out infinite alternate;
+  opacity: .62;
+  filter: blur(1.1px);
+}
+@keyframes dm-motes {
+  from { transform: translate(-50%, -50%) translate3d(0, 0, 0); opacity: .6; }
+  to   { transform: translate(-50%, -50%) translate3d(12px, -22px, 0); opacity: 1; }
+}
+@keyframes dm-motes-2 {
+  from { transform: translate(-50%, -50%) translate3d(8px, 14px, 0); opacity: .78; }
+  to   { transform: translate(-50%, -50%) translate3d(-16px, -28px, 0); opacity: .38; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-case-motes { animation: none; opacity: .7; }
+}
+
+/* A second, wider halo so the light falls off into the page instead of
+   stopping at an edge. */
+.dm-case::after {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 250%; aspect-ratio: 1;
+  background: radial-gradient(circle, rgb(var(--dm-glow) / .16) 0%, rgba(5,5,5,0) 62%);
+  filter: blur(50px);
+  opacity: .85;
+  transition: opacity .35s ease;
+}
+.dm-case[data-on="1"]::before,
+.dm-case:hover::before { opacity: 1; transform: translate(-50%, -50%) scale(1.14); }
+.dm-case[data-on="1"]::after,
+.dm-case:hover::after { opacity: 1.25; }
+
+.dm-case-3d {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateY(-17deg) rotateX(3deg) scale(.94);
+  transition: transform .45s cubic-bezier(.2,.8,.25,1);
+}
+.dm-case[data-on="1"] .dm-case-3d { transform: rotateY(-11deg) rotateX(2deg) scale(1); }
+
+/* One octagon, reused, so the layers cannot disagree about the shape. */
+.dm-case-face, .dm-case-plate, .dm-case-rule {
+  clip-path: polygon(
+    var(--notch) 0, calc(100% - var(--notch)) 0,
+    100% var(--notch), 100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%, var(--notch) 100%,
+    0 calc(100% - var(--notch)), 0 var(--notch));
+}
+
+/* The brass edge IS the face; the plate sits on top inset by the frame width,
+   which leaves a metal rim of exactly that thickness. */
+.dm-case-face {
+  position: absolute; inset: 0;
+  box-shadow: 0 0 26px rgb(var(--dm-glow) / .45), 0 22px 50px rgba(0,0,0,.75);
+  background: linear-gradient(146deg,
+    #f6e3ae 0%, #d9b26a 15%, #7a5a24 30%, #d9b26a 45%,
+    #fbf0c8 57%, #d9b26a 70%, #7a5a24 86%, #e5c473 100%);
+}
+.dm-case-plate {
+  position: absolute; inset: var(--frame);
+  --notch: 18px;
+  overflow: hidden;
+  background: radial-gradient(120% 92% at 50% 116%, #17120b 0%, #08070a 58%), #08070a;
+}
+/* A portrait under a soft scrim comes out milky. Pushed harder: most of the
+   colour out, the brass put back through sepia, and the whole thing dropped
+   and hardened so it reads as artwork on a dark plate rather than a photo
+   somebody faded. */
+/* The cover is a DRAWN scene, not a photograph.
+   It was carrying a photo treatment — grayscale, sepia, brightness .5 — which
+   is right for a bright press shot and ruinous for artwork already drawn in
+   near-black and brass. It crushed the throne, the skyline and every other
+   scene into a flat dark rectangle, which is why the art looked missing. The
+   scenes ship in the palette already; they need showing, not correcting. */
+.dm-case-cover {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 1;
+}
+/* Dark at the top so the title reads, clear at the bottom so the art does. */
+/* Dark at the top so the title reads, open across the middle so the art
+   does, and a floor at the bottom so DRAFT is sitting on something. A vignette
+   pulls the corners in — without it the plate's edges glow and the octagon
+   stops looking cut. */
+.dm-case-scrim {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg,
+      rgba(6,5,8,.88) 0%, rgba(6,5,8,.62) 26%,
+      rgba(6,5,8,.06) 52%, rgba(6,5,8,.34) 82%, rgba(6,5,8,.72) 100%),
+    radial-gradient(84% 66% at 50% 46%, transparent 52%, rgba(6,5,8,.5) 100%),
+    radial-gradient(60% 34% at 50% 24%, rgb(var(--dm-glow) / .16), transparent 70%);
+}
+.dm-case-rule {
+  position: absolute; inset: 12px; --notch: 16px;
+  border: 1px solid rgb(var(--dm-glow) / .34);
+  pointer-events: none;
+}
+
+/* The side and the lid: what make it a box rather than a card. */
+.dm-case-side {
+  position: absolute; top: var(--notch); right: 0; bottom: var(--notch);
+  width: var(--depth);
+  transform-origin: right center; transform: rotateY(90deg);
+  background: linear-gradient(90deg, #6b5423 0%, #2a2114 34%, #120d08 72%, #0a0705 100%);
+  box-shadow: inset 2px 0 0 rgba(240,220,160,.75), inset -2px 0 0 rgba(122,90,36,.7);
+}
+.dm-case-top {
+  position: absolute; top: 0; left: var(--notch); right: var(--notch);
+  height: var(--depth);
+  transform-origin: center top; transform: rotateX(-90deg);
+  background: linear-gradient(180deg, #7d6229 0%, #3a2f1c 38%, #16110a 78%, #0b0805 100%);
+  box-shadow: inset 0 2px 0 rgba(240,220,160,.7);
+}
+
+/* Content lays out normally, because the plane is already turned. */
+.dm-case-body {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 11% 10% 0; text-align: center;
+}
+.dm-case-crest { color: rgb(var(--dm-glow) / .95); margin-bottom: 12px; flex-shrink: 0; }
+.dm-case-name {
+  margin: 0; font-family: var(--dm-display); font-weight: 700;
+  font-size: clamp(21px, 5.4vw, 30px); line-height: 1.04; letter-spacing: .04em;
+  text-transform: uppercase; color: #f8efd8; text-wrap: balance;
+  text-shadow: 0 0 22px rgb(var(--dm-glow) / .5), 0 2px 8px rgba(0,0,0,.9);
+}
+.dm-case-blurb {
+  margin: 12px 0 0; font-size: 12.5px; line-height: 1.5;
+  color: rgba(246,242,234,.9); max-width: 24ch; text-wrap: balance;
+  text-shadow: 0 2px 8px rgba(0,0,0,.95);
+}
+/* DRAFT is on the object. Choosing a universe and starting a game are the
+   same gesture, which is the whole point of the redesign. */
+.dm-case-draft {
+  margin-top: auto; margin-bottom: 11%;
+  padding: 12px 34px; border-radius: 999px;
+  border: 2px solid #e8cd82;
+  background: linear-gradient(180deg, #8a6c20 0%, #4a390f 55%, #2c2109 100%);
+  color: #ffeec2; font-family: var(--dm-display);
+  font-size: 13px; font-weight: 700; letter-spacing: .3em; text-indent: .3em;
+  box-shadow: 0 0 20px rgb(var(--dm-glow) / .5), inset 0 1px 0 rgba(255,244,205,.45);
+  text-shadow: 0 1px 3px rgba(0,0,0,.7);
+  cursor: pointer; transition: box-shadow .22s ease, border-color .22s ease;
+}
+.dm-case-draft:hover {
+  border-color: #fff3cb;
+  box-shadow: 0 0 34px rgb(var(--dm-glow) / .75), inset 0 1px 0 rgba(255,244,205,.6);
+}
+
+/* Custom has no cover art, because its contents do not exist yet. */
+.dm-case-multiverse {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(42% 34% at 32% 30%, rgba(120,90,220,.5), transparent 70%),
+    radial-gradient(38% 30% at 70% 62%, rgba(40,150,190,.45), transparent 72%),
+    radial-gradient(50% 40% at 50% 90%, rgb(var(--dm-glow) / .3), transparent 72%),
+    #0a0812;
+}
+
+
 
 /* ── Arena layout (desktop only) ───────────────────────────────────────────
    A poker table. The two players face each other across the middle, each
@@ -1209,8 +1939,8 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
   }
   .dm-stage[data-arena="1"] .dm-seat[data-turn="1"] {
     border-color: var(--dm-gold);
-    background: rgba(212,169,66,.08);
-    box-shadow: 0 0 32px rgba(212,169,66,.13);
+    background: rgb(var(--dm-glow) / .08);
+    box-shadow: 0 0 32px rgb(var(--dm-glow) / .13);
   }
   .dm-stage[data-arena="1"] .dm-seat[data-high="1"] { border-color: var(--dm-green); }
 
@@ -1261,7 +1991,7 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
     background: var(--dm-panel);
     transition: border-color .2s ease;
   }
-  .dm-stage[data-arena="1"] .dm-roster[data-turn="1"] { border-color: rgba(212,169,66,.45); }
+  .dm-stage[data-arena="1"] .dm-roster[data-turn="1"] { border-color: rgb(var(--dm-glow) / .45); }
   /* Sized off viewport HEIGHT, not width. These are 3:4 cards, so a width
      clamp sets the height too — on a short window two benches at 200px each
      plus the table simply will not fit, and your own bench slides off the
@@ -1824,149 +2554,31 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 .dm-deck-wrap { margin: 0 -14px; }
 
 .dm-deck {
+  /* ONE case, and nothing else. Each slot is the full width of the scroller,
+     so there is no sliver of the next one pulling the eye sideways off the
+     only object on the screen. The next is a swipe away, not a peek away. */
+  --case-w: clamp(250px, 74vw, 340px);
   display: flex;
-  gap: 14px;
+  gap: 0;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  /* Vertical room for the lift on the selected pack. */
-  padding: 18px 14px 22px;
-  scroll-padding-left: 14px;
-  perspective: 1200px;
+  padding: 22px 0 30px;
+  perspective: 1400px;
 }
 .dm-deck::-webkit-scrollbar { display: none; }
 
-.dm-pack {
-  scroll-snap-align: center;
-  flex: 0 0 clamp(206px, 63vw, 250px);
-  position: relative;
-  aspect-ratio: 760 / 1210;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  /* The pack's own silhouette is the shape — no card frame around it. */
-  filter: drop-shadow(0 16px 26px rgba(0,0,0,.6));
-  transition: transform .28s cubic-bezier(.2,.8,.25,1), filter .28s ease;
-  transform-style: preserve-3d;
-}
-.dm-pack:hover { transform: translateY(-6px) rotateY(-4deg); }
-.dm-pack[data-on="1"] {
-  transform: translateY(-10px) scale(1.03);
-  filter: drop-shadow(0 22px 34px rgba(0,0,0,.72)) drop-shadow(0 0 18px rgb(var(--dm-glow) / .42));
-}
+/* The foil-pouch styles lived here. A board is a case now — see .dm-case
+   above. Removed rather than left behind: dead CSS that still matches a
+   class name somebody might reuse is worse than no CSS. */
 
-/* The photograph. */
-.dm-pack-foil {
-  position: absolute; inset: 0;
-  background: url("/draftmasters/pack.webp") center / 100% 100% no-repeat;
-}
-
-/* Everything printed on it. */
-.dm-pack-face {
-  position: absolute; inset: 0;
-  display: grid;
-  grid-template-rows: auto auto 1fr auto auto;
-  justify-items: center;
-  gap: 4px;
-  /* Clear of the crimps at both ends. */
-  padding: 11% 10% 10%;
-  text-align: center;
-}
-
-.dm-pack-house {
-  font-size: 9.5px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase;
-  color: rgba(236,229,216,.62);
-}
-.dm-pack-chip {
-  font-size: 8.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
-  color: #17110a;
-  background: linear-gradient(100deg, var(--dm-gold-hot), var(--dm-gold));
-  padding: 3px 9px; border-radius: 3px;
-  /* The chip is cut on the skew, like the band below it. */
-  transform: skewX(-10deg);
-  max-width: 100%;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
-/* The lit window — the pack's one bright thing. */
-.dm-pack-window {
-  position: relative;
-  align-self: center;
-  width: 66%; aspect-ratio: 1;
-  border-radius: 50%;
-  overflow: hidden;
-  display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 34%, rgb(var(--dm-glow) / .30), rgba(0,0,0,.55) 72%);
-  box-shadow: 0 0 0 2px rgb(var(--dm-glow) / .55), 0 0 26px rgb(var(--dm-glow) / .28), 0 8px 20px rgba(0,0,0,.6) inset;
-}
-.dm-pack-window img {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%;
-}
-.dm-pack-emoji { font-size: 40px; opacity: .8; }
-
-/* The brass band IS the nameplate.
-   It was a sibling element with a negative margin, which in a grid row still
-   leaves the name in the row below it — so the name landed on black foil in
-   near-black ink and vanished. Painting the band as the name's own backing
-   means the two can never come apart. */
-.dm-pack-name {
-  position: relative;
-  align-self: stretch;
-  display: grid; place-items: center;
-  font-family: var(--dm-display);
-  font-size: clamp(14px, 4.3vw, 18px);
-  font-weight: 800; line-height: 1.05; letter-spacing: -0.01em;
-  color: #14100a;
-  text-wrap: balance;
-  padding: 7px 6px;
-  margin: 6px -13% 0;
-  isolation: isolate;
-}
-.dm-pack-name::before {
-  content: "";
-  position: absolute; inset: 0;
-  z-index: -1;
-  background: linear-gradient(100deg, #a8801a 0%, var(--dm-gold-hot) 44%, var(--dm-gold) 72%, #8f6d14 100%);
-  transform: skewY(-6deg);
-  box-shadow: 0 3px 10px rgba(0,0,0,.45);
-}
-.dm-pack-foot {
-  position: relative;
-  font-size: 9.5px; line-height: 1.35;
-  color: rgba(236,229,216,.6);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-
-/* Custom is the one pack with nothing photographed inside it yet. */
-.dm-pack-multiverse {
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(58% 44% at 24% 22%, rgba(126,249,255,.55), transparent 70%),
-    radial-gradient(54% 44% at 78% 30%, rgba(255,95,158,.52), transparent 70%),
-    radial-gradient(70% 56% at 50% 86%, rgba(155,123,255,.58), transparent 72%),
-    conic-gradient(from 210deg at 50% 50%, #16162a, #241640, #0e1622, #16162a);
-  animation: dm-multiverse 20s ease-in-out infinite alternate;
-}
-@keyframes dm-multiverse {
-  from { transform: scale(1) rotate(0deg); }
-  to   { transform: scale(1.22) rotate(10deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dm-pack-multiverse { animation: none; }
-  .dm-pack { transition: none; }
-}
-
-/* The compose box only exists once the custom pack is chosen. */
 .dm-deck-compose { padding: 0 14px; margin-top: 4px; }
 .dm-deck-compose .dm-textarea { width: 100%; }
 
 @media (min-width: 900px) {
   .dm-deck-wrap { margin: 0; }
-  .dm-deck { padding-left: 0; padding-right: 0; scroll-padding-left: 0; }
-  .dm-pack { flex-basis: 210px; }
+  .dm-deck { --case-w: clamp(300px, 24vw, 360px); }
   .dm-deck-compose { padding: 0; }
 }
 
@@ -2168,8 +2780,8 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
 /* A segment is a choice you can see the state of from across the room. */
 .dm-seg-item {
   border-radius: 12px;
-  background: linear-gradient(180deg, #141c1a, #0f1615);
-  box-shadow: 0 2px 0 #0a0f0e;
+  background: linear-gradient(180deg, #1a1710, #100e0b);
+  box-shadow: 0 2px 0 #0a0908;
 }
 .dm-seg-item[data-on="1"] {
   border-color: var(--dm-gold);
@@ -2191,64 +2803,24 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   opacity: .75;
 }
 
-/* Panels are lit from above, matching the spotlight over the block. */
+/* Panels are lit from above, matching the spotlight over the block. The top
+   stop was #141c1a — a green the hub uses and this game does not. */
 .dm-panel {
-  background: linear-gradient(180deg, #141c1a, var(--dm-panel));
+  background: linear-gradient(180deg, #1a1710, var(--dm-panel));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.35);
 }
 
-/* ── Pack legibility ──────────────────────────────────────────────────────
-   The mark and the strapline sit on black foil with a specular highlight
-   running through it, so flat grey text disappears into the shine. */
-
-.dm-pack-house {
-  color: rgba(236,229,216,.78);
-  text-shadow: 0 1px 3px rgba(0,0,0,.9);
-}
-.dm-pack-foot {
-  color: rgba(236,229,216,.74);
-  text-shadow: 0 1px 3px rgba(0,0,0,.95);
-}
-.dm-pack-name {
-  /* Dark ink on brass needs no shadow, but it does need to not be muddied by
-     the plate's own gradient. */
-  text-shadow: 0 1px 0 rgba(255,255,255,.22);
-}
-/* A soft floor under the lower half of the face so the strapline always has
-   something to sit on, whatever the foil is doing behind it. */
-.dm-pack-face::after {
-  content: "";
-  position: absolute; inset: 42% 4% 6%;
-  z-index: -1;
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,.55) 55%, rgba(0,0,0,.72));
-  border-radius: 0 0 10px 10px;
-}
-.dm-pack-face { isolation: isolate; }
-
 /* ── Under the shelf: look inside, or draft ───────────────────────────── */
 
-.dm-shelf-foot {
-  display: grid; grid-template-columns: auto 1fr; align-items: center;
-  gap: 10px; margin-top: 2px;
-}
-.dm-inside-btn {
-  display: inline-flex; align-items: center; gap: 7px;
-  min-height: 48px; padding: 10px 15px;
-  border-radius: 999px;
-  border: 1px solid var(--dm-line-hot);
-  background: rgba(255,255,255,.04);
-  color: var(--dm-dim);
-  font: inherit; font-size: 13px; font-weight: 650;
-  cursor: pointer; white-space: nowrap;
-}
-.dm-inside-btn:hover { color: var(--dm-text); border-color: var(--dm-gold); }
-.dm-draft-now { width: 100%; min-height: 52px; font-size: 15px; }
+/* The old shelf foot lived here: a What's-inside button and a Draft Now
+   bar. DRAFT is printed on the case itself now, and the contents stay
+   sealed on purpose. Replaced by .dm-carousel above. */
 
 /* ── The contents sheet ───────────────────────────────────────────────── */
 
 .dm-sheet-scrim {
   position: fixed; inset: 0; z-index: 60;
-  background: rgba(4,6,5,.72);
+  background: rgba(6,5,4,.74);
   backdrop-filter: blur(3px);
   display: flex; align-items: flex-end; justify-content: center;
   animation: dm-fade .16s ease-out;
@@ -2261,7 +2833,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   padding: 10px 16px calc(20px + env(safe-area-inset-bottom));
   border-radius: 20px 20px 0 0;
   border: 1px solid var(--dm-line-hot); border-bottom: 0;
-  background: linear-gradient(180deg, #16201d, var(--dm-panel));
+  background: linear-gradient(180deg, #1d1913, var(--dm-panel));
   box-shadow: 0 -20px 60px rgba(0,0,0,.7);
   animation: dm-sheet-up .24s cubic-bezier(.2,.8,.25,1);
 }
@@ -2295,7 +2867,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   display: flex; flex-direction: column; gap: 3px; align-items: center;
   padding: 10px 6px; border-radius: 12px;
   border: 1px solid var(--dm-line);
-  background: linear-gradient(180deg, #141c1a, #0f1615);
+  background: linear-gradient(180deg, #1a1710, #100e0b);
 }
 .dm-rec-k {
   font-size: 9.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;

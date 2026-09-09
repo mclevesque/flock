@@ -53,6 +53,10 @@ export const ALL_GAMES: CatalogGame[] = [
     id: "draftmasters", title: "DraftMasters", desc: "Auction draft anything — $20, five picks, one winner", emoji: "🔨",
     multiplayer: true, launchType: "nav", href: "/draftmasters",
   },
+  {
+    id: "nerd-alert", title: "Nerd Alert!", desc: "Jeopardy with all your geek favorites", emoji: "⚡",
+    multiplayer: true, launchType: "nav", href: "/nerd-alert",
+  },
 ];
 
 export const GAME_SECTIONS = [
@@ -67,6 +71,10 @@ export const GAME_SECTIONS = [
   {
     label: "SOULBOUND", icon: "🥚",
     games: ALL_GAMES.filter(g => g.id === "emberkin"),
+  },
+  {
+    label: "PARTY", icon: "🎉",
+    games: ALL_GAMES.filter(g => ["nerd-alert"].includes(g.id)),
   },
   {
     label: "RETRO", icon: "🕹️",

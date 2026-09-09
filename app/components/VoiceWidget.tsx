@@ -1361,7 +1361,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
   // ────────────────────────────────────────────────────────────────────────────
 
   // Budi is a standalone app — keep voice context alive but hide GS's floating voice + DM widgets there
-  if (pathname?.startsWith("/budi")) return <>{children}</>;
+  if (pathname?.startsWith("/budi") || pathname?.startsWith("/draftmasters")) return <>{children}</>;
   if (!userId) return <>{children}</>;
 
   const inVoice = !!currentRoomId;
@@ -1375,6 +1375,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         {children}
         <div
           onClick={focusPopup}
+          data-site-chrome="1"
           style={{
             position: "fixed", bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 16, right: 16, zIndex: 9500,
             background: "rgba(13,15,20,0.94)", backdropFilter: "blur(12px)",
@@ -1765,7 +1766,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
       {/* ── Game invite banners — top-left, expire after 5 min ───────────────── */}
       {gameInvites.filter(inv => !dismissedInvites.has(inv.id)).length > 0 && (
-        <div style={{
+        <div data-site-chrome="1" style={{
           position: "fixed", top: 70, left: 16, zIndex: 9400,
           display: "flex", flexDirection: "column", gap: 8,
           pointerEvents: "none",
@@ -1868,7 +1869,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
 
       {/* ── Normal floating panel + pill ─────────────────────────────────────── */}
       {!isMaxi && (
-        <div style={{
+        <div data-site-chrome="1" style={{
           position: "fixed",
           bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom) + 8px)" : 0,
           right: 0, zIndex: 9500,

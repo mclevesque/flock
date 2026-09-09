@@ -135,6 +135,8 @@ export interface PackSummary {
   name: string;
   emoji: string;
   blurb: string;
+  /** How many characters are on it. The one number every picker row shows. */
+  count: number;
   /** The board's most prominent entry — the face on its card in the picker. */
   heroName: string;
   heroQuery: string;
