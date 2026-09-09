@@ -42,7 +42,6 @@ YOUR JOB: name at most ${ADJUST_LIMITS.count} specific matchups the raw numbers 
 HARD LIMITS — anything outside these is clamped, so asking for more just wastes the slot:
 - atk: -${ADJUST_LIMITS.atk} to +${ADJUST_LIMITS.atk}
 - def: -${ADJUST_LIMITS.def} to +${ADJUST_LIMITS.def}
-- plane: -${ADJUST_LIMITS.plane} to +${ADJUST_LIMITS.plane}
 
 Use "vs" when the point is about ONE specific opponent, which is usually the interesting case. Omit it when the card is simply better or worse than its stat line in this whole fight.
 
@@ -60,7 +59,7 @@ interface Body {
 }
 
 const line = (c: Card) =>
-  `${c.name}${c.variant ? ` (${c.variant})` : ""} — ${c.atk}/${c.def}, ${c.planeLabel} plane` +
+  `${c.name}${c.variant ? ` (${c.variant})` : ""} — ${c.atk}/${c.def}${c.rush > 0 ? `, rushdown ${c.rush}` : ""}` +
   (c.fx.length ? `, ${c.fx.map((f) => f.label).join(", ")}` : "");
 
 export async function POST(req: Request) {

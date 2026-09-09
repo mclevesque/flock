@@ -1,55 +1,80 @@
 /**
  * DraftMasters — what a card IS, in numbers.
  *
- * THE RULE THIS FILE EXISTS TO ENFORCE: price never touches power.
+ * A card is two numbers and its abilities. That is Magic's model: attack,
+ * defence, and the text underneath that makes two cards with the same pair
+ * behave completely differently.
  *
- * The draft tier is a price. It is what a pick should cost at auction, and it
- * is set by what buyers will pay — scarcity, hype, how badly you need a body
- * this round. An earlier version of this used the tier directly as the attack
- * stat, which is the same mistake as reading a footballer's wage off the
- * scoreboard: it squeezed every card in the game between 1/1 and 5/5, and it
- * put Meleys, a dragon, on exactly the same numbers as Jaime Lannister,
- * because the two of them happen to cost the same.
+ * THREE RULES.
  *
- * Power comes from three things, none of which is money:
+ * PRICE NEVER TOUCHES POWER. The draft tier is what a pick COSTS at auction —
+ * scarcity, hype, how badly you need a body this round. An earlier version
+ * read the stat line straight off it, which is the same mistake as reading a
+ * footballer's ability off their wage.
  *
- *   THE PLANE. Which weight class of reality the card fights in. This is the
- *   floor and the ceiling — a mortal is a mortal however beloved, and nothing
- *   on plane 1 is coming out of here with a twelve.
+ * THE CEILING IS HIGH AND THE FLOOR IS LOW. Magic tops out near 10 because
+ * every card in Magic shares a world. These do not. Base Goku is a 15, Super
+ * Saiyan 20, Super Saiyan 4 a 40. Obi-Wan is an 8 with very good abilities.
+ * Game of Thrones has nothing in that range — its dragons stop at 14 and its
+ * best swordsmen sit at 6 — and that is not a flaw in the board. It is the
+ * answer to what happens when Westeros meets a Saiyan.
  *
- *   ITS STATURE. Within a plane, size and shape still separate things. A
- *   dragon is not a knight in a bigger jacket; it is harder to hurt and it
- *   hits like weather.
- *
- *   WHAT WE DECIDED. Some cards are simply known quantities and arguing them
- *   out of a formula is a waste of everyone's time. Vhagar is the largest
- *   living dragon in Westeros and is written down as such.
- *
- * THE SCALE IS NOT CAPPED AT TEN. Ten is roughly "the biggest thing a mortal
- * story has" — a grown dragon, a kaiju's little brother. Above that the
- * numbers keep going, because the planes above keep going, and a Titan that
- * had to fit under ten would be a Titan in name only.
+ * THERE IS NO SEPARATE POWER TIER. Planes are gone. A 40/40 beats a 6/6
+ * because it is a 40/40, and the interesting fights are decided by RUSHDOWN
+ * and by abilities, not by a gate sitting on top of the arithmetic.
  */
-import type { Trait } from "./traits";
-import type { Plane } from "./planes";
+import { hits, type Trait } from "./traits";
+import { DBZ_POWER, DBZ_WRITTEN } from "./boards/dbz";
 
 /**
- * The middle of each weight class, plane 1 to 7.
+ * What an ordinary member of this cast is worth, and what its very top is.
  *
- * The gaps widen going up on purpose. The distance from an ordinary person to
- * the world's best fighter is real but finite; the distance from a god to the
- * thing above a god is not the same size of step, and a linear scale flattens
- * exactly the difference the planes exist to express.
+ * Deliberately not normalised against each other. A board whose ceiling is 14
+ * is a weaker board than one whose ceiling is 34, and drafting across both is
+ * supposed to feel like that.
  */
-export const PLANE_BASE: Record<Plane, number> = {
-  1: 3,    // an ordinary person, or an ordinary animal
-  2: 6,    // the ceiling of what a human body does
-  3: 9,    // past what a body should do — magic, a monster, a dragon
-  4: 13,   // fights that level a district
-  5: 17,   // Titan
-  6: 22,   // the ones the story stops being able to measure
-  7: 28,   // above that
+export const BOARD_POWER: Record<string, [ordinary: number, top: number]> = {
+  // ORDINARY means unremarkable — a household guard, a background ninja, a
+  // Putty Patroller. Anyone the audience could name should be written down
+  // ABOVE it, not sitting on it. The first pass set these too high and the
+  // result was Naruto tying with the crowd he stands out from.
+  //
+  // Mortal worlds
+  got: [5, 14],
+  animals: [3, 11],
+  tvd: [5, 12],
+  spn: [5, 15],
+  horror: [4, 15],
+  berserk: [6, 18],
+  tmnt: [5, 11],
+  ppg: [6, 14],
+  sf: [6, 14],
+  mk: [6, 16],
+  rangers: [5, 14],
+  cw: [4, 18],
+
+  // Worlds with a ceiling well past a person
+  starwars: [5, 20],
+  lotr: [5, 20],
+  bosses: [7, 20],
+  yugioh: [5, 24],
+  pokemon: [4, 25],
+  xmen: [6, 24],
+  greek: [5, 26],
+  myth: [6, 26],
+  smash: [6, 22],
+  invincible: [6, 26],
+
+  // The big ones
+  marvel: [5, 30],
+  dc: [5, 32],
+  anime: [6, 30],
+  godzilla: [16, 34],
+  dbz: DBZ_POWER,
 };
+
+/** A board nobody has written a range for. Mortal-ish, room to move. */
+export const DEFAULT_POWER: [number, number] = [6, 18];
 
 /**
  * How stature bends the two halves apart.
@@ -57,30 +82,101 @@ export const PLANE_BASE: Record<Plane, number> = {
  * Attack and defence are not the same question. Something enormous is mostly
  * a defensive problem — you cannot get through it — while its offence is one
  * terrible event rather than a flurry. So the big traits give more defence
- * than attack, which is why a dragon reads 10/12 and not 12/10.
+ * than attack, which is why a dragon reads 11/14 and not 14/11.
  */
 const LEAN: Partial<Record<Trait, { atk: number; def: number }>> = {
-  dragon:   { atk: 1, def: 3 },
-  giant:    { atk: 1, def: 3 },
-  large:    { atk: 0, def: 2 },
-  sluggish: { atk: -1, def: 2 },
-  flying:   { atk: 1, def: 0 },
+  dragon: { atk: 0, def: 3 },
+  giant: { atk: 0, def: 3 },
+  large: { atk: 0, def: 2 },
+  sluggish: { atk: -2, def: 2 },
+  flying: { atk: 1, def: 0 },
 };
 
 /**
  * Cards written down rather than worked out.
  *
- * Keyed by a lowercase fragment of the name, matched the same generous way
- * traits are. Two numbers: attack, defence, final — no plane base, no lean,
- * no arithmetic. Use it for the handful per board where the derivation gets a
- * famous answer wrong, not as a place to put every card.
+ * Keyed by a lowercase fragment, longest match wins. Two numbers, final. Use
+ * it where a formula reading a name would get a famous answer wrong — which
+ * is most of the cards anybody actually drafts for.
  */
 const WRITTEN: [string, [number, number]][] = [
+  // ── Dragon Ball ───────────────────────────────────────────────────────
+  // The forms are the clearest statement of what this scale is for: one
+  // character, five times over, an order of magnitude apart.
+  ["ultra instinct", [45, 42]],
+  ["super saiyan 4", [40, 40]],
+  ["ssj4", [40, 40]],
+  ["super saiyan blue", [32, 30]],
+  ["super saiyan 3", [28, 26]],
+  ["super saiyan 2", [24, 23]],
+  ["super saiyan", [20, 20]],
+  ["goku", [15, 15]],
+  ["vegeta", [14, 14]],
+  ["gohan", [13, 13]],
+  ["piccolo", [11, 12]],
+  ["frieza", [18, 17]],
+  ["cell", [17, 17]],
+  ["majin buu", [19, 18]],
+  ["beerus", [38, 36]],
+  ["whis", [42, 40]],
+  ["krillin", [6, 6]],
+  ["yamcha", [4, 5]],
+  ["master roshi", [7, 7]],
+  ["hercule", [2, 3]],
+  ["mr. satan", [2, 3]],
+  ["bulma", [1, 2]],
+
+  // ── Shinobi ───────────────────────────────────────────────────────────
+  // Naruto is a 9 in base form and Goku is a 15, which is the gap it should
+  // be: both are the hero of their world, and only one of them fights gods.
+  ["naruto uzumaki", [9, 9]],
+  ["naruto", [9, 9]],
+  ["sasuke", [9, 9]],
+  ["kakashi", [8, 8]],
+  ["itachi", [10, 8]],
+  ["minato", [11, 9]],
+  ["madara", [14, 13]],
+  ["pain", [13, 12]],
+  ["nagato", [13, 12]],
+  ["gaara", [8, 11]],
+  ["rock lee", [8, 6]],
+  ["hinata", [6, 6]],
+  ["jiraiya", [10, 10]],
+  ["orochimaru", [10, 11]],
+
+  // ── Rangers ───────────────────────────────────────────────────────────
+  // The strongest Ranger, and it still only buys him an 8 — the board's
+  // ceiling belongs to the Zords, not to anyone wearing a suit.
+  ["green ranger", [8, 8]],
+  ["tommy oliver", [8, 8]],
+  ["white ranger", [8, 8]],
+  ["lord zedd", [11, 10]],
+  ["rita repulsa", [8, 8]],
+  ["goldar", [8, 9]],
+  ["a putty patroller", [2, 3]],
+  ["bulk and skull", [1, 2]],
+
+  // ── Star Wars ─────────────────────────────────────────────────────────
+  ["darth vader", [11, 12]],   // mythic takes him to 19/21, which is where he belongs
+  ["obi-wan", [8, 9]],
+  ["obi wan", [8, 9]],
+  ["yoda", [13, 10]],
+  ["palpatine", [15, 12]],
+  ["darth sidious", [15, 12]],
+  ["luke skywalker", [12, 11]],
+  ["anakin skywalker", [12, 11]],
+  ["darth maul", [10, 9]],
+  ["mace windu", [10, 9]],
+  ["han solo", [5, 6]],
+  ["chewbacca", [7, 8]],
+  ["boba fett", [6, 7]],
+  ["jar jar", [1, 2]],
+  ["ewok", [2, 3]],
+
   // ── The dragons of Westeros, largest to smallest ──────────────────────
-  // Size is the whole story with these and it does not track anything else:
-  // Vhagar is old enough to have outgrown every other dragon alive, and no
-  // formula reading traits off a name is going to know that.
-  ["balerion", [14, 18]],      // the Black Dread, largest ever flown
+  // Size is the whole story here and it tracks nothing else: Vhagar is old
+  // enough to have outgrown every other dragon alive.
+  ["balerion", [14, 18]],
   ["vhagar", [11, 14]],
   ["drogon", [11, 13]],
   ["caraxes", [10, 12]],
@@ -91,14 +187,56 @@ const WRITTEN: [string, [number, number]][] = [
   ["viserion", [9, 11]],
   ["rhaegal", [9, 11]],
   ["syrax", [8, 10]],
-  ["arrax", [6, 8]],           // a boy's dragon, and it shows
+  ["arrax", [6, 8]],
   ["tessarion", [7, 9]],
   ["moondancer", [6, 8]],
-  ["ice dragon", [12, 15]],    // Viserion raised, whatever it is now
+  ["ice dragon", [12, 15]],
+  ["night king", [12, 14]],
+
+  // ── Westeros, the ones worth naming ───────────────────────────────────
+  // Everybody unwritten sits at the board's ordinary 5, which is right for a
+  // household guard and wrong for the people the show is about.
+  ["arthur dayne", [9, 7]],
+  ["the hound", [7, 9]],
+  ["sandor clegane", [7, 9]],
+  ["khal drogo", [8, 7]],
+  ["jaime lannister", [7, 7]],
+  ["brienne of tarth", [7, 8]],
+  ["barristan selmy", [8, 7]],
+  ["oberyn martell", [8, 5]],
+  ["syrio forel", [7, 5]],
+  ["jon snow", [7, 7]],
+  ["daemon targaryen", [8, 7]],
+  ["criston cole", [6, 6]],
+  ["aemond", [7, 6]],
+  ["arya stark", [6, 5]],
+  ["robert baratheon", [7, 6]],
+  ["eddard stark", [6, 6]],
+  ["grey worm", [6, 6]],
+  ["tormund", [6, 7]],
+  ["euron greyjoy", [7, 6]],
+  ["beric dondarrion", [6, 6]],
+  ["wun wun", [9, 10]],
+  ["white walker", [7, 8]],
+
+  // ── Speedsters and other DC/Marvel names the ordinary would insult ────
+  ["the flash", [10, 8]],
+  ["barry allen", [10, 8]],
+  ["superman", [28, 28]],
+  ["batman", [8, 9]],
+  ["wonder woman", [22, 22]],
+  ["darkseid", [30, 30]],
+  ["doomsday", [28, 26]],
+  ["hulk", [26, 28]],
+  ["thor", [24, 23]],
+  ["thanos", [27, 27]],
+  ["iron man", [16, 18]],
+  ["captain america", [11, 14]],
+  ["spider-man", [14, 12]],
+  ["wolverine", [11, 16]],
+  ["aunt may", [1, 2]],
 
   // ── People who are not what their reputation says ─────────────────────
-  // The formula reads plane and size. It cannot read "brilliant but frail",
-  // and these are cards whose whole point is the gap between the two.
   ["olenna tyrell", [1, 4]],
   ["tyrion lannister", [2, 5]],
   ["varys", [1, 4]],
@@ -107,59 +245,66 @@ const WRITTEN: [string, [number, number]][] = [
   ["samwell tarly", [2, 4]],
   ["bran stark", [1, 5]],
   ["qyburn", [1, 4]],
-  ["hercule", [4, 4]],         // plane 2 and proud of it — see planes.ts
-  ["bulma", [1, 3]],
+  ["the mountain", [8, 11]],
+  ["gregor clegane", [8, 11]],
+
+  // ── Kaiju are big and strong, which is the point of them ──────────────
+  ["king ghidorah", [32, 30]],
+  ["mechagodzilla", [28, 30]],
+  ["godzilla", [30, 32]],
+  ["king kong", [24, 26]],
+  ["mothra", [20, 24]],
+  ["rodan", [22, 20]],
 ];
 
-/** Longest key first, so "ice dragon" beats "dragon". */
-const WRITTEN_SORTED = [...WRITTEN].sort((a, b) => b[0].length - a[0].length);
+// The board's own table goes AFTER the global one, so a line written by hand
+// here still wins over the board file's convenience copy of it.
+const WRITTEN_SORTED = [...WRITTEN, ...DBZ_WRITTEN].sort((a, b) => b[0].length - a[0].length);
 
 /**
  * A variant is a condition, not a price tag.
  *
- * Grades exist to move the auction value, but the reason they move it is that
- * the card genuinely changed: a one-handed Jaime is a worse swordsman, a
- * prime Drogo is a better one. So the grade's shape is allowed in here — what
- * is NOT allowed is the tier it produced, which has the market's fingerprints
- * on it. Deliberately gentler than GRADE_DELTA: a crippling condition should
- * hurt, not delete.
+ * Grades exist to move the auction value, but the REASON they move it is that
+ * the card genuinely changed — a one-handed Jaime is a worse swordsman, a
+ * prime Drogo a better one. So the grade's shape is allowed in here; the tier
+ * it produced is not, because that has the market's fingerprints on it.
+ *
+ * Multiplicative rather than flat, because a board is no longer a fixed
+ * scale: +5 is a transformation on Game of Thrones and a rounding error on
+ * the Godzilla board.
  */
-const GRADE_POWER: Record<string, number> = {
-  crippling: -3,
-  weakening: -1,
-  neutral: 0,
-  boon: 1,
-  major: 2,
-  legendary: 3,
-  exalted: 4,
-  mythic: 5,
-  uber: 7,
+const GRADE_FACTOR: Record<string, number> = {
+  crippling: 0.55,
+  weakening: 0.8,
+  neutral: 1,
+  boon: 1.12,
+  major: 1.25,
+  legendary: 1.4,
+  exalted: 1.55,
+  mythic: 1.75,
+  uber: 2.2,
 };
 
 export interface PowerInput {
   name: string;
   variant?: string | null;
-  plane: Plane;
+  /** The board this card is really from — for a mix, its own board. */
+  board?: string;
   traits: Trait[];
   /** The variant's grade, if it rolled one. Its shape counts; its price does not. */
   grade?: string | null;
-  /**
-   * True when the grade already lifted this card's PLANE.
-   *
-   * A big variant is paid for once. "Jaime Lannister (two hands)" moves him up
-   * a weight class, which is the whole of what being at his best means; adding
-   * the grade bonus on top of the plane it just bought made him an 18/18 who
-   * levels city blocks.
-   */
-  planeAlreadyPaid?: boolean;
 }
 
-/** Attack and defence for a card. Never a function of what it cost. */
-export function powerOf(
-  { name, variant, plane, traits, grade, planeAlreadyPaid }: PowerInput
-): { atk: number; def: number } {
+/** Attack and defence. Never a function of what the card cost. */
+export function powerOf({ name, variant, board, traits, grade }: PowerInput): { atk: number; def: number } {
   const hay = `${name} ${variant ?? ""}`.toLowerCase();
-  const written = WRITTEN_SORTED.find(([key]) => hay.includes(key));
+  const vary = (variant ?? "").toLowerCase();
+  const written = WRITTEN_SORTED.find(([key]) => hits(hay, key));
+
+  // Did the written line match the FORM rather than the character? If so it
+  // already describes the transformed card and the grade must not apply on
+  // top of it — that is what turned Super Saiyan 4 Goku into an 88/88.
+  const formIsWritten = !!written && vary.length > 0 && vary.includes(written[0]);
 
   let atk: number;
   let def: number;
@@ -167,7 +312,11 @@ export function powerOf(
   if (written) {
     [atk, def] = written[1];
   } else {
-    const base = PLANE_BASE[plane] ?? PLANE_BASE[1];
+    const [ordinary, top] = (board ? BOARD_POWER[board] : undefined) ?? DEFAULT_POWER;
+    // Something enormous is at the top of its world. Everybody else is an
+    // ordinary member of the cast until somebody writes them down.
+    const big = traits.includes("dragon") || traits.includes("giant") || traits.includes("large");
+    const base = big ? top : ordinary;
     atk = base;
     def = base;
     for (const t of traits) {
@@ -178,16 +327,11 @@ export function powerOf(
     }
   }
 
-  // The condition it is in, applied to both halves. A written-down card still
-  // feels its variant — a wounded Vhagar is a wounded Vhagar.
-  const raw = grade ? (GRADE_POWER[grade] ?? 0) : 0;
-  // A boon that bought a plane has already been spent. A wound never buys one,
-  // so a crippling condition always lands here.
-  const shift = planeAlreadyPaid && raw > 0 ? 0 : raw;
-  atk += shift;
-  def += shift;
+  const factor = grade && !formIsWritten ? (GRADE_FACTOR[grade] ?? 1) : 1;
+  atk *= factor;
+  def *= factor;
 
-  // Nothing drops out of the fight entirely: 0 attack is a card that cannot
-  // ever matter, and Olenna at 1/4 is the point, not a bug.
+  // Nothing drops out of the fight entirely: 0 attack is a card that can never
+  // matter, and Olenna at 1/4 is the point rather than a bug.
   return { atk: Math.max(0, Math.round(atk)), def: Math.max(1, Math.round(def)) };
 }

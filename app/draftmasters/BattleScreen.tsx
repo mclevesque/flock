@@ -12,7 +12,21 @@ import {
   victorySting,
 } from "@/lib/draftmasters/battle-music";
 import { isMuted } from "@/lib/draftmasters/sfx";
+import { cardFor } from "@/lib/draftmasters/battle";
 import type { BattleBeat, BattleScript, PortraitMap } from "./types";
+
+/** What a card looks like right now, replayed from the beats so far. */
+/** "Jaime Lannister (one hand)" -> "Jaime Lannister". */
+const BARE = (name: string) => name.replace(/\s*\(.*\)\s*$/, "");
+
+interface Live {
+  name: string;
+  atk: number;
+  def: number;
+  atkBase: number;
+  hp: number;
+  dead: boolean;
+}
 
 /**
  * The battle cinematic — the judge's verdict, dramatised.
@@ -41,6 +55,9 @@ const MAX_BEAT_MS = 7000;
 const MS_PER_CHAR = 26;
 
 function beatDuration(beat: BattleBeat): number {
+  // A beat with nothing to say is a fact for the log, not a moment. It still
+  // gets its own frame so the log fills in order, just barely one.
+  if (!beat.story) return 520;
   const read = MIN_BEAT_MS + beat.text.length * MS_PER_CHAR;
   // Big moments get an extra half-second to land.
   return Math.min(MAX_BEAT_MS, read + beat.intensity * 220);
@@ -48,6 +65,7 @@ function beatDuration(beat: BattleBeat): number {
 
 export default function BattleScreen({ script, sides, rules, meId, portraits, packName, onDone }: Props) {
   const [index, setIndex] = useState(0);
+  const logRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
   const beats = script.beats;
   const beat = beats[index];
@@ -66,6 +84,78 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
     sides.forEach((s) => s.roster.forEach((p) => map.set(p.name, portraits[p.imgQuery] ?? null)));
     return map;
   }, [sides, portraits]);
+
+  /**
+   * Every card's state as of the current beat.
+   *
+   * Replayed from the top each time rather than mutated forward, because the
+   * player can scrub backwards with the keyboard and a running mutation would
+   * be wrong the moment they did.
+   */
+  const live = useMemo(() => {
+    const map = new Map<string, Live>();
+    for (const s of sides) {
+      for (const p of s.roster) {
+        const c = cardFor(
+          { name: p.name, variant: p.variant, baseTier: p.tier, tier: p.tier, grade: p.variantGrade },
+          script.boardId
+        );
+        // The log labels a fighter with its variant attached, so register
+        // both spellings and let either resolve.
+        const label = p.variant ? `${p.name} (${p.variant})` : p.name;
+        const card: Live = { name: label, atk: c.atk, def: c.def, atkBase: c.atk, hp: c.def, dead: false };
+        map.set(label, card);
+        map.set(p.name, card);
+      }
+    }
+    const find = (n: string) => map.get(n) ?? map.get(BARE(n));
+    for (let i = 0; i <= index && i < beats.length; i++) {
+      const bt = beats[i];
+      if (bt.from && bt.atk !== undefined) {
+        const a = find(bt.from);
+        if (a) a.atk = bt.atk;
+      }
+      if (bt.to && bt.hpAfter !== undefined) {
+        const d = find(bt.to);
+        if (d) d.hp = bt.hpAfter;
+      }
+      bt.eliminated?.forEach((n) => {
+        const d = find(n);
+        if (d) { d.dead = true; d.hp = 0; }
+      });
+    }
+    return map;
+  }, [sides, beats, index, script.boardId]);
+
+  /**
+   * Who is standing in each slot right now.
+   *
+   * Carried forward from the last beat that named a fighter, because plenty
+   * of beats -- a captain's aura, a terrain note, the round marker -- name
+   * nobody at all and the slots must not empty when one arrives.
+   */
+  const [slotL, slotR] = useMemo(() => {
+    let l: Live | undefined;
+    let r: Live | undefined;
+    const onLeft = (n: string) => left?.roster.some((p) => p.name === BARE(n)) ?? false;
+    for (let i = 0; i <= index && i < beats.length; i++) {
+      for (const n of [beats[i].from, beats[i].to]) {
+        if (!n) continue;
+        const card = live.get(n) ?? live.get(BARE(n));
+        if (!card) continue;
+        if (onLeft(n)) l = card; else r = card;
+      }
+    }
+    return [l, r] as const;
+  }, [beats, index, live, left]);
+
+  /** The most recent beat that actually had something to say. */
+  const [told, toldAt] = useMemo(() => {
+    for (let i = Math.min(index, beats.length - 1); i >= 0; i--) {
+      if (beats[i].story) return [beats[i], i] as const;
+    }
+    return [undefined, -1] as const;
+  }, [beats, index]);
 
   /** Everyone knocked out at or before the current beat. */
   const eliminated = useMemo(() => {
@@ -106,6 +196,13 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
   const next = useCallback(() => {
     setIndex((i) => Math.min(i + 1, beats.length - 1));
   }, [beats.length]);
+
+  // The log follows the fight. Scrolled rather than reversed, because reading
+  // a battle bottom-to-top is a puzzle nobody asked for.
+  useEffect(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [index]);
 
   useEffect(() => {
     if (!beat || paused || finished) return;
@@ -174,26 +271,38 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
         <Rail side={left} align="left" eliminated={eliminated} portraitOf={portraitOf} rules={rules} meId={meId} acting={actingSide === left?.id} />
 
         <div className="dm-bt-center">
-          <div className="dm-bt-clash" key={index} data-kind={beat.kind} data-intensity={beat.intensity}>
-            {beat.actors.map((name) => {
-              // The stamp belongs on whoever just died, not floating over the
-              // winner — you should be able to see at a glance who it was.
-              const justDied = beat.eliminated?.includes(name) ?? false;
-              return (
-                <figure
-                  key={name}
-                  className="dm-bt-actor"
-                  data-from={actorsFrom(name)}
-                  data-dead={eliminated.has(name) ? "1" : "0"}
-                >
-                  <span className="dm-bt-actor-shot">
-                    <ActorPortrait url={portraitOf.get(name) ?? null} name={name} />
-                    {justDied && <span className="dm-bt-dead">{outLabel}</span>}
-                  </span>
-                  <figcaption>{name}</figcaption>
-                </figure>
-              );
-            })}
+          {/* The two slots. Held by whoever is fighting, not by whoever the
+              narrator happened to name, so the pair on screen is the pair the
+              rules are resolving. */}
+          <div className="dm-bt-slots" key={index} data-kind={beat.kind} data-intensity={beat.intensity}>
+            <Slot
+              live={slotL}
+              portrait={slotL ? portraitOf.get(BARE(slotL.name)) ?? null : null}
+              side="left"
+              acting={!!beat.from && !!slotL && BARE(beat.from) === BARE(slotL.name)}
+              hit={!!slotL && !!beat.to && BARE(beat.to) === BARE(slotL.name) ? beat.damage : undefined}
+              out={slotL?.dead ?? false}
+              outLabel={outLabel}
+            />
+
+            <span className="dm-bt-versus" aria-hidden="true">
+              {beat.damage !== undefined && beat.damage > 0 ? (
+                <b className="dm-bt-dmg" key={`d${index}`}>-{beat.damage}</b>
+              ) : (
+                <i />
+              )}
+            </span>
+
+            <Slot
+              live={slotR}
+              portrait={slotR ? portraitOf.get(BARE(slotR.name)) ?? null : null}
+              side="right"
+              acting={!!beat.from && !!slotR && BARE(beat.from) === BARE(slotR.name)}
+              hit={!!slotR && !!beat.to && BARE(beat.to) === BARE(slotR.name) ? beat.damage : undefined}
+              out={slotR?.dead ?? false}
+              outLabel={outLabel}
+            />
+
             {(beat.kind === "clash" || beat.kind === "kill" || beat.intensity >= 2) && !reducedMotion && (
               <>
                 <span className="dm-bt-slash" />
@@ -208,8 +317,23 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
       </div>
 
       {/* ── Caption ─────────────────────────────────────────────────────── */}
-      <div className="dm-bt-caption" data-kind={beat.kind}>
-        <p key={index}>{beat.text}</p>
+      <div className="dm-bt-caption" data-kind={told?.kind ?? beat.kind}>
+        <p key={toldAt}>{told?.text ?? ""}</p>
+      </div>
+
+      {/* The rules, in plain English, under the story. Everything the fight
+          actually did — the rolls, the damage, the numbers — so a player who
+          wants to know WHY can read it without the story having to stop and
+          explain itself. */}
+      <div className="dm-bt-log" onClick={(e) => e.stopPropagation()}>
+        <p className="dm-bt-log-head">What is happening</p>
+        <div className="dm-bt-log-lines" ref={logRef}>
+          {beats.slice(0, index + 1).map((bt, i) => (
+            <p key={i} data-kind={bt.kind} data-now={i === index ? "1" : "0"}>
+              {bt.plain ?? bt.text}
+            </p>
+          ))}
+        </div>
       </div>
 
       {finished ? (
@@ -228,6 +352,68 @@ export default function BattleScreen({ script, sides, rules, meId, portraits, pa
 }
 
 // ── Roster rail ──────────────────────────────────────────────────────────────
+
+/**
+ * One fighter, as a card.
+ *
+ * `hit` is the damage landing on it THIS beat, which floats off the card and
+ * is the only animation on here that carries information.
+ */
+function Slot({
+  live,
+  portrait,
+  side,
+  acting,
+  hit,
+  out,
+  outLabel,
+}: {
+  live: Live | undefined;
+  portrait: string | null;
+  side: "left" | "right";
+  acting: boolean;
+  hit?: number;
+  out: boolean;
+  outLabel: string;
+}) {
+  if (!live) return <span className="dm-bt-slot" data-side={side} data-empty="1" />;
+
+  const frac = live.def > 0 ? Math.max(0, live.hp) / live.def : 0;
+  const health = frac > 0.6 ? "ok" : frac > 0.3 ? "hurt" : "dying";
+  const boosted = live.atk > live.atkBase;
+
+  return (
+    <figure className="dm-bt-slot" data-side={side} data-acting={acting ? "1" : "0"} data-dead={out ? "1" : "0"}>
+      <span className="dm-bt-art">
+        {portrait ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={portrait} alt="" />
+        ) : (
+          <span className="dm-bt-art-fb">{live.name.charAt(0)}</span>
+        )}
+        {out && <span className="dm-bt-dead">{outLabel}</span>}
+        {hit !== undefined && hit > 0 && (
+          <b className="dm-bt-hit" key={`${live.name}-${live.hp}`}>-{hit}</b>
+        )}
+      </span>
+
+      <figcaption className="dm-bt-name">{live.name}</figcaption>
+
+      <span className="dm-bt-hp" data-health={health}>
+        <i style={{ width: `${Math.round(frac * 100)}%` }} />
+        <b>{Math.max(0, live.hp)}</b>
+      </span>
+
+      {/* Bottom right, like every card game anybody has played. */}
+      <span className="dm-bt-stats">
+        <b data-boost={boosted ? "1" : "0"}>{live.atk}</b>
+        <i>/</i>
+        <b>{live.def}</b>
+      </span>
+    </figure>
+  );
+}
+
 
 function Rail({
   side,

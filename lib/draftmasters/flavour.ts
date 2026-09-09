@@ -69,78 +69,102 @@ function seedFrom(text: string): number {
 // anything too writerly falls apart on one of the two.
 
 const GLANCING = [
-  "{A} clips {D} and not much more.",
-  "{A} gets a piece of {D}. It is not the piece that matters.",
-  "{D} wears it and keeps coming.",
-  "{A} lands, {D} barely registers it.",
-  "A glancing thing from {A}. {D} has had worse this week.",
+  "{A} clips {D}. Barely a scratch!",
+  "{A} gets a piece of {D} — the wrong piece.",
+  "{D} wears it and keeps walking. Rude.",
+  "{A} lands it. {D} does not care even slightly.",
+  "That did almost nothing! {D} has had worse mornings.",
 ];
 
 const SOLID = [
-  "{A} lands clean on {D}.",
-  "{A} finds the gap and puts it through.",
-  "{D} takes it properly this time.",
-  "{A} gets in behind {D}'s guard.",
-  "That one counted. {D} feels it.",
+  "{A} lands CLEAN on {D}!",
+  "{A} finds the gap and drives it home!",
+  "Oh, {D} felt that one.",
+  "{A} gets in behind the guard. That is going to bruise.",
+  "Right through the middle! {D} is not enjoying this.",
 ];
 
 const HEAVY = [
-  "{A} very nearly ends it there.",
-  "{D} is still up, and only just.",
-  "{A} takes {D} apart and stops one blow short.",
-  "{D} is standing on the last of it.",
-  "One more like that and {D} is finished.",
+  "{A} nearly ends it right there!",
+  "{D} is still up and has absolutely no business being up.",
+  "{A} takes {D} apart and stops one blow short. Cruel.",
+  "{D} is running on fumes and spite.",
+  "One more of those and {D} is finished!",
 ];
 
 const KILL = [
-  "{A} finishes {D}.",
-  "{D} does not get up from that one.",
-  "{A} takes {D} off the board.",
-  "That is the end of {D}.",
-  "{A} ends it. {D} is done.",
+  "{A} finishes {D}. Done. Gone.",
+  "{D} does not get up. {D} does not get anything.",
+  "{A} takes {D} off the board!",
+  "And that is the end of {D}!",
+  "{A} ends it. {D} is DEAD.",
+  "{D} is dead! Nothing left to discuss!",
+];
+
+/**
+ * Somebody died before they got to move.
+ *
+ * The single moment rushdown exists for, so it gets its own pool and its own
+ * volume. Being fast is not a modifier here, it is the entire story of the
+ * exchange.
+ */
+const RUSHDOWN_KILL = [
+  "{A} is just too fast! {D} is dead before the swing lands!",
+  "{D} never even sees it! {A} was there and gone!",
+  "Too quick! {D} dies mid-thought!",
+  "{A} moves first and {D} does not get a turn. Ever again.",
+  "{D} came to fight. {A} came to be somewhere else already. {D} is dead!",
+  "Blink and {D} is gone. {A} did not even slow down.",
 ];
 
 /** What a particular kind of thing looks like when it kills something. */
 const KILL_BY_TRAIT: Partial<Record<Trait, string[]>> = {
   dragon: [
-    "{A} comes down out of the smoke and there is nothing left of {D} to argue with.",
-    "Fire, and then quiet. {D} is gone.",
+    "{A} comes out of the smoke and there is nothing left of {D} to bury!",
+    "Fire. Then quiet. {D} is a smear.",
+    "{D} is on fire. {D} is going to stay on fire.",
   ],
   giant: [
-    "{A} brings it down on {D} like a falling wall.",
-    "{D} is somewhere under {A} and is not coming back out.",
+    "{A} brings it down on {D} like a falling wall!",
+    "{D} is somewhere underneath {A} and is not coming back out.",
+    "{A} steps on {D}. That is the whole fight.",
   ],
-  large: ["{A} simply goes through {D}.", "{D} was in the way of {A}. That was the whole problem."],
+  large: [
+    "{A} simply goes THROUGH {D}!",
+    "{D} was in the way. That was {D}'s entire mistake.",
+  ],
   infantry: [
-    "{A} gets inside and works, and {D} folds.",
-    "Close, quick and unpleasant. {D} is finished.",
+    "{A} gets inside and works, and {D} folds like laundry.",
+    "Close, quick and deeply unpleasant. {D} is finished.",
+    "{A} puts it somewhere that matters. {D} drops.",
   ],
-  flying: ["{A} takes {D} from an angle nobody was watching.", "{D} never sees {A} coming down."],
-  sluggish: ["{A} takes its time about {D}, and gets there.", "Slow, certain, and over. {D} is done."],
+  flying: [
+    "{A} takes {D} from an angle nobody was watching!",
+    "{D} never looks up. {D} should have looked up.",
+  ],
+  sluggish: [
+    "{A} takes its time about {D} and gets there eventually.",
+    "Slow. Certain. Over. {D} is done.",
+  ],
 };
 
+/** A blow so far past lethal that the excess is the joke. */
 const BREAKTHROUGH = [
-  "The rest of it carries straight on into {P}.",
-  "{D} is not enough to stop all of that, and {P} takes the remainder.",
-  "It goes through {D} and keeps going. {P} feels it.",
-  "{P} wears what {D} could not.",
+  "That was VASTLY more than necessary.",
+  "{D} is dead several times over. Once would have done.",
+  "Overkill. Genuine, measurable overkill.",
+  "{A} did not need to do that much. {A} did it anyway.",
 ];
 
 const EXPOSED = [
-  "{P} has nobody left in front of them.",
-  "The line is gone. There is nothing between {P} and the rest of it.",
-  "{P} is standing on their own now.",
-];
-
-const DIRECT = [
-  "Nothing is in the way. {A} takes {P} apart.",
-  "{A} does not have to fight anybody to reach {P} any more.",
-  "{A} walks through where the line used to be.",
+  "{P} has nobody left to send out.",
+  "The line is gone. That is the whole roster.",
+  "{P} is out of people.",
 ];
 
 const HOLD = [
-  "{A} holds.",
-  "{A} is still there.",
+  "{A} holds!",
+  "{A} is still standing. Somehow.",
   "Nothing moves. {A} has not given an inch.",
 ];
 
@@ -197,6 +221,9 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
   const hp: Record<string, number> = {};
   let killer = "";
   let fallen = "";
+  /** Who won the rushdown roll this round, and whether anyone has swung since. */
+  let firstMover = "";
+  let struckBack = false;
 
   const out: NarratedEvent[] = [];
   const already = result.log.some((e) => e.kind === "terrain");
@@ -218,7 +245,14 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         if (m) {
           hp[m[1]] = +m[2];
           hp[m[3]] = +m[4];
+          // A fresh pairing: nobody has swung yet and nobody has won a roll.
+          firstMover = "";
+          struckBack = false;
+          break;
         }
+        // The other kind of round event is the rushdown roll itself.
+        const r = e.text.match(/\. (.+?) is first\.$/);
+        if (r) firstMover = r[1];
         break;
       }
 
@@ -226,6 +260,9 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         const m = e.text.match(/^(.+?) hits (.+?) for (\d+)\.$/);
         if (!m) break;
         const [, att, def, nRaw] = m;
+        // Somebody who is not the first mover has landed a blow, so whatever
+        // happens next was not "died before they got to move".
+        if (firstMover && att !== firstMover) struckBack = true;
         const n = +nRaw;
         const had = hp[def] ?? Math.max(n, 1);
         hp[def] = Math.max(0, had - n);
@@ -250,6 +287,13 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
         const d = NAME_IN(m[1]);
         const a2 = NAME_IN(killer) || "It";
 
+        // Died without ever getting to answer: the other card was simply
+        // faster. This is the moment rushdown is drafted for.
+        if (firstMover && killer === firstMover && !struckBack) {
+          ev.said = pick(RUSHDOWN_KILL).replace("{A}", a2).replace("{D}", d);
+          break;
+        }
+
         // Flavoured by what the KILLER is, not what died — a dragon burning
         // somebody and somebody knifing a dragon are different sentences.
         const traits = ctx.traits?.[killer] ?? [];
@@ -273,18 +317,8 @@ export function narrate(result: BattleResult, ctx: FlavourContext = {}): Narrate
       }
 
       case "exposed": {
-        const m = e.text.match(/^(.+?) has nothing left in front of them\.$/);
+        const m = e.text.match(/^(.+?) has nobody left to send out\.$/);
         if (m) ev.said = pick(EXPOSED).replace("{P}", m[1]);
-        break;
-      }
-
-      case "direct": {
-        const m = e.text.match(/^(.+?) hits (.+?) for (\d+) — (\d+) left\.$/);
-        if (m) {
-          ev.said =
-            pick(DIRECT).replace("{A}", NAME_IN(m[1])).replace("{P}", m[2]) +
-            ` (${m[3]}, ${m[4]} left)`;
-        }
         break;
       }
 

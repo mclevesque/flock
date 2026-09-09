@@ -22,7 +22,6 @@
  * longer decides what it means.
  */
 
-import type { Plane } from "./planes";
 import type { Trait } from "./traits";
 
 export interface TerrainRule {
@@ -57,10 +56,12 @@ export interface Terrain {
    * needs to watch. Cap the room at 2 and it is the best fight on the board.
    *
    * It does not touch attack or health — only which weight class of reality
-   * everyone is fighting in. A god who has been dragged down to Exceptional is
-   * still a god with a god's stat line; they simply cannot ignore you any more.
+   * everyone is fighting in: nobody in this room hits or takes more than this,
+   * whatever is printed on their card. Superman in a red-sun room is a very
+   * good fighter rather than Superman, which is what the trope has always
+   * meant.
    */
-  planeCap?: Plane;
+  statCap?: number;
 }
 
 /**
@@ -74,7 +75,7 @@ const GROUNDS: {
   words: string[];
   rule?: TerrainRule;
   breakthrough?: number;
-  planeCap?: Plane;
+  statCap?: number;
 }[] = [
   {
     words: [
@@ -82,7 +83,7 @@ const GROUNDS: {
       "no powers", "depowered", "null field", "anti-magic", "antimagic",
       "nobody can use their strongest", "sealed barrier", "powers suppressed",
     ],
-    planeCap: 2,
+    statCap: 8,
     rule: {
       traits: ["infantry"],
       atk: 1,
@@ -95,7 +96,7 @@ const GROUNDS: {
   },
   {
     words: ["holy ground", "consecrated", "hallowed", "sanctified"],
-    planeCap: 4,
+    statCap: 16,
     rule: {
       traits: ["infantry"],
       atk: 1,
@@ -223,19 +224,19 @@ export function terrainFor(name: string, desc?: string | null): Terrain {
   const hay = `${name} ${desc ?? ""}`.toLowerCase();
   const rules: TerrainRule[] = [];
   let breakthrough = 0;
-  let planeCap: Plane | undefined;
+  let statCap: number | undefined;
 
   for (const g of GROUNDS) {
     if (!hasAny(hay, g.words)) continue;
     if (g.rule) rules.push(g.rule);
     breakthrough += g.breakthrough ?? 0;
     // The lowest ceiling wins — two things suppressing the room do not cancel.
-    if (g.planeCap && (planeCap === undefined || g.planeCap < planeCap)) planeCap = g.planeCap;
+    if (g.statCap && (statCap === undefined || g.statCap < statCap)) statCap = g.statCap;
   }
 
   // Two grounds that both push the cap the same way is still one fight. Clamp
   // it so a florid arena description cannot quietly double the game's rail.
-  return { name, rules, planeCap, breakthrough: Math.max(-2, Math.min(2, breakthrough)) };
+  return { name, rules, statCap, breakthrough: Math.max(-2, Math.min(2, breakthrough)) };
 }
 
 /** What this ground does to one card, as a flat swing on its stats. */
@@ -258,12 +259,12 @@ export function terrainSwing(
 
 /** The arena rendered for the judge, so its prose agrees with the rules. */
 export function terrainBriefing(terrain: Terrain | null | undefined): string {
-  if (!terrain || (!terrain.rules.length && !terrain.planeCap)) return "";
+  if (!terrain || (!terrain.rules.length && !terrain.statCap)) return "";
   const lines = terrain.rules.map((r) => `  - ${r.note}`);
-  if (terrain.planeCap) {
+  if (terrain.statCap) {
     lines.push(
-      `  - Every card here fights at plane ${terrain.planeCap} or below, whatever they are ` +
-        `elsewhere. Nobody is out of anybody's reach in this room.`
+      `  - Nothing in this room fights above ${terrain.statCap}/${terrain.statCap}, whatever is ` +
+        `printed on the card. Nobody is out of anybody's reach here.`
     );
   }
   return (

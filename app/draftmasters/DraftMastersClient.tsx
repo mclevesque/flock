@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cardFor, playerHpFor, resolveBattle, type Adjustment, type BattleResult } from "@/lib/draftmasters/battle";
+import { PLAYER_HP, cardFor, resolveBattle, type Adjustment, type BattleResult } from "@/lib/draftmasters/battle";
 import type { RosterPick } from "@/lib/draftmasters/engine";
 import { terrainFor } from "@/lib/draftmasters/terrain";
 import { readVerdict } from "@/lib/draftmasters/verdict";
 import { narrate } from "@/lib/draftmasters/flavour";
 import { scriptFromFight } from "@/lib/draftmasters/script";
 import BottomTabs from "./BottomTabs";
+import Motes from "./Motes";
 import UniversePicker from "./UniversePicker";
 import LineupScreen, { type LineupResult } from "./LineupScreen";
 import Scene, { SceneDefs } from "./Scene";
@@ -1471,9 +1472,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
     const ground = pack?.arenaName ? terrainFor(pack.arenaName, pack.arenaDesc) : null;
 
-    // Both sides get the same bar, read off every card on the table, so the
-    // number is a property of the fight rather than of who drafted heavier.
-    const hp = playerHpFor([...myLine, ...(myCap ? [myCap] : []), ...theirLine]);
+    // No health behind the line any more: the lines fight until one runs out.
+    const hp = PLAYER_HP;
     const mine = { name: (mineIsA ? a : b).name, hp, cards: myLine, captain: myCap };
     const theirs = { name: theirSide.name, hp, cards: theirLine };
 
@@ -1533,6 +1533,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     const script: BattleScript = {
       ...scriptFromFight(result, narrate(result, { terrain: ground ?? undefined }), ids),
       scripted: "offline",
+      boardId,
     };
     setWatchedBattle(false);
     setBattle(script);
@@ -1692,6 +1693,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         </nav>
       )}
       <div className="dm-shell">
+        {screen === "setup" && <Motes />}
         {screen === "setup" && <BottomTabs />}
 
         <header className="dm-head">
@@ -2541,8 +2543,6 @@ function PackDeck({
           data-on={pickedCustom || usingCustom ? "1" : "0"}
           onClick={() => { setPickedCustom(true); onOpenCustom(); }}
         >
-          <span className="dm-case-motes" aria-hidden="true" />
-          <span className="dm-case-motes" data-layer="2" aria-hidden="true" />
           <span className="dm-case-3d">
             <span className="dm-case-side" aria-hidden="true" />
             <span className="dm-case-top" aria-hidden="true" />
@@ -2573,9 +2573,7 @@ function PackDeck({
             data-on={!pickedCustom && !usingCustom && presetId === p.id ? "1" : "0"}
             onClick={() => { setPickedCustom(false); onPick(p.id); }}
           >
-            <span className="dm-case-motes" aria-hidden="true" />
-          <span className="dm-case-motes" data-layer="2" aria-hidden="true" />
-          <span className="dm-case-3d">
+            <span className="dm-case-3d">
               <span className="dm-case-side" aria-hidden="true" />
               <span className="dm-case-top" aria-hidden="true" />
               <span className="dm-case-face">

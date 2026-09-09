@@ -203,7 +203,7 @@ export default function LineupScreen({
                 <span className="dm-lc-txt">
                   <b>{p.name}</b>
                   <i>{c.atk}/{c.def}</i>
-                  <s>{i === 0 ? "leads" : c.planeLabel}</s>
+                  <s>{i === 0 ? "leads" : c.rush > 0 ? `rushdown ${c.rush}` : c.fx[0]?.label ?? ""}</s>
                 </span>
               </span>
               <span className="dm-lc-pos">{i + 1}</span>

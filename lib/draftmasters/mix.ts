@@ -23,7 +23,7 @@
  */
 
 import { PACKS, type Arena, type Entry, type Pack } from "./packs";
-import { BOARD_PLANES, DEFAULT_BAND, type Plane } from "./planes";
+import { BOARD_POWER, DEFAULT_POWER } from "./power";
 
 /** Deterministic, so the same picks in the same order deal the same board. */
 function makeRandom(seed: number) {
@@ -70,20 +70,20 @@ export function mixName(packs: Pack[]): string {
 }
 
 /**
- * The planar band a mixed board spans.
+ * The power range a mixed board spans.
  *
- * The union, never an average. Mixing Game of Thrones into Marvel does not make
- * Westeros cosmic and it does not make the Hulk medieval — it puts a knight on
- * the same board as a Titan and lets the planar rules say what that means,
- * which is the entire appeal of a crossover and the thing the old generated
- * boards were worst at.
+ * The union, never an average. Mixing Game of Thrones into Marvel does not
+ * make Westeros cosmic and it does not make the Hulk medieval — it puts a
+ * knight at 6 on the same board as something at 30 and lets the numbers say
+ * what that means, which is the entire appeal of a crossover and the thing
+ * the old generated boards were worst at.
  */
-export function mixBand(ids: string[]): [Plane, Plane] {
-  const bands = ids.map((id) => BOARD_PLANES[id]).filter(Boolean);
-  if (!bands.length) return DEFAULT_BAND;
+export function mixBand(ids: string[]): [number, number] {
+  const bands = ids.map((id) => BOARD_POWER[id]).filter(Boolean);
+  if (!bands.length) return DEFAULT_POWER;
   return [
-    Math.min(...bands.map((b) => b[0])) as Plane,
-    Math.max(...bands.map((b) => b[1])) as Plane,
+    Math.min(...bands.map((b) => b[0])),
+    Math.max(...bands.map((b) => b[1])),
   ];
 }
 

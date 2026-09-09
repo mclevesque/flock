@@ -179,7 +179,7 @@ function sideNote(battle: BattleResult, sd: 0 | 1): string {
   const best = [...mine].sort((a, b) => weight(b) - weight(a))[0];
 
   if (me.hp <= 0 && standing > 0) {
-    return `Went down with ${standing} still on their feet — the line held and it was not enough.`;
+    return `The line held, but it was not enough — killed with ${standing} still on their feet.`;
   }
   if (me.hp <= 0) return "Wiped out, and then there was nothing in the way.";
   if (standing === mine.length) return "Did not lose anybody.";

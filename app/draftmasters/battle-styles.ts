@@ -27,6 +27,157 @@ export const BATTLE_STYLES = `
   box-shadow: 0 0 48px rgb(var(--dm-glow) / .45), 0 2px 0 rgba(0,0,0,.35);
 }
 
+/* ── The two slots ──────────────────────────────────────────────────────────
+   One card each side and a gap between them. Fixed positions: the pair on
+   screen is the pair the rules are resolving, and it should not move around
+   as the narrator changes who it is talking about. */
+.dm-bt-slots {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: clamp(12px, 4vw, 48px);
+  width: 100%;
+  position: relative;
+}
+
+.dm-bt-slot {
+  position: relative;
+  margin: 0;
+  width: clamp(132px, 22vw, 208px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  padding: 7px 7px 30px;
+  border: 1px solid rgb(var(--dm-glow) / .3);
+  background: linear-gradient(180deg, #1a1710, #0c0b09);
+  box-shadow: 0 14px 34px rgba(0,0,0,.6);
+  transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease, opacity .3s ease;
+}
+.dm-bt-slot[data-empty="1"] { visibility: hidden; }
+/* Whoever is swinging leans in. Small, because a card that jumps is a card
+   you have to re-find every beat. */
+.dm-bt-slot[data-acting="1"] {
+  border-color: var(--dm-gold);
+  box-shadow: 0 0 0 1px rgb(var(--dm-glow) / .4), 0 18px 44px rgb(var(--dm-glow) / .22);
+  transform: translateY(-6px) scale(1.03);
+}
+.dm-bt-slot[data-side="left"][data-acting="1"] { transform: translateY(-6px) translateX(8px) scale(1.03); }
+.dm-bt-slot[data-side="right"][data-acting="1"] { transform: translateY(-6px) translateX(-8px) scale(1.03); }
+.dm-bt-slot[data-dead="1"] { opacity: .42; filter: grayscale(.85); }
+
+.dm-bt-art {
+  position: relative; display: block; overflow: hidden;
+  border-radius: 10px; aspect-ratio: 4 / 5; background: #000;
+}
+.dm-bt-art img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
+.dm-bt-art-fb {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  font-family: var(--dm-display); font-size: 44px; color: rgb(var(--dm-glow) / .5);
+}
+
+.dm-bt-name {
+  margin-top: 7px; text-align: center;
+  font-family: var(--dm-display); font-size: 13.5px; line-height: 1.2;
+  color: #f0e6d2; text-wrap: balance;
+}
+
+/* Health: a bar for the glance, a number for the detail. */
+.dm-bt-hp {
+  position: relative; display: block; height: 15px; margin-top: 7px;
+  border-radius: 999px; overflow: hidden;
+  background: rgba(255,255,255,.07);
+}
+.dm-bt-hp i {
+  position: absolute; inset: 0 auto 0 0; display: block;
+  border-radius: 999px; transition: width .3s ease, background .3s ease;
+}
+.dm-bt-hp b {
+  position: relative; display: block; text-align: center;
+  font-size: 10.5px; font-weight: 800; line-height: 15px;
+  font-variant-numeric: tabular-nums; color: #100d08;
+}
+.dm-bt-hp[data-health="ok"]    i { background: linear-gradient(90deg, #b7902f, var(--dm-gold)); }
+.dm-bt-hp[data-health="hurt"]  i { background: linear-gradient(90deg, #c07524, #e8973a); }
+.dm-bt-hp[data-health="dying"] i { background: linear-gradient(90deg, #a32718, #e0402a); }
+.dm-bt-hp[data-health="dying"] b { color: #fff; }
+
+/* Bottom right, like every card game anybody has played. */
+.dm-bt-stats {
+  position: absolute; right: 8px; bottom: 6px;
+  display: flex; align-items: baseline; gap: 2px;
+  padding: 2px 9px; border-radius: 8px;
+  background: linear-gradient(180deg, #241f16, #100e0a);
+  border: 1px solid rgb(var(--dm-glow) / .38);
+  font-family: var(--dm-display); font-variant-numeric: tabular-nums;
+}
+.dm-bt-stats b { font-size: 17px; font-weight: 700; color: #f4e9d0; }
+.dm-bt-stats i { font-style: normal; font-size: 13px; color: rgba(240,230,210,.4); }
+/* The one green in the product. It means somebody is helping. */
+.dm-bt-stats b[data-boost="1"] { color: #5fd08a; text-shadow: 0 0 12px rgba(95,208,138,.5); }
+
+/* Damage floating off whoever took it. */
+.dm-bt-hit, .dm-bt-dmg {
+  font-family: var(--dm-display); font-weight: 700;
+  color: #ff6a4d; text-shadow: 0 2px 10px rgba(0,0,0,.8);
+}
+.dm-bt-hit {
+  position: absolute; left: 50%; top: 38%; translate: -50% 0;
+  font-size: clamp(26px, 5vw, 44px);
+  animation: dm-bt-float .9s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes dm-bt-float {
+  from { opacity: 0; transform: translateY(10px) scale(.7); }
+  35%  { opacity: 1; transform: translateY(-6px) scale(1.1); }
+  to   { opacity: 0; transform: translateY(-38px) scale(1); }
+}
+
+.dm-bt-versus { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
+.dm-bt-versus i {
+  display: block; width: 10px; height: 10px; rotate: 45deg;
+  border: 1px solid rgb(var(--dm-glow) / .35);
+}
+.dm-bt-dmg { font-size: clamp(22px, 4vw, 34px); animation: dm-bt-float 1.1s ease-out forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-bt-hit, .dm-bt-dmg { animation: none; opacity: 1; }
+  .dm-bt-slot { transition: none; }
+}
+
+/* ── The technical log ──────────────────────────────────────────────────────
+   The story is on the stage; this is the receipt. Deliberately plain and
+   deliberately small: a player who wants it will read it, and a player who
+   does not will never notice it is there. */
+.dm-bt-log {
+  flex: 0 0 auto;
+  margin: 0 auto;
+  width: min(760px, 94vw);
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgb(var(--dm-glow) / .16);
+}
+.dm-bt-log-head {
+  margin: 0 0 4px;
+  font-family: var(--dm-display); font-size: 10px; letter-spacing: .2em;
+  text-transform: uppercase; color: rgb(var(--dm-glow) / .5);
+}
+.dm-bt-log-lines {
+  max-height: 92px; overflow-y: auto; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.dm-bt-log-lines p {
+  margin: 0; font-size: 12.5px; line-height: 1.45;
+  color: rgba(240,236,228,.42);
+  font-variant-numeric: tabular-nums;
+}
+.dm-bt-log-lines p[data-now="1"] { color: rgba(240,236,228,.95); }
+.dm-bt-log-lines p[data-kind="kill"] { color: #e08878; }
+.dm-bt-log-lines p[data-kind="kill"][data-now="1"] { color: #ff8f79; }
+
+@media (max-width: 820px) {
+  .dm-bt-log-lines { max-height: 62px; }
+  .dm-bt-slot { padding-bottom: 26px; }
+}
+
 .dm-bt {
   position: fixed;
   inset: 0;

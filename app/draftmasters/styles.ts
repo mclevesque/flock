@@ -1621,68 +1621,21 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
 /* Dust in the light. Two drifting layers of specks, offset in size, speed and
    direction so they never read as a repeating tile — the case is lit, and lit
    things have something floating in front of them. */
-.dm-case-motes {
-  position: absolute; z-index: 0; pointer-events: none;
-  left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 190%; height: 155%;
-  /* Sixteen sparks, not eight, and big enough to actually catch the eye at a
-     desk-sized window -- the first pass used 1px dots over an area two cases
-     wide, which is a layer you can measure but cannot see. */
-  background-image:
-    radial-gradient(4.0px 4.0px at 45.4% 55.6%, rgb(var(--dm-glow) / 0.71), transparent 62%),
-    radial-gradient(2.4px 2.4px at 50.8% 58.2%, rgb(var(--dm-glow) / 0.73), transparent 62%),
-    radial-gradient(2.2px 2.2px at 62.5% 77.5%, rgb(var(--dm-glow) / 0.62), transparent 62%),
-    radial-gradient(3.5px 3.5px at 10.7% 79.1%, rgb(var(--dm-glow) / 0.47), transparent 62%),
-    radial-gradient(3.4px 3.4px at 96.3% 93.7%, rgb(var(--dm-glow) / 0.79), transparent 62%),
-    radial-gradient(3.2px 3.2px at 17.1% 4.4%, rgb(var(--dm-glow) / 0.48), transparent 62%),
-    radial-gradient(2.1px 2.1px at 20.3% 25.7%, rgb(var(--dm-glow) / 0.71), transparent 62%),
-    radial-gradient(3.1px 3.1px at 44.3% 82.2%, rgb(var(--dm-glow) / 0.8), transparent 62%),
-    radial-gradient(3.0px 3.0px at 50.0% 65.3%, rgb(var(--dm-glow) / 0.6), transparent 62%),
-    radial-gradient(3.8px 3.8px at 97.8% 96.6%, rgb(var(--dm-glow) / 0.84), transparent 62%),
-    radial-gradient(2.6px 2.6px at 32.3% 24.6%, rgb(var(--dm-glow) / 0.49), transparent 62%),
-    radial-gradient(3.9px 3.9px at 75.6% 40.6%, rgb(var(--dm-glow) / 0.66), transparent 62%),
-    radial-gradient(2.0px 2.0px at 94.0% 82.6%, rgb(var(--dm-glow) / 0.57), transparent 62%),
-    radial-gradient(4.2px 4.2px at 89.4% 47.2%, rgb(var(--dm-glow) / 0.67), transparent 62%),
-    radial-gradient(3.7px 3.7px at 9.0% 62.2%, rgb(var(--dm-glow) / 0.6), transparent 62%),
-    radial-gradient(4.1px 4.1px at 10.4% 34.3%, rgb(var(--dm-glow) / 0.87), transparent 62%);
-  background-repeat: no-repeat;
-  animation: dm-motes 14s ease-in-out infinite alternate;
-  opacity: .9;
+/* The ambient field. Fixed to the viewport, behind everything, and drawn by
+   Motes.tsx rather than by a stack of gradients — see the note in that file
+   for why the CSS version had to go. */
+.dm-motes-field {
+  position: fixed; inset: 0; z-index: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
 }
-.dm-case-motes[data-layer="2"] {
-  width: 240%; height: 195%;
-  background-image:
-    radial-gradient(3.1px 3.1px at 54.6% 35.5%, rgb(var(--dm-glow) / 0.61), transparent 62%),
-    radial-gradient(2.3px 2.3px at 51.0% 35.3%, rgb(var(--dm-glow) / 0.99), transparent 62%),
-    radial-gradient(2.0px 2.0px at 12.0% 44.8%, rgb(var(--dm-glow) / 0.64), transparent 62%),
-    radial-gradient(2.7px 2.7px at 97.9% 34.0%, rgb(var(--dm-glow) / 0.68), transparent 62%),
-    radial-gradient(1.9px 1.9px at 72.1% 45.0%, rgb(var(--dm-glow) / 0.69), transparent 62%),
-    radial-gradient(2.6px 2.6px at 41.2% 77.5%, rgb(var(--dm-glow) / 0.56), transparent 62%),
-    radial-gradient(2.5px 2.5px at 66.7% 31.0%, rgb(var(--dm-glow) / 0.57), transparent 62%),
-    radial-gradient(2.5px 2.5px at 41.4% 76.9%, rgb(var(--dm-glow) / 0.86), transparent 62%),
-    radial-gradient(2.8px 2.8px at 74.6% 58.2%, rgb(var(--dm-glow) / 0.67), transparent 62%),
-    radial-gradient(1.8px 1.8px at 61.3% 76.1%, rgb(var(--dm-glow) / 0.97), transparent 62%),
-    radial-gradient(1.9px 1.9px at 37.3% 16.1%, rgb(var(--dm-glow) / 0.64), transparent 62%),
-    radial-gradient(2.3px 2.3px at 8.6% 40.4%, rgb(var(--dm-glow) / 0.81), transparent 62%),
-    radial-gradient(2.8px 2.8px at 46.8% 90.9%, rgb(var(--dm-glow) / 0.63), transparent 62%),
-    radial-gradient(3.3px 3.3px at 86.0% 68.7%, rgb(var(--dm-glow) / 0.85), transparent 62%),
-    radial-gradient(2.1px 2.1px at 94.7% 22.3%, rgb(var(--dm-glow) / 0.98), transparent 62%),
-    radial-gradient(3.2px 3.2px at 4.1% 89.8%, rgb(var(--dm-glow) / 0.52), transparent 62%);
-  animation: dm-motes-2 21s ease-in-out infinite alternate;
-  opacity: .62;
-  filter: blur(1.1px);
-}
-@keyframes dm-motes {
-  from { transform: translate(-50%, -50%) translate3d(0, 0, 0); opacity: .6; }
-  to   { transform: translate(-50%, -50%) translate3d(12px, -22px, 0); opacity: 1; }
-}
-@keyframes dm-motes-2 {
-  from { transform: translate(-50%, -50%) translate3d(8px, 14px, 0); opacity: .78; }
-  to   { transform: translate(-50%, -50%) translate3d(-16px, -28px, 0); opacity: .38; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dm-case-motes { animation: none; opacity: .7; }
-}
+/* Above the field. The rail and the tab bar are position:fixed already, so
+   they take the z-index and MUST NOT be given a position of their own --
+   setting them to relative drops both into flow and pushes the page down the
+   screen. (No backticks in this file: the sheet is one template literal and a
+   backtick in a comment still closes it.) */
+.dm-shell { position: relative; z-index: 1; }
+.dm-tabs, .dm-rail { z-index: 30; }
 
 /* A second, wider halo so the light falls off into the page instead of
    stopping at an edge. */
@@ -1703,10 +1656,12 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
 .dm-case-3d {
   position: absolute; inset: 0;
   transform-style: preserve-3d;
-  transform: rotateY(-17deg) rotateX(3deg) scale(.94);
+  transform: rotateY(-13deg) rotateX(2deg);
   transition: transform .45s cubic-bezier(.2,.8,.25,1);
 }
-.dm-case[data-on="1"] .dm-case-3d { transform: rotateY(-11deg) rotateX(2deg) scale(1); }
+/* Chosen shows in the light, not the size — a case that grows when you pick
+   it makes the shelf jump every time you swipe. */
+.dm-case[data-on="1"] .dm-case-3d { transform: rotateY(-13deg) rotateX(2deg); }
 
 /* One octagon, reused, so the layers cannot disagree about the shape. */
 .dm-case-face, .dm-case-plate, .dm-case-rule {

@@ -177,12 +177,31 @@ export function softenPartialHandicap(grade: VariantGrade, variantText: string):
   return hasAny(variantText, PARTIAL) ? "weakening" : grade;
 }
 
+/**
+ * Does this fragment appear in the name?
+ *
+ * Substring for anything long enough to be unambiguous, whole-word for the
+ * short ones. "ent " is in the giant list for Treebeard and the Ents, and as
+ * a plain substring it also matched AlicENT Hightower -- which put a queen on
+ * the same plane as a dragon.
+ */
+export function hits(hay: string, word: string): boolean {
+  const w = word.trim();
+  // Every fragment in the table is plain letters, spaces and hyphens, so there
+  // is nothing here a regex would read as punctuation.
+  const i = hay.indexOf(w);
+  if (i < 0) return false;
+  const before = i === 0 ? "" : hay[i - 1];
+  const after = hay[i + w.length] ?? "";
+  return !/[a-z]/.test(before) && !/[a-z]/.test(after);
+}
+
 export function traitsOf(name: string, variant?: string | null): Trait[] {
   const hay = `${name} ${variant ?? ""}`.toLowerCase();
   const found = new Set<Trait>();
 
   for (const [trait, words] of Object.entries(TRAIT_WORDS) as [Trait, string[]][]) {
-    if (words.some((w) => hay.includes(w))) found.add(trait);
+    if (words.some((w) => hits(hay, w))) found.add(trait);
   }
 
   // A hatchling is not a siege target. Without this, "with three newborn

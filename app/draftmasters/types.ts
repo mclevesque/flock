@@ -73,11 +73,27 @@ export interface BattleBeat {
   /** 0–3; drives screen shake, slashes and musical accents */
   intensity: number;
   eliminated?: string[];
+
+  /** The rules line, for the technical log beside the stage. */
+  plain?: string;
+  /** Whether this beat has prose worth putting on the stage. */
+  story?: boolean;
+  /** Who swung at whom, and what it cost. See lib/draftmasters/script.ts. */
+  from?: string;
+  to?: string;
+  damage?: number;
+  hpAfter?: number;
+  hpMax?: number;
+  /** The attack used, and the one printed on the card, so a boost reads green. */
+  atk?: number;
+  atkBase?: number;
 }
 
 export interface BattleScript {
   beats: BattleBeat[];
   winnerId: string;
+  /** Which board these cards came from, so the screen can rebuild their stats. */
+  boardId?: string;
   scripted: "ai" | "offline";
   /** FormatId the contest was staged as — see lib/draftmasters/contest */
   format?: string;

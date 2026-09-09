@@ -26,6 +26,29 @@ export interface Beat {
   kind: BeatKind;
   intensity: number;
   eliminated?: string[];
+
+  // ── The same beat, as numbers ──────────────────────────────────────────
+  /** The card swinging, and the card being swung at. */
+  from?: string;
+  to?: string;
+  /** Health taken off. Zero is a blow that landed and did nothing. */
+  damage?: number;
+  /** What the target has left afterwards, and what it had before. */
+  hpAfter?: number;
+  hpMax?: number;
+  /** What the attack actually was, and what is printed on the card, so the
+   *  screen can show a boost as a boost rather than as a bigger number. */
+  atk?: number;
+  atkBase?: number;
+  /** The line the technical log shows, when it differs from the story. */
+  plain?: string;
+  /**
+   * Whether this beat has anything to SAY.
+   *
+   * A rushdown roll and a round marker are facts, not moments: they belong in
+   * the log and have no business in the big font on the stage.
+   */
+  story?: boolean;
 }
 
 /**
@@ -101,8 +124,19 @@ export function scriptFromFight(
       sideId: sideIds[side],
       targetSideId: sideIds[side === 0 ? 1 : 0],
       text,
+      // The rules line always survives, even when prose replaced it on screen:
+      // the chatbox shows what happened, the stage shows how it felt.
+      plain: e.text,
+      story: !!e.said,
       kind: stage.kind,
       intensity: stage.intensity,
+      from: e.from,
+      to: e.to,
+      damage: e.damage,
+      hpAfter: e.hpAfter,
+      hpMax: e.hpMax,
+      atk: e.atk,
+      atkBase: e.atkBase,
       // The dead card is whichever name the death line names first.
       ...(e.kind === "death" && actors.length ? { eliminated: [actors[0]] } : {}),
     });
