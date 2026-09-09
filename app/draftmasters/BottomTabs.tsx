@@ -25,9 +25,9 @@ import Icon, { type IconName } from "./Icon";
 
 /** The phone bar. Three, under the thumb, and nothing that is not a place. */
 const TABS: { href: string; icon: IconName; label: string }[] = [
-  { href: "/friends", icon: "friends", label: "Friends" },
-  { href: "/leaderboards", icon: "trophy", label: "Ladder" },
-  { href: "/profile", icon: "profile", label: "You" },
+  { href: "/draftmasters/friends", icon: "friends", label: "Friends" },
+  { href: "/draftmasters/ladder", icon: "trophy", label: "Ladder" },
+  { href: "/draftmasters/you", icon: "profile", label: "You" },
 ];
 
 /**
@@ -40,9 +40,9 @@ const TABS: { href: string; icon: IconName; label: string }[] = [
  */
 const RAIL: { href: string; icon: IconName; label: string; foot?: boolean }[] = [
   { href: "/draftmasters", icon: "cards", label: "Draft" },
-  { href: "/friends", icon: "friends", label: "Friends" },
-  { href: "/leaderboards", icon: "trophy", label: "Ladder" },
-  { href: "/profile", icon: "profile", label: "You" },
+  { href: "/draftmasters/friends", icon: "friends", label: "Friends" },
+  { href: "/draftmasters/ladder", icon: "trophy", label: "Ladder" },
+  { href: "/draftmasters/you", icon: "profile", label: "You" },
   {
     href: "mailto:support@draftmasters.net?subject=DraftMasters",
     icon: "mail",

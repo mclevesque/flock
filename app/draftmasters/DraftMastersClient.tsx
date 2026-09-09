@@ -1713,7 +1713,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           {/* The one header control that stays on the shelf. Everything else
               in this row is for a draft that is running; a way into your own
               profile is not, and the design puts a face in the top corner. */}
-          <Link href="/profile" className="dm-head-me" title={`Signed in as ${myName}`}>
+          <Link href="/draftmasters/you" className="dm-head-me" title={`Signed in as ${myName}`}>
             {myAvatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={myAvatar} alt="" />

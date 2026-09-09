@@ -1182,6 +1182,89 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
 }
 .dm-room-board-who em { font-style: normal; font-size: 12.5px; color: rgba(240,230,210,.5); }
 
+/* ── The small pages ──────────────────────────────────────────────────────
+   Friends, the ladder and your record. One column, generous rows, and no
+   controls that are not doing something -- these are pages you glance at on
+   the way back to a draft, not places to spend time. */
+.dm-small-page { max-width: 640px; margin: 0 auto; }
+.dm-sub { margin-top: 22px; }
+
+.dm-add-row { display: flex; gap: 8px; margin-bottom: 6px; }
+.dm-add-row .dm-input { flex: 1 1 auto; }
+.dm-add-note { margin: 0 0 14px; }
+.dm-empty { margin-top: 18px; line-height: 1.6; }
+.dm-empty a { color: var(--dm-gold); }
+
+.dm-friend, .dm-rank {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 13px; margin-top: 8px; border-radius: 13px;
+  border: 1px solid var(--dm-line);
+  background: linear-gradient(180deg, #1a1710, var(--dm-panel));
+}
+.dm-friend-face {
+  position: relative; flex: 0 0 auto; overflow: hidden;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid rgb(var(--dm-glow) / .35);
+  background: radial-gradient(circle at 50% 32%, #2b2620, #0e0d0b);
+  font-family: var(--dm-display); color: var(--dm-gold); font-size: 15px;
+}
+.dm-friend-face img { width: 100%; height: 100%; object-fit: cover; }
+/* A dot rather than a word: online is a state, not an announcement. */
+.dm-friend-face[data-online="1"]::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--dm-green); border: 2px solid #0e0d0b;
+}
+.dm-friend-who, .dm-rank-who { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.dm-friend-who b, .dm-rank-who b {
+  font-family: var(--dm-display); font-size: 15px; color: #f0e6d2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-friend-who em, .dm-rank-who em {
+  font-style: normal; font-size: 12.5px; color: rgba(240,230,210,.48);
+  font-variant-numeric: tabular-nums;
+}
+
+.dm-rank[data-me="1"] { border-color: rgb(var(--dm-glow) / .45); background: linear-gradient(180deg, #241f14, #12100c); }
+.dm-rank-n {
+  flex: 0 0 34px; text-align: center;
+  font-family: var(--dm-display); font-size: 15px; color: rgb(var(--dm-glow) / .6);
+  font-variant-numeric: tabular-nums;
+}
+.dm-rank-rating {
+  flex: 0 0 auto; font-family: var(--dm-display); font-size: 19px;
+  color: var(--dm-gold); font-variant-numeric: tabular-nums;
+}
+
+.dm-you-rating { text-align: center; margin: 18px 0 4px; }
+.dm-you-rating b {
+  display: block; font-family: var(--dm-display); font-size: 56px; line-height: 1;
+  color: var(--dm-gold); font-variant-numeric: tabular-nums;
+}
+.dm-you-rating em {
+  font-style: normal; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(240,230,210,.4);
+}
+.dm-you-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 22px;
+}
+.dm-you-grid span {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 14px 6px; border-radius: 12px;
+  border: 1px solid var(--dm-line);
+  background: linear-gradient(180deg, #1a1710, var(--dm-panel));
+}
+.dm-you-grid b {
+  font-family: var(--dm-display); font-size: 24px; color: #f0e6d2;
+  font-variant-numeric: tabular-nums;
+}
+.dm-you-grid em {
+  font-style: normal; font-size: 10.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: rgba(240,230,210,.4);
+}
+.dm-you-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 26px; }
+
 /* ── The face in the corner ───────────────────────────────────────────── */
 .dm-head-me {
   flex: 0 0 auto; margin-left: auto; display: grid; place-items: center; overflow: hidden;
