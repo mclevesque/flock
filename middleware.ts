@@ -34,14 +34,27 @@ const SHARED_PREFIXES = [
   "/share",
   "/_next",
   "/.netlify",
-  // The bottom tabs point here. Friends, the ladder and the profile are the
-  // same rows in the same database on both sites — that shared account layer
-  // is the entire reason the second domain needed no migration — so they are
-  // part of this product too, not a hub page leaking through.
-  "/friends",
-  "/leaderboards",
+  // The account editor, which the You page links out to. The hub's own
+  // /friends and /leaderboards are deliberately NOT here any more: this game
+  // has its own versions, and a nine-game leaderboard on the DraftMasters
+  // domain is the hub leaking through.
   "/profile",
 ];
+
+/**
+ * Short paths on the game's own domain.
+ *
+ * Rewritten rather than redirected, so the address bar shows the short form
+ * and the app's own links -- which must keep the /draftmasters prefix to work
+ * on greatsouls.net too -- still resolve.
+ */
+const SHORTCUTS: Record<string, string> = {
+  "/portraits": "/draftmasters/portraits",
+  "/friends": "/draftmasters/friends",
+  "/ladder": "/draftmasters/ladder",
+  "/leaderboards": "/draftmasters/ladder",
+  "/you": "/draftmasters/you",
+};
 
 function isDraftMastersHost(req: NextRequest): boolean {
   // Host, not the URL: behind Netlify the request URL is internal.
@@ -67,13 +80,15 @@ export default function middleware(req: NextRequest) {
       return NextResponse.rewrite(url);
     }
 
-    // Short links for the tools, so they can be handed to somebody in a message
-    // without the doubled path. `/portraits` is the one that actually gets
-    // shared — it is how a second person fixes pictures on a board without
-    // needing anything installed.
-    const SHORTCUTS: Record<string, string> = {
-      "/portraits": "/draftmasters/portraits",
-    };
+    // Nobody should ever see the name twice. The app's own hrefs carry the
+    // prefix because they have to work on greatsouls.net as well, so they are
+    // moved to the short form on arrival.
+    if (pathname === "/draftmasters" || pathname.startsWith("/draftmasters/")) {
+      const url = req.nextUrl.clone();
+      url.pathname = pathname.slice("/draftmasters".length) || "/";
+      return NextResponse.redirect(url, 308);
+    }
+
     const shortcut = SHORTCUTS[pathname.replace(/\/$/, "")];
     if (shortcut) {
       const url = req.nextUrl.clone();

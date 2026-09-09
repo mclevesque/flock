@@ -1681,26 +1681,22 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
 
 /* The light behind it. A radial gradient has no edges to give away — a
    drop-shadow traces the bounding box and reads as a rectangle on hover. */
+/* A tight rim, and only a rim. Anything wider is clipped square by the deck's
+   scroll container, which is what put a hard line across the page. The wide
+   ambience is on the canvas now -- see Motes.tsx. */
 .dm-case::before {
   content: "";
   position: absolute; z-index: 0;
-  left: 50%; top: 52%; transform: translate(-50%, -50%);
-  width: 168%; aspect-ratio: 1;
-  /* The case is the only object on the screen, so it should look lit rather
-     than merely present. Three stops instead of two, a hotter core, and a
-     tighter blur — a wide soft wash over black reads as a slightly-less-black
-     rectangle, which is exactly what it looked like. */
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 118%; height: 113%;
   background:
-    radial-gradient(circle,
-      rgb(var(--dm-glow) / .55) 0%,
-      rgb(var(--dm-glow) / .26) 26%,
-      rgb(var(--dm-glow) / .08) 48%,
-      rgba(5,5,5,0) 70%),
-    radial-gradient(52% 30% at 50% 84%, rgba(0,0,0,.94) 0%, rgba(0,0,0,0) 74%);
-  filter: blur(18px);
+    radial-gradient(closest-side, rgb(var(--dm-glow) / .38) 0%, rgb(var(--dm-glow) / .1) 52%, rgba(5,5,5,0) 80%),
+    radial-gradient(52% 26% at 50% 88%, rgba(0,0,0,.9) 0%, rgba(0,0,0,0) 76%);
+  filter: blur(15px);
   opacity: 1;
   transition: opacity .35s ease, transform .35s ease;
 }
+
 /* Dust in the light. Two drifting layers of specks, offset in size, speed and
    direction so they never read as a repeating tile — the case is lit, and lit
    things have something floating in front of them. */
@@ -1720,21 +1716,8 @@ main.min-h-screen:has(.dm-stage) { min-height: 0; }
 .dm-shell { position: relative; z-index: 1; }
 .dm-tabs, .dm-rail { z-index: 30; }
 
-/* A second, wider halo so the light falls off into the page instead of
-   stopping at an edge. */
-.dm-case::after {
-  content: ""; position: absolute; z-index: 0; pointer-events: none;
-  left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 250%; aspect-ratio: 1;
-  background: radial-gradient(circle, rgb(var(--dm-glow) / .16) 0%, rgba(5,5,5,0) 62%);
-  filter: blur(50px);
-  opacity: .85;
-  transition: opacity .35s ease;
-}
 .dm-case[data-on="1"]::before,
-.dm-case:hover::before { opacity: 1; transform: translate(-50%, -50%) scale(1.14); }
-.dm-case[data-on="1"]::after,
-.dm-case:hover::after { opacity: 1.25; }
+.dm-case:hover::before { transform: translate(-50%, -50%) scale(1.06); }
 
 .dm-case-3d {
   position: absolute; inset: 0;
@@ -2602,7 +2585,7 @@ main.min-h-screen:has(.dm[data-standalone="1"]) { min-height: 100dvh; }
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 22px 0 30px;
+  padding: 46px 0 54px;
   perspective: 1400px;
 }
 .dm-deck::-webkit-scrollbar { display: none; }

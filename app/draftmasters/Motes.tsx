@@ -41,8 +41,8 @@ function seedMotes(n: number): Mote[] {
     x: rnd(),
     y: rnd(),
     r: 0.4 + rnd() * rnd() * 2.1,      // squared, so most are small and a few are not
-    drift: (rnd() - 0.5) * 7,
-    rise: 2 + rnd() * 9,
+    drift: (rnd() - 0.5) * 11,
+    rise: 3 + rnd() * 15,
     phase: rnd() * Math.PI * 2,
     speed: 0.25 + rnd() * 0.5,
     alpha: 0.25 + rnd() * 0.75,
@@ -71,7 +71,7 @@ export default function Motes() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       // Denser on a big screen, so the field reads the same at any width
       // instead of thinning out into a few lonely specks.
-      motes = seedMotes(Math.round(Math.min(190, Math.max(60, (w * h) / 9000))));
+      motes = seedMotes(Math.round(Math.min(300, Math.max(90, (w * h) / 5600))));
     };
 
     /**
@@ -86,7 +86,9 @@ export default function Motes() {
       const dy = y - FOCUS_Y;
       const d = Math.min(1, Math.sqrt(dx * dx + dy * dy) / 0.78);
       const near = (1 - d) ** 2;
-      return 0.16 + near * 0.84;
+      // The floor is what keeps the far field alive. Drop it and the page
+      // grows a soft edge instead of a hard one, which is no better.
+      return 0.22 + near * 0.78;
     };
 
     let raf = 0;
@@ -96,6 +98,22 @@ export default function Motes() {
       const dt = Math.min(0.05, (now - t0) / 1000);
       t0 = now;
       ctx.clearRect(0, 0, w, h);
+
+      // ── The bloom ───────────────────────────────────────────────────────
+      // Painted here rather than on the case, because the case sits in a
+      // scroll container that clips it into a rectangle. This is fixed to the
+      // viewport and reaches the corners.
+      const fx = FOCUS_X * w;
+      const fy = FOCUS_Y * h;
+      const reach = Math.max(w, h) * (still ? 0.78 : 0.78 + Math.sin(now * 0.00013) * 0.05);
+      const bloom = ctx.createRadialGradient(fx, fy, 0, fx, fy, reach);
+      bloom.addColorStop(0, "rgba(217, 178, 106, 0.16)");
+      bloom.addColorStop(0.22, "rgba(217, 178, 106, 0.085)");
+      bloom.addColorStop(0.52, "rgba(217, 178, 106, 0.028)");
+      bloom.addColorStop(1, "rgba(217, 178, 106, 0)");
+      ctx.fillStyle = bloom;
+      ctx.fillRect(0, 0, w, h);
+
       ctx.globalCompositeOperation = "lighter";
 
       for (const m of motes) {
