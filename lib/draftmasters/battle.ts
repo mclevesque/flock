@@ -210,6 +210,19 @@ export type CardEffect =
       atk: number;
       def: number;
       grace?: number;
+      /**
+       * Substitutions this captain may make, whole battle.
+       *
+       * When the card in front is about to die for nothing — it cannot hurt
+       * what it is facing, or the next blow kills it — the captain pulls them
+       * and sends in whoever is actually built for this. The pulled card goes
+       * to the BACK of the line rather than off it, so a substitution buys the
+       * right matchup now and costs you the order later.
+       *
+       * Strictly better only: a captain never swaps to make things worse, and
+       * never spends one on a fight that is already going fine.
+       */
+      swap?: number;
       lends?: EffectKind;
       label: string;
       note: string;
@@ -338,7 +351,7 @@ const EFFECTS: { match: string; fx: CardEffect }[] = [
   {
     match: "batman",
     fx: {
-      k: "command", atk: 1, def: 1, grace: 1,
+      k: "command", atk: 1, def: 1, grace: 1, swap: 1,
       label: "Contingency for everyone",
       note:
         "There is a file on every person you are about to fight, and if Batman is running " +
@@ -351,7 +364,7 @@ const EFFECTS: { match: string; fx: CardEffect }[] = [
   {
     match: "tywin",
     fx: {
-      k: "command", atk: 3, def: 0,
+      k: "command", atk: 3, def: 0, swap: 2,
       label: "Fear is a weapon",
       note:
         "Never swung a sword in his life and won more fights than anyone on this board. The " +
@@ -361,20 +374,20 @@ const EFFECTS: { match: string; fx: CardEffect }[] = [
   },
   { match: "aragorn", fx: { k: "command", atk: 1, def: 2, lends: "first", label: "Men of the West", note: "The line fights at +1/+2 and moves first, because he has already told each of them where to stand. He does not join it until he is the only one left." } },
   { match: "jon snow", fx: { k: "command", atk: 1, def: 2, label: "The line holds", note: "+1/+2 to everyone in front of him. He is a mediocre commander and an extraordinary reason not to run." } },
-  { match: "nick fury", fx: { k: "command", atk: 2, def: 1, label: "Assembled", note: "+2/+1 to the whole line. Fury's entire skill set is making other people fight together, and it is worth more than a gun." } },
-  { match: "professor x", fx: { k: "command", atk: 1, def: 1, grace: 1, lends: "first", label: "One mind", note: "The line moves as one and fights a plane closer to anything above it — everybody sees what everybody sees, half a second before it happens." } },
+  { match: "nick fury", fx: { k: "command", swap: 2, atk: 2, def: 1, label: "Assembled", note: "+2/+1 to the whole line. Fury's entire skill set is making other people fight together, and it is worth more than a gun." } },
+  { match: "professor x", fx: { k: "command", swap: 2, atk: 1, def: 1, grace: 1, lends: "first", label: "One mind", note: "The line moves as one and fights a plane closer to anything above it — everybody sees what everybody sees, half a second before it happens." } },
   { match: "captain america", fx: { k: "command", atk: 2, def: 2, label: "On your left", note: "+2/+2 to everyone in front of him. There is a reason the word is in the name." } },
   { match: "melisandre", fx: { k: "command", atk: 1, def: 1, lends: "mend", label: "For the night is dark", note: "The whole line draws life back to you on a kill. Whatever she is doing behind them, it works." } },
   { match: "gandalf", fx: { k: "command", atk: 1, def: 2, lends: "ward", label: "A servant of the Secret Fire", note: "Everyone in front of him takes two less from every blow. He was never here to fight; he was here to make sure they could." } },
-  { match: "tyrion", fx: { k: "command", atk: 2, def: 1, label: "Wins the war from a tent", note: "+2/+1 to the line. He is a 1/1 who has never won a fight and he is one of the best captains in the game, which is the joke and also correct." } },
+  { match: "tyrion", fx: { k: "command", swap: 2, atk: 2, def: 1, label: "Wins the war from a tent", note: "+2/+1 to the line. He is a 1/1 who has never won a fight and he is one of the best captains in the game, which is the joke and also correct." } },
   { match: "cersei", fx: { k: "command", atk: 3, def: -1, label: "No middle ground", note: "+3 attack and −1 health to everyone. Under Cersei the line hits harder and dies faster, and she would tell you that is the same thing." } },
   { match: "griffith", fx: { k: "command", atk: 3, def: 1, label: "The Band of the Hawk", note: "+3/+1 to the entire line. Everybody follows him. It has never once ended well and they follow him anyway." } },
-  { match: "shikamaru", fx: { k: "command", atk: 1, def: 1, grace: 1, label: "Two hundred moves ahead", note: "The line fights a plane closer to whatever is above it, because he has already worked out where it is weak." } },
-  { match: "ozymandias", fx: { k: "command", atk: 2, def: 1, grace: 1, label: "Already accounted for", note: "The line fights a plane closer and hits harder. He set this up long before the draft." } },
-  { match: "lex luthor", fx: { k: "command", atk: 1, def: 1, grace: 1, label: "Man of tomorrow", note: "The line fights a plane closer to whatever is opposite it. Luthor's whole life is the argument that a man with a plan beats a god." } },
-  { match: "doctor doom", fx: { k: "command", atk: 2, def: 2, grace: 1, label: "Doom commands", note: "+2/+2 and the line fights a plane closer. Doom does not delegate; he permits." } },
-  { match: "zordon", fx: { k: "command", atk: 2, def: 2, label: "It's morphin time", note: "+2/+2 to the whole line. He is a face in a tube and he has never lost." } },
-  { match: "splinter", fx: { k: "command", atk: 1, def: 2, lends: "first", label: "My sons", note: "The line moves first and holds at +1/+2. Four of them, one of him, and he trained all four." } },
+  { match: "shikamaru", fx: { k: "command", swap: 2, atk: 1, def: 1, grace: 1, label: "Two hundred moves ahead", note: "The line fights a plane closer to whatever is above it, because he has already worked out where it is weak." } },
+  { match: "ozymandias", fx: { k: "command", swap: 2, atk: 2, def: 1, grace: 1, label: "Already accounted for", note: "The line fights a plane closer and hits harder. He set this up long before the draft." } },
+  { match: "lex luthor", fx: { k: "command", swap: 1, atk: 1, def: 1, grace: 1, label: "Man of tomorrow", note: "The line fights a plane closer to whatever is opposite it. Luthor's whole life is the argument that a man with a plan beats a god." } },
+  { match: "doctor doom", fx: { k: "command", swap: 1, atk: 2, def: 2, grace: 1, label: "Doom commands", note: "+2/+2 and the line fights a plane closer. Doom does not delegate; he permits." } },
+  { match: "zordon", fx: { k: "command", swap: 2, atk: 2, def: 2, label: "It's morphin time", note: "+2/+2 to the whole line. He is a face in a tube and he has never lost." } },
+  { match: "splinter", fx: { k: "command", swap: 1, atk: 1, def: 2, lends: "first", label: "My sons", note: "The line moves first and holds at +1/+2. Four of them, one of him, and he trained all four." } },
   { match: "yoda", fx: { k: "command", atk: 1, def: 2, grace: 1, label: "Size matters not", note: "The line fights a plane closer to anything above it, which is the entire lesson and he says it out loud." } },
   { match: "dumbledore", fx: { k: "command", atk: 1, def: 2, lends: "ward", label: "Help will be given", note: "The line takes less from every blow while he is behind it." } },
   { match: "hannibal", fx: { k: "command", atk: 2, def: 1, grace: 1, label: "Knows exactly where you break", note: "The line fights a plane closer. He has been having a conversation with your team the whole time." } },
@@ -385,22 +398,22 @@ const EFFECTS: { match: string; fx: CardEffect }[] = [
   // and that gap is the point — before captains existed, a 1/1 who has never
   // won a fight was simply a bad card, and the game had no way to say that
   // Olenna Tyrell is more dangerous than most of the men on her board.
-  { match: "olenna", fx: { k: "command", atk: 3, def: 1, label: "Tell Cersei", note: "+3/+1 to the whole line. She has poisoned a king, outlived four husbands and lost precisely one argument in her life. She will not be joining the fight, and she has never needed to." } },
-  { match: "littlefinger", fx: { k: "command", atk: 2, def: 2, grace: 1, label: "Chaos is a ladder", note: "+2/+2 and the line fights a plane closer to whatever is above it. He arranged this. He has arranged everything else too." } },
-  { match: "varys", fx: { k: "command", atk: 1, def: 3, label: "Little birds everywhere", note: "+1/+3. He knows what the other side drafted, roughly where they are standing, and what each of them is afraid of." } },
-  { match: "davos", fx: { k: "command", atk: 2, def: 1, label: "The Onion Knight", note: "+2/+1. No fingers, no sword worth mentioning, and the only man on the board everyone actually listens to." } },
-  { match: "sansa", fx: { k: "command", atk: 2, def: 2, label: "A slow learner with good teachers", note: "+2/+2. She was taught by Cersei, Littlefinger and Ramsay in turn and outlived all three." } },
-  { match: "bran stark", fx: { k: "command", atk: 1, def: 2, grace: 1, label: "Sees all of it", note: "The line fights a plane closer, because he has already watched this happen." } },
-  { match: "roose bolton", fx: { k: "command", atk: 2, def: 1, label: "A quiet man", note: "+2/+1. Nobody has ever seen him raise his voice or lose." } },
+  { match: "olenna", fx: { k: "command", swap: 1, atk: 3, def: 1, label: "Tell Cersei", note: "+3/+1 to the whole line. She has poisoned a king, outlived four husbands and lost precisely one argument in her life. She will not be joining the fight, and she has never needed to." } },
+  { match: "littlefinger", fx: { k: "command", swap: 2, atk: 2, def: 2, grace: 1, label: "Chaos is a ladder", note: "+2/+2 and the line fights a plane closer to whatever is above it. He arranged this. He has arranged everything else too." } },
+  { match: "varys", fx: { k: "command", swap: 2, atk: 1, def: 3, label: "Little birds everywhere", note: "+1/+3. He knows what the other side drafted, roughly where they are standing, and what each of them is afraid of." } },
+  { match: "davos", fx: { k: "command", swap: 1, atk: 2, def: 1, label: "The Onion Knight", note: "+2/+1. No fingers, no sword worth mentioning, and the only man on the board everyone actually listens to." } },
+  { match: "sansa", fx: { k: "command", swap: 1, atk: 2, def: 2, label: "A slow learner with good teachers", note: "+2/+2. She was taught by Cersei, Littlefinger and Ramsay in turn and outlived all three." } },
+  { match: "bran stark", fx: { k: "command", swap: 2, atk: 1, def: 2, grace: 1, label: "Sees all of it", note: "The line fights a plane closer, because he has already watched this happen." } },
+  { match: "roose bolton", fx: { k: "command", swap: 1, atk: 2, def: 1, label: "A quiet man", note: "+2/+1. Nobody has ever seen him raise his voice or lose." } },
   { match: "hand of the king", fx: { k: "command", atk: 2, def: 1, label: "Hand of the King", note: "+2/+1 to the line." } },
   { match: "batiatus", fx: { k: "command", atk: 2, def: 1, label: "Owns the ludus", note: "+2/+1. He has never fought and he has made a great deal of money on people who have." } },
-  { match: "amanda waller", fx: { k: "command", atk: 3, def: 0, label: "The Wall", note: "+3 attack. Nobody on the line has a choice about being there and every one of them fights like it." } },
+  { match: "amanda waller", fx: { k: "command", swap: 2, atk: 3, def: 0, label: "The Wall", note: "+3 attack. Nobody on the line has a choice about being there and every one of them fights like it." } },
   { match: "nick fury", fx: { k: "command", atk: 2, def: 1, label: "Assembled", note: "+2/+1 to the whole line. Fury's entire skill set is making other people fight together, and it is worth more than a gun." } },
-  { match: "light yagami", fx: { k: "command", atk: 3, def: 0, grace: 1, label: "All according to plan", note: "+3 attack and the line fights a plane closer. He is a schoolboy with no combat ability whatsoever and the most dangerous captain on any anime board." } },
-  { match: "lelouch", fx: { k: "command", atk: 3, def: 1, grace: 1, label: "Geass", note: "+3/+1 and the line fights a plane closer. Physically the worst card in his own franchise; strategically the best." } },
-  { match: "aizen", fx: { k: "command", atk: 2, def: 2, grace: 1, label: "All of it was planned", note: "+2/+2 and a plane closer. Whatever you thought was happening was the plan." } },
-  { match: "thrawn", fx: { k: "command", atk: 2, def: 2, grace: 1, label: "Studies your art", note: "+2/+2 and a plane closer. He has read everything your side has ever written and drawn conclusions from it." } },
-  { match: "moriarty", fx: { k: "command", atk: 2, def: 1, grace: 1, label: "The Napoleon of crime", note: "+2/+1 and a plane closer." } },
+  { match: "light yagami", fx: { k: "command", swap: 1, atk: 3, def: 0, grace: 1, label: "All according to plan", note: "+3 attack and the line fights a plane closer. He is a schoolboy with no combat ability whatsoever and the most dangerous captain on any anime board." } },
+  { match: "lelouch", fx: { k: "command", swap: 2, atk: 3, def: 1, grace: 1, label: "Geass", note: "+3/+1 and the line fights a plane closer. Physically the worst card in his own franchise; strategically the best." } },
+  { match: "aizen", fx: { k: "command", swap: 2, atk: 2, def: 2, grace: 1, label: "All of it was planned", note: "+2/+2 and a plane closer. Whatever you thought was happening was the plan." } },
+  { match: "thrawn", fx: { k: "command", swap: 3, atk: 2, def: 2, grace: 1, label: "Studies your art", note: "+2/+2 and a plane closer. He has read everything your side has ever written and drawn conclusions from it." } },
+  { match: "moriarty", fx: { k: "command", swap: 2, atk: 2, def: 1, grace: 1, label: "The Napoleon of crime", note: "+2/+1 and a plane closer." } },
   { match: "senku", fx: { k: "command", atk: 2, def: 2, label: "Ten billion percent", note: "+2/+2. He will build whatever the line needs out of whatever is on the floor." } },
 
   // ── Prep ───────────────────────────────────────────────────────────────
@@ -504,6 +517,8 @@ export interface Aura {
   def: number;
   /** Planes of the gap the whole line gets to ignore. Captain-only, always. */
   grace: number;
+  /** Substitutions this captain may make during the battle. */
+  swap: number;
   lends: CardEffect | null;
   label: string;
 }
@@ -523,10 +538,17 @@ export function captainAura(captain: Card): Aura {
         EFFECTS.find((e) => e.fx.k === cmd.lends)?.fx ??
         null
       : captain.fx.find((f) => LENDABLE.includes(f.k)) ?? null;
-    return { atk: cmd.atk, def: cmd.def, grace: cmd.grace ?? 0, lends, label: cmd.label };
+    return {
+      atk: cmd.atk,
+      def: cmd.def,
+      grace: cmd.grace ?? 0,
+      swap: cmd.swap ?? 0,
+      lends,
+      label: cmd.label,
+    };
   }
   const lends = captain.fx.find((f) => LENDABLE.includes(f.k)) ?? null;
-  return { atk: 1, def: 1, grace: 0, lends, label: "Leads from the back" };
+  return { atk: 1, def: 1, grace: 0, swap: 0, lends, label: "Leads from the back" };
 }
 
 /** Whether promoting this card unlocks something it cannot do in the line. */
@@ -541,11 +563,79 @@ export function captainNote(captain: Card): string {
       : "no change";
   return (
     `${a.label} — the rest of your line fights at ${stat}` +
+    (a.swap
+      ? `, and ${captain.name} can pull somebody out of a losing matchup and send in ` +
+        `a better answer ${a.swap === 1 ? "once" : `${a.swap} times`}`
+      : "") +
     (a.grace ? `, and ${a.grace === 1 ? "a plane" : `${a.grace} planes`} of any gap above them stops counting` : "") +
     (a.lends ? `, and shares ${a.lends.label.toLowerCase()}` : "") +
     `. ${captain.name} does not fight until they are the last one left, and takes the field ` +
     `at +2 attack when they do.`
   );
+}
+
+/**
+ * How reliably a card does what it is told, on a d6. Roll at or under and they
+ * go; roll over and they stay exactly where they are.
+ *
+ * Declared for the ones where it is the character, inferred from traits for
+ * everybody else — a board somebody generated ten seconds ago still gets a
+ * dragon that ignores you, because a dragon ignoring you is a fact about
+ * dragons rather than a fact about that board.
+ */
+const OBEDIENCE: [string, number][] = [
+  // Will not be moved. Two of these are not taking instructions from anyone,
+  // and one of them is having a much worse day than the fight in front of him.
+  ["the mountain", 0], ["gregor clegane", 0], ["drogon", 0], ["balerion", 0],
+  ["vhagar", 0], ["meleys", 0], ["caraxes", 0], ["viserion", 0], ["rhaegal", 0],
+  ["smaug", 0], ["ancalagon", 0], ["glaurung", 0], ["hulk", 0], ["doomsday", 0],
+  ["godzilla", 0], ["king ghidorah", 0], ["king kong", 0], ["destoroyah", 0],
+  ["juggernaut", 0], ["wun wun", 0], ["a wight", 0], ["skullcrawler", 0],
+  ["broly", 0], ["berserk", 0], ["the beast", 0],
+
+  // Committed to it. They can hear you.
+  ["guts", 1], ["zodd", 1], ["sabretooth", 1], ["wolverine", 2], ["the hound", 1],
+  ["sandor clegane", 1], ["khal drogo", 1], ["michael myers", 0], ["jason voorhees", 0],
+  ["leatherface", 0], ["kratos", 1], ["vegeta", 1], ["bakugo", 1], ["eren", 1],
+  ["omni-man", 1], ["thragg", 1], ["conquest", 0], ["battle beast", 0],
+  ["shao kahn", 1], ["akuma", 1], ["lucifer", 1], ["the joker", 0], ["harley", 1],
+  ["deadpool", 1], ["tormund", 2], ["gimli", 2], ["boromir", 2],
+
+  // Level-headed. Being told to fall back is not an insult to these people.
+  ["jon snow", 6], ["brienne", 6], ["ser davos", 6], ["podrick", 6],
+  ["barristan", 6], ["grey worm", 6], ["jorah", 6], ["samwell", 6],
+  ["aragorn", 6], ["faramir", 6], ["gandalf", 5], ["legolas", 5],
+  ["captain america", 6], ["diggle", 6], ["alex danvers", 6], ["castiel", 5],
+  ["darth vader", 6], ["a stormtrooper", 6], ["boba fett", 5], ["cyclops", 6],
+  ["colossus", 5], ["bishop", 5], ["nightwing", 6], ["batman", 5],
+  ["martian manhunter", 6], ["obi-wan", 6], ["mace windu", 5], ["ahsoka", 5],
+  ["splinter", 6], ["leonardo", 6], ["thunder", 5], ["jefferson pierce", 5],
+  ["elijah", 5], ["stefan", 5], ["marcel", 5], ["dean winchester", 4],
+  ["sam winchester", 5], ["bobby singer", 6], ["jody", 6],
+];
+
+/** Middling by trait, for everybody the table does not name. */
+function baseObedience(traits: Trait[]): number {
+  if (traits.includes("dragon")) return 0;
+  if (traits.includes("giant") || traits.includes("large")) return 1;
+  if (traits.includes("sluggish")) return 2;
+  return 4;
+}
+
+/**
+ * How well this card takes an order, and one line saying why.
+ *
+ * Exported because it belongs on the card face: a player choosing a captain
+ * with substitutions needs to know that half their line will not move.
+ */
+export function obedienceOf(name: string, variant: string | null | undefined, traits: Trait[]) {
+  const hay = `${name} ${variant ?? ""}`.toLowerCase();
+  for (const [frag, n] of OBEDIENCE) {
+    if (hay.includes(frag)) return n;
+  }
+  // A state can override a temperament. Anything enraged stops listening.
+  if (/rage|berserk|enraged|humanity|possessed|feral|unleashed|bloodlust|mad|frenzy/.test(hay)) return 1;
+  return baseObedience(traits);
 }
 
 // ── Cards ────────────────────────────────────────────────────────────────────
@@ -561,6 +651,8 @@ export interface Card {
   planeLabel: string;
   traits: Trait[];
   fx: CardEffect[];
+  /** Rolls at or under this on a d6 to obey a captain's order to fall back. */
+  obeys: number;
 }
 
 /**
@@ -622,6 +714,7 @@ export function cardFor(pick: PickLike, packId?: string): Card {
     planeLabel: planeInfo(plane).label,
     traits,
     fx: effectsFor(pick.name, pick.variant),
+    obeys: obedienceOf(pick.name, pick.variant, traits),
   };
 }
 
@@ -685,6 +778,7 @@ export interface BattleEvent {
     | "bloodlust"
     | "lastStand"
     | "captain"
+    | "swap"
     | "terrain"
     | "end";
   side?: 0 | 1;
@@ -848,6 +942,11 @@ export function resolveBattle(
     return s.captain ? [...line, mk(s.captain, side, true)] : line;
   };
   const teams: [Fighter[], Fighter[]] = [build(a, 0), build(b, 1)];
+  /** Substitutions each captain has left. */
+  const subs: [number, number] = [
+    (a.captain && captainAura(a.captain).swap) || 0,
+    (b.captain && captainAura(b.captain).swap) || 0,
+  ];
   const die = makeDie(
     opts.seed ??
       seedFrom([...a.cards, ...b.cards].map((c) => `${c.name}|${c.variant}|${c.tier}`).join("~"))
@@ -1025,6 +1124,81 @@ export function resolveBattle(
   };
 
   /**
+   * The captain pulls the card in front and sends in a better answer.
+   *
+   * Only from a genuinely losing position — the front cannot hurt what it is
+   * facing, or is about to die to it — and only if somebody on the bench does
+   * measurably better against that specific opponent. A captain who swaps for
+   * the sake of swapping is just shuffling, and the mechanic has to read as
+   * judgement or it is not worth promoting anyone for.
+   *
+   * The pulled card goes to the BACK of the line, not off it. You buy the
+   * right matchup now and pay for it in the order later, which is the shape
+   * every good decision in this game has.
+   */
+  const maybeSwap = (self: 0 | 1, foe: Fighter): boolean => {
+    if (subs[self] <= 0) return false;
+    const cap = teams[self].find((f) => f.captain && !f.dead);
+    if (!cap) return false;
+
+    const up = front(self);
+    if (!up || up === cap) return false;
+
+    const dealsNow = computeStrike(up, foe).dealt;
+    const takes = computeStrike(foe, up).dealt;
+    const doomed = takes >= up.hp;
+    if (dealsNow > 0 && !doomed) return false;
+
+    // Two points a card is worth here: what it does to this opponent, and
+    // whether it is still standing afterwards.
+    const worth = (f: Fighter) => {
+      const out = computeStrike(f, foe).dealt;
+      const back = computeStrike(foe, f).dealt;
+      return out * 2 + (back < f.hp ? 3 : 0);
+    };
+    const here = worth(up);
+
+    let best: Fighter | null = null;
+    for (const f of teams[self]) {
+      if (f.dead || f === up || f.captain) continue;
+      if (!best || worth(f) > worth(best)) best = f;
+    }
+    if (!best || worth(best) <= here) return false;
+
+    subs[self] -= 1;
+
+    // The order is given. Whether it is followed is another matter, and the
+    // attempt is spent either way — deciding to move something that will not
+    // move is a bad decision, and the game should let you make it.
+    const roll = die(6);
+    if (roll > up.obeys) {
+      say(
+        "swap",
+        up.obeys === 0
+          ? `${label(cap)} calls ${label(up)} back. ${label(up)} does not appear to have heard.`
+          : `${label(cap)} calls ${label(up)} back — rolls a ${roll} against ${up.obeys}. ${label(up)} refuses and stays where they are.`,
+        self
+      );
+      return true;
+    }
+
+    const i = teams[self].indexOf(up);
+    teams[self].splice(i, 1);
+    teams[self].push(up);
+    const j = teams[self].indexOf(best);
+    teams[self].splice(j, 1);
+    teams[self].unshift(best);
+
+    say(
+      "swap",
+      `${label(cap)} pulls ${label(up)} out of it and sends ${label(best)} forward against ${label(foe)}.` +
+        (up.obeys >= 6 ? "" : ` (${roll} against ${up.obeys})`),
+      self
+    );
+    return true;
+  };
+
+  /**
    * A prep card facing something it cannot meaningfully hurt falls back.
    *
    * Only when there is somebody to cover — the last card standing does not get
@@ -1139,6 +1313,13 @@ export function resolveBattle(
     // Withdrawals are decided before anyone swings, and a withdrawal changes
     // who is standing there — so the round is re-read rather than played out
     // against a fighter who just left.
+    // Substitutions and withdrawals both change who is standing there, so the
+    // round is re-read rather than played out against somebody who just left.
+    // Both are bounded per battle, so this cannot spin.
+    if (maybeSwap(0, f1) || maybeSwap(1, f0)) {
+      round -= 1;
+      continue;
+    }
     if (maybeWithdraw(0, f1) || maybeWithdraw(1, f0)) {
       round -= 1;
       continue;
@@ -1229,7 +1410,8 @@ export function battleBriefing(cards: Card[], sideName: string): string {
   if (!cards.length) return "";
   const lines = cards.map((c) => {
     const fx = c.fx.length ? ` — ${c.fx.map((f) => f.label).join(", ")}` : "";
-    return `  - ${label(c)}: ${c.atk}/${c.def}, ${c.planeLabel} plane (${c.plane})${fx}`;
+    const ord = c.obeys <= 1 ? ", takes no orders" : c.obeys >= 6 ? ", disciplined" : "";
+    return `  - ${label(c)}: ${c.atk}/${c.def}, ${c.planeLabel} plane (${c.plane})${ord}${fx}`;
   });
   return (
     `${sideName}'s cards, as the rules score them. ATK/DEF and PLANE are game facts, ` +

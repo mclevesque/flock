@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { isStandaloneSite } from "@/lib/draftmasters/site";
 import Navbar from "./components/Navbar";
 import SessionWrapper from "./components/SessionWrapper";
 import ChallengePopup from "./components/ChallengePopup";
@@ -35,7 +36,11 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  /* On draftmasters.net the game is the whole site. A nav bar offering
+     Moonhaven, Debate and Leaderboards is a different product's furniture
+     and the first thing a new player would see. */
+  const standalone = await isStandaloneSite();
   return (
     <html lang="en">
       <head>
@@ -50,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <PortalProvider>
           <VoiceProvider>
             <VibeProvider>
-              <Navbar />
+              {!standalone && <Navbar />}
               <main className="min-h-screen">{children}</main>
               <ChallengePopup />
               <GlobalNotifications />
