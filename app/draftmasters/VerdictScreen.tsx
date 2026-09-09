@@ -63,7 +63,7 @@ export default function VerdictScreen({
           Both rosters are set
         </h2>
         <p className="dm-tagline" style={{ maxWidth: 460, margin: "10px auto 0" }}>
-          Set your line, name a captain, and send them out.
+          Send them out and find out what happens.
         </p>
 
         <div className="dm-verdict-sides" style={{ marginTop: 26 }}>

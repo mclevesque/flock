@@ -1932,7 +1932,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             mode={mode}
             battleLoading={battleLoading}
             busy={battleLoading ? "staging" : peerStaging ? peerStagingKind : null}
-            onBattle={() => setScreen("lineup")}
+            onBattle={() => {
+              // Straight to the fight: the story takes a team, not an order,
+              // and captains are out of the brief for now.
+              const me = view.sides.find((s) => s.id === meId) ?? view.sides[0];
+              void settleWithTheFight({ order: me?.roster ?? [], captain: null });
+            }}
             onPlayAgain={playAgain}
           />
         )}
