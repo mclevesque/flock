@@ -400,10 +400,21 @@ export const BATTLE_STYLES = `
   /* Over a painting, so the words carry their own darkness with them. */
   text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 34px rgba(0,0,0,.7);
 }
-/* A death is the one thing allowed to change colour. */
+/* A killing beat gets a faint warmth behind it -- enough to feel, not enough
+   to fight the name that is about to be picked out in red. Tinting the whole
+   paragraph was the old way, and it made the one word that matters harder to
+   find rather than easier. */
 .dm-st-beat[data-kill="1"] {
-  color: #f5b9a0;
-  text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 40px rgba(224,90,60,.28);
+  text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 40px rgba(224,90,60,.22);
+}
+
+/* Whoever went down, by name. Read against #f4ecdc on near-black, so it is a
+   warm red rather than a signal red: legible at this size, and it does not
+   glow at the reader from three paragraphs away. */
+.dm-st-fell {
+  font-style: normal; font-weight: 600;
+  color: #ff7a63;
+  text-shadow: 0 2px 12px rgba(0,0,0,.95), 0 0 26px rgba(224,64,42,.4);
 }
 
 /* ── The opening rite ──────────────────────────────────────────

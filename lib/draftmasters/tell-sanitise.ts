@@ -53,10 +53,20 @@ export interface TellMvp {
 }
 
 export interface Told {
-  beats: TellBeat[];
+  /**
+   * As the MODEL sends it: casualties are roster NUMBERS. What comes back out
+   * of sanitise is always resolved card names, which is why the beat type here
+   * is wider than TellBeat -- the loose shape goes in, the strict one comes
+   * out, and nothing downstream ever sees a number.
+   */
+  beats: { text: string; kills?: (string | number)[] }[];
   winner: string;
   /** Named by whoever wrote the fight, since only they know how it went. */
-  mvp?: TellMvp | null;
+  /**
+   * As the MODEL sends it: a number, or a name from an older answer. What
+   * comes back out of sanitise is always a resolved {name, note}.
+   */
+  mvp?: { id?: number | string; name?: string; note?: string } | null;
   /** Why that side won, in plain words. Written in the same call as the
    *  story so the explanation cannot disagree with what was narrated -- and
    *  so one battle costs one request. */
@@ -77,34 +87,79 @@ export function finished(told: Told, b: Body): boolean {
 }
 
 /** Names as given, so a hallucinated casualty cannot cross anybody out. */
+/** A casualty given as a roster number rather than a name. */
+const isNumber = (raw: unknown): boolean =>
+  typeof raw === "number" || /^\s*\d{1,2}\s*$/.test(String(raw ?? ""));
+
 export function sanitise(told: Told, b: Body): Told {
   const real = new Map<string, string>();
+  /**
+   * Every card on the board, numbered.
+   *
+   * The brief hands the model these numbers and asks for casualties BY number,
+   * which takes the whole class of name-matching problem off the table: no
+   * variant folded into a name ("Ultimate Gohan" for a card called "Gohan"),
+   * no two Gokus to tell apart, no fuzzy containment match that has to decide
+   * how close is close enough. A number means exactly one card or nothing.
+   *
+   * Numbers run straight through both rosters -- 1..5 for the first side,
+   * 6..10 for the second -- and never appear on screen.
+   */
+  const byNumber = new Map<number, string>();
+  let n = 0;
   for (const s of b.sides ?? []) {
-    for (const c of s.cards) real.set(c.name.toLowerCase(), c.name);
+    for (const c of s.cards) {
+      real.set(c.name.toLowerCase(), c.name);
+      byNumber.set(++n, c.name);
+    }
   }
 
   /**
-   * A name the model wrote, resolved back to a card that was actually drafted.
+   * Whatever the model wrote, resolved back to a card that was actually
+   * drafted. A NUMBER is the intended path and settles it outright.
    *
-   * Exact match first. Then a containment match, because the model routinely
-   * folds the drafted CONDITION into the name -- it calls a card named "Gohan"
-   * carrying the variant "Ultimate Gohan" exactly that, which is right in the
-   * prose and unmatchable as a key. Being strict there silently dropped both
-   * the MVP and any kill written the same way, so a card the story plainly
-   * killed just never greyed out.
-   *
-   * The containment match only counts when EXACTLY ONE card can be meant. On a
-   * board holding both "Goku" and "Goku (GT)", a bare "Goku" is ambiguous and
-   * is dropped rather than guessed at -- crossing out the wrong card is worse
-   * than crossing out none.
+   * The rest is the fallback for a model that answers with names anyway.
+   * Exact match first, then containment, because a model writing names folds
+   * the drafted CONDITION into them -- calling a card named "Gohan" carrying
+   * the variant "Ultimate Gohan" exactly that, which is right in the prose and
+   * unmatchable as a key. Containment only counts when EXACTLY ONE card can be
+   * meant: on a board holding both "Goku" and "Goku (GT)", a bare "Goku" is
+   * dropped rather than guessed at, because crossing out the wrong card is
+   * worse than crossing out none.
    */
   const resolve = (raw: unknown): string | undefined => {
+    // A number is the whole answer when it is one.
+    if (isNumber(raw)) return byNumber.get(Number(raw));
     const q = String(raw ?? "").toLowerCase().trim();
     if (q.length < 3) return undefined;
     const exact = real.get(q);
     if (exact) return exact;
     const hits = [...real.entries()].filter(([k]) => k.includes(q) || q.includes(k));
     return hits.length === 1 ? hits[0][1] : undefined;
+  };
+
+  /**
+   * Does this beat's prose back up a casualty given BY NAME?
+   *
+   * Only ever applied to the name fallback, never to a number. A number is
+   * proof: it points at one card and the portrait dies, whatever the prose
+   * decided to call them -- "the Great Ape", "the overgrown monkey", or a
+   * pronoun three sentences after the introduction. A NAME is a guess, and a
+   * guess the paragraph does not support would grey somebody out in the middle
+   * of a sentence about somebody else.
+   *
+   * Matched on the bare name first, then on any distinctive word in it, since
+   * prose properly writes "Clegane" or "Hightower" after the introduction
+   * rather than the full name every time.
+   */
+  const namedIn = (text: string, card: string): boolean => {
+    const hay = text.toLowerCase();
+    const bare = card.replace(/\s*\(.*\)\s*$/, "").toLowerCase().trim();
+    if (bare && hay.includes(bare)) return true;
+    return bare
+      .split(/[^a-z0-9']+/)
+      .filter((w) => w.length >= 4)
+      .some((w) => hay.includes(w));
   };
 
   /** Which side each card belongs to, and how many of each are still up. */
@@ -145,11 +200,15 @@ export function sanitise(told: Told, b: Body): Told {
 
     const kills: string[] = [];
     for (const k of raw?.kills ?? []) {
+      const byNum = isNumber(k);
       const hit = resolve(k);
-      // Unknown name, or somebody who already died: dropped rather than
+      // Unknown card, or somebody who already died: dropped rather than
       // trusted. The story survives a missing crossing-out; it does not
       // survive a card dying twice or a card that was never drafted dying.
       if (!hit || usedUp.has(hit)) continue;
+      // A number is taken at its word. A NAME the paragraph never supports is
+      // not -- see namedIn.
+      if (!byNum && !namedIn(text, hit)) continue;
       usedUp.add(hit);
       kills.push(hit);
       const side = sideOf.get(hit);
@@ -186,7 +245,7 @@ export function sanitise(told: Told, b: Body): Told {
   // Checked against the real roster like the casualties are. A made-up name
   // here would put a card on the payoff screen that nobody drafted.
   const rawMvp = told.mvp;
-  const mvpName = resolve(rawMvp?.name);
+  const mvpName = resolve(rawMvp?.id ?? rawMvp?.name);
   const mvp = mvpName
     ? { name: mvpName, note: named(String(rawMvp?.note ?? "").trim()) }
     : null;

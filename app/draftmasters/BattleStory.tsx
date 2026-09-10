@@ -67,15 +67,64 @@ const BARE = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
 /**
  * How fast the story climbs, in pixels a second.
  *
- * Set from reading speed rather than taste: a line of this text runs to about
- * eleven words, dramatic reading sits near 150 words a minute, so a line wants
- * roughly four seconds. Slower than instinct says and correct anyway -- this is
- * meant to be listened to, and two people are reading it at once.
+ * There used to be a Faster button, and everybody pressed it -- which is the
+ * clearest signal there is that the default was wrong. This sits between the
+ * old normal and the old fast: about a line every second and three quarters,
+ * near 340 words a minute. Quick enough that a long battle does not drag,
+ * slow enough to read every word, and one speed means one less decision in
+ * front of the thing people came to watch.
  */
-const CRAWL_PX_S = 13;
+const CRAWL_PX_S = 21;
 
 /** Where on the screen a line counts as read. Just below centre. */
 const READ_AT = 0.56;
+
+const ESC = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Light up whoever dies in this beat.
+ *
+ * Twenty paragraphs of fighting is a lot to follow, and the deaths are the
+ * part that matters -- so the name of anyone who goes down is picked out of
+ * the prose in red. It reads the same as before if you are not looking for it,
+ * and tells you at a glance if you are.
+ *
+ * The casualties arrive as data, so this is a display decision only: nothing
+ * here can change who died. It matches the drafted name, the name without its
+ * parenthetical, and any distinctive word in it, because the prose properly
+ * writes "Clegane" long after it last wrote "Gregor Clegane". When the story
+ * calls somebody something else entirely -- "the overgrown monkey" -- nothing
+ * lights up and the portrait still greys out on the bench.
+ */
+function mark(text: string, kills: string[]) {
+  if (!kills.length) return text;
+
+  const forms = new Set<string>();
+  for (const k of kills) {
+    const bare = k.replace(/\s*\(.*\)\s*$/, "").trim();
+    if (bare) forms.add(bare);
+    for (const w of bare.split(/[^A-Za-z0-9']+/)) if (w.length >= 4) forms.add(w);
+  }
+  if (!forms.size) return text;
+
+  // Longest first, so "Gregor Clegane" wins over "Clegane" where both fit.
+  const re = new RegExp(
+    `\\b(${[...forms].sort((a, b) => b.length - a.length).map(ESC).join("|")})\\b`,
+    "gi"
+  );
+  // One capturing group, so split() hands back the matches at odd indices.
+  const parts = text.split(re);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <em key={i} className="dm-st-fell">
+        {p}
+      </em>
+    ) : (
+      p
+    )
+  );
+}
 
 /**
  * The opening rite.
@@ -147,7 +196,6 @@ export default function BattleStory({
   /** Index of the last paragraph the reader has reached. */
   const [upTo, setUpTo] = useState(-1);
   const [paused, setPaused] = useState(false);
-  const [fast, setFast] = useState(false);
   /** Which step of the opening rite is on screen. */
   const [riteAt, setRiteAt] = useState(-1);
   /** The rite has said its last line and held it. */
@@ -370,7 +418,7 @@ export default function BattleStory({
       if (pos === null) pos = el.scrollTop;
 
       const max = el.scrollHeight - el.clientHeight;
-      pos = Math.min(max, pos + (CRAWL_PX_S * (fast ? 2.4 : 1) * dt) / 1000);
+      pos = Math.min(max, pos + (CRAWL_PX_S * dt) / 1000);
       el.scrollTop = pos;
 
       const line = pos + el.clientHeight * READ_AT;
@@ -397,7 +445,7 @@ export default function BattleStory({
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [rolling, told, done, paused, fast]);
+  }, [rolling, told, done, paused]);
 
   // -- Sound ----------------------------------------------------------------
   useEffect(() => {
@@ -493,20 +541,12 @@ export default function BattleStory({
         </span>
         <div className="dm-st-controls">
           {!done && (
-            <>
-              <button
-                className="dm-btn dm-btn-ghost dm-bt-mini"
-                onClick={() => setPaused((p) => !p)}
-              >
-                {paused ? "Resume" : "Pause"}
-              </button>
-              <button
-                className="dm-btn dm-btn-ghost dm-bt-mini"
-                onClick={() => setFast((f) => !f)}
-              >
-                {fast ? "Normal" : "Faster"}
-              </button>
-            </>
+            <button
+              className="dm-btn dm-btn-ghost dm-bt-mini"
+              onClick={() => setPaused((p) => !p)}
+            >
+              {paused ? "Resume" : "Pause"}
+            </button>
           )}
           <button className="dm-btn dm-btn-ghost dm-bt-mini" onClick={finish}>
             {done ? "Done" : "Skip"}
@@ -564,7 +604,7 @@ export default function BattleStory({
               className="dm-st-beat"
               data-kill={t.kills.length ? "1" : "0"}
             >
-              {t.text}
+              {mark(t.text, t.kills)}
             </p>
           ))}
 

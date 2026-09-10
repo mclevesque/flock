@@ -152,6 +152,12 @@ out of who the character actually is -- never as a random accident, never as a
 way to dodge a matchup you did not want to write, and never more than once in a
 battle. Most fights have none.
 
+A signature bit is not a rule about that card. If somebody would plausibly
+refuse to fight, throw the match, or be distracted at the worst moment, that is
+worth doing ONCE IN A WHILE and not every time they are drafted -- the second
+time a player sees the same card do the same thing, it stops being a surprise
+and starts being a bug. Most of the time, they just fight.
+
 TWO SIDES, AND THEY FIGHT EACH OTHER. Every card belongs to exactly one side and
 you must keep track of whose is whose. A card is normally taken out by the OTHER
 side. Hurting your own team is allowed ONLY when the character would genuinely
@@ -179,17 +185,36 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 40-75 words", "kills": ["Exact Card Name"] }, ... ],
+  "beats": [ { "text": "one paragraph, 30-55 words", "kills": [3] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
-  "mvp": { "name": "Exact Card Name", "note": "One sentence on what they did." }
+  "mvp": { "id": 7, "note": "One sentence on what they did." }
 }
-16-24 beats -- however many it takes to put every card on the losing side in
-the ground, and not one beat past that. The first two or three are the walk-out
-and kill nobody; the last one is the aftermath and kills nobody either. "kills"
-lists ONLY cards dying in that beat, spelled exactly as given, each card at most
-once in the whole battle. Before you finish, check your own casualty list: one
-side's entire roster must appear in it.
+
+CASUALTIES ARE NUMBERS. Every card in the brief above has a number and "kills"
+takes those numbers, not names -- [3], not ["Gohan"]. A number means exactly
+one card, so there is nothing to misread: no variant folded into a name, no
+telling two Gokus apart. The same goes for the MVP's "id".
+
+THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
+anything a player ever sees. In the text they are people with names.
+12-16 beats -- however many it takes to put every card on the losing side in
+the ground, and not one beat past that. TWO beats of walk-out, no more, then
+get into it. The last beat is the aftermath and kills nobody. Before you
+finish, check your own casualty list: one side's entire roster must appear in
+it.
+
+WRITE EVERY DEATH WHERE IT HAPPENS. "kills" is not a summary of the paragraph,
+it IS the paragraph: the card behind each number must be NAMED in that beat's
+own text and must visibly go down in it. The reader is watching that portrait grey out
+at the exact moment they read those words, so a name in the list that is not in
+the prose crosses out a card in the middle of a sentence about somebody else.
+If you cannot name them going down, do not list them -- write their death in a
+beat of its own instead.
+
+Do not stack casualties either. Usually one card per beat, two when they go
+down together in the same action, and never a beat that quietly clears out
+three people the prose barely mentions.
 
 THE VERDICT is not part of the story and drops the voice entirely. It is the
 plain answer to "so why did they win?", for somebody who just watched it. Name
@@ -210,6 +235,9 @@ sentence saying what they actually did, in the same voice as the verdict.`;
 
 
 function brief(b: Body): string {
+  // Numbered straight through both rosters, so a casualty can be named by a
+  // number that means exactly one card and nothing else.
+  let n = 0;
   const sides = (b.sides ?? [])
     .map((s) => {
       const cards = s.cards
@@ -220,7 +248,7 @@ function brief(b: Body): string {
             cond,
             c.abilities?.length ? c.abilities.join("; ") : "",
           ].filter(Boolean);
-          return `  - ${c.name}${bits.length ? ` — ${bits.join(" — ")}` : ""}`;
+          return `  ${++n}. ${c.name}${bits.length ? ` — ${bits.join(" — ")}` : ""}`;
         })
         .join("\n");
       // Quoted and labelled a CLAIM, never a fact, so a confident lie reads to
@@ -281,18 +309,25 @@ export async function POST(req: Request) {
      * sanitise has resolved those back to cards. Asking the raw story would
      * call a perfectly finished battle unfinished and pay for a second one.
      */
-    if (!finished(clean, body) && budget - (Date.now() - started) > 12000) {
+    for (let tries = 1; tries < 3 && !finished(clean, body); tries++) {
+      // Each attempt costs a fraction of a cent and about fifteen seconds, and
+      // an unfinished battle costs the player the whole point of the game.
+      if (budget - (Date.now() - started) < 15000) break;
       console.error("[tell]", provider, "left both sides standing - asking again");
       try {
-        const second = await ask();
-        const retry = sanitise(second.data, body);
+        const again = await ask();
+        const retry = sanitise(again.data, body);
         if (finished(retry, body)) {
           clean = retry;
-          provider = second.provider;
+          provider = again.provider;
         }
       } catch {
-        // The first answer is unfinished but real. Better than nothing.
+        // The answer in hand is unfinished but real. Better than nothing.
+        break;
       }
+    }
+    if (!finished(clean, body)) {
+      console.error("[tell] shipping an UNFINISHED battle after", 3, "attempts");
     }
 
     if (clean.beats.length < 3) {
