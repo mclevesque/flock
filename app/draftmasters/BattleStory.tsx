@@ -85,23 +85,20 @@ const READ_AT = 0.56;
  * wait spent well: the announcer settling the room before the fight, which is
  * what the moment actually is.
  *
- * Each step REPLACES what is on screen, so a step listing two lines means the
- * first is still standing when the second arrives. `at` is milliseconds from
- * the screen opening. Nothing here is ever cut off mid-line -- the crawl waits
- * for the last line to land and then fades it out; see `rolling`.
+ * Each step REPLACES what is on screen: one line at a time, the last one
+ * gone before the next arrives. `at` is milliseconds from the screen opening.
+ * Nothing here is ever cut off mid-line -- the crawl waits for the closing
+ * line to land and then fades it out; see `rolling`.
  */
 function riteFor(a: string, b: string): { at: number; lines: string[] }[] {
   return [
-    { at: 300, lines: ["The combatants gather…"] },
-    { at: 3000, lines: ["The combatants gather…", "…and the crowd goes silent in anticipation."] },
+    { at: 300, lines: ["The combatants gather\u2026"] },
+    { at: 3000, lines: ["\u2026and the crowd goes silent in anticipation."] },
     { at: 6600, lines: ["Who will be victorious?"] },
-    { at: 8600, lines: ["Who will be victorious?", `Team ${a} — or Team ${b}?`] },
+    { at: 8600, lines: [`Team ${a} \u2014 or Team ${b}?`] },
     { at: 12000, lines: [] },
     { at: 13000, lines: ["May The Warrior grant strength to the righteous,"] },
-    { at: 15800, lines: [
-      "May The Warrior grant strength to the righteous,",
-      "May The Mother grant mercy to the innocent…",
-    ] },
+    { at: 15800, lines: ["May The Mother grant mercy to the innocent\u2026"] },
     { at: 19600, lines: [] },
     { at: 20600, lines: ["And may death sustain life."] },
   ];
@@ -294,21 +291,29 @@ export default function BattleStory({
   const themName = sides.find((x) => x.id !== meId)?.name ?? "Them";
   const rite = useMemo(() => riteFor(usName, themName), [usName, themName]);
 
-  /** One battle, one rite. Belt and braces on top of the stable memo. */
+  /**
+   * One battle, one rite -- and NOTHING is cleared on the way out.
+   *
+   * This is the same trap the telling fell into, and it bit twice. A
+   * once-guard plus a cleanup that clears the timers is fatal under React's
+   * development double-invoke: mount arms the schedule, unmount clears every
+   * timer, and the remount hits the guard and arms nothing. The rite then
+   * never says a word, `riteReady` never fires, and the crawl is never let
+   * off the leash -- the story sits there, unmoving, exactly as reported.
+   *
+   * The double-invoke reuses the same fiber, so timers armed on the first
+   * pass still find live state to set. A stray timer after a real unmount is
+   * a no-op in React 18; a battle that never starts is not.
+   */
   const riteStarted = useRef(false);
   useEffect(() => {
     if (riteStarted.current) return;
     riteStarted.current = true;
-    const timers = rite.map((step, i) =>
-      window.setTimeout(() => setRiteAt(i), step.at)
+    rite.forEach((step, i) => window.setTimeout(() => setRiteAt(i), step.at));
+    window.setTimeout(
+      () => setRiteReady(true),
+      rite[rite.length - 1].at + RITE_HOLD
     );
-    timers.push(
-      window.setTimeout(
-        () => setRiteReady(true),
-        rite[rite.length - 1].at + RITE_HOLD
-      )
-    );
-    return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -336,6 +341,19 @@ export default function BattleStory({
     if (!rolling || !told.length || done || paused) return;
     let raf = 0;
     let last = performance.now();
+    /**
+     * The crawl's position, kept HERE and never read back off the element.
+     *
+     * This is the bug that stopped the story dead. At thirteen pixels a second
+     * and sixty frames a second, one frame is 0.217px -- and an element's
+     * scrollTop does not keep a fraction that small. Reading it back each
+     * frame therefore returned the rounded-down value, the increment was lost,
+     * and the position sat at zero forever. It only ever appeared to work
+     * under a throttled clock, where `dt` hit the clamp below and each tick
+     * was a pixel and a half. An accumulator has no such problem: the element
+     * is written to, never asked.
+     */
+    let pos: number | null = null;
 
     const step = (now: number) => {
       // Clamped: a backgrounded tab hands back a gap of seconds, and without
@@ -347,12 +365,15 @@ export default function BattleStory({
         raf = requestAnimationFrame(step);
         return;
       }
+      // Picked up on the first frame, so resuming from a pause or a speed
+      // change continues from wherever the reader actually is.
+      if (pos === null) pos = el.scrollTop;
 
       const max = el.scrollHeight - el.clientHeight;
-      const next = Math.min(max, el.scrollTop + (CRAWL_PX_S * (fast ? 2.4 : 1) * dt) / 1000);
-      el.scrollTop = next;
+      pos = Math.min(max, pos + (CRAWL_PX_S * (fast ? 2.4 : 1) * dt) / 1000);
+      el.scrollTop = pos;
 
-      const line = next + el.clientHeight * READ_AT;
+      const line = pos + el.clientHeight * READ_AT;
       let i = readRef.current;
       while (i + 1 < told.length) {
         const p = paras.current[i + 1];
@@ -367,7 +388,7 @@ export default function BattleStory({
         setUpTo(i);
       }
 
-      if (next >= max - 0.5) {
+      if (pos >= max - 0.5) {
         setDone(true);
         return;
       }

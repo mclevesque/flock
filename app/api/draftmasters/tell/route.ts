@@ -282,31 +282,34 @@ function sanitise(told: Told, b: Body): Told {
   }));
   const best = alive.slice().sort((x, y) => y.left - x.left)[0];
 
+  /**
+   * "Side B" is a label for the model, not a word either player has seen.
+   *
+   * The brief says so and it mostly holds, but the verdict and the MVP note
+   * are the two lines everybody reads twice, so they get a deterministic
+   * backstop rather than another paragraph of prompt asking nicely.
+   */
+  const named = (text: string) => {
+    let out = text;
+    for (const side of b.sides ?? []) {
+      const id = side.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp(`\\bside\\s+${id}\\b`, "gi"), side.name);
+    }
+    return out;
+  };
+
   // Checked against the real roster like the casualties are. A made-up name
   // here would put a card on the payoff screen that nobody drafted.
   const rawMvp = told.mvp;
   const mvpName = rawMvp?.name ? real.get(String(rawMvp.name).toLowerCase().trim()) : undefined;
   const mvp = mvpName
-    ? { name: mvpName, note: String(rawMvp?.note ?? "").trim() }
+    ? { name: mvpName, note: named(String(rawMvp?.note ?? "").trim()) }
     : null;
-
-  /**
-   * "Side B" is a label for the model, not a word either player has seen.
-   *
-   * The brief says so and it mostly holds, but the verdict is the one
-   * paragraph everybody reads twice, so it gets a deterministic backstop
-   * rather than another line of prompt asking nicely.
-   */
-  let verdict = String(told.verdict ?? "").trim();
-  for (const side of b.sides ?? []) {
-    const id = side.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    verdict = verdict.replace(new RegExp(`\\bside\\s+${id}\\b`, "gi"), side.name);
-  }
 
   return {
     beats,
     winner: best?.id ?? told.winner,
-    verdict,
+    verdict: named(String(told.verdict ?? "").trim()),
     mvp,
   };
 }
