@@ -118,8 +118,8 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   ["krillin", [15, 14]],
   ["yamcha", [12, 11]],
   ["master roshi", [13, 12]],
-  ["hercule", [7, 8]],   // peak human champion; only a joke against ki users
-  ["mr. satan", [7, 8]],
+  ["hercule", [8, 8]],   // peak human champion; only a joke against ki users
+  ["mr. satan", [8, 8]],
   ["bulma", [1, 2]],
 
   // ── Named transformations ─────────────────────────────────────────────

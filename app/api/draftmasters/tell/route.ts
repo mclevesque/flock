@@ -165,6 +165,19 @@ tells you something you KNOW to be false about these characters, go with the
 fiction and write the fight the way it would actually go. An elf does not beat
 a god because a number says so.
 
+DISCRETION RUNS ONE WAY. Every time this table has been wrong it has been wrong
+by rating something TOO LOW -- a god left off it entirely, a hero written at
+their first appearance. It has never once been wrong the other way. So the only
+override you have is upward: a card you know we have UNDERRATED can win above
+its band. You may never take a lower-banded card over a higher one on the
+grounds that the higher one is overrated. If Poseidon is a god and the band
+says so, an elf does not cut him apart because his own light is impressive.
+
+AND AN OVERRIDE THAT IS NOT DECLARED DID NOT HAPPEN. If you go above a band you
+MUST put it in "scaling" with the card's number and what we got wrong. A fight
+that quietly ignores a two-band gap and says nothing is simply a mistake, and
+it is the mistake this whole section exists to prevent.
+
 That is discretion, not licence, and the difference is whether you can name the
 reason:
 - YES: "he is a Vala and she is one of the Children of Iluvatar" -- a fact
@@ -208,6 +221,35 @@ a player ever sees.
   The same trap runs everywhere: a small child, a cheerful idiot, a frail
   scholar, a polite butler. Ask what the character IS before you ask what
   they look like.
+
+WORKED EXAMPLES. These are the calibration, and everything above is only the
+reasoning that gets you to them:
+
+  GOKU BEATS ARAGORN. A Saiyan against the best swordsman in his world is not
+  a fight, whatever Aragorn does. This is the gap the whole game rests on.
+
+  MANWE BEATS FEANOR. Feanor is the greatest of the Elves and Manwe is a god
+  -- the Valar's own messengers told Feanor that thrice his might would not
+  let him stand against a single Vala. Being the best of the lesser thing is
+  still the lesser thing.
+
+  KRILLIN BEATS RADITZ -- unless it is Saiyan-saga Krillin, or Raditz turned
+  up in a condition that lifts him. A card is the character at their PEAK, and
+  Krillin's peak is the strongest human who ever lived while Raditz dies in
+  the arc he arrives in. But a drafted condition can turn that around, and
+  when it does you follow the condition.
+
+  POSEIDON BEATS HERCULE. A god against a world-champion martial artist who
+  cannot use ki. Nothing he can do reaches a god.
+
+  HERCULE BEATS CRISTON COLE. And the same Hercule is genuinely dangerous to a
+  very good knight -- he is the strongest ordinary human on his world and the
+  joke about him only applies against people who fly. Do not read a character
+  as weak because their own story treats them as comic relief.
+
+Read those five together: the gaps that hold are gaps in KIND -- god over
+mortal, Saiyan over swordsman -- and inside a kind it is about who the
+character is at their best and what condition they were drafted in.
 
 CONDITIONS ARE OURS AND THEY DO NOT CROSS UNIVERSES. Some cards were drafted in
 a particular state -- mythic, at their peak, diminished, barely standing.

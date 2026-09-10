@@ -137,8 +137,8 @@ const WRITTEN: [string, [number, number]][] = [
   // Peak human and the reigning champion of a tournament full of them. He is
   // only a punchline against ki users, and that joke does not need him to
   // lose to a knight.
-  ["hercule", [7, 8]],
-  ["mr. satan", [7, 8]],
+  ["hercule", [8, 8]],
+  ["mr. satan", [8, 8]],
   ["bulma", [1, 2]],
 
   // ── Shinobi ───────────────────────────────────────────────────────────
