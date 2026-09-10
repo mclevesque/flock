@@ -225,7 +225,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * this only chooses who writes it up, and the built-in narrator costs
    * nothing, never times out and works on a plane.
    */
-  const [aiFlavour, setAiFlavour] = useState(false);
   const [rulesIdx, setRulesIdx] = useState(0);
   /**
    * The variant dials, 0-10 each. Frequency is how many entries get a
@@ -1486,23 +1485,10 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
      * happens without it and nothing is said about it, because offline is not
      * a degraded mode. It is the game.
      */
-    let adjustments: Adjustment[] = [];
-    if (aiFlavour) {
-      try {
-        const res = await fetch("/api/draftmasters/adjust", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            arena: pack?.arenaName ? `${pack.arenaName} — ${pack.arenaDesc ?? ""}` : undefined,
-            sides: [
-              { name: mine.name, cards: [...myLine, ...(myCap ? [myCap] : [])] },
-              { name: theirs.name, cards: theirLine },
-            ],
-          }),
-        });
-        if (res.ok) adjustments = (await res.json()).adjustments ?? [];
-      } catch { /* no advice this time */ }
-    }
+    // No adjustments any more. The model that writes the battle decides it
+    // too, in one call -- there is nothing left here for a second one to
+    // advise, and the resolver below is only the offline fallback.
+    const adjustments: Adjustment[] = [];
 
     const result = mineIsA
       ? resolveBattle(mine, theirs, { terrain: ground, adjustments })
@@ -1549,7 +1535,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     if (mode === "pvp") send({ type: "battle", battle: script });
 
     finishVerdictRef.current?.(verdict);
-  }, [aiFlavour, meId, mode, pack, send]);
+  }, [meId, mode, pack, send]);
 
   finishVerdictRef.current = (final: Verdict) => {
     const g = gameRef.current;
@@ -1610,11 +1596,35 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    */
   const revealHeld = battleLoading || peerStaging || battle !== null;
 
-  const endBattle = useCallback(() => {
-    setWatchedBattle(true);
-    setBattle(null);
-    if (mode === "pvp") send({ type: "battle", battle: null });
-  }, [mode, send]);
+  /**
+   * The story is over; the verdict screen is underneath it.
+   *
+   * The model that wrote the fight also decided it and said, in plain words,
+   * why -- all in the one call. So the verdict takes ITS answer rather than
+   * the local resolver's: the resolver ran before a word was written and its
+   * summary ("8 cards went down across 11 rounds") describes a battle nobody
+   * just watched. Whatever the story said happened is what happened.
+   */
+  const endBattle = useCallback(
+    (told?: { winnerId: string; why: string }) => {
+      if (told?.why) {
+        setVerdict((v) => {
+          if (!v) return v;
+          const won = g_sideName(gameRef.current, told.winnerId) ?? "The winner";
+          return {
+            ...v,
+            winnerId: told.winnerId || v.winnerId,
+            headline: `${won} wins!`,
+            reasoning: told.why,
+          };
+        });
+      }
+      setWatchedBattle(true);
+      setBattle(null);
+      if (mode === "pvp") send({ type: "battle", battle: null });
+    },
+    [mode, send]
+  );
 
   const playAgain = useCallback(() => {
     sfx.click();
@@ -1783,8 +1793,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             setPresetId={setPresetId}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
-            aiFlavour={aiFlavour}
-            setAiFlavour={setAiFlavour}
             variantRate={variantRate}
             setVariantRate={setVariantRate}
             variantWild={variantWild}
@@ -1824,8 +1832,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             onChangeUniverse={() => setScreen("setup")}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
-            aiFlavour={aiFlavour}
-            setAiFlavour={setAiFlavour}
             variantRate={variantRate}
             setVariantRate={setVariantRate}
             variantWild={variantWild}
@@ -1959,6 +1965,11 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   );
 }
 
+/** A side's display name, for the verdict headline. */
+function g_sideName(g: { sides?: { id: string; name: string }[] } | null, id: string) {
+  return g?.sides?.find((s) => s.id === id)?.name;
+}
+
 // ── Variant dials ────────────────────────────────────────────────────────────
 
 const RATE_WORDS = [
@@ -2033,35 +2044,6 @@ function VariantDials({
   );
 }
 
-/**
- * Who writes the fight up.
- *
- * Not who decides it — that is settled in code either way, off a battle fought
- * under the rules printed on the cards. This only chooses the prose. Off by
- * default because the built-in narrator costs nothing, never times out, works
- * offline, and is getting better every time we add to it.
- */
-function FlavourToggle({ on, setOn }: { on: boolean; setOn: (b: boolean) => void }) {
-  return (
-    <div className="dm-flavour">
-      <button
-        type="button"
-        className="dm-flavour-switch"
-        role="switch"
-        aria-checked={on}
-        onClick={() => setOn(!on)}
-      >
-        <span className="dm-flavour-knob" />
-      </button>
-      <span className="dm-flavour-text">
-        <b>AI writes the battle</b>
-        {on
-          ? "A model narrates it, with the actual characters in mind. Slower, and it can fail — the result stands either way."
-          : "Our own narrator. Instant, works offline, and it cannot invent anything the fight did not do."}
-      </span>
-    </div>
-  );
-}
 
 function Dial({
   id,
@@ -2686,8 +2668,6 @@ function SetupScreen({
   setVariantRate,
   variantWild,
   setVariantWild,
-  aiFlavour,
-  setAiFlavour,
   rulesIdx,
   setRulesIdx,
   npc,
@@ -2719,9 +2699,6 @@ function SetupScreen({
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
-  /** Whether a model rewrites the battle's prose. It never changes the result. */
-  aiFlavour: boolean;
-  setAiFlavour: (b: boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   npc: NpcPersonality;
@@ -2874,7 +2851,6 @@ function SetupScreen({
                 rolls its authored variants at these settings, a generated one
                 is written to them as well. */}
             <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
-            <FlavourToggle on={aiFlavour} setOn={setAiFlavour} />
           </section>
 
       <section className="dm-section">
@@ -3035,8 +3011,6 @@ function RoomLobby({
   setVariantRate,
   variantWild,
   setVariantWild,
-  aiFlavour,
-  setAiFlavour,
   rulesIdx,
   setRulesIdx,
   error,
@@ -3062,9 +3036,6 @@ function RoomLobby({
   setVariantRate: (n: number) => void;
   variantWild: number;
   setVariantWild: (n: number) => void;
-  /** Whether a model rewrites the battle's prose. It never changes the result. */
-  aiFlavour: boolean;
-  setAiFlavour: (b: boolean) => void;
   rulesIdx: number;
   setRulesIdx: (n: number) => void;
   error: string | null;

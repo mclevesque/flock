@@ -109,16 +109,14 @@ export default function VerdictScreen({
     );
   }
 
-  const winner = sides.find((s) => s.id === verdict.winnerId);
   const noteFor = (id: string) => verdict.sideNotes.find((n) => n.sideId === id);
 
   return (
     <div className="dm-verdict">
       <div className="dm-verdict-crown"><Icon name="crown" size={15} /></div>
+      {/* The headline already names the winner, so the old "You win." line
+          under it was the same fact twice. Name, then why -- nothing else. */}
       <h2 className="dm-verdict-headline">{verdict.headline}</h2>
-      <p className="dm-verdict-winner">
-        {winner?.id === meId ? "You win." : `${winner?.name ?? "Winner"} wins.`}
-      </p>
       <p className="dm-verdict-reasoning">{verdict.reasoning}</p>
 
       {verdict.plan && <PlanPanel plan={verdict.plan} />}

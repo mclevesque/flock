@@ -116,6 +116,17 @@ async function callGemini(req: ModelRequest, key: string): Promise<string> {
   return text;
 }
 
+/**
+ * How much output budget to actually ask Groq for.
+ *
+ * The reasoning model spends tokens thinking before it writes, and those come
+ * out of `max_tokens`. Mirrors the padding Gemini needs, capped at the model's
+ * ceiling.
+ */
+function groqBudget(want: number): number {
+  return Math.min(32768, want + Math.max(2048, Math.round(want * 0.8)));
+}
+
 // ── Groq ─────────────────────────────────────────────────────────────────────
 
 async function callGroq(req: ModelRequest, key: string): Promise<string> {
@@ -124,7 +135,11 @@ async function callGroq(req: ModelRequest, key: string): Promise<string> {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: DRAFT_MODEL,
-      max_tokens: req.maxTokens,
+      // Reasoning tokens are spent out of this same budget, exactly as they
+      // are on Gemini, so the answer needs room for the thinking in front of
+      // it. Without the headroom a long ask (the battle story) burns most of
+      // its allowance reasoning and gets cut off mid-sentence.
+      max_tokens: groqBudget(req.maxTokens),
       reasoning_effort: "medium",
       temperature: req.temperature ?? 0.8,
       ...(req.json === false ? {} : { response_format: { type: "json_object" } }),
@@ -141,7 +156,15 @@ async function callGroq(req: ModelRequest, key: string): Promise<string> {
   }
 
   const data = await res.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
+  const choice = data?.choices?.[0];
+  const text: string = choice?.message?.content ?? "";
+  // A truncated answer is a FAILURE, not a result -- the same rule Gemini has
+  // had. Letting it through returns half a story that still parses well enough
+  // to render, so the player watches a battle that stops in the middle of
+  // itself and nothing anywhere says why.
+  if (choice?.finish_reason === "length") {
+    throw new ModelError("groq truncated (length)", false);
+  }
   if (!text.trim()) throw new ModelError("groq returned nothing", true);
   return text;
 }
@@ -164,6 +187,7 @@ async function callDeepSeek(req: ModelRequest, key: string): Promise<string> {
     body: JSON.stringify({
       model: "deepseek-chat",
       max_tokens: req.maxTokens,
+      // Same truncation guard as the others; see callGroq.
       temperature: req.temperature ?? 0.8,
       ...(req.json === false ? {} : { response_format: { type: "json_object" } }),
       messages: [
@@ -180,7 +204,11 @@ async function callDeepSeek(req: ModelRequest, key: string): Promise<string> {
   }
 
   const data = await res.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
+  const choice = data?.choices?.[0];
+  const text: string = choice?.message?.content ?? "";
+  if (choice?.finish_reason === "length") {
+    throw new ModelError("deepseek truncated (length)", false);
+  }
   if (!text.trim()) throw new ModelError("deepseek returned nothing", true);
   return text;
 }

@@ -250,7 +250,10 @@ export const BATTLE_STYLES = `
     linear-gradient(180deg, rgba(6,6,8,.85) 0%, rgba(6,6,8,.4) 26%,
       rgba(6,6,8,.4) 74%, rgba(6,6,8,.85) 100%);
 }
-.dm-st > *:not(.dm-st-ground) { position: relative; z-index: 1; }
+/* Grid items default to min-width:auto, which means a row of portraits wider
+   than the phone pushes the whole column out with it -- the story, the top
+   bar and all. Nothing here is allowed to be wider than the screen. */
+.dm-st > *:not(.dm-st-ground) { position: relative; z-index: 1; min-width: 0; }
 
 .dm-st-top {
   display: flex; align-items: center; justify-content: space-between;
@@ -277,7 +280,10 @@ export const BATTLE_STYLES = `
 }
 .dm-st-who b { color: var(--dm-gold); letter-spacing: 0; font-size: 12.5px; }
 
-.dm-st-cards { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.dm-st-cards {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  align-items: flex-start;
+}
 .dm-st-card {
   position: relative; margin: 0; width: clamp(72px, 9vw, 104px);
   transition: opacity .5s ease, filter .5s ease;
@@ -303,63 +309,97 @@ export const BATTLE_STYLES = `
 .dm-st-card figcaption {
   margin-top: 4px; text-align: center; font-size: 10.5px; line-height: 1.25;
   color: rgba(240,230,210,.82);
+  /* Two lines' worth of room whether the name needs it or not, so the row
+     lines up and the story keeps the space. */
+  height: 2.5em;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 /* The condition it was drafted in — the thing that actually reaches the fight. */
 .dm-st-cond {
-  display: block; text-align: center; margin-top: 2px;
-  font-size: 9.5px; line-height: 1.25; color: rgb(var(--dm-glow) / .6);
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  text-align: center; margin-top: 2px;
+  font-size: 9.5px; line-height: 1.3; color: rgb(var(--dm-glow) / .6);
+  height: 1.3em;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
 }
 
-/* Crossed out the moment the story kills them. */
-.dm-st-card[data-dead="1"] { opacity: .3; filter: grayscale(1); }
-.dm-st-card[data-dead="1"] figcaption { text-decoration: line-through; }
-.dm-st-card[data-dead="1"] .dm-st-art::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(to bottom right, transparent 47%, rgba(224,64,42,.85) 47%,
-    rgba(224,64,42,.85) 53%, transparent 53%);
+/* Struck out the moment the story kills them. Grey ALONE reads as "not this
+   one yet" -- it is the word stamped across the face that reads as gone, so
+   the portrait desaturates and the stamp stays in full colour on top of it. */
+.dm-st-card[data-dead="1"] { opacity: .62; }
+.dm-st-card[data-dead="1"] .dm-st-art { border-color: rgba(224,64,42,.4); }
+.dm-st-card[data-dead="1"] .dm-st-art img,
+.dm-st-card[data-dead="1"] .dm-st-initial { filter: grayscale(1) brightness(.5); }
+.dm-st-card[data-dead="1"] figcaption {
+  color: rgba(240,230,210,.42); text-decoration: line-through;
 }
+.dm-st-card[data-dead="1"] .dm-st-cond { opacity: .3; }
+.dm-st-down {
+  position: absolute; left: -8%; right: -8%; top: 50%; z-index: 2;
+  transform: translateY(-50%) rotate(-11deg);
+  padding: 2px 0; text-align: center;
+  font-family: var(--dm-display); font-weight: 700;
+  font-size: clamp(10px, 1.25vw, 15px); letter-spacing: .2em;
+  color: #ff4f3c; background: rgba(12,4,3,.46);
+  border-top: 2px solid #e0402a; border-bottom: 2px solid #e0402a;
+  text-shadow: 0 1px 6px rgba(0,0,0,.95);
+  animation: dm-st-stamp .4s cubic-bezier(.2,1.6,.4,1) both;
+}
+@keyframes dm-st-stamp {
+  from { opacity: 0; transform: translateY(-50%) rotate(-11deg) scale(2); }
+  to   { opacity: 1; transform: translateY(-50%) rotate(-11deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .dm-st-down { animation: none; } }
 
-/* ── The page ─────────────────────────────────────────────────────────────── */
-/* Bottom-aligned, so the newest line sits in the same place every time and
-   the older ones drift up out of it. A top-aligned column makes the reader's
-   eye chase the text down the screen. */
+/* ── The crawl ──────────────────────────────────────────────────────────────
+   One piece of prose climbing the screen at reading pace. Not a stack of
+   paragraphs arriving one at a time: those make the reader start over on
+   every one of them, and this is a thing to settle into and listen to.
+
+   Locked while it runs -- the frame loop owns scrollTop and would fight a
+   reader for it -- and released the moment it ends, because the first thing
+   anybody does is go back to the bit where their card died. */
 .dm-st-page {
-  overflow: hidden; padding: 26px 16px 34px;
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: flex-end; gap: 16px;
+  position: relative;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  /* Lines rise out of the bottom edge and dissolve off the top rather than
+     being sliced by either of them. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 80%, transparent 100%);
+          mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 80%, transparent 100%);
 }
-.dm-st-page p {
-  margin: 0; max-width: 60ch;
+.dm-st-page[data-done="1"] {
+  overflow-y: auto;
+  -webkit-mask-image: none; mask-image: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--dm-glow) / .3) transparent;
+}
+
+.dm-st-reel {
+  position: relative;          /* offsetParent for the read-line arithmetic */
+  display: flex; flex-direction: column; align-items: center;
+  gap: 11px; padding: 0 16px;
+}
+/* Room to climb into at both ends: the first line starts low on the screen,
+   and the last one reaches the middle instead of stopping at the foot. */
+.dm-st-gap { flex: none; width: 1px; height: 46%; min-height: 140px; }
+.dm-st-gap[data-tail="1"] { height: 0; min-height: 0; }
+
+.dm-st-beat {
+  margin: 0; width: 100%; max-width: 52ch;
   font-family: var(--dm-display);
-  font-size: clamp(16px, 1.7vw, 21px); line-height: 1.66;
+  font-size: clamp(16px, 1.7vw, 21px); line-height: 1.62;
+  /* Centred and level. The tilt is the one part of the crawl we do not want:
+     it costs legibility and this text is the whole event. */
+  text-align: center; text-wrap: pretty;
   color: #f4ecdc;
   /* Over a painting, so the words carry their own darkness with them. */
   text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 34px rgba(0,0,0,.7);
-  animation: dm-st-in .5s ease both;
 }
-/* How far back in the story this line is. The one in front is the only one
-   fully lit; the rest fall away rather than scrolling off. */
-.dm-st-page p[data-back="0"] { opacity: 1; }
-.dm-st-page p[data-back="1"] { opacity: .42; font-size: clamp(14px, 1.45vw, 17px); }
-.dm-st-page p[data-back="2"] { opacity: .2;  font-size: clamp(13px, 1.3vw, 15px); }
-.dm-st-page p[data-back="3"] { opacity: .09; font-size: clamp(12px, 1.2vw, 14px); }
-.dm-st-page p {
-  transition: opacity .6s ease, font-size .6s ease, color .6s ease;
-}
-
 /* A death is the one thing allowed to change colour. */
-.dm-st-page p[data-kill="1"][data-back="0"] {
+.dm-st-beat[data-kill="1"] {
   color: #f5b9a0;
   text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 40px rgba(224,90,60,.28);
 }
-
-@keyframes dm-st-in {
-  from { opacity: 0; transform: translateY(14px); filter: blur(3px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
-}
-.dm-st-more { color: rgba(240,230,210,.25) !important; letter-spacing: .35em; }
 
 /* While the story is being written. Three lights, breathing in turn. */
 .dm-st-writing { display: flex; gap: 9px; align-items: center; justify-content: center; }
@@ -367,6 +407,11 @@ export const BATTLE_STYLES = `
   width: 7px; height: 7px; border-radius: 50%;
   background: rgb(var(--dm-glow) / .75);
   animation: dm-st-breathe 1.5s ease-in-out infinite;
+}
+.dm-st-writing em {
+  font-style: normal; margin-left: 5px;
+  font-family: var(--dm-display); font-size: 12px; letter-spacing: .18em;
+  text-transform: uppercase; color: rgba(240,230,210,.42);
 }
 .dm-st-writing span:nth-child(2) { animation-delay: .22s; }
 .dm-st-writing span:nth-child(3) { animation-delay: .44s; }
@@ -378,66 +423,47 @@ export const BATTLE_STYLES = `
   .dm-st-writing span { animation: none; opacity: .7; }
 }
 
-/* ── The win ────────────────────────────────────────────────────────────────
-   Over everything. The result used to be a line at the foot of the page the
-   story had just filled, which is where a footnote goes, not the end of a
-   fight two people watched together. */
-.dm-st-win {
-  position: absolute; inset: 0; z-index: 5;
-  display: grid; place-items: center; cursor: default;
-  background: radial-gradient(90% 70% at 50% 45%, rgba(10,8,5,.72) 0%, rgba(6,6,8,.95) 70%);
-  backdrop-filter: blur(3px);
-  animation: dm-st-winin .7s cubic-bezier(.2,.8,.25,1) both;
+/* ── How it ends ────────────────────────────────────────────────────────────
+   The last thing in the reel rather than a curtain dropped over it. An
+   overlay cuts the story off mid-breath -- which is exactly what it felt
+   like -- where this is simply what the prose arrives at, and the reader can
+   scroll back up through the fight afterwards without dismissing anything. */
+.dm-st-fin {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  text-align: center; padding: 14px 8px 10px; max-width: 60ch;
 }
-@keyframes dm-st-winin { from { opacity: 0; } to { opacity: 1; } }
-
-.dm-st-win-in {
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  text-align: center; padding: 0 24px;
-}
-.dm-st-win-crown {
-  color: var(--dm-gold);
-  animation: dm-st-crown .8s cubic-bezier(.2,1.5,.4,1) both .1s;
-}
-@keyframes dm-st-crown {
-  from { opacity: 0; transform: translateY(-16px) scale(.5); }
-  to   { opacity: 1; transform: none; }
-}
-
+.dm-st-win-crown { color: var(--dm-gold); }
 .dm-st-win-name {
   margin: 0;
   font-family: var(--dm-display);
-  font-size: clamp(38px, 7vw, 82px); line-height: 1.05; font-weight: 700;
+  font-size: clamp(25px, 3.6vw, 44px); line-height: 1.05; font-weight: 700;
   letter-spacing: .01em;
   background: linear-gradient(180deg, #fdf3d4 0%, var(--dm-gold) 52%, #9d7a2c 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   /* The glow has to be a shadow on the element, not on the clipped text. */
   filter: drop-shadow(0 4px 30px rgb(var(--dm-glow) / .4));
-  animation: dm-st-winname .8s cubic-bezier(.2,.9,.25,1) both .22s;
+  text-wrap: balance;
 }
-@keyframes dm-st-winname {
-  from { opacity: 0; transform: translateY(18px) scale(.94); letter-spacing: .16em; }
-  to   { opacity: 1; transform: none; letter-spacing: .01em; }
-}
-
 .dm-st-win-left {
   margin: 0; max-width: 46ch;
-  font-size: 14.5px; line-height: 1.6; color: rgba(240,236,228,.62);
-  animation: dm-st-in .6s ease both .55s;
+  font-size: 13.5px; line-height: 1.55; color: rgba(240,236,228,.62);
 }
-.dm-st-win .dm-btn { animation: dm-st-in .6s ease both .75s; }
+/* Why they won, in plain words -- the storyteller's voice is finished by
+   here, so this is set apart from the prose rather than continuing it. */
+.dm-st-why {
+  margin: 2px 0 4px; max-width: 52ch;
+  padding: 11px 15px; border-radius: 12px;
+  background: rgba(10,9,7,.55);
+  border: 1px solid rgb(var(--dm-glow) / .16);
+  font-size: 14.5px; line-height: 1.62; color: rgba(244,236,220,.9);
+  text-shadow: 0 1px 8px rgba(0,0,0,.8);
+}
 
-@media (prefers-reduced-motion: reduce) {
-  .dm-st-win, .dm-st-win-crown, .dm-st-win-name,
-  .dm-st-win-left, .dm-st-win .dm-btn { animation: none; }
-}
 .dm-st-hint {
   text-align: center; padding-bottom: 10px;
   font-size: 11.5px; color: rgba(240,230,210,.28);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .dm-st-page p { animation: none; }
 }
 
 .dm-bt {
@@ -708,4 +734,42 @@ export const BATTLE_STYLES = `
   letter-spacing: .1em; text-transform: uppercase;
   color: var(--dm-gold); opacity: .85;
 }
+/* ── The story on a phone ───────────────────────────────────────────────────
+   Two benches and a wall of text do not fit a handset at desktop sizes, and
+   the text is the thing anybody is actually here for. So the rosters give up
+   their room first: smaller portraits, one line of name, no variant line, and
+   a single row that never wraps -- one card breaking onto a second row was
+   costing the story a whole band of the screen. */
+@media (max-width: 640px) {
+  .dm-st-bench { padding: 5px 8px; }
+  .dm-st-who { margin-bottom: 3px; font-size: 10px; }
+  .dm-st-cards {
+    gap: 5px; flex-wrap: nowrap;
+    /* Clipped rather than scrolled: a scrollbar here would fight the crawl. */
+    overflow: hidden;
+  }
+  .dm-st-card { width: auto; flex: 1 1 0; min-width: 0; max-width: 72px; }
+  .dm-st-card figcaption {
+    height: 1.25em; -webkit-line-clamp: 1; font-size: 9.5px;
+  }
+  .dm-st-cond { display: none; }
+  .dm-st-down { font-size: 9px; letter-spacing: .12em; border-width: 1.5px; }
+
+  .dm-st-beat { font-size: 16px; line-height: 1.58; max-width: none; }
+  .dm-st-reel { gap: 10px; padding: 0 14px; }
+  .dm-st-gap { height: 42%; min-height: 110px; }
+  /* One tight strip. The board name wrapping to three lines, with oversized
+     controls beside it, was costing the story a fifth of a phone screen. */
+  .dm-st-top { padding: 6px 9px; gap: 8px; align-items: center; }
+  .dm-st-where {
+    min-width: 0; flex: 1 1 auto; font-size: 10px; letter-spacing: .12em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dm-st-where em { margin-left: 6px; }
+  .dm-st-controls { flex: none; gap: 4px; }
+  .dm-st-controls .dm-btn { padding: 4px 8px; font-size: 9.5px; letter-spacing: .08em; }
+  .dm-st-hint { font-size: 10px; padding-bottom: 6px; }
+  .dm-st-fin { padding: 12px 4px 10px; gap: 6px; }
+}
+
 `;

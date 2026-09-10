@@ -151,7 +151,7 @@ function scheduleStep(s: number, t: number) {
   if (s % 8 === 4) noiseHit(t, 0.16, 0.3 + i * 0.25, 1400);
 
   // Driving eighths once things heat up.
-  if (i > 0.4 && s % 2 === 1) noiseHit(t, 0.05, 0.06 + i * 0.05, 6000, "highpass");
+  if (i > 0.55 && s % 4 === 3) noiseHit(t, 0.035, 0.04 + i * 0.03, 3800, "bandpass");
 
   // War drums.
   if (i > 0.6 && (s === 12 || s === 14)) taiko(t, 0.5);
@@ -215,7 +215,9 @@ export function battleHit(strength = 1): void {
   if (!ensure() || !ctx) return;
   const t = now() + 0.01;
   taiko(t, 0.55 + strength * 0.45);
-  if (strength > 0.6) noiseHit(t + 0.02, 0.22, 0.22, 3200, "highpass");
+  // A crack over the drum, not a hiss behind it. Bandpassed low so it has a
+  // body, and short enough that it reads as impact rather than as texture.
+  if (strength > 0.75) noiseHit(t + 0.015, 0.07, 0.1, 900, "bandpass");
 }
 
 /** Steel on steel, for a clash beat. */
@@ -223,7 +225,7 @@ export function swordClash(): void {
   if (!ensure() || !ctx || !bus) return;
   const t = now() + 0.01;
   noiseHit(t, 0.16, 0.3, 4200, "bandpass");
-  noiseHit(t + 0.015, 0.3, 0.16, 7000, "highpass");
+  noiseHit(t + 0.015, 0.09, 0.07, 5200, "bandpass");
   const osc = ctx.createOscillator();
   const env = ctx.createGain();
   osc.type = "square";
