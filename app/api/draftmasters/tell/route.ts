@@ -131,8 +131,8 @@ you already know what these characters are:
   fiction should fight like they have it.
 
 EVERY CARD CARRIES A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
-Mortal < Mythic < Far Beyond Mortal < World-Shaping < World-Ending < Beyond
-Measure < Above The Story.
+Mortal < Superhuman < Far Beyond Mortal < World-Shaping < World-Ending <
+Beyond Measure < Above The Story.
 
 The bands INFORM the fight. They do not script it, and they say nothing about
 who dies in what order, who takes somebody with them, or how any of it reads.
@@ -153,8 +153,12 @@ The bands are here because appearances lie and you will be tempted by them. An
 old man with a broken staff reads as weak and is a Maia older than the world.
 An ancient elf-lord reads as a swordsman and has fought Balrogs. A very large
 knight reads as unstoppable and is a very large knight. Where what you picture
-disagrees with the band, the band knows something you do not. The bands never
-appear in the prose -- like the numbers, they are how we talk to you.
+disagrees with the band, the band knows something you do not. THE BANDS ARE NEVER WRITTEN DOWN. Not in a beat, and not in the verdict
+either -- "the gap between Peerless Mortal and a Saiyan warrior is a wall" is
+our vocabulary leaking onto a player's screen, and it means nothing to them.
+Say what it looked like instead: he was a god and the other one was a man with
+a sword. Like the roster numbers, the bands are how we talk to you and nothing
+a player ever sees.
 - DO NOT MISTAKE AN OLD MAN FOR A WEAK ONE. What something looks like is not
   what it is. Gandalf is a Maia -- an angelic power older than the world --
   and taking his staff away changes very little that matters. Galadriel bore

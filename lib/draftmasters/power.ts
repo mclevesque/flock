@@ -311,6 +311,100 @@ const WRITTEN: [string, [number, number]][] = [
   // A baker. He was rating "a serious, capable fighter" on the board floor.
   ["hot pie", [2, 3]],
 
+  // ── The pantheons ─────────────────────────────────────────────────────
+  // Not one of these existed here. Every god on every mythology board fell
+  // through to its board's ordinary 5 or 6, which is a hoplite -- so Poseidon
+  // and Raijin rated BELOW a mid-tier Saiyan, and a player watched Raditz walk
+  // through both of them. Gods are the whole point of those boards.
+  //
+  // Keys are matched as words, longest first, so nothing here may be a short
+  // fragment of another name: no bare "ra", "hel" or "set".
+
+  // Greek
+  ["zeus", [27, 25]],
+  ["poseidon", [25, 24]],
+  ["hades", [24, 24]],
+  ["cronus", [26, 25]],
+  ["kronos", [26, 25]],
+  ["typhon", [28, 26]],
+  ["athena", [21, 21]],
+  ["apollo", [21, 19]],
+  ["artemis", [19, 18]],
+  ["ares", [19, 19]],
+  ["hera", [20, 20]],
+  ["hephaestus", [18, 19]],
+  ["hermes", [18, 16]],
+  ["demeter", [18, 18]],
+  ["dionysus", [18, 18]],
+  ["atlas", [20, 22]],
+  ["heracles", [17, 17]],
+  ["hercules", [17, 17]],
+  ["achilles", [14, 13]],
+  ["perseus", [12, 11]],
+  ["theseus", [11, 11]],
+  ["odysseus", [9, 9]],
+  ["medusa", [12, 11]],
+  ["minotaur", [11, 12]],
+  ["cerberus", [14, 15]],
+  ["chimera", [13, 12]],
+  ["cyclops", [11, 12]],
+  ["scylla", [14, 14]],
+  ["kraken", [18, 18]],
+  ["hydra", [15, 17]],
+
+  // Norse
+  ["odin", [27, 25]],
+  ["loki", [18, 16]],
+  ["fenrir", [22, 21]],
+  ["jormungandr", [24, 23]],
+  ["hela", [21, 20]],
+  ["baldur", [16, 16]],
+  ["baldr", [16, 16]],
+  ["heimdall", [18, 18]],
+  ["surtr", [25, 23]],
+  ["valkyrie", [13, 13]],
+
+  // Shinto
+  ["amaterasu", [25, 24]],
+  ["susanoo", [22, 21]],
+  ["raijin", [19, 18]],
+  ["fujin", [19, 18]],
+  ["izanagi", [26, 24]],
+  ["izanami", [24, 23]],
+
+  // Hindu
+  ["shiva", [31, 29]],
+  ["vishnu", [31, 29]],
+  ["brahma", [30, 28]],
+  ["kali", [26, 24]],
+  ["indra", [22, 21]],
+  ["hanuman", [22, 22]],
+  ["ganesha", [20, 21]],
+  ["durga", [24, 23]],
+
+  // Egyptian
+  ["osiris", [22, 22]],
+  ["anubis", [18, 18]],
+  ["horus", [20, 19]],
+  ["sekhmet", [20, 19]],
+  ["sobek", [17, 17]],
+  ["thoth", [19, 19]],
+  ["amun-ra", [28, 26]],
+
+  // Celtic and elsewhere
+  ["cu chulainn", [15, 14]],
+  ["c\u00fa chulainn", [15, 14]],
+  ["the morrigan", [20, 19]],
+  ["morrigan", [20, 19]],
+  ["lugh", [21, 20]],
+  ["quetzalcoatl", [24, 23]],
+  ["anansi", [14, 14]],
+  ["sun wukong", [24, 22]],
+
+  // Comic-book gods, which sit on their own boards but scale the same way
+  ["shazam", [26, 25]],
+  ["black adam", [26, 25]],
+
   // ── Kaiju are big and strong, which is the point of them ──────────────
   ["king ghidorah", [32, 30]],
   ["mechagodzilla", [28, 30]],
@@ -376,6 +470,12 @@ export interface PowerInput {
  * have already been applied by the time this sees it, so a diminished Gandalf
  * really does land a band lower.
  *
+ * NO BAND IS NAMED AFTER A VARIANT GRADE. "Mythic" was one of these until a
+ * verdict read "Raditz was the only Mythic on the board" and the player went
+ * looking for a mythic variant he had not drafted -- the game already uses
+ * that word for the condition a card rolls, and two meanings for one word on
+ * the same screen is one too many.
+ *
  * THE TOP NEEDS AS MANY BANDS AS THE BOTTOM. The first version stopped at
  * "30 and above", which put Vados on 43 in the same band as Golden Frieza on
  * 30 -- and a same-band fight is an open one, so Frieza killed an Angel. A
@@ -387,7 +487,7 @@ export function bandOf(atk: number): string {
   if (atk >= 26) return "WORLD-ENDING — a planet is the unit of damage";
   if (atk >= 20) return "WORLD-SHAPING — a power the world itself answers to";
   if (atk >= 15) return "FAR BEYOND MORTAL — armies are not the right unit";
-  if (atk >= 11) return "MYTHIC — greater than any mortal, short of a god";
+  if (atk >= 11) return "SUPERHUMAN — past anything a mortal can do";
   if (atk >= 8) return "PEERLESS MORTAL — the best a mortal ever gets";
   if (atk >= 5) return "DANGEROUS — a serious, capable fighter";
   return "ORDINARY — a person";

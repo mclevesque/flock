@@ -145,7 +145,9 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   ["broly", [30, 28]],
   ["turles", [16, 15]],
   ["bardock", [16, 15]],
-  ["raditz", [11, 11]],
+  // The weakest named Saiyan, and dead by the end of the saga he arrives in.
+  // At 11 he was outranking every god on every mythology board.
+  ["raditz", [9, 9]],
   ["nappa", [12, 13]],
   ["king vegeta", [12, 12]],
   ["paragus", [7, 7]],
