@@ -181,6 +181,9 @@ export default function BattleStory({
   const [wonBy, setWonBy] = useState<string>(script.winnerId);
 
   const view = useRef<HTMLDivElement>(null);
+  const reelRef = useRef<HTMLDivElement>(null);
+  /** Survives a pause, so resuming picks up where the reader was left. */
+  const startAt = useRef(0);
   const paras = useRef<(HTMLParagraphElement | null)[]>([]);
   /** Kept out of state so the frame loop can read it without re-subscribing. */
   const readRef = useRef(-1);
@@ -371,18 +374,22 @@ export default function BattleStory({
     let raf = 0;
     let last = performance.now();
     /**
-     * The crawl's position, kept HERE and never read back off the element.
+     * The crawl's position, kept HERE and moved with a TRANSFORM.
      *
-     * This is the bug that stopped the story dead. At thirteen pixels a second
-     * and sixty frames a second, one frame is 0.217px -- and an element's
-     * scrollTop does not keep a fraction that small. Reading it back each
-     * frame therefore returned the rounded-down value, the increment was lost,
-     * and the position sat at zero forever. It only ever appeared to work
-     * under a throttled clock, where `dt` hit the clamp below and each tick
-     * was a pixel and a half. An accumulator has no such problem: the element
-     * is written to, never asked.
+     * Two bugs live at this line and they are the same bug twice. Writing the
+     * position to scrollTop lost the fraction -- at twenty-one pixels a second
+     * a frame is a third of a pixel, and scrollTop will not keep that -- which
+     * first stopped the story dead, and then, once the position was kept here
+     * instead, showed up on a phone as a jitter: every frame the browser
+     * rounded our fractional value to a whole device pixel, so the text
+     * stepped and stalled instead of gliding.
+     *
+     * A transform has no such rounding. It is sub-pixel by definition and it
+     * runs on the compositor, which is what smooth means on a handset. Layout
+     * is untouched, so offsetTop still reports where paragraphs really are and
+     * the read-line arithmetic below is unchanged.
      */
-    let pos: number | null = null;
+    let pos = startAt.current;
 
     const step = (now: number) => {
       // Clamped: a backgrounded tab hands back a gap of seconds, and without
@@ -394,13 +401,11 @@ export default function BattleStory({
         raf = requestAnimationFrame(step);
         return;
       }
-      // Picked up on the first frame, so resuming from a pause or a speed
-      // change continues from wherever the reader actually is.
-      if (pos === null) pos = el.scrollTop;
-
+      const reel = reelRef.current;
       const max = el.scrollHeight - el.clientHeight;
       pos = Math.min(max, pos + (CRAWL_PX_S * dt) / 1000);
-      el.scrollTop = pos;
+      startAt.current = pos;
+      if (reel) reel.style.transform = `translate3d(0, ${-pos}px, 0)`;
 
       const line = pos + el.clientHeight * READ_AT;
       let i = readRef.current;
@@ -418,6 +423,10 @@ export default function BattleStory({
       }
 
       if (pos >= max - 0.5) {
+        // Hand the reel back to the browser: drop the transform, put the same
+        // distance into a real scroll, and from here the reader drives.
+        if (reel) reel.style.transform = "";
+        el.scrollTop = max;
         setDone(true);
         return;
       }
@@ -480,12 +489,15 @@ export default function BattleStory({
         setPaused((p) => !p);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        if (view.current) view.current.scrollTop += 220;
+        // While it is running the reel moves by transform, so nudging
+        // scrollTop would do nothing; once it is done the browser owns it.
+        if (done) view.current?.scrollBy({ top: 220 });
+        else startAt.current += 220;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [finish]);
+  }, [finish, done]);
 
   /** Everyone the reader has watched go down. */
   const dead = useMemo(() => {
@@ -573,7 +585,7 @@ export default function BattleStory({
             invisible until the rite has finished speaking. Rendering it
             plainly meant the opening beats sat behind the invocation, two
             different pieces of prose stacked on the same pixels. */}
-        <div className="dm-st-reel" data-hold={rolling ? "0" : "1"}>
+        <div className="dm-st-reel" ref={reelRef} data-hold={rolling ? "0" : "1"}>
           <div className="dm-st-gap" aria-hidden="true" />
 
           {told.map((t, i) => (

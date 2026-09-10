@@ -1183,36 +1183,40 @@ export const STYLES = `
 .dm:has(.dm-stage) .dm-head-actions .dm-btn-icon { min-width: 34px; padding: 6px; }
 
 /* ── The stage header on a handset ──────────────────────────────────────────
-   Lifting the controls into the corner works on a desktop because there is a
-   corner to lift into, and the 50px reserved above the table is enough to
-   clear them. On a phone there is no spare band: the mute button, the way
-   out, the player's face and the lot's own title all landed inside that same
-   50px and printed straight over each other.
+   A phone has no corner to lift controls into. The mute button, the way out,
+   the player's face and the lot's own title all landed inside the same 50px
+   band above the table and printed over each other.
 
-   So on a narrow screen they go back into the flow and take a row of their
-   own, and the lot bar gets the line underneath. A row of buttons costs less
-   height than the overlap cost legibility. */
+   So on a narrow screen the header stops being a header. The face and the way
+   out are not controls for a draft that is RUNNING -- they are places to leave
+   it -- and neither earns space over the auction. What is left is the one
+   thing worth reading (which board, and where the fight happens) and the one
+   control worth reaching for mid-bid. */
 @media (max-width: 700px) {
+  .dm:has(.dm-stage) { padding-top: 6px; }
   .dm:has(.dm-stage) .dm-head {
-    position: static;
-    width: 100%; margin: 0 0 10px; padding-right: 0;
-    justify-content: flex-end; flex-wrap: wrap; row-gap: 6px;
+    position: absolute; top: 4px; right: 10px; z-index: 6;
+    width: auto; margin: 0; padding: 0; gap: 4px;
   }
-  .dm:has(.dm-stage) { padding-top: 10px; }
-  /* margin-left:auto was shoving the face away from the buttons it belongs to
-     once the row is no longer pinned to a corner. */
-  .dm:has(.dm-stage) .dm-head-me { margin-left: 8px; }
+  /* The wordmark, the face, and the way out. All of them are exits. */
+  .dm:has(.dm-stage) .dm-head > a:not(.dm-btn),
+  .dm:has(.dm-stage) .dm-head-me,
+  .dm:has(.dm-stage) .dm-head-actions .dm-btn:not(.dm-btn-icon) { display: none; }
 
-  /* The board name and the arena are two separate things and neither should
-     be squeezed onto one line with the other. */
-  .dm-lotbar { flex-wrap: wrap; row-gap: 6px; }
-  .dm-lotbar > span {
-    min-width: 0; display: flex; flex-wrap: wrap; align-items: center;
-    gap: 4px 8px;
+  /* The board and the arena become the header, on their own two lines, with
+     just enough room kept clear on the right for the mute. */
+  .dm-lotbar {
+    flex-wrap: wrap; row-gap: 4px; align-items: flex-start;
+    padding-right: 44px; margin-bottom: 10px;
   }
+  .dm-lotbar > span {
+    min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+    gap: 4px;
+  }
+  .dm-lotbar strong { font-size: 13.5px; }
   .dm-arena-pill {
-    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap;
+    margin-left: 0 !important; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 }
 

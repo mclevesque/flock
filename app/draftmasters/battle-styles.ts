@@ -379,6 +379,12 @@ export const BATTLE_STYLES = `
   display: flex; flex-direction: column; align-items: center;
   gap: 11px; padding: 0 16px;
   transition: opacity 1s ease .15s;
+  /* The crawl moves this with a transform rather than the container's
+     scrollTop, because scrollTop rounds to whole device pixels and a third of
+     a pixel a frame turns into a visible stutter on a phone. Promoted so the
+     compositor owns the motion. */
+  will-change: transform;
+  backface-visibility: hidden;
 }
 /* Laid out, measurable, and unreadable: the crawl needs the reel's real
    geometry from the first frame, but the opening beats must not sit behind
