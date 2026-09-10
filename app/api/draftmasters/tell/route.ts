@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
+import { sanitise, type Body, type Told } from "@/lib/draftmasters/tell-sanitise";
+export type { TellBeat, TellMvp } from "@/lib/draftmasters/tell-sanitise";
 
 /**
  * The fight, written.
@@ -27,23 +29,6 @@ import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-interface CardIn {
-  name: string;
-  /** The condition this copy was drafted in, if it rolled one. */
-  variant?: string | null;
-  /** How good or bad that condition is — our roll, not canon. */
-  grade?: string | null;
-  abilities?: string[];
-}
-
-/**
- * A grade, in words the model can use.
- *
- * This is the only influence we exert on the fight, and it is deliberately
- * qualitative. The model already knows what these characters can do; what it
- * cannot know is which VERSION of them turned up today, because that is our
- * dice roll and not canon.
- */
 const CONDITION: Record<string, string> = {
   uber: "a version so far beyond their usual self it barely makes sense",
   mythic: "a MYTHIC version — far stronger than they normally are",
@@ -55,42 +40,6 @@ const CONDITION: Record<string, string> = {
   weakening: "diminished — noticeably worse than they should be",
   crippling: "in a terrible state, barely able to fight at all",
 };
-
-interface Body {
-  arena?: string | null;
-  scenario?: string | null;
-  sides?: {
-    id: string;
-    name: string;
-    cards: CardIn[];
-    /** The player's own case for why they win, in their words. */
-    argument?: string | null;
-  }[];
-}
-
-export interface TellBeat {
-  /** One paragraph of the fight. */
-  text: string;
-  /** Exact card names that die in this beat. Usually none or one. */
-  kills?: string[];
-}
-
-/** The one card the battle turned on, and what they did. */
-export interface TellMvp {
-  name: string;
-  note: string;
-}
-
-interface Told {
-  beats: TellBeat[];
-  winner: string;
-  /** Named by whoever wrote the fight, since only they know how it went. */
-  mvp?: TellMvp | null;
-  /** Why that side won, in plain words. Written in the same call as the
-   *  story so the explanation cannot disagree with what was narrated -- and
-   *  so one battle costs one request. */
-  verdict: string;
-}
 
 const SYSTEM = `You are calling the story of a battle in DraftMasters, where two
 players draft characters out of any fiction and set them against each other.
@@ -117,26 +66,50 @@ lands at the start of the next. Nothing is restated, nobody appears from
 nowhere, and nobody who has already gone down does anything ever again. Someone
 reading it straight through must never once feel the story jump.
 
-VOICE. You are calling it live, present tense, to a room that is watching it
-happen. Excited, propulsive, plain. Like this:
+VOICE. Present tense, to a room that is watching it happen. The walk-out can
+carry some noise:
 
-  Mclevesque's team walks out first, and the crowd gasps -- there is a dragon
+  Mclevesque's team comes out first, and the crowd gasps -- there is a dragon
   on that line, wings wide enough to put half the field in shadow. Then pnut
   comes through the far gate and the noise dies in everyone's throat, because
   pnut brought a bigger one.
 
-  Something on Mclevesque's side starts to glow. Gold light, hair standing
-  straight up, the ground going quiet underneath him. It's Goku. He has gone
-  Super Saiyan, and he is already moving -- he rushes Vermithor down before the
-  dragon can get its wings under it, and they hit the far wall together.
+Once they are fighting, drop the announcer and just show it. THIS is the bar:
 
-That is the register. Short sentences. Concrete pictures over adjectives. React
-to what is happening. Use the crowd, sparingly, and never let it narrate for
-you. Use the PLAYERS' names -- they drafted these teams and the fight is really
-between them. Exclamations only when something earns one. Be funny when a
-matchup is absurd and cold when it is not. People die mid-sentence and the
-prose does not stop for them. NEVER numbers, statistics or dice: you are
-describing what it looked like.
+  Alicent Hightower screams, but Criston Cole draws his steel and steps into
+  the path of the giant. Before Cole can strike, Brienne of Tarth intercepts
+  him, steel ringing on steel in a furious flurry of parries. Cole is
+  brilliant, but Brienne's sheer strength pushes him back into the deep snow.
+
+  On the ground, Otto Hightower tries to fall back behind the weirwood roots,
+  but the Mountain closes the distance in terrifying strides. Ser Gregor
+  Clegane swings a broadsword with one hand, smashing through Otto's guard and
+  crushing him into the frozen dirt before the Hand can even draw his dagger.
+
+Look at what those do: every sentence moves a body somewhere. Somebody tries
+something, somebody answers it, the ground and the weather are in the shot,
+and the kill is a physical act you can picture. Nobody comments on the action
+while it is happening.
+
+CUT EVERY WORD THAT IS NOT DOING WORK. The specific things that ruin it:
+- NO restating what you just said. "The Saibaman moves first. They always do."
+  is one sentence of action and one of nothing. Delete the second.
+- NO knowing little aphorisms about the character or the moment. You are
+  showing a fight, not commentating on your own writing.
+- NO invented mechanics or jargon. "Apocalypse gets his aging field up" is
+  words nobody can picture. Write what a camera would see: what he does with
+  his hands, what happens to the person in front of him.
+- NO vague power-words doing the work of a description -- "unleashes his
+  energy", "power surges", "auras clash". Say what it looks like.
+- NO adverb where a stronger verb exists.
+
+Short sentences. Concrete pictures over adjectives. Use the crowd sparingly
+and never let it narrate for you. Use the PLAYERS' names -- they drafted these
+teams and the fight is really between them. Exclamations only when something
+earns one, and never two beats running. Be funny when a matchup is absurd and
+cold when it is not. People die mid-sentence and the prose does not stop for
+them. NEVER numbers, statistics or dice: you are describing what it looked
+like.
 
 POWER IS YOUR JOB AND YOU MUST GET IT RIGHT. There are no stat lines, because
 you already know what these characters are:
@@ -189,8 +162,14 @@ competent, sane character does not calmly wreck their own side's equipment.
 
 YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
-ruined doing it. Not every beat kills. Let it swing. Keep going until one side
-has NOBODY left.
+ruined doing it. Not every beat kills. Let it swing.
+
+THE BATTLE IS OVER THE MOMENT ONE SIDE HAS NOBODY LEFT. Count as you go. When
+the last card on a side goes down, that fight is FINISHED: write the aftermath
+beat and stop. Do not keep the survivors fighting -- there is nobody left to
+fight, and turning them on each other to fill space is the single worst thing
+you can do to a player who has just won. Nobody on the winning side dies after
+the last opponent falls.
 
 OUTPUT -- JSON only:
 {
@@ -247,96 +226,6 @@ function brief(b: Body): string {
   return `${b.scenario ? `${b.scenario}\n\n` : ""}${b.arena ? `THE GROUND: ${b.arena}\n\n` : ""}${sides}
 
 Write the battle. One side ends with nobody standing.`;
-}
-
-/** Names as given, so a hallucinated casualty cannot cross anybody out. */
-function sanitise(told: Told, b: Body): Told {
-  const real = new Map<string, string>();
-  for (const s of b.sides ?? []) {
-    for (const c of s.cards) real.set(c.name.toLowerCase(), c.name);
-  }
-
-  /**
-   * A name the model wrote, resolved back to a card that was actually drafted.
-   *
-   * Exact match first. Then a containment match, because the model routinely
-   * folds the drafted CONDITION into the name -- it calls a card named "Gohan"
-   * carrying the variant "Ultimate Gohan" exactly that, which is right in the
-   * prose and unmatchable as a key. Being strict there silently dropped both
-   * the MVP and any kill written the same way, so a card the story plainly
-   * killed just never greyed out.
-   *
-   * The containment match only counts when EXACTLY ONE card can be meant. On a
-   * board holding both "Goku" and "Goku (GT)", a bare "Goku" is ambiguous and
-   * is dropped rather than guessed at -- crossing out the wrong card is worse
-   * than crossing out none.
-   */
-  const resolve = (raw: unknown): string | undefined => {
-    const q = String(raw ?? "").toLowerCase().trim();
-    if (q.length < 3) return undefined;
-    const exact = real.get(q);
-    if (exact) return exact;
-    const hits = [...real.entries()].filter(([k]) => k.includes(q) || q.includes(k));
-    return hits.length === 1 ? hits[0][1] : undefined;
-  };
-
-  const usedUp = new Set<string>();
-  const beats: TellBeat[] = [];
-
-  for (const raw of told.beats ?? []) {
-    const text = String(raw?.text ?? "").trim();
-    if (!text) continue;
-    const kills: string[] = [];
-    for (const k of raw?.kills ?? []) {
-      const hit = resolve(k);
-      // Unknown name, or somebody who already died: dropped rather than
-      // trusted. The story survives a missing crossing-out; it does not
-      // survive a card dying twice or a card that was never drafted dying.
-      if (!hit || usedUp.has(hit)) continue;
-      usedUp.add(hit);
-      kills.push(hit);
-    }
-    beats.push(kills.length ? { text, kills } : { text });
-  }
-
-  // Whoever still has somebody standing won, whatever the model wrote in the
-  // field -- this is the one fact the prose is not allowed to contradict.
-  const alive = (b.sides ?? []).map((s) => ({
-    id: s.id,
-    left: s.cards.filter((c) => !usedUp.has(c.name)).length,
-  }));
-  const best = alive.slice().sort((x, y) => y.left - x.left)[0];
-
-  /**
-   * "Side B" is a label for the model, not a word either player has seen.
-   *
-   * The brief says so and it mostly holds, but the verdict and the MVP note
-   * are the two lines everybody reads twice, so they get a deterministic
-   * backstop rather than another paragraph of prompt asking nicely.
-   */
-  const named = (text: string) => {
-    let out = text;
-    for (const side of b.sides ?? []) {
-      const id = side.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      out = out.replace(new RegExp(`\\bside\\s+${id}\\b`, "gi"), side.name);
-    }
-    return out;
-  };
-
-  // Checked against the real roster like the casualties are. A made-up name
-  // here would put a card on the payoff screen that nobody drafted.
-  const rawMvp = told.mvp;
-  const mvpName = resolve(rawMvp?.name);
-  const mvp = mvpName
-    ? { name: mvpName, note: named(String(rawMvp?.note ?? "").trim()) }
-    : null;
-
-  return {
-    beats,
-    winner: best?.id ?? told.winner,
-    verdict: named(String(told.verdict ?? "").trim()),
-    mvp,
-  };
 }
 
 export async function POST(req: Request) {
