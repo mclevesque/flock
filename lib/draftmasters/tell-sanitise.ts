@@ -63,6 +63,19 @@ export interface Told {
   verdict: string;
 }
 
+/**
+ * Did this story actually finish the fight?
+ *
+ * The game's whole promise is a winner and a loser: one roster in the ground,
+ * the other still standing. A told story that simply runs out of beats with
+ * people alive on both sides leaves the result to be decided on a head-count,
+ * which is not a battle anybody watched.
+ */
+export function finished(told: Told, b: Body): boolean {
+  const dead = new Set((told.beats ?? []).flatMap((x) => x.kills ?? []));
+  return (b.sides ?? []).some((s) => s.cards.every((c) => dead.has(c.name)));
+}
+
 /** Names as given, so a hallucinated casualty cannot cross anybody out. */
 export function sanitise(told: Told, b: Body): Told {
   const real = new Map<string, string>();

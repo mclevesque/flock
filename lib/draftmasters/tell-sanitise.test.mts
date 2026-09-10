@@ -3,7 +3,7 @@
  *
  * Every one of these cases is something a player actually saw happen.
  */
-import { sanitise, type Body, type Told } from "./tell-sanitise.ts";
+import { sanitise, finished, type Body, type Told } from "./tell-sanitise.ts";
 import assert from "node:assert";
 
 const board: Body = {
@@ -162,6 +162,37 @@ it("keeps a genuine aftermath beat", () => {
   });
   assert.equal(out.beats.length, 3);
   assert.equal(out.beats[2].text, "the field goes quiet");
+});
+
+// ── A battle has to actually end ───────────────────────────────────────────
+it("calls a battle unfinished when both sides still have players", () => {
+  // Straight off production: 17 beats, three of B dead, and a winner declared
+  // on a head-count. That is not a fight anybody watched.
+  const out = run({
+    beats: [beat("x"), beat("y", ["Iron Man", "Venom", "Kami"])],
+  });
+  assert.equal(finished(out, board), false);
+});
+
+it("calls a battle finished when one roster is entirely down", () => {
+  const out = run({
+    beats: [beat("x"), beat("y", ["Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"])],
+  });
+  assert.equal(finished(out, board), true);
+});
+
+it("sees a finish through a name that carried its variant", () => {
+  // The check runs on the CLEANED story, so "Ultimate Gohan" has already been
+  // resolved to "Gohan" -- otherwise a finished battle reads as unfinished and
+  // we pay for a second one for nothing.
+  const dbz: Body = {
+    sides: [
+      { id: "A", name: "me", cards: [{ name: "Zeno" }] },
+      { id: "B", name: "them", cards: [{ name: "Gohan", variant: "Ultimate Gohan" }] },
+    ],
+  };
+  const out = run({ beats: [beat("x"), beat("y", ["Ultimate Gohan"])] }, dbz);
+  assert.equal(finished(out, dbz), true);
 });
 
 console.log(`\n${pass} passing`);

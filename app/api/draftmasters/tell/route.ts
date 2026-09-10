@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
-import { sanitise, type Body, type Told } from "@/lib/draftmasters/tell-sanitise";
+import { sanitise, finished, type Body, type Told } from "@/lib/draftmasters/tell-sanitise";
 export type { TellBeat, TellMvp } from "@/lib/draftmasters/tell-sanitise";
 
 /**
@@ -164,12 +164,18 @@ YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
 ruined doing it. Not every beat kills. Let it swing.
 
-THE BATTLE IS OVER THE MOMENT ONE SIDE HAS NOBODY LEFT. Count as you go. When
-the last card on a side goes down, that fight is FINISHED: write the aftermath
-beat and stop. Do not keep the survivors fighting -- there is nobody left to
-fight, and turning them on each other to fill space is the single worst thing
-you can do to a player who has just won. Nobody on the winning side dies after
-the last opponent falls.
+ONE SIDE MUST END WITH NOBODY STANDING. This is not optional and it is not a
+points decision. Every single card on the losing side dies -- all five of them
+if they drafted five. Nobody on the losing side is left wounded, unconscious,
+retreating, or quietly still there when the prose stops. COUNT THEM as you go,
+by name, and do not run out of beats before the last one is down. A battle that
+finishes with people alive on both sides has not finished.
+
+THE BATTLE IS OVER THE MOMENT THAT HAPPENS. When the last card on a side goes
+down, the fight is FINISHED: write the aftermath beat and stop. Do not keep the
+survivors fighting -- there is nobody left to fight, and turning them on each
+other to fill space is the single worst thing you can do to a player who has
+just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
@@ -178,9 +184,12 @@ OUTPUT -- JSON only:
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "name": "Exact Card Name", "note": "One sentence on what they did." }
 }
-16-22 beats. The first two or three are the walk-out and kill nobody; the last
-one is the aftermath and kills nobody either. "kills" lists ONLY cards dying in
-that beat, spelled exactly as given, each card at most once in the whole battle.
+16-24 beats -- however many it takes to put every card on the losing side in
+the ground, and not one beat past that. The first two or three are the walk-out
+and kill nobody; the last one is the aftermath and kills nobody either. "kills"
+lists ONLY cards dying in that beat, spelled exactly as given, each card at most
+once in the whole battle. Before you finish, check your own casualty list: one
+side's entire roster must appear in it.
 
 THE VERDICT is not part of the story and drops the voice entirely. It is the
 plain answer to "so why did they win?", for somebody who just watched it. Name
@@ -237,20 +246,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ beats: [], winner: "", verdict: "", mvp: null, provider: "none" });
   }
 
-  try {
-    const { data, provider } = await callModelJson<Told>({
+  const started = Date.now();
+  const budget = (maxDuration - 8) * 1000;
+
+  const ask = () =>
+    callModelJson<Told>({
       system: SYSTEM,
       user: brief(body),
       maxTokens: 4200,
       temperature: 0.95,
       json: true,
       // Same shape as every other model route here: the chain gets the
-      // function's life minus a margin to answer in. Hardcoding a number
-      // that no longer matched maxDuration was leaving time on the table
-      // while a slow provider quietly ran the whole battle out.
-      deadlineMs: (maxDuration - 8) * 1000,
+      // function's life minus a margin to answer in, less whatever an earlier
+      // attempt already spent.
+      deadlineMs: budget - (Date.now() - started),
     });
-    const clean = sanitise(data, body);
+
+  try {
+    const first = await ask();
+    let provider = first.provider;
+    let clean = sanitise(first.data, body);
+
+    /**
+     * A battle has to end with one roster in the ground.
+     *
+     * Left to itself the model sometimes runs out of beats with people alive
+     * on both sides, and the result then falls to a head-count -- which is not
+     * a fight anybody watched, and not what the game promises. The brief says
+     * so in words; this is the part that does not depend on it being read. One
+     * more attempt, if there is time for it, and the finished story wins.
+     *
+     * Checked on the CLEANED story, not the raw one: the model writes variants
+     * into names ("Ultimate Gohan" for a card called "Gohan"), and only
+     * sanitise has resolved those back to cards. Asking the raw story would
+     * call a perfectly finished battle unfinished and pay for a second one.
+     */
+    if (!finished(clean, body) && budget - (Date.now() - started) > 12000) {
+      console.error("[tell]", provider, "left both sides standing - asking again");
+      try {
+        const second = await ask();
+        const retry = sanitise(second.data, body);
+        if (finished(retry, body)) {
+          clean = retry;
+          provider = second.provider;
+        }
+      } catch {
+        // The first answer is unfinished but real. Better than nothing.
+      }
+    }
+
     if (clean.beats.length < 3) {
       console.error("[tell] too few beats from", provider, "-", clean.beats.length);
       return NextResponse.json({ beats: [], winner: "", verdict: "", mvp: null, provider: "none" });
