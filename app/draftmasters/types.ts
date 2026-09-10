@@ -144,6 +144,13 @@ export interface Verdict {
   plan?: ContestPlan;
   /** Set when the judge scored it even and dice decided it */
   diceBreak?: DiceState | null;
+  /**
+   * The card the battle turned on, named by whoever wrote it.
+   *
+   * Not the resolver's MVP: that one was computed before the story existed
+   * and could crown a card the prose never mentions.
+   */
+  mvp?: { name: string; note: string } | null;
 }
 
 export interface ChatLine {

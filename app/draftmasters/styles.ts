@@ -603,6 +603,42 @@ export const STYLES = `
   margin: 18px auto 0; max-width: 560px;
   font-size: 15px; line-height: 1.65; color: var(--dm-dim);
 }
+
+/* The one card the battle turned on.
+   The only portrait left on this screen, now that both rosters are gone from
+   it -- which is what makes it read as a distinction rather than as one more
+   row in a list of eight. */
+.dm-mvp {
+  display: inline-flex; align-items: center; gap: 14px;
+  margin: 22px auto 0; padding: 12px 20px 12px 12px;
+  text-align: left; border-radius: 16px;
+  border: 1px solid rgb(var(--dm-glow) / .28);
+  background: linear-gradient(180deg, rgb(var(--dm-glow) / .1), rgb(var(--dm-glow) / .02));
+  max-width: 520px;
+}
+.dm-mvp-face {
+  flex: none; width: 58px; height: 72px; overflow: hidden;
+  border-radius: 11px; border: 1px solid rgb(var(--dm-glow) / .3);
+  background: #0c0b09;
+}
+.dm-mvp-face img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.dm-mvp-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-mvp-tag {
+  font-family: var(--dm-display); font-size: 10px; letter-spacing: .2em;
+  text-transform: uppercase; color: rgb(var(--dm-glow) / .75);
+}
+.dm-mvp-name {
+  font-size: 19px; font-weight: 800; line-height: 1.2; color: var(--dm-gold);
+}
+.dm-mvp-note {
+  margin: 3px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--dm-dim);
+}
+@media (max-width: 520px) {
+  .dm-mvp { gap: 11px; padding: 10px 14px 10px 10px; }
+  .dm-mvp-face { width: 48px; height: 60px; }
+  .dm-mvp-name { font-size: 17px; }
+  .dm-mvp-note { font-size: 12.5px; }
+}
 .dm-verdict-sides { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 26px; text-align: left; }
 @media (min-width: 700px) { .dm-verdict-sides { grid-template-columns: 1fr 1fr; } }
 .dm-verdict-side {

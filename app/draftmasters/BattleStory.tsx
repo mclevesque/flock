@@ -34,6 +34,18 @@ import type { BattleScript, PortraitMap } from "./types";
  * costs one round trip.
  */
 
+/**
+ * A battle, as written. Held by the caller so a rewatch replays THIS fight
+ * rather than paying for a new one -- the same beats, the same deaths, the
+ * same ending, which is the only thing "rewatch" can honestly mean.
+ */
+export interface ToldBattle {
+  beats: { text: string; kills: string[] }[];
+  winnerId: string;
+  why: string;
+  mvp: { name: string; note: string } | null;
+}
+
 interface Props {
   script: BattleScript;
   sides: Side[];
@@ -42,8 +54,11 @@ interface Props {
   portraits: PortraitMap;
   packName: string;
   arena?: string | null;
-  /** Hands the model's outcome back so the verdict screen agrees with it. */
-  onDone: (told?: { winnerId: string; why: string }) => void;
+  /** A story already written. Given one, this screen makes no request at all. */
+  replay?: ToldBattle | null;
+  /** Handed up the moment it is written, so a rewatch costs nothing. */
+  onTold: (told: ToldBattle) => void;
+  onDone: () => void;
 }
 
 /** "Jaime Lannister (one hand)" -> "Jaime Lannister". */
@@ -105,6 +120,8 @@ export default function BattleStory({
   portraits,
   packName,
   arena,
+  replay,
+  onTold,
   onDone,
 }: Props) {
   const beats = script.beats;
@@ -167,6 +184,15 @@ export default function BattleStory({
     if (asked.current) return;
     asked.current = true;
 
+    // Already written. Nothing to ask anybody.
+    if (replay) {
+      setTold(replay.beats);
+      setWonBy(replay.winnerId);
+      setWhy(replay.why);
+      setWriting(false);
+      return;
+    }
+
     const body = JSON.stringify({
       arena,
       sides: sides.map((s) => ({
@@ -201,6 +227,7 @@ export default function BattleStory({
       beats?: { text: string; kills?: string[] }[];
       winner?: string;
       verdict?: string;
+      mvp?: { name: string; note: string } | null;
     };
 
     const ask = async (): Promise<Answer | null> => {
@@ -231,9 +258,12 @@ export default function BattleStory({
          */
         const data = (await ask()) ?? (await ask());
         if (data) {
-          setTold(data.beats!.map((x) => ({ text: x.text, kills: (x.kills ?? []).map(BARE) })));
-          if (data.winner) setWonBy(data.winner);
+          const beats = data.beats!.map((x) => ({ text: x.text, kills: (x.kills ?? []).map(BARE) }));
+          const winnerId = data.winner || script.winnerId;
+          setTold(beats);
+          setWonBy(winnerId);
           if (data.verdict) setWhy(data.verdict);
+          onTold({ beats, winnerId, why: data.verdict ?? "", mvp: data.mvp ?? null });
         } else {
           setTold(offline);
         }
@@ -369,10 +399,7 @@ export default function BattleStory({
   const winnerName = winnerSide?.name?.trim() || "Nobody";
   const winLine = /^you$/i.test(winnerName) ? "You win!" : `${winnerName} wins!`;
 
-  const finish = useCallback(
-    () => onDone(why ? { winnerId: wonBy, why } : undefined),
-    [onDone, why, wonBy]
-  );
+  const finish = useCallback(() => onDone(), [onDone]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

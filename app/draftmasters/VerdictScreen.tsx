@@ -2,15 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Icon from "./Icon";
-import { IMMEASURABLE } from "@/lib/draftmasters/ubers";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
 import { Thumb } from "./AuctionStage";
 
 /**
- * The payoff screen. The judge has to commit to a winner and justify it, so
- * this leads with the verdict and then shows the receipts — every pick, what
- * it cost, and which one carried the team.
+ * The payoff screen: who won, why, and the card it turned on.
+ *
+ * It used to lay out both rosters again underneath — every pick, its price, a
+ * score out of a hundred, an MVP and a bust. All of that came from the local
+ * resolver, which stopped deciding anything the moment the model started
+ * writing the battle, so it could and did contradict the fight the player had
+ * just watched: a card crowned MVP that the prose never mentioned, a BUST who
+ * won it. And it was the same eight portraits they had been staring at through
+ * the whole draft and the whole story.
+ *
+ * So: the winner, the reason in plain words, and the one card that decided it
+ * — all three written in the same breath as the battle, by whoever wrote it.
  */
 
 interface Props {
@@ -27,6 +35,8 @@ interface Props {
   ratingDelta: number | null;
   mode: "solo" | "pvp";
   battleLoading: boolean;
+  /** They have already seen this fight, so the button offers it again. */
+  watched: boolean;
   /**
    * What the room is waiting on, if anything. Set for BOTH players, not just
    * whoever pressed the button — the one who didn't press it used to get a
@@ -51,6 +61,7 @@ export default function VerdictScreen({
   ratingDelta,
   mode,
   battleLoading,
+  watched,
   busy,
   onBattle,
   onPlayAgain,
@@ -109,7 +120,15 @@ export default function VerdictScreen({
     );
   }
 
-  const noteFor = (id: string) => verdict.sideNotes.find((n) => n.sideId === id);
+  /**
+   * The MVP as the battle named them, matched back to the drafted card so the
+   * portrait is the same one that was on screen a moment ago. No match means
+   * no panel: a name with a blank face is worse than nothing.
+   */
+  const mvp = verdict.mvp?.name
+    ? sides.flatMap((x) => x.roster).find((c) => matches(c.name, verdict.mvp!.name))
+    : undefined;
+  const mvpUrl = mvp ? portraits[mvp.imgQuery] : undefined;
 
   return (
     <div className="dm-verdict">
@@ -118,6 +137,19 @@ export default function VerdictScreen({
           under it was the same fact twice. Name, then why -- nothing else. */}
       <h2 className="dm-verdict-headline">{verdict.headline}</h2>
       <p className="dm-verdict-reasoning">{verdict.reasoning}</p>
+
+      {mvp && (
+        <div className="dm-mvp">
+          <span className="dm-mvp-face">
+            <Thumb url={mvpUrl ?? null} name={mvp.name} />
+          </span>
+          <div className="dm-mvp-text">
+            <span className="dm-mvp-tag">Most valuable</span>
+            <strong className="dm-mvp-name">{mvp.name}</strong>
+            {verdict.mvp?.note && <p className="dm-mvp-note">{verdict.mvp.note}</p>}
+          </div>
+        </div>
+      )}
 
       {verdict.plan && <PlanPanel plan={verdict.plan} />}
 
@@ -163,100 +195,6 @@ export default function VerdictScreen({
         </div>
       )}
 
-      <div className="dm-verdict-sides">
-        {sides.map((side) => {
-          const note = noteFor(side.id);
-          const won = side.id === verdict.winnerId;
-          return (
-            <div key={side.id} className="dm-verdict-side" data-won={won ? "1" : "0"}>
-              <div className="dm-score-top">
-                <div className="dm-avatar">
-                  {side.isNpc ? <Icon name="bot" size={15} /> : side.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="dm-score-name">{side.id === meId ? "You" : side.name}</div>
-                {won && <span style={{ marginLeft: "auto", fontSize: 18 }}><Icon name="trophy" size={15} /></span>}
-              </div>
-
-              {note && (
-                <>
-                  <div className="dm-verdict-score dm-money" style={{ marginTop: 12 }}>
-                    {note.score}
-                    <span style={{ fontSize: 14, color: "var(--dm-mute)", fontWeight: 600 }}>
-                      /100
-                    </span>
-                  </div>
-                  <p className="dm-verdict-note">{note.note}</p>
-                </>
-              )}
-
-              <div className="dm-verdict-picks">
-                {side.roster.map((pick) => {
-                  const isMvp = note?.mvp && matches(pick.name, note.mvp);
-                  const isBust = !isMvp && note?.bust && matches(pick.name, note.bust);
-                  const url = portraits[pick.imgQuery];
-                  return (
-                    <div key={pick.id} className="dm-verdict-pick">
-                      <span className="dm-verdict-thumb">
-                        <Thumb url={url ?? null} name={pick.name} />
-                      </span>
-                      <div className="dm-verdict-pick-name">
-                        {pick.name}
-                        {isMvp && (
-                          <span className="dm-tag" data-kind="mvp">
-                            MVP
-                          </span>
-                        )}
-                        {isBust && (
-                          <span className="dm-tag" data-kind="bust">
-                            Bust
-                          </span>
-                        )}
-                        {pick.variant && (
-                  <span className="dm-variant-note" data-grade={pick.variantGrade ?? "neutral"}>
-                    {pick.variant}
-                  </span>
-                )}
-                      </div>
-                      <div className="dm-verdict-pick-price dm-money">${pick.price}</div>
-                      {(() => {
-                        // How much this pick mattered, 0–10, from the judge.
-                        const c = note?.picks?.find((p) => matches(pick.name, p.name));
-                        if (!c) return null;
-                        // Some cards are not on the scale. Eru Ilúvatar did not
-                        // contribute to the contest; he wrote the world it
-                        // happens in, so a number there is a category error.
-                        const immeasurable = c.contribution >= IMMEASURABLE;
-                        return (
-                          <span
-                            className="dm-contrib"
-                            data-immeasurable={immeasurable ? "1" : "0"}
-                            title={immeasurable ? "Beyond measurement" : `Contribution ${c.contribution}/10`}
-                          >
-                            <span className="dm-contrib-bar">
-                              <i style={{ width: `${Math.min(100, c.contribution * 10)}%` }} />
-                            </span>
-                            <span className="dm-contrib-n">
-                              {immeasurable ? "∞/10" : `${c.contribution}/10`}
-                            </span>
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  );
-                })}
-                {side.roster.length === 0 && (
-                  <div className="dm-note">Drafted nobody. Bold strategy.</div>
-                )}
-              </div>
-
-              <div className="dm-note" style={{ marginTop: 10 }}>
-                ${rules.budget - side.budget} spent · ${side.budget} left on the table
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* No "judged offline" notice. Which backend produced the verdict is our
           plumbing, not the player's concern — and announcing a fallback makes a
           perfectly good result read as a broken one. The distinction is still
@@ -266,7 +204,9 @@ export default function VerdictScreen({
       <div className="dm-row" style={{ marginTop: 26, justifyContent: "center" }}>
         {canJudge && (
           <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={battleLoading}>
-            {battleLoading ? "Staging the fight…" : <><Icon name="swords" size={15} /> Watch the battle</>}
+            {battleLoading
+              ? "Staging the fight…"
+              : <><Icon name="swords" size={15} /> {watched ? "Rewatch the battle" : "Watch the battle"}</>}
           </button>
         )}
         <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onPlayAgain}>

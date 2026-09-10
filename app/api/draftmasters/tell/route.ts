@@ -75,9 +75,17 @@ export interface TellBeat {
   kills?: string[];
 }
 
+/** The one card the battle turned on, and what they did. */
+export interface TellMvp {
+  name: string;
+  note: string;
+}
+
 interface Told {
   beats: TellBeat[];
   winner: string;
+  /** Named by whoever wrote the fight, since only they know how it went. */
+  mvp?: TellMvp | null;
   /** Why that side won, in plain words. Written in the same call as the
    *  story so the explanation cannot disagree with what was narrated -- and
    *  so one battle costs one request. */
@@ -188,7 +196,8 @@ OUTPUT -- JSON only:
 {
   "beats": [ { "text": "one paragraph, 40-75 words", "kills": ["Exact Card Name"] }, ... ],
   "winner": "<side id of the team with survivors>",
-  "verdict": "Why that side won, in 2-3 plain sentences."
+  "verdict": "Why that side won, in 2-3 plain sentences.",
+  "mvp": { "name": "Exact Card Name", "note": "One sentence on what they did." }
 }
 16-22 beats. The first two or three are the walk-out and kill nobody; the last
 one is the aftermath and kills nobody either. "kills" lists ONLY cards dying in
@@ -203,7 +212,13 @@ NEVER list the casualties: "the decisive kills were A, B, C and D" is a roll of
 the dead, not a reason, and anybody who just watched already knows who died. No
 flourish, no crowd, no numbers, and it must match the battle you just wrote.
 Call the players by the names given. "Side A" and "Side B" are labels for you,
-not words either of them has ever seen.`;
+not words either of them has ever seen.
+
+THE MVP is the single card the battle turned on, spelled exactly as given. It
+is USUALLY on the winning side but does not have to be -- somebody can lose and
+still be the reason it was close. Do not pick the flashiest name on the board;
+pick the one whose absence would have changed the result. The note is one plain
+sentence saying what they actually did, in the same voice as the verdict.`;
 
 
 function brief(b: Body): string {
@@ -266,10 +281,33 @@ function sanitise(told: Told, b: Body): Told {
     left: s.cards.filter((c) => !usedUp.has(c.name)).length,
   }));
   const best = alive.slice().sort((x, y) => y.left - x.left)[0];
+
+  // Checked against the real roster like the casualties are. A made-up name
+  // here would put a card on the payoff screen that nobody drafted.
+  const rawMvp = told.mvp;
+  const mvpName = rawMvp?.name ? real.get(String(rawMvp.name).toLowerCase().trim()) : undefined;
+  const mvp = mvpName
+    ? { name: mvpName, note: String(rawMvp?.note ?? "").trim() }
+    : null;
+
+  /**
+   * "Side B" is a label for the model, not a word either player has seen.
+   *
+   * The brief says so and it mostly holds, but the verdict is the one
+   * paragraph everybody reads twice, so it gets a deterministic backstop
+   * rather than another line of prompt asking nicely.
+   */
+  let verdict = String(told.verdict ?? "").trim();
+  for (const side of b.sides ?? []) {
+    const id = side.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    verdict = verdict.replace(new RegExp(`\\bside\\s+${id}\\b`, "gi"), side.name);
+  }
+
   return {
     beats,
     winner: best?.id ?? told.winner,
-    verdict: String(told.verdict ?? "").trim(),
+    verdict,
+    mvp,
   };
 }
 
@@ -279,7 +317,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Nobody to fight." }, { status: 400 });
   }
   if (!hasAnyProvider()) {
-    return NextResponse.json({ beats: [], winner: "", verdict: "", provider: "none" });
+    return NextResponse.json({ beats: [], winner: "", verdict: "", mvp: null, provider: "none" });
   }
 
   try {
@@ -298,7 +336,7 @@ export async function POST(req: Request) {
     const clean = sanitise(data, body);
     if (clean.beats.length < 3) {
       console.error("[tell] too few beats from", provider, "-", clean.beats.length);
-      return NextResponse.json({ beats: [], winner: "", verdict: "", provider: "none" });
+      return NextResponse.json({ beats: [], winner: "", verdict: "", mvp: null, provider: "none" });
     }
     return NextResponse.json({ ...clean, provider });
   } catch (err) {
@@ -306,6 +344,6 @@ export async function POST(req: Request) {
     // game: the player watches the offline narrator's one-liners and there
     // is nothing anywhere to say the model was never reached.
     console.error("[tell] failed:", err instanceof Error ? err.message : err);
-    return NextResponse.json({ beats: [], winner: "", verdict: "", provider: "none" });
+    return NextResponse.json({ beats: [], winner: "", verdict: "", mvp: null, provider: "none" });
   }
 }

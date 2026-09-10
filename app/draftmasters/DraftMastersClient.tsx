@@ -46,7 +46,7 @@ import { ARGUMENT_MAX, type ArgumentRuling } from "@/lib/draftmasters/arguments"
 import ArgumentScreen from "./ArgumentScreen";
 import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
-import BattleStory from "./BattleStory";
+import BattleStory, { type ToldBattle } from "./BattleStory";
 import Icon from "./Icon";
 import MediaRail from "./MediaRail";
 import Wordmark from "./Wordmark";
@@ -283,6 +283,14 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   // ── Verdict + records ──────────────────────────────────────────────────────
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  /**
+   * The battle as it was written, kept until the next draft.
+   *
+   * "Rewatch the battle" has to mean the SAME battle -- a second call would
+   * write a different fight with different deaths, which makes the verdict
+   * sitting underneath it a lie. So the story is cached and replayed.
+   */
+  const [toldBattle, setToldBattle] = useState<ToldBattle | null>(null);
   const [battle, setBattle] = useState<BattleScript | null>(null);
   const [battleLoading, setBattleLoading] = useState(false);
   /**
@@ -1597,37 +1605,40 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const revealHeld = battleLoading || peerStaging || battle !== null;
 
   /**
-   * The story is over; the verdict screen is underneath it.
+   * The battle has been written. The verdict takes its word for everything.
    *
-   * The model that wrote the fight also decided it and said, in plain words,
-   * why -- all in the one call. So the verdict takes ITS answer rather than
-   * the local resolver's: the resolver ran before a word was written and its
-   * summary ("8 cards went down across 11 rounds") describes a battle nobody
-   * just watched. Whatever the story said happened is what happened.
+   * The model that wrote the fight also decided it, named the card it turned
+   * on, and said in plain words why -- all in the one call. The local resolver
+   * ran BEFORE a word of it existed, so its summary ("8 cards went down across
+   * 11 rounds") describes a battle nobody watched. Whatever the story says
+   * happened is what happened.
    */
-  const endBattle = useCallback(
-    (told?: { winnerId: string; why: string }) => {
-      if (told?.why) {
-        setVerdict((v) => {
-          if (!v) return v;
-          const won = g_sideName(gameRef.current, told.winnerId) ?? "The winner";
-          return {
-            ...v,
-            winnerId: told.winnerId || v.winnerId,
-            headline: `${won} wins!`,
-            reasoning: told.why,
-          };
-        });
-      }
-      setWatchedBattle(true);
-      setBattle(null);
-      if (mode === "pvp") send({ type: "battle", battle: null });
-    },
-    [mode, send]
-  );
+  const takeTold = useCallback((told: ToldBattle) => {
+    setToldBattle(told);
+    setVerdict((v) => {
+      if (!v) return v;
+      const won = g_sideName(gameRef.current, told.winnerId) ?? "The winner";
+      const name = /^you$/i.test(won) ? "You win!" : `${won} wins!`;
+      return {
+        ...v,
+        winnerId: told.winnerId || v.winnerId,
+        headline: name,
+        reasoning: told.why || v.reasoning,
+        mvp: told.mvp,
+      };
+    });
+  }, []);
+
+  const endBattle = useCallback(() => {
+    setWatchedBattle(true);
+    setBattle(null);
+    if (mode === "pvp") send({ type: "battle", battle: null });
+  }, [mode, send]);
 
   const playAgain = useCallback(() => {
     sfx.click();
+    // A new draft is a new battle. Nothing to replay.
+    setToldBattle(null);
     clearNpc();
     setBattle(null);
     setWatchedBattle(false);
@@ -1933,6 +1944,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             portraits={portraits}
             packName={pack?.name ?? "Draft"}
             canJudge={canDrive}
+            watched={watchedBattle}
             record={record}
             ratingDelta={ratingDelta}
             mode={mode}
@@ -1958,6 +1970,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           portraits={portraits}
           packName={pack?.name ?? "Draft"}
           arena={pack?.arenaName ?? null}
+          replay={toldBattle}
+          onTold={takeTold}
           onDone={endBattle}
         />
       )}
