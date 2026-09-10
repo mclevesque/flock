@@ -609,35 +609,52 @@ export const STYLES = `
    it -- which is what makes it read as a distinction rather than as one more
    row in a list of eight. */
 .dm-mvp {
-  display: inline-flex; align-items: center; gap: 14px;
-  margin: 22px auto 0; padding: 12px 20px 12px 12px;
-  text-align: left; border-radius: 16px;
+  display: flex; align-items: center; gap: 18px;
+  width: fit-content; margin: 24px auto 0; padding: 16px 24px 16px 16px;
+  text-align: left; border-radius: 18px;
   border: 1px solid rgb(var(--dm-glow) / .28);
   background: linear-gradient(180deg, rgb(var(--dm-glow) / .1), rgb(var(--dm-glow) / .02));
-  max-width: 520px;
+  max-width: min(540px, 100%);
 }
+/* A card-shaped portrait at card proportions. The old one was a 58px stamp
+   squeezed out of shape, which read as a favicon rather than as the fighter
+   who decided the battle. */
 .dm-mvp-face {
-  flex: none; width: 58px; height: 72px; overflow: hidden;
-  border-radius: 11px; border: 1px solid rgb(var(--dm-glow) / .3);
+  flex: none; width: 104px; height: 130px; overflow: hidden;
+  border-radius: 13px; border: 1px solid rgb(var(--dm-glow) / .32);
   background: #0c0b09;
 }
-.dm-mvp-face img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.dm-mvp-face img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; }
 .dm-mvp-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .dm-mvp-tag {
   font-family: var(--dm-display); font-size: 10px; letter-spacing: .2em;
   text-transform: uppercase; color: rgb(var(--dm-glow) / .75);
 }
 .dm-mvp-name {
-  font-size: 19px; font-weight: 800; line-height: 1.2; color: var(--dm-gold);
+  font-size: 22px; font-weight: 800; line-height: 1.2; color: var(--dm-gold);
 }
 .dm-mvp-note {
-  margin: 3px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--dm-dim);
+  margin: 5px 0 0; font-size: 14px; line-height: 1.5; color: var(--dm-dim);
 }
-@media (max-width: 520px) {
-  .dm-mvp { gap: 11px; padding: 10px 14px 10px 10px; }
-  .dm-mvp-face { width: 48px; height: 60px; }
-  .dm-mvp-name { font-size: 17px; }
-  .dm-mvp-note { font-size: 12.5px; }
+@media (max-width: 560px) {
+  /* Stacked on a phone: side by side, the portrait would have to shrink back
+     to a stamp to leave the sentence any room. */
+  .dm-mvp { flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 16px; }
+  .dm-mvp-face { width: 96px; height: 120px; }
+  .dm-mvp-text { align-items: center; }
+  .dm-mvp-name { font-size: 20px; }
+  .dm-mvp-note { font-size: 13.5px; }
+}
+
+/* One thing per line, each centred under the last: the winner, the reason,
+   the card it turned on, the record, then the two ways out. They used to sit
+   in pairs across the screen with nothing lining up. */
+.dm-verdict-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin-top: 28px;
+}
+.dm-verdict-actions .dm-btn {
+  width: min(340px, 100%); justify-content: center;
 }
 .dm-verdict-sides { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 26px; text-align: left; }
 @media (min-width: 700px) { .dm-verdict-sides { grid-template-columns: 1fr 1fr; } }

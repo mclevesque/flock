@@ -276,13 +276,29 @@ export default function BattleStory({
   }, []);
 
   // -- The rite -------------------------------------------------------------
-  const rite = useMemo(() => {
-    const us = sides.find((s) => s.id === meId) ?? sides[0];
-    const them = sides.find((s) => s.id !== us?.id);
-    return riteFor(us?.name ?? "You", them?.name ?? "Them");
-  }, [sides, meId]);
+  /**
+   * Keyed on the two NAMES, not on `sides`.
+   *
+   * The rite's whole timeline hangs off one effect, and the "finished" timer
+   * at the end of it is what lets the crawl start. Any re-run of that effect
+   * tears every timer down and starts them again from zero, so the finish can
+   * be pushed out indefinitely and the story just sits there unread -- which
+   * is the symptom that was reported.
+   *
+   * `sides` is rebuilt whenever the game commits, so a memo keyed on it can
+   * hand back a new `rite` for reasons that have nothing to do with the rite.
+   * Strings compare by value, and the ref guard below means the schedule is
+   * armed exactly once whatever else changes.
+   */
+  const usName = (sides.find((x) => x.id === meId) ?? sides[0])?.name ?? "You";
+  const themName = sides.find((x) => x.id !== meId)?.name ?? "Them";
+  const rite = useMemo(() => riteFor(usName, themName), [usName, themName]);
 
+  /** One battle, one rite. Belt and braces on top of the stable memo. */
+  const riteStarted = useRef(false);
   useEffect(() => {
+    if (riteStarted.current) return;
+    riteStarted.current = true;
     const timers = rite.map((step, i) =>
       window.setTimeout(() => setRiteAt(i), step.at)
     );
@@ -293,7 +309,8 @@ export default function BattleStory({
       )
     );
     return () => timers.forEach(clearTimeout);
-  }, [rite]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Hand over only when BOTH are true: the story is written and the rite has
@@ -339,7 +356,10 @@ export default function BattleStory({
       let i = readRef.current;
       while (i + 1 < told.length) {
         const p = paras.current[i + 1];
-        if (!p || p.offsetTop + p.offsetHeight * 0.55 > line) break;
+        // Three quarters down the paragraph, not halfway: the blow usually
+        // lands in its last sentence, and a portrait that greys out while you
+        // are still reading the set-up gives the death away before it happens.
+        if (!p || p.offsetTop + p.offsetHeight * 0.78 > line) break;
         i += 1;
       }
       if (i !== readRef.current) {
@@ -507,7 +527,11 @@ export default function BattleStory({
             )}
           </div>
         )}
-        <div className="dm-st-reel">
+        {/* Laid out from the first frame, because the crawl measures it, but
+            invisible until the rite has finished speaking. Rendering it
+            plainly meant the opening beats sat behind the invocation, two
+            different pieces of prose stacked on the same pixels. */}
+        <div className="dm-st-reel" data-hold={rolling ? "0" : "1"}>
           <div className="dm-st-gap" aria-hidden="true" />
 
           {told.map((t, i) => (

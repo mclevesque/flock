@@ -378,7 +378,12 @@ export const BATTLE_STYLES = `
   position: relative;          /* offsetParent for the read-line arithmetic */
   display: flex; flex-direction: column; align-items: center;
   gap: 11px; padding: 0 16px;
+  transition: opacity 1s ease .15s;
 }
+/* Laid out, measurable, and unreadable: the crawl needs the reel's real
+   geometry from the first frame, but the opening beats must not sit behind
+   the invocation. It fades up as the rite fades down. */
+.dm-st-reel[data-hold="1"] { opacity: 0; transition-delay: 0s; }
 /* Room to climb into at both ends: the first line starts low on the screen,
    and the last one reaches the middle instead of stopping at the foot. */
 .dm-st-gap { flex: none; width: 1px; height: 46%; min-height: 140px; }

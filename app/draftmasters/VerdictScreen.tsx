@@ -201,7 +201,7 @@ export default function VerdictScreen({
           on the payload as `verdict.judged` and in the server logs, so it stays
           diagnosable without being confessed on screen. */}
 
-      <div className="dm-row" style={{ marginTop: 26, justifyContent: "center" }}>
+      <div className="dm-verdict-actions">
         {canJudge && (
           <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={battleLoading}>
             {battleLoading
