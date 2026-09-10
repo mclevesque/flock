@@ -277,6 +277,22 @@ it("never lets a side finish itself off", () => {
   assert.ok(!dead.includes("Vision"));
 });
 
+it("lets one blow from the other side take two at once", () => {
+  // Krillin's Destructo Disc through two of them. The own-goal cap must not
+  // touch this: it only ever looks at kills whose killer shares their side.
+  const out = run({
+    beats: [beat("x"), { text: "the disc goes through both of them", by: 1, kills: [6, 7] }],
+  });
+  assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Iron Man", "Venom"]);
+});
+
+it("takes a whole line down in one beat when the action earns it", () => {
+  const out = run({
+    beats: [beat("x"), { text: "the blast takes the line", by: 1, kills: [6, 7, 8, 9, 10] }],
+  });
+  assert.equal(out.beats.flatMap((b) => b.kills ?? []).length, 5);
+});
+
 it("still lets the other side land the finishing blow", () => {
   const out = run({
     beats: [

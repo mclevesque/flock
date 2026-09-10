@@ -273,9 +273,13 @@ the prose crosses out a card in the middle of a sentence about somebody else.
 If you cannot name them going down, do not list them -- write their death in a
 beat of its own instead.
 
-Do not stack casualties either. Usually one card per beat, two when they go
-down together in the same action, and never a beat that quietly clears out
-three people the prose barely mentions.
+TWO AT ONCE IS GOOD WHEN THE BLOW EARNS IT. A Destructo Disc through two of
+them, a tail sweep that takes a pair off the wall, one blast catching people
+who stood too close together -- write those, they are some of the best moments
+in a fight. What is not allowed is a beat that quietly clears out three or
+four people the prose barely mentions: if they die in it, they are named in it
+and you can see how it happened. One card per beat is the usual rhythm; more
+than one needs a single action that plainly reaches them all.
 
 THE VERDICT is not part of the story and drops the voice entirely. It is the
 plain answer to "so why did they win?", for somebody who just watched it. Name
