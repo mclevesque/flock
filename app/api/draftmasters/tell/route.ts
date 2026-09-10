@@ -255,6 +255,31 @@ function sanitise(told: Told, b: Body): Told {
   for (const s of b.sides ?? []) {
     for (const c of s.cards) real.set(c.name.toLowerCase(), c.name);
   }
+
+  /**
+   * A name the model wrote, resolved back to a card that was actually drafted.
+   *
+   * Exact match first. Then a containment match, because the model routinely
+   * folds the drafted CONDITION into the name -- it calls a card named "Gohan"
+   * carrying the variant "Ultimate Gohan" exactly that, which is right in the
+   * prose and unmatchable as a key. Being strict there silently dropped both
+   * the MVP and any kill written the same way, so a card the story plainly
+   * killed just never greyed out.
+   *
+   * The containment match only counts when EXACTLY ONE card can be meant. On a
+   * board holding both "Goku" and "Goku (GT)", a bare "Goku" is ambiguous and
+   * is dropped rather than guessed at -- crossing out the wrong card is worse
+   * than crossing out none.
+   */
+  const resolve = (raw: unknown): string | undefined => {
+    const q = String(raw ?? "").toLowerCase().trim();
+    if (q.length < 3) return undefined;
+    const exact = real.get(q);
+    if (exact) return exact;
+    const hits = [...real.entries()].filter(([k]) => k.includes(q) || q.includes(k));
+    return hits.length === 1 ? hits[0][1] : undefined;
+  };
+
   const usedUp = new Set<string>();
   const beats: TellBeat[] = [];
 
@@ -263,7 +288,7 @@ function sanitise(told: Told, b: Body): Told {
     if (!text) continue;
     const kills: string[] = [];
     for (const k of raw?.kills ?? []) {
-      const hit = real.get(String(k).toLowerCase().trim());
+      const hit = resolve(k);
       // Unknown name, or somebody who already died: dropped rather than
       // trusted. The story survives a missing crossing-out; it does not
       // survive a card dying twice or a card that was never drafted dying.
@@ -301,7 +326,7 @@ function sanitise(told: Told, b: Body): Told {
   // Checked against the real roster like the casualties are. A made-up name
   // here would put a card on the payoff screen that nobody drafted.
   const rawMvp = told.mvp;
-  const mvpName = rawMvp?.name ? real.get(String(rawMvp.name).toLowerCase().trim()) : undefined;
+  const mvpName = resolve(rawMvp?.name);
   const mvp = mvpName
     ? { name: mvpName, note: named(String(rawMvp?.note ?? "").trim()) }
     : null;

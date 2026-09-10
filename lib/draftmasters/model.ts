@@ -48,80 +48,18 @@ export interface ModelResult {
  */
 export const DRAFT_MODEL = "openai/gpt-oss-120b";
 
-/**
- * Gemini's model. NOT gemini-2.5-flash — that still appears in the models
- * list but is closed to new users and 404s on generateContent, which looks
- * exactly like a typo until you read the error body.
- */
-export const GEMINI_MODEL = "gemini-3.6-flash";
-
 class ModelError extends Error {
   constructor(message: string, readonly retryable: boolean) {
     super(message);
   }
 }
 
-// ── Gemini ───────────────────────────────────────────────────────────────────
-
-async function callGemini(req: ModelRequest, key: string): Promise<string> {
-  /**
-   * Thinking tokens count against maxOutputTokens on this model, and they
-   * dwarf the answer — a one-line question spent 285 thinking to produce 11.
-   * Passing the caller's budget straight through truncates mid-sentence and
-   * returns unparseable JSON, so the answer needs room for the thinking in
-   * front of it. 65536 is the model's ceiling.
-   */
-  const outputBudget = Math.min(65536, req.maxTokens + Math.max(2048, Math.round(req.maxTokens * 0.8)));
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: req.system }] },
-        contents: [{ parts: [{ text: req.user }] }],
-        generationConfig: {
-          temperature: req.temperature ?? 0.8,
-          maxOutputTokens: outputBudget,
-          ...(req.json === false ? {} : { responseMimeType: "application/json" }),
-          // Thinking cannot be switched off (thinkingBudget: 0 is rejected),
-          // but "low" cut a test call from 10.7s to 3.2s. Without this the
-          // battle route would routinely run past its own timeout.
-          thinkingConfig: { thinkingLevel: "low" },
-        },
-      }),
-      signal: AbortSignal.timeout(req.timeoutMs ?? 45000),
-    }
-  );
-
-  if (!res.ok) {
-    // 429 is the daily quota; 503 is a capacity spike and worth another go.
-    throw new ModelError(`gemini ${res.status}`, res.status === 503 || res.status === 429);
-  }
-
-  const data = await res.json();
-  const candidate = data?.candidates?.[0];
-  const text: string = (candidate?.content?.parts ?? [])
-    .map((p: { text?: string }) => p?.text ?? "")
-    .join("");
-
-  // A truncated answer is a FAILURE, not a result. It parses as invalid JSON,
-  // the caller's sanitiser drops it, and the game silently falls back — which
-  // reads as "the AI is broken" with nothing in the logs to say why.
-  if (candidate?.finishReason === "MAX_TOKENS") {
-    throw new ModelError("gemini truncated (MAX_TOKENS)", false);
-  }
-  if (!text.trim()) throw new ModelError("gemini returned nothing", true);
-  return text;
-}
-
 /**
  * How much output budget to actually ask Groq for.
  *
  * The reasoning model spends tokens thinking before it writes, and those come
- * out of `max_tokens`. Mirrors the padding Gemini needs, capped at the model's
- * ceiling.
+ * out of `max_tokens`, so the answer needs room for the thinking in front of
+ * it. Capped at the model's ceiling.
  */
 function groqBudget(want: number): number {
   return Math.min(32768, want + Math.max(2048, Math.round(want * 0.8)));
@@ -135,10 +73,9 @@ async function callGroq(req: ModelRequest, key: string): Promise<string> {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: DRAFT_MODEL,
-      // Reasoning tokens are spent out of this same budget, exactly as they
-      // are on Gemini, so the answer needs room for the thinking in front of
-      // it. Without the headroom a long ask (the battle story) burns most of
-      // its allowance reasoning and gets cut off mid-sentence.
+      // Reasoning tokens come out of this same budget. Without the headroom a
+      // long ask (the battle story) spends most of its allowance thinking and
+      // gets cut off mid-sentence.
       max_tokens: groqBudget(req.maxTokens),
       reasoning_effort: "medium",
       temperature: req.temperature ?? 0.8,
@@ -158,10 +95,10 @@ async function callGroq(req: ModelRequest, key: string): Promise<string> {
   const data = await res.json();
   const choice = data?.choices?.[0];
   const text: string = choice?.message?.content ?? "";
-  // A truncated answer is a FAILURE, not a result -- the same rule Gemini has
-  // had. Letting it through returns half a story that still parses well enough
-  // to render, so the player watches a battle that stops in the middle of
-  // itself and nothing anywhere says why.
+  // A truncated answer is a FAILURE, not a result. Letting it through returns
+  // half a story that still parses well enough to render, so the player
+  // watches a battle stop in the middle of itself and nothing anywhere says
+  // why.
   if (choice?.finish_reason === "length") {
     throw new ModelError("groq truncated (length)", false);
   }
@@ -174,11 +111,11 @@ async function callGroq(req: ModelRequest, key: string): Promise<string> {
 /**
  * OpenAI-compatible, so this is Groq's adapter with a different host.
  *
- * It earns its place as the paid link because it is PREPAID: you top up a
- * balance and it simply stops when that balance is gone. That is a real
- * ceiling, unlike a Google Cloud budget, which only emails you while the
- * charges keep accruing. The cap is the payment model, not a config flag
- * anyone can misread.
+ * This is the link with credits behind it, and it is safe to lead with because
+ * it is PREPAID: you top up a balance and it simply stops when that balance is
+ * gone. That is a real ceiling, unlike a cloud budget that only emails you
+ * while the charges keep accruing. The cap is the payment model, not a config
+ * flag anyone can misread.
  */
 async function callDeepSeek(req: ModelRequest, key: string): Promise<string> {
   const res = await fetch("https://api.deepseek.com/chat/completions", {
@@ -187,7 +124,6 @@ async function callDeepSeek(req: ModelRequest, key: string): Promise<string> {
     body: JSON.stringify({
       model: "deepseek-chat",
       max_tokens: req.maxTokens,
-      // Same truncation guard as the others; see callGroq.
       temperature: req.temperature ?? 0.8,
       ...(req.json === false ? {} : { response_format: { type: "json_object" } }),
       messages: [
@@ -206,6 +142,7 @@ async function callDeepSeek(req: ModelRequest, key: string): Promise<string> {
   const data = await res.json();
   const choice = data?.choices?.[0];
   const text: string = choice?.message?.content ?? "";
+  // Same rule as Groq: a cut-off answer is a failure, not a short story.
   if (choice?.finish_reason === "length") {
     throw new ModelError("deepseek truncated (length)", false);
   }
@@ -223,26 +160,23 @@ interface Provider {
 }
 
 /**
- * Order matters, and it is SPEED first, not budget.
+ * Order matters, and it is the ALLOWANCE WE ACTUALLY HAVE first.
  *
- * The instinct is to lead with Gemini because its daily allowance is far
- * larger. Measured, that is the wrong way round: the judge route takes ~38s on
- * Gemini against ~10-15s on Groq, because Gemini thinks on every call and
- * cannot be told not to. Leading with Gemini would make every game slow even
- * while the fast provider sat unused.
+ * DeepSeek is the account with credits on it, so it leads. Groq is a free
+ * tier behind it, and a free tier does not degrade by getting slower -- it
+ * refuses, and a refusal mid-battle costs a whole story. Better to spend the
+ * balance that exists and keep the free one as the safety net.
  *
- * Leading with Groq gives a degradation curve instead of a flat penalty: fast
- * for the first stretch of the day, slower but plentiful once Groq's 200k
- * tokens are gone, offline only if both are down. Groq's budget is small
- * precisely because it is the one worth spending first.
+ * DeepSeek is prepaid, which is the real reason it is safe to lead with: it
+ * stops when the balance is gone rather than quietly accruing charges.
+ *
+ * Gemini used to sit in this chain and has been removed outright -- there are
+ * no credits behind that key, so every call to it was a request that could
+ * only fail or bill somebody.
  */
 const PROVIDERS: Provider[] = [
-  { name: "groq", model: DRAFT_MODEL, envKey: "GROQ_API_KEY", call: callGroq },
-  { name: "gemini", model: GEMINI_MODEL, envKey: "GEMINI_API_KEY", call: callGemini },
-  // Paid, and deliberately last: the free tiers absorb ordinary play, so this
-  // only ever spends money on the days both of them are exhausted. Inert until
-  // DEEPSEEK_API_KEY exists, so adding it later needs no code change.
   { name: "deepseek", model: "deepseek-chat", envKey: "DEEPSEEK_API_KEY", call: callDeepSeek },
+  { name: "groq", model: DRAFT_MODEL, envKey: "GROQ_API_KEY", call: callGroq },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
