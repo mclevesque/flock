@@ -138,7 +138,7 @@ you already know what these characters are:
   another does not lose to them because of something that happened to them
   years before their peak.
 
-EVERY CARD CARRIES A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
+SOME CARDS CARRY A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
 Mortal < Superhuman < Far Beyond Mortal < World-Shaping < World-Ending <
 Beyond Measure < Above The Story.
 
@@ -156,6 +156,13 @@ That is still yours.
 - TWO OR MORE APART: it does not happen. No tactic, no argument, no story
   reason, however good. This is the gap the whole game rests on: it is why an
   Angel is not killed by Golden Frieza and why Aragorn does not beat Goku.
+
+A CARD WITH NO BRACKET HAS NOT BEEN RATED BY US, and you should judge it on
+what you know about the character -- properly, at their peak, against the
+company they are keeping. Do NOT read a missing bracket as weakness or as
+"ordinary"; most of the boards are unrated and they are full of gods,
+monsters and the strongest people in their fiction. An unrated card can
+outrank every bracketed card on the board, and often does.
 
 The bands are here because appearances lie and you will be tempted by them. An
 old man with a broken staff reads as weak and is a Maia older than the world.

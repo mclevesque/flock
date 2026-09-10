@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
 import Scene, { SceneDefs } from "./Scene";
 import { cardFor } from "@/lib/draftmasters/battle";
-import { bandOf } from "@/lib/draftmasters/power";
+import { bandOf, isRated } from "@/lib/draftmasters/power";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import {
   battleHit,
@@ -239,9 +239,11 @@ export default function BattleStory({
             name: p.name,
             variant: p.variant,
             grade: p.variantGrade,
-            // What this card actually IS, in a band rather than a number.
-            // The one thing the model cannot work out from the name alone.
-            power: bandOf(c.atk),
+            // What this card actually IS, in a band rather than a number --
+            // but ONLY when somebody has rated it. An unrated card takes its
+            // board's ordinary value, and shipping that as a band tells the
+            // story a god is a foot soldier. No bracket, no claim.
+            power: isRated({ name: p.name, variant: p.variant }) ? bandOf(c.atk) : null,
             // Only the named tricks. The model does not need our numbers and
             // it does need to know that this one strikes first.
             abilities: c.fx.map((f) => f.label),

@@ -295,14 +295,40 @@ const WRITTEN: [string, [number, number]][] = [
   ["bilbo", [2, 4]],
   ["tom bombadil", [20, 20]],
 
+  // ── The Valar, who were not here at all ───────────────────────────────
+  // Manwe is a card on the Middle-earth board and had no line, so he took the
+  // board's ordinary 5 and lost to Feanor -- who the Valar's own messengers
+  // told, in the text, that thrice his might would not let him stand against
+  // a single Vala. Melkor is above his brother; everyone else is below.
+  ["morgoth", [34, 32]],
+  ["melkor", [34, 32]],
+  ["manwe", [31, 29]],
+  ["manwë", [31, 29]],
+  ["varda", [30, 29]],
+  ["elbereth", [30, 29]],
+  ["tulkas", [29, 28]],
+  ["ulmo", [28, 28]],
+  ["aule", [27, 28]],
+  ["aulë", [27, 28]],
+  ["mandos", [28, 29]],
+  ["orome", [27, 26]],
+  ["oromë", [27, 26]],
+  ["yavanna", [24, 26]],
+  ["nienna", [23, 25]],
+  ["eru iluvatar", [60, 60]],
+  ["eru ilúvatar", [60, 60]],
+  ["iluvatar", [60, 60]],
+  ["ilúvatar", [60, 60]],
+  ["melian", [20, 20]],
+  ["eonwe", [22, 21]],
+  ["eönwë", [22, 21]],
+
   // The First Age, which was missing entirely -- so every one of these was
   // landing on the board's ordinary 5 and rating BELOW Gregor Clegane. A
   // player watched exactly that happen and it is the reason the bands exist.
   ["feanor", [15, 13]],           // fought Balrogs; it took several to end him
   ["f\u00ebanor", [15, 13]],
   ["fingolfin", [16, 14]],        // wounded Morgoth seven times, alone
-  ["morgoth", [22, 21]],          // Sauron's master, and above him
-  ["melkor", [22, 21]],
   ["ungoliant", [18, 17]],
   ["luthien", [15, 14]],          // sang Morgoth himself to sleep
   ["l\u00fathien", [15, 14]],
@@ -506,6 +532,25 @@ export function bandOf(atk: number): string {
 }
 
 /** Attack and defence. Never a function of what the card cost. */
+/**
+ * Has anybody actually written this card down?
+ *
+ * 1,075 of the cards on these boards have no line in the table, and an
+ * unwritten card takes its board's ORDINARY value -- a hoplite, a foot
+ * soldier. That is fine as a stat, and a disaster as a label: it told the
+ * storyteller that Manwe, King of the Valar, was "DANGEROUS -- a serious,
+ * capable fighter", three bands below Feanor, and the fight went exactly the
+ * way it was told to. Feanor beat a god.
+ *
+ * A wrong band is worse than no band. Where this returns false the card ships
+ * with no bracket at all and the model judges it on what it knows, which for
+ * a famous character is usually right and is never confidently backwards.
+ */
+export function isRated({ name, variant }: { name: string; variant?: string | null }): boolean {
+  const hay = `${name} ${variant ?? ""}`.toLowerCase();
+  return WRITTEN_SORTED.some(([key]) => hits(hay, key));
+}
+
 export function powerOf({ name, variant, board, traits, grade }: PowerInput): { atk: number; def: number } {
   const hay = `${name} ${variant ?? ""}`.toLowerCase();
   const vary = (variant ?? "").toLowerCase();
