@@ -157,6 +157,31 @@ That is still yours.
   reason, however good. This is the gap the whole game rests on: it is why an
   Angel is not killed by Golden Frieza and why Aragorn does not beat Goku.
 
+AND WHEN A BAND IS PLAINLY WRONG, YOU OVERRULE IT. The table is ours, it is
+hand-written, and it has been wrong in public more than once -- an elf rated
+above the King of the Valar, a god rated below a mid-tier Saiyan, the strongest
+human alive rated below the first villain who ever killed him. If a bracket
+tells you something you KNOW to be false about these characters, go with the
+fiction and write the fight the way it would actually go. An elf does not beat
+a god because a number says so.
+
+That is discretion, not licence, and the difference is whether you can name the
+reason:
+- YES: "he is a Vala and she is one of the Children of Iluvatar" -- a fact
+  about what they are, from their own story.
+- YES: "that is the strongest human in his series and this is the villain from
+  its first arc" -- the same fact, about when.
+- NO: "he looks like a frail old man." That is the appearance trap the bands
+  exist to catch, and it is how Gandalf ends up losing to a large knight.
+- NO: "it would be a better story." It would not.
+Where the band and the fiction AGREE -- which is nearly always -- there is
+nothing to overrule and the band stands.
+
+TELL US WHEN YOU DO IT. Put anything you overruled in "scaling": the card's
+number and one short clause saying what we got wrong. Nobody sees it; it goes
+in our logs and it is how the table gets fixed. Leave it out when you did not
+overrule anything, which will be most battles.
+
 A CARD WITH NO BRACKET HAS NOT BEEN RATED BY US, and you should judge it on
 what you know about the character -- properly, at their peak, against the
 company they are keeping. Do NOT read a missing bracket as weakness or as
@@ -295,7 +320,8 @@ OUTPUT -- JSON only:
   "beats": [ { "text": "one paragraph, 30-55 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
-  "mvp": { "id": 7, "note": "One sentence on what they did." }
+  "mvp": { "id": 7, "note": "One sentence on what they did." },
+  "scaling": [ { "id": 4, "note": "rated below a god; he is a Vala" } ]
 }
 
 CASUALTIES ARE NUMBERS. Every card in the brief above has a number and "kills"
@@ -360,10 +386,14 @@ them that decided it -- the mismatch nobody on the other side could answer, the
 pick that was never going to work here, the moment it stopped being close.
 NEVER list the casualties: "the decisive kills were A, B, C and D" is a roll of
 the dead, not a reason, and anybody who just watched already knows who died.
-AND IT MUST AGREE WITH YOUR OWN CASUALTY LIST: check who you actually left
-alive before you write it. Crediting a card you killed with being the one left
-standing is the one mistake the reader is guaranteed to catch, because their
-portrait is greyed out on screen while they read it. No
+AND IT MUST AGREE WITH YOUR OWN CASUALTY LIST. Read your beats back before you
+write it. Two ways this goes wrong and both are caught instantly, because the
+portraits are on screen while the verdict is being read:
+- Crediting a card you KILLED with being the one left standing.
+- Describing a fight that never happened. If nobody on the winning side died,
+  there was no struggle among them -- do not write "the real battle was among
+  his own cards" about five people who all walked away. A one-sided win is
+  allowed to be one-sided; say why the other team could not answer it. No
 flourish, no crowd, no numbers, and it must match the battle you just wrote.
 Call the players by the names given. "Side A" and "Side B" are labels for you,
 not words either of them has ever seen.
@@ -494,6 +524,27 @@ on both sides, which is not a result this game has. Count the numbers
 ${loser.label} in your casualty list before you answer.`;
 }
 
+/**
+ * Log whatever the storyteller thought our table got wrong.
+ *
+ * Four "the AI is judging badly" reports in a row turned out to be missing or
+ * wrong rows in power.ts, each one found by a player hitting it in a real
+ * game. The storyteller reads every card on the board every time; asking it to
+ * say when a band disagreed with the fiction turns that into a queue we can
+ * work through, instead of a queue of screenshots.
+ */
+function noteScaling(b: Body, told: Told) {
+  const rows = told.scaling;
+  if (!rows?.length) return;
+  const named = rosterNumbers(b).flatMap((l) =>
+    l.cards.map((c, i) => ({ n: l.nums[i], name: c.name }))
+  );
+  for (const r of rows) {
+    const who = named.find((x) => String(x.n) === String(r.id))?.name ?? `#${r.id}`;
+    console.error("[tell] power table:", who, "-", r.note);
+  }
+}
+
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Body;
   if (!body.sides?.length) {
@@ -522,6 +573,7 @@ export async function POST(req: Request) {
   try {
     const first = await ask();
     let provider = first.provider;
+    noteScaling(body, first.data);
     let clean = sanitise(first.data, body);
 
     /**

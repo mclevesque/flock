@@ -100,6 +100,14 @@ export interface Told {
    *  story so the explanation cannot disagree with what was narrated -- and
    *  so one battle costs one request. */
   verdict: string;
+  /**
+   * Bands the storyteller overruled, and why.
+   *
+   * Never shown to anybody. It is a bug report for power.ts written by the
+   * only thing that reads every card on every board -- which is how the next
+   * Manwe gets found before a player has to screenshot it.
+   */
+  scaling?: { id?: number | string; note?: string }[] | null;
 }
 
 /**
