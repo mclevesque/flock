@@ -129,6 +129,14 @@ you already know what these characters are:
   spending their life to buy it.
 - Fan knowledge outranks your taste. Characters with history in their own
   fiction should fight like they have it.
+- EVERY CARD IS THE CHARACTER AT THEIR BEST, not the version from whichever
+  scene you remember most vividly. Krillin is the strongest human who ever
+  lived, not the one Nappa killed in an early arc. Piccolo is the one who
+  fought an Android to a standstill, not the one who lost to a child. Vegeta
+  is not the man who arrived on Earth. If your instinct is built on an early
+  defeat, the band in the brackets is the correction -- a card two bands above
+  another does not lose to them because of something that happened to them
+  years before their peak.
 
 EVERY CARD CARRIES A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
 Mortal < Superhuman < Far Beyond Mortal < World-Shaping < World-Ending <

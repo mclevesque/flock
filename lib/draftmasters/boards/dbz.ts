@@ -99,16 +99,25 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   ["super saiyan", [20, 20]],
   ["goku", [15, 15]],
   ["vegeta", [14, 14]],
-  ["gohan", [13, 13]],
-  ["piccolo", [11, 12]],
+  // Rated at their peak like everyone else: Piccolo fused with Nail and Kami
+  // and fought Android 17 evenly; Gohan beat Perfect Cell. Leaving them at
+  // their first-arc numbers put them BELOW Krillin once he was corrected.
+  ["gohan", [24, 22]],
+  ["piccolo", [18, 18]],
   ["frieza", [18, 17]],
-  ["cell", [17, 17]],
-  ["majin buu", [19, 18]],
+  ["cell", [22, 22]],
+  ["majin buu", [26, 25]],
   ["beerus", [38, 36]],
   ["whis", [42, 40]],
-  ["krillin", [6, 6]],
-  ["yamcha", [4, 5]],
-  ["master roshi", [7, 7]],
+  // ── The Z fighters, at the END of Z ───────────────────────────────────
+  // These were all written at their first appearance while the Saiyans and
+  // Androids were written at their peak, so Krillin sat on 6 against Android
+  // 18 on 22 -- and below Raditz, who dies in the saga he arrives in. A card
+  // is the character at their best, and by the end of Z the humans fly, throw
+  // ki that levels terrain, and survive things no army survives.
+  ["krillin", [15, 14]],
+  ["yamcha", [12, 11]],
+  ["master roshi", [13, 12]],
   ["hercule", [7, 8]],   // peak human champion; only a joke against ki users
   ["mr. satan", [7, 8]],
   ["bulma", [1, 2]],
@@ -164,9 +173,9 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   // ── Humans, and the tier the franchise forgot ─────────────────────────
   // Tien at 10 is the highest a pure human gets and it is still below Raditz,
   // which is the entire tragedy of the Saiyan arc rendered as two numbers.
-  ["tien shinhan", [10, 10]],
-  ["chiaotzu", [5, 6]],
-  ["videl", [5, 5]],
+  ["tien shinhan", [14, 13]],
+  ["chiaotzu", [10, 9]],
+  ["videl", [8, 8]],
   ["yajirobe", [3, 4]],
   ["chi-chi", [4, 5]],
   ["mercenary tao", [6, 6]],
@@ -175,7 +184,7 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   ["launch ", [2, 3]],
   ["fortuneteller baba", [2, 4]],
   ["korin", [3, 5]],
-  ["mr. popo", [8, 9]],
+  ["mr. popo", [11, 12]],
   ["emperor pilaf", [1, 2]],
   ["android 18", [22, 21]],
   ["android 17", [22, 21]],
@@ -189,7 +198,7 @@ export const DBZ_WRITTEN: [string, [number, number]][] = [
   ["king piccolo", [13, 13]],
   ["lord slug", [16, 16]],
   ["nail of namek", [14, 14]],
-  ["kami", [9, 10]],
+  ["kami", [12, 13]],
   ["dende", [2, 4]],
   ["grand elder guru", [2, 5]],
   ["shenron", [4, 8]],

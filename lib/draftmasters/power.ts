@@ -112,16 +112,28 @@ const WRITTEN: [string, [number, number]][] = [
   ["super saiyan", [20, 20]],
   ["goku", [15, 15]],
   ["vegeta", [14, 14]],
-  ["gohan", [13, 13]],
-  ["piccolo", [11, 12]],
+  // Rated at their peak like everyone else: Piccolo fused with Nail and Kami
+  // and fought Android 17 evenly; Gohan beat Perfect Cell. Leaving them at
+  // their first-arc numbers put them BELOW Krillin once he was corrected.
+  ["gohan", [24, 22]],
+  ["piccolo", [18, 18]],
   ["frieza", [18, 17]],
-  ["cell", [17, 17]],
-  ["majin buu", [19, 18]],
+  ["cell", [22, 22]],
+  ["majin buu", [26, 25]],
   ["beerus", [38, 36]],
   ["whis", [42, 40]],
-  ["krillin", [6, 6]],
-  ["yamcha", [4, 5]],
-  ["master roshi", [7, 7]],
+  // ── The Z fighters, at the END of Z ───────────────────────────────────
+  // These were all written at their first appearance while the Saiyans and
+  // Androids were written at their peak, so Krillin sat on 6 against Android
+  // 18 on 22 -- and below Raditz, who dies in the saga he arrives in. A card
+  // is the character at their best, and by the end of Z the humans fly, throw
+  // ki that levels terrain, and survive things no army survives.
+  ["krillin", [15, 14]],          // strongest human alive; the disc cuts anything
+  ["yamcha", [12, 11]],
+  ["master roshi", [13, 12]],     // at max power he destroyed the moon
+  ["tien shinhan", [14, 13]],
+  ["tenshinhan", [14, 13]],
+  ["chiaotzu", [10, 9]],
   // Peak human and the reigning champion of a tournament full of them. He is
   // only a punchline against ki users, and that joke does not need him to
   // lose to a knight.
