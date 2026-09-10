@@ -291,6 +291,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * sitting underneath it a lie. So the story is cached and replayed.
    */
   const [toldBattle, setToldBattle] = useState<ToldBattle | null>(null);
+  /**
+   * The case this player makes before the fight, in their own words.
+   *
+   * Handed straight to whoever writes the battle -- there is no separate
+   * ruling call and no panel. The brief judges it there, alongside everything
+   * else it already knows about the rosters, which is the only place a case
+   * can actually change what happens.
+   */
+  const [argument, setArgument] = useState("");
   const [battle, setBattle] = useState<BattleScript | null>(null);
   const [battleLoading, setBattleLoading] = useState(false);
   /**
@@ -1637,8 +1646,10 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   const playAgain = useCallback(() => {
     sfx.click();
-    // A new draft is a new battle. Nothing to replay.
+    // A new draft is a new battle. Nothing to replay, and last game's case
+    // has nothing to do with this one.
     setToldBattle(null);
+    setArgument("");
     clearNpc();
     setBattle(null);
     setWatchedBattle(false);
@@ -1654,6 +1665,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     // host could hit Build without noticing.
     setCustomTopic("");
     setPresetId(null);
+    setMixIds([]);
     knownPackId.current = null;
     prevPhase.current = "";
     prevBid.current = 0;
@@ -1945,6 +1957,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             packName={pack?.name ?? "Draft"}
             canJudge={canDrive}
             watched={watchedBattle}
+            argument={argument}
+            setArgument={setArgument}
             record={record}
             ratingDelta={ratingDelta}
             mode={mode}
@@ -1970,6 +1984,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           portraits={portraits}
           packName={pack?.name ?? "Draft"}
           arena={pack?.arenaName ?? null}
+          argument={argument}
           replay={toldBattle}
           onTold={takeTold}
           onDone={endBattle}
@@ -2819,6 +2834,10 @@ function SetupScreen({
             onPick={(id) => {
               if (id === "custom") return;
               setCustomTopic("");
+              // The builder checks mixIds BEFORE presetId, so a mix left over
+              // from the last game outranks the board just picked -- which is
+              // why choosing Dragon Ball Z kept re-dealing Thrones/Middle-earth.
+              setMixIds([]);
               setPresetId(id);
             }}
           />
@@ -2834,6 +2853,7 @@ function SetupScreen({
             onContinue={() => setStage("tune")}
             onPick={(id) => {
               setCustomTopic("");
+              setMixIds([]);   // see above: a stale mix would win over this pick
               setPresetId(id);
             }}
           />

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+/** Long enough for a real case, short enough that nobody writes an essay. */
+const ARGUE_MAX = 700;
 import Icon from "./Icon";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
@@ -37,6 +40,9 @@ interface Props {
   battleLoading: boolean;
   /** They have already seen this fight, so the button offers it again. */
   watched: boolean;
+  /** The case this player wants to make before the fight. */
+  argument: string;
+  setArgument: (s: string) => void;
   /**
    * What the room is waiting on, if anything. Set for BOTH players, not just
    * whoever pressed the button — the one who didn't press it used to get a
@@ -62,6 +68,8 @@ export default function VerdictScreen({
   mode,
   battleLoading,
   watched,
+  argument,
+  setArgument,
   busy,
   onBattle,
   onPlayAgain,
@@ -93,6 +101,10 @@ export default function VerdictScreen({
           <div className="dm-error" style={{ marginTop: 20, textAlign: "left" }}>
             {error}
           </div>
+        )}
+
+        {!busy && canJudge && (
+          <ArgueBox value={argument} onChange={setArgument} />
         )}
 
         {busy && <StagingBar key={busy} kind={busy} />}
@@ -211,6 +223,57 @@ export default function VerdictScreen({
         )}
         <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onPlayAgain}>
           Play again — new topic
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Your case, before the fight.
+ *
+ * It goes straight to whoever writes the battle, and it is JUDGED rather than
+ * obeyed -- a real read on the matchup shows up in what happens, and wishful
+ * thinking fails on contact, on purpose. It is never quoted in the prose: the
+ * story just quietly goes the way a good argument said it would, which is the
+ * difference between making a case and writing the ending yourself.
+ */
+function ArgueBox({ value, onChange }: { value: string; onChange: (s: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <div style={{ marginTop: 18 }}>
+        <button className="dm-btn dm-btn-ghost" onClick={() => setOpen(true)}>
+          <Icon name="scales" size={15} /> {value ? "Edit your case" : "Make your case first"}
+        </button>
+        {value && <p className="dm-note" style={{ marginTop: 8 }}>Your case is in.</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dm-argue">
+      <label className="dm-eyebrow" htmlFor="dm-argue-box">
+        Why does your team win?
+      </label>
+      <p className="dm-note" style={{ margin: "6px 0 10px" }}>
+        A real read on the matchup will show in the fight. Wishful thinking will
+        not — and it will fail in a way you can watch.
+      </p>
+      <textarea
+        id="dm-argue-box"
+        className="dm-argue-box"
+        value={value}
+        maxLength={ARGUE_MAX}
+        rows={5}
+        placeholder="Gandalf is a Maia — losing the staff costs him nothing that matters here…"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <div className="dm-argue-foot">
+        <span className="dm-note">{value.length}/{ARGUE_MAX}</span>
+        <button className="dm-btn dm-btn-ghost dm-bt-mini" onClick={() => setOpen(false)}>
+          Done
         </button>
       </div>
     </div>

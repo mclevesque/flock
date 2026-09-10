@@ -47,18 +47,20 @@ Two people are watching this together and neither one knows how it ends.
 
 WHAT YOU ARE WRITING IS ONE STORY, START TO FINISH. Not a list of exchanges,
 not a highlight reel. It has a shape and you have to give it one:
-  1. THE WALK-OUT. Name the players. Their teams come onto the field and the
-     crowd gets its first look at what got drafted. Let the big reveals land
-     one at a time -- the thing everyone can see, then the thing nobody
-     noticed until it moved.
-  2. FIRST CONTACT. Somebody moves first, and it tells you something about how
-     this is going to go.
-  3. THE MIDDLE. The fight turns over: a plan that works, a plan that does not
+  1. FIRST CONTACT, IMMEDIATELY. Both teams are already on the field and the
+     crowd has already gone quiet -- the players watched all that happen
+     before you started. Do NOT write them arriving, walking out, sizing each
+     other up, or being introduced one at a time. Open on somebody moving.
+  2. THE MIDDLE. The fight turns over: a plan that works, a plan that does not
      survive contact, a mismatch nobody saw coming, somebody spending their
      life to buy one moment for their side.
-  4. THE TURN. The point where it stops being close, and you can feel it stop.
-  5. THE LAST ONE STANDING -- and then the field afterwards. Who is still
+  3. THE TURN. The point where it stops being close, and you can feel it stop.
+  4. THE LAST ONE STANDING -- and then the field afterwards. Who is still
      breathing, what state they are in, the crowd, the walk off.
+
+GET TO IT. Somebody should be dead inside the first two beats. Every beat
+after that either kills somebody or sets up the kill in the next one; if a
+paragraph does neither, it does not belong in the battle.
 
 CONTINUITY IS THE WHOLE JOB. Every beat continues the one before it. A name
 introduced once is never introduced again. A blow struck at the end of one beat
@@ -122,6 +124,39 @@ you already know what these characters are:
   spending their life to buy it.
 - Fan knowledge outranks your taste. Characters with history in their own
   fiction should fight like they have it.
+
+EVERY CARD CARRIES A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
+Mortal < Mythic < Far Beyond Mortal < World-Shaping < Beyond Measure.
+
+The bands INFORM the fight. They do not script it, and they say nothing about
+who dies in what order, who takes somebody with them, or how any of it reads.
+That is still yours.
+
+- SAME BAND, OR ONE APART: wide open. Ability, terrain, numbers, luck, a good
+  argument, who moves first -- any of it can decide it, either way. Do not
+  reach for the band here; reach for the characters.
+- TWO APART: the stronger one is expected to win, and an upset has to be
+  bought with something real -- a hard counter that genuinely exists in the
+  fiction, overwhelming numbers, or somebody spending their life for it. Worth
+  writing when the roster offers it, and rare.
+- THREE OR MORE APART: it does not happen. No tactic, no argument, no story
+  reason. This is the gap the whole game rests on.
+
+The bands are here because appearances lie and you will be tempted by them. An
+old man with a broken staff reads as weak and is a Maia older than the world.
+An ancient elf-lord reads as a swordsman and has fought Balrogs. A very large
+knight reads as unstoppable and is a very large knight. Where what you picture
+disagrees with the band, the band knows something you do not. The bands never
+appear in the prose -- like the numbers, they are how we talk to you.
+- DO NOT MISTAKE AN OLD MAN FOR A WEAK ONE. What something looks like is not
+  what it is. Gandalf is a Maia -- an angelic power older than the world --
+  and taking his staff away changes very little that matters. Galadriel bore
+  a Ring of Power and faced down Sauron's will. An ancient elf-lord like
+  Feanor or Fingolfin fought Balrogs and worse and is nobody a strong mortal
+  soldier beats; Gregor Clegane is a very large knight and that is all he is.
+  The same trap runs everywhere: a small child, a cheerful idiot, a frail
+  scholar, a polite butler. Ask what the character IS before you ask what
+  they look like.
 
 CONDITIONS ARE OURS AND THEY DO NOT CROSS UNIVERSES. Some cards were drafted in
 a particular state -- mythic, at their peak, diminished, barely standing.
@@ -198,11 +233,10 @@ telling two Gokus apart. The same goes for the MVP's "id".
 
 THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
 anything a player ever sees. In the text they are people with names.
-12-16 beats -- however many it takes to put every card on the losing side in
-the ground, and not one beat past that. TWO beats of walk-out, no more, then
-get into it. The last beat is the aftermath and kills nobody. Before you
-finish, check your own casualty list: one side's entire roster must appear in
-it.
+9-13 beats -- however many it takes to put every card on the losing side in
+the ground, and not one beat past that. No walk-out at all. The last beat is
+the aftermath and kills nobody. Before you finish, check your own casualty
+list: one side's entire roster must appear in it.
 
 WRITE EVERY DEATH WHERE IT HAPPENS. "kills" is not a summary of the paragraph,
 it IS the paragraph: the card behind each number must be NAMED in that beat's
@@ -244,6 +278,7 @@ function brief(b: Body): string {
         .map((c) => {
           const cond = c.grade ? CONDITION[c.grade] ?? "" : "";
           const bits = [
+            c.power ? `[${c.power}]` : "",
             c.variant ? `drafted as "${c.variant}"` : "",
             cond,
             c.abilities?.length ? c.abilities.join("; ") : "",

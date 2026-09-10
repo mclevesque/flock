@@ -12,6 +12,8 @@
 
 export interface CardIn {
   name: string;
+  /** What this card is worth, as a band. See power.ts -> bandOf. */
+  power?: string | null;
   /** The condition this copy was drafted in, if it rolled one. */
   variant?: string | null;
   /** How good or bad that condition is — our roll, not canon. */

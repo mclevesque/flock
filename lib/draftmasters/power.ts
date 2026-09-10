@@ -254,7 +254,9 @@ const WRITTEN: [string, [number, number]][] = [
   // ── Middle-earth ──────────────────────────────────────────────────────
   // Everybody unwritten was landing on the board's ordinary 5, which is a
   // Gondorian foot soldier and not any of these.
-  ["gandalf", [14, 13]],
+  // A Maia, the same order of being as a Balrog or Sauron -- and he killed one
+  // of the former. He sits above the greatest of the elves, who died to them.
+  ["gandalf", [16, 14]],
   ["saruman", [12, 11]],
   ["the witch-king", [12, 12]],
   ["witch king", [12, 12]],
@@ -280,6 +282,34 @@ const WRITTEN: [string, [number, number]][] = [
   ["pippin", [3, 4]],
   ["bilbo", [2, 4]],
   ["tom bombadil", [20, 20]],
+
+  // The First Age, which was missing entirely -- so every one of these was
+  // landing on the board's ordinary 5 and rating BELOW Gregor Clegane. A
+  // player watched exactly that happen and it is the reason the bands exist.
+  ["feanor", [15, 13]],           // fought Balrogs; it took several to end him
+  ["f\u00ebanor", [15, 13]],
+  ["fingolfin", [16, 14]],        // wounded Morgoth seven times, alone
+  ["morgoth", [22, 21]],          // Sauron's master, and above him
+  ["melkor", [22, 21]],
+  ["ungoliant", [18, 17]],
+  ["luthien", [15, 14]],          // sang Morgoth himself to sleep
+  ["l\u00fathien", [15, 14]],
+  ["beren", [8, 8]],
+  ["turin", [10, 9]],
+  ["t\u00farin", [10, 9]],
+  ["earendil", [14, 13]],
+  ["e\u00e4rendil", [14, 13]],
+  ["gil-galad", [13, 12]],
+  ["celeborn", [9, 9]],
+  ["thranduil", [9, 9]],
+  ["thingol", [11, 10]],
+  ["ancalagon", [24, 22]],        // the largest dragon that ever flew
+  ["glaurung", [17, 16]],
+  ["smaug", [15, 15]],
+  ["gothmog", [17, 16]],          // lord of Balrogs
+
+  // A baker. He was rating "a serious, capable fighter" on the board floor.
+  ["hot pie", [2, 3]],
 
   // ── Kaiju are big and strong, which is the point of them ──────────────
   ["king ghidorah", [32, 30]],
@@ -326,6 +356,34 @@ export interface PowerInput {
   traits: Trait[];
   /** The variant's grade, if it rolled one. Its shape counts; its price does not. */
   grade?: string | null;
+}
+
+/**
+ * The same power, in words, for whoever writes the battle.
+ *
+ * The story is told by a model, and a model asked to judge "Gandalf without
+ * his staff against Gregor Clegane" reaches for what the characters LOOK like:
+ * an old man with no weapon against an enormous knight. It gets that wrong
+ * every time, and no amount of prose in the brief has moved it -- a player
+ * watched five Westerosi soldiers beat Tom Bombadil, Galadriel and Feanor.
+ *
+ * These bands are the answer, because the numbers behind them already know:
+ * Bombadil is a 20, Gandalf a 14, Gregor an 8. Handing over a BAND rather than
+ * a number keeps the promise that no stat line ever reaches the screen, while
+ * giving the fight an ordering it cannot talk itself out of.
+ *
+ * Read off ATK because that is what settles a fight; the variant and grade
+ * have already been applied by the time this sees it, so a diminished Gandalf
+ * really does land a band lower.
+ */
+export function bandOf(atk: number): string {
+  if (atk >= 30) return "BEYOND MEASURE — reality bends around them";
+  if (atk >= 20) return "WORLD-SHAPING — a power the world itself answers to";
+  if (atk >= 15) return "FAR BEYOND MORTAL — armies are not the right unit";
+  if (atk >= 11) return "MYTHIC — greater than any mortal, short of a god";
+  if (atk >= 8) return "PEERLESS MORTAL — the best a mortal ever gets";
+  if (atk >= 5) return "DANGEROUS — a serious, capable fighter";
+  return "ORDINARY — a person";
 }
 
 /** Attack and defence. Never a function of what the card cost. */

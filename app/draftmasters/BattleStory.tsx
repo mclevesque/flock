@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
 import Scene, { SceneDefs } from "./Scene";
 import { cardFor } from "@/lib/draftmasters/battle";
+import { bandOf } from "@/lib/draftmasters/power";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import {
   battleHit,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/draftmasters/battle-music";
 import { isMuted } from "@/lib/draftmasters/sfx";
 import type { BattleScript, PortraitMap } from "./types";
+import { riteFor, stepAt, RITE_HOLD, RITE_FADE } from "@/lib/draftmasters/rite";
 
 /**
  * The battle, as a story that scrolls.
@@ -54,6 +56,8 @@ interface Props {
   portraits: PortraitMap;
   packName: string;
   arena?: string | null;
+  /** This player's case for why they win, judged by whoever writes the fight. */
+  argument?: string;
   /** A story already written. Given one, this screen makes no request at all. */
   replay?: ToldBattle | null;
   /** Handed up the moment it is written, so a rewatch costs nothing. */
@@ -126,37 +130,6 @@ function mark(text: string, kills: string[]) {
   );
 }
 
-/**
- * The opening rite.
- *
- * A battle takes fifteen to forty-five seconds to write, and three breathing
- * dots make that feel like a page that has failed to load. This is the same
- * wait spent well: the announcer settling the room before the fight, which is
- * what the moment actually is.
- *
- * Each step REPLACES what is on screen: one line at a time, the last one
- * gone before the next arrives. `at` is milliseconds from the screen opening.
- * Nothing here is ever cut off mid-line -- the crawl waits for the closing
- * line to land and then fades it out; see `rolling`.
- */
-function riteFor(a: string, b: string): { at: number; lines: string[] }[] {
-  return [
-    { at: 300, lines: ["The combatants gather\u2026"] },
-    { at: 3000, lines: ["\u2026and the crowd goes silent in anticipation."] },
-    { at: 6600, lines: ["Who will be victorious?"] },
-    { at: 8600, lines: [`Team ${a} \u2014 or Team ${b}?`] },
-    { at: 12000, lines: [] },
-    { at: 13000, lines: ["May The Warrior grant strength to the righteous,"] },
-    { at: 15800, lines: ["May The Mother grant mercy to the innocent\u2026"] },
-    { at: 19600, lines: [] },
-    { at: 20600, lines: ["And may death sustain life."] },
-  ];
-}
-
-/** How long the closing line holds before the story is allowed to start. */
-const RITE_HOLD = 2400;
-/** The handover fade, so the rite dissolves into the story rather than cutting. */
-const RITE_FADE = 1100;
 
 export default function BattleStory({
   script,
@@ -166,6 +139,7 @@ export default function BattleStory({
   portraits,
   packName,
   arena,
+  argument,
   replay,
   onTold,
   onDone,
@@ -245,6 +219,8 @@ export default function BattleStory({
         // Real names both ways: the verdict has to name the winner, and "You"
         // is not a name it can use.
         name: s.name,
+        // Only this player's case. Nobody argues on somebody else's behalf.
+        argument: s.id === meId ? argument?.trim() || null : null,
         cards: s.roster.map((p) => {
           const c = cardFor(
             {
@@ -260,6 +236,9 @@ export default function BattleStory({
             name: p.name,
             variant: p.variant,
             grade: p.variantGrade,
+            // What this card actually IS, in a band rather than a number.
+            // The one thing the model cannot work out from the name alone.
+            power: bandOf(c.atk),
             // Only the named tricks. The model does not need our numbers and
             // it does need to know that this one strikes first.
             abilities: c.fx.map((f) => f.label),
@@ -340,30 +319,32 @@ export default function BattleStory({
   const rite = useMemo(() => riteFor(usName, themName), [usName, themName]);
 
   /**
-   * One battle, one rite -- and NOTHING is cleared on the way out.
+   * ONE CLOCK, not nine timers.
    *
-   * This is the same trap the telling fell into, and it bit twice. A
-   * once-guard plus a cleanup that clears the timers is fatal under React's
-   * development double-invoke: mount arms the schedule, unmount clears every
-   * timer, and the remount hits the guard and arms nothing. The rite then
-   * never says a word, `riteReady` never fires, and the crawl is never let
-   * off the leash -- the story sits there, unmoving, exactly as reported.
+   * The rite used to arm a timeout per step. That works until the tab is
+   * throttled for even a moment -- then several fire in a burst, and a step
+   * from the middle of the sequence can be painted for a frame on its way to
+   * the right one, which reads as a line of unrelated text flashing up.
    *
-   * The double-invoke reuses the same fiber, so timers armed on the first
-   * pass still find live state to set. A stray timer after a real unmount is
-   * a no-op in React 18; a battle that never starts is not.
+   * Asking the clock what should be on screen has no such state to get wrong:
+   * however long the gap was, the answer is whatever is true NOW. It also
+   * ends the once-guard problem for good -- an interval that is cleared and
+   * restarted just restarts the clock, which is exactly right, so React's
+   * development double-invoke costs nothing instead of silently arming
+   * nothing.
    */
-  const riteStarted = useRef(false);
   useEffect(() => {
-    if (riteStarted.current) return;
-    riteStarted.current = true;
-    rite.forEach((step, i) => window.setTimeout(() => setRiteAt(i), step.at));
-    window.setTimeout(
-      () => setRiteReady(true),
-      rite[rite.length - 1].at + RITE_HOLD
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const t0 = performance.now();
+    const id = window.setInterval(() => {
+      const ms = performance.now() - t0;
+      setRiteAt(stepAt(rite, ms));
+      if (ms >= rite[rite.length - 1].at + RITE_HOLD) {
+        setRiteReady(true);
+        window.clearInterval(id);
+      }
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [rite]);
 
   /**
    * Hand over only when BOTH are true: the story is written and the rite has

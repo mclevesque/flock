@@ -649,6 +649,25 @@ export const STYLES = `
 /* One thing per line, each centred under the last: the winner, the reason,
    the card it turned on, the record, then the two ways out. They used to sit
    in pairs across the screen with nothing lining up. */
+/* Your case, before the fight. Deliberately quiet: it is optional, and a box
+   shouting for attention would make it feel required. */
+.dm-argue {
+  max-width: 560px; margin: 18px auto 0; padding: 16px 18px;
+  text-align: left; border-radius: 14px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel);
+}
+.dm-argue-box {
+  width: 100%; margin-top: 2px; padding: 10px 12px;
+  border-radius: 10px; border: 1px solid var(--dm-line);
+  background: rgba(0,0,0,.28); color: var(--dm-text);
+  font: inherit; font-size: 14.5px; line-height: 1.55; resize: vertical;
+}
+.dm-argue-box:focus-visible { outline: 2px solid rgb(var(--dm-glow) / .5); outline-offset: 1px; }
+.dm-argue-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 8px;
+}
+
 .dm-verdict-actions {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   margin-top: 28px;
