@@ -304,6 +304,49 @@ it("still lets the other side land the finishing blow", () => {
   assert.equal(out.beats.flatMap((b) => b.kills ?? []).length, 5);
 });
 
+// ── Three ways off the board ──────────────────────────────────────────────
+it("counts a conversion as gone from the side that drafted them", () => {
+  const out = run({ beats: [beat("x"), { text: "the dead get up wearing his colours", converts: [6] }] });
+  assert.deepEqual(out.beats[1].turned, ["Iron Man"]);
+  assert.deepEqual(out.beats[1].kills ?? [], []);
+});
+
+it("counts a nulled thing as gone", () => {
+  const out = run({ beats: [beat("x"), { text: "the greyscale burns out", nulls: [7] }] });
+  assert.deepEqual(out.beats[1].nulled, ["Venom"]);
+});
+
+it("finishes a battle by any mix of dead, converted and nulled", () => {
+  // Your rule: the losing team must ALL be one of the three. Here side B is
+  // three dead, one turned, one nulled -- and that is a finished game.
+  const told = {
+    beats: [
+      beat("x"),
+      kb("Iron Man", "Venom", "Kami"),
+      { text: "Mysterio takes the other side's coin", converts: [9] },
+      { text: "the wight host is put down to the last", nulls: [10] },
+    ],
+  };
+  const out = run(told);
+  assert.equal(finished(out, board), true);
+  const gone = out.beats.flatMap((b) => [...(b.kills ?? []), ...(b.turned ?? []), ...(b.nulled ?? [])]);
+  assert.equal(gone.length, 5);
+});
+
+it("does not call it finished while one card is still standing", () => {
+  const out = run({ beats: [beat("x"), kb("Iron Man", "Venom", "Kami"), { text: "and one turns", converts: [9] }] });
+  assert.equal(finished(out, board), false);
+});
+
+it("lets the last card on a side be turned or nulled", () => {
+  // A team CAN end by defecting or by simply stopping -- both are endings the
+  // game has, so neither may be refused the way a friendly KILL is.
+  const out = run({
+    beats: [beat("x"), kb("Iron Man", "Venom", "Kami", "Mysterio"), { text: "the last of them turns", converts: [10] }],
+  });
+  assert.equal(finished(out, board), true);
+});
+
 // ── A battle has to actually end ───────────────────────────────────────────
 it("calls a battle unfinished when both sides still have players", () => {
   // Straight off production: 17 beats, three of B dead, and a winner declared

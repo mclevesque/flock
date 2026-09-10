@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
-import { sanitise, finished, type Body, type Told } from "@/lib/draftmasters/tell-sanitise";
+import { sanitise, finished, type Body, type Told, type Settled } from "@/lib/draftmasters/tell-sanitise";
 export type { TellBeat, TellMvp } from "@/lib/draftmasters/tell-sanitise";
 
 /**
@@ -44,6 +44,11 @@ const CONDITION: Record<string, string> = {
 const SYSTEM = `You are calling the story of a battle in DraftMasters, where two
 players draft characters out of any fiction and set them against each other.
 Two people are watching this together and neither one knows how it ends.
+
+THE ONE RULE THE GAME CANNOT DO WITHOUT: every game has ONE losing team, and
+the losing team's characters must ALL be DEAD, CONVERTED or NULL by the end.
+Not most of them. All of them. Everything below is how to make that a good
+story; this is the part that makes it a game.
 
 WHAT YOU ARE WRITING IS ONE STORY, START TO FINISH. Not a list of exchanges,
 not a highlight reel. It has a shape and you have to give it one:
@@ -228,9 +233,34 @@ YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
 ruined doing it. Not every beat kills. Let it swing.
 
+THERE ARE EXACTLY THREE WAYS OFF THE BOARD, and a side loses when every card
+on it is in one of them:
+
+  DEAD      -- "kills". Roughly FIVE CARDS IN SIX end this way. It is what a
+               battle is, and the other two are exceptions to it.
+  CONVERTED -- "converts". They changed sides and are fighting for the other
+               team now. Rare, and only where the card can genuinely do it.
+  NULLED    -- "nulls". For cards that are THINGS rather than people: a
+               greyscale, a curse, a scorpion on a wall, a wight host. They do
+               not need a death scene. One clause is enough -- burned out of
+               the arm, splintered, nothing left to hold -- and "it was never
+               really a fighter" is a perfectly good way to end one. A thing
+               can also simply stop mattering because the man carrying it is
+               dead.
+
+KEEP THE PROPORTIONS. About 85% of everything that comes off the board is
+simply dead. A conversion is a moment, not a mechanic -- most battles have
+none at all -- and nulling is for the handful of cards that were never people
+in the first place. A fight where half the roster defects, or where everything
+quietly fizzles instead of dying, is not the game.
+
+But never leave a card standing at the end because you could not picture
+stabbing it. That is the single most common way a battle fails to finish. If
+it is not a person, null it.
+
 ONE SIDE MUST END WITH NOBODY STANDING. This is not optional and it is not a
-points decision. Every single card on the losing side dies -- all five of them
-if they drafted five. Nobody on the losing side is left wounded, unconscious,
+points decision. Every single card on the losing side is gone by the end --
+all five of them if they drafted five -- dead, converted or nulled. Nobody on the losing side is left wounded, unconscious,
 retreating, or quietly still there when the prose stops. COUNT THEM as you go,
 by name, and do not run out of beats before the last one is down. A battle that
 finishes with people alive on both sides has not finished.
@@ -243,7 +273,7 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 30-55 words", "by": 7, "kills": [3] }, ... ],
+  "beats": [ { "text": "one paragraph, 30-55 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." }
@@ -258,12 +288,35 @@ telling two Gokus apart. The same goes for the MVP's "id".
 ground or a collapsing building did it, use the number of whoever caused that.
 It is never printed; it is how we know whose side the blow came from.
 
+"converts" IS FOR CHANGING SIDES, not dying. The Night King raises the dead and
+they get up wearing his colours; a mind-controller takes somebody's will; a
+character is talked round mid-fight by an old friend. Those cards are GONE from
+the side that drafted them, which counts towards emptying that roster exactly
+as a death does -- and it is a far better moment than another sword through
+another chest.
+
+Only when the card can genuinely do it. Most battles have no conversions at
+all, and it is never the last card on a side: a roster does not end by
+everybody defecting. WRITE IT PLAINLY when it happens -- the reader is
+watching a portrait change on their own bench and the prose has to say who
+took them and how.
+
 THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
 anything a player ever sees. In the text they are people with names.
-9-13 beats -- however many it takes to put every card on the losing side in
-the ground, and not one beat past that. No walk-out at all. The last beat is
+11-16 beats -- however many it takes to put every card on the losing side in
+the ground, and not one beat past that. Brevity is a WORD count, not a beat
+count: keep the paragraphs short and cut the ones that do nothing, but never
+stop before the job is done. A battle that runs out of beats with people
+standing has failed at the only thing it had to do. No walk-out at all. The last beat is
 the aftermath and kills nobody. Before you finish, check your own casualty
 list: one side's entire roster must appear in it.
+
+IF YOU WRITE IT, RECORD IT. Every death you narrate goes in that beat's list,
+including on the WINNING side. "They fall together and neither one gets up"
+kills two people and both of them belong in "kills" -- the reader is looking at
+both portraits while they read it, and leaving one of them clean makes the
+prose a liar. The losing side must be emptied, but the winning side takes
+casualties too and every one of them is recorded.
 
 WRITE EVERY DEATH WHERE IT HAPPENS. "kills" is not a summary of the paragraph,
 it IS the paragraph: the card behind each number must be NAMED in that beat's
@@ -303,7 +356,43 @@ pick the one whose absence would have changed the result. The note is one plain
 sentence saying what they actually did, in the same voice as the verdict.`;
 
 
-function brief(b: Body): string {
+/**
+ * The finish, stated as a sum on this specific board.
+ *
+ * "One side ends with nobody standing" is a sentence, and the model reads it,
+ * agrees with it, writes twelve beats containing six deaths and stops with
+ * four cards alive. Counting is a different instruction from describing: told
+ * that its casualty list must literally contain 1, 2, 3, 4 and 5, it has
+ * something it can check its own answer against before it sends it.
+ */
+/** Every side with its cards' numbers, counted straight through the board. */
+function rosterNumbers(b: Body) {
+  let n = 0;
+  return (b.sides ?? []).map((s) => {
+    const nums = s.cards.map(() => ++n);
+    return { id: s.id, name: s.name, cards: s.cards, nums, label: nums.join(", ") };
+  });
+}
+
+function finishRule(b: Body): string {
+  const sides = b.sides ?? [];
+  if (sides.length < 2) return "Write the battle.";
+  const lists = rosterNumbers(b);
+  const total = lists.reduce((t, l) => t + l.nums.length, 0);
+  return `Write the battle.
+
+BEFORE YOU ANSWER, COUNT. Your casualty list must contain EVERY number from
+one of these two rosters:
+  ${lists[0].name}: ${lists[0].label}
+  ${lists[1].name}: ${lists[1].label}
+All of one list, in full, each number dead, converted or nulled. That is at
+least ${Math.min(...lists.map((l) => l.nums.length))} cards removed from a single side, out of the ${total} on the board. If your list is missing even one
+number from both rosters, the battle is not over and you have not finished the
+job -- go back and write the deaths you skipped. A fight that stops with
+people standing on both sides is the one outcome this game does not have.`;
+}
+
+function brief(b: Body, mustWipe?: string): string {
   // Numbered straight through both rosters, so a casualty can be named by a
   // number that means exactly one card and nothing else.
   let n = 0;
@@ -332,7 +421,58 @@ function brief(b: Body): string {
 
   return `${b.scenario ? `${b.scenario}\n\n` : ""}${b.arena ? `THE GROUND: ${b.arena}\n\n` : ""}${sides}
 
-Write the battle. One side ends with nobody standing.`;
+${mustWipe ?? finishRule(b)}`;
+}
+
+/**
+ * Re-ask, naming the side that has to fall.
+ *
+ * Asking the same question again gets the same answer: on some boards the
+ * model writes eight beats, kills five of ten, and stops -- three attempts in
+ * a row, measured. It is not being stubborn about WHO wins; it just does not
+ * finish. So the second attempt stops asking it to decide and starts asking
+ * it to write down the ending it already chose: whichever side it left with
+ * fewer standing is the side that loses, by name and by number.
+ *
+ * The model still decides the outcome. It only loses the option of leaving
+ * the fight hanging, which was never an outcome the game had.
+ */
+function orderTheFinish(b: Body, tried: Settled): string {
+  const gone = new Set([
+    ...tried.beats.flatMap((x) => x.kills ?? []),
+    ...tried.beats.flatMap((x) => x.turned ?? []),
+    ...tried.beats.flatMap((x) => x.nulled ?? []),
+  ]);
+  const lists = rosterNumbers(b);
+
+  /**
+   * Whoever the model SAID won keeps winning.
+   *
+   * Ranking by survivors instead looked obvious and was wrong: an attempt that
+   * had killed four of one side and written a verdict crediting that same side
+   * with the win got told it had lost, and the next attempt inherited the
+   * contradiction. It is not confused about who should win -- only about
+   * stopping. So the ending it declared stands, and the only thing being
+   * forced is that the other roster actually empties.
+   */
+  const said = lists.find((l) => l.id === tried.winner);
+  const ranked = lists
+    .map((l) => ({ ...l, left: l.cards.filter((c) => !gone.has(c.name)).length }))
+    .sort((x, y) => x.left - y.left);
+  const winner = said ?? ranked[ranked.length - 1];
+  const loser = lists.find((l) => l.id !== winner?.id) ?? ranked[0];
+  if (!loser || !winner) return finishRule(b);
+
+  return `Write the battle again, and this time FINISH IT.
+
+${loser.name} LOSES. Every card on that side is gone by the end: ${loser.label}.
+All of them, each one written going down -- killed, converted or nulled -- in
+a beat that names them. ${winner.name} is the side left standing.
+
+That is not a suggestion about who is stronger -- it is the ending, and your
+job is the fight that gets there. The last attempt stopped with people alive
+on both sides, which is not a result this game has. Count the numbers
+${loser.label} in your casualty list before you answer.`;
 }
 
 export async function POST(req: Request) {
@@ -347,10 +487,10 @@ export async function POST(req: Request) {
   const started = Date.now();
   const budget = (maxDuration - 8) * 1000;
 
-  const ask = () =>
+  const ask = (mustWipe?: string) =>
     callModelJson<Told>({
       system: SYSTEM,
-      user: brief(body),
+      user: brief(body, mustWipe),
       maxTokens: 4200,
       temperature: 0.95,
       json: true,
@@ -385,7 +525,7 @@ export async function POST(req: Request) {
       if (budget - (Date.now() - started) < 15000) break;
       console.error("[tell]", provider, "left both sides standing - asking again");
       try {
-        const again = await ask();
+        const again = await ask(orderTheFinish(body, clean));
         const retry = sanitise(again.data, body);
         if (finished(retry, body)) {
           clean = retry;

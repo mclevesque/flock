@@ -42,7 +42,7 @@ import { riteFor, stepAt, RITE_HOLD, RITE_FADE } from "@/lib/draftmasters/rite";
  * same ending, which is the only thing "rewatch" can honestly mean.
  */
 export interface ToldBattle {
-  beats: { text: string; kills: string[] }[];
+  beats: { text: string; kills: string[]; turned: string[]; nulled: string[] }[];
   winnerId: string;
   why: string;
   mvp: { name: string; note: string } | null;
@@ -147,7 +147,7 @@ export default function BattleStory({
   const beats = script.beats;
 
   /** One paragraph of the fight, and whoever it kills. */
-  type Told = { text: string; kills: string[] };
+  type Told = { text: string; kills: string[]; turned: string[]; nulled: string[] };
 
   /**
    * The fight the local resolver already worked out.
@@ -159,7 +159,7 @@ export default function BattleStory({
     () =>
       beats
         .filter((x) => x.story || x.eliminated?.length)
-        .map((x) => ({ text: x.text, kills: (x.eliminated ?? []).map(BARE) })),
+        .map((x) => ({ text: x.text, kills: (x.eliminated ?? []).map(BARE), turned: [], nulled: [] })),
     [beats]
   );
 
@@ -251,7 +251,7 @@ export default function BattleStory({
     });
 
     type Answer = {
-      beats?: { text: string; kills?: string[] }[];
+      beats?: { text: string; kills?: string[]; turned?: string[]; nulled?: string[] }[];
       winner?: string;
       verdict?: string;
       mvp?: { name: string; note: string } | null;
@@ -285,7 +285,12 @@ export default function BattleStory({
          */
         const data = (await ask()) ?? (await ask());
         if (data) {
-          const beats = data.beats!.map((x) => ({ text: x.text, kills: (x.kills ?? []).map(BARE) }));
+          const beats = data.beats!.map((x) => ({
+            text: x.text,
+            kills: (x.kills ?? []).map(BARE),
+            turned: (x.turned ?? []).map(BARE),
+            nulled: (x.nulled ?? []).map(BARE),
+          }));
           const winnerId = data.winner || script.winnerId;
           setTold(beats);
           setWonBy(winnerId);
@@ -508,6 +513,24 @@ export default function BattleStory({
     return out;
   }, [upTo, told]);
 
+  /** Everyone who has changed sides. Gone from this bench, but not dead. */
+  const turned = useMemo(() => {
+    const out = new Set<string>();
+    for (let i = 0; i <= upTo && i < told.length; i++) {
+      (told[i].turned ?? []).forEach((n) => out.add(n));
+    }
+    return out;
+  }, [upTo, told]);
+
+  /** The things that ended without dying, because they were never alive. */
+  const nulled = useMemo(() => {
+    const out = new Set<string>();
+    for (let i = 0; i <= upTo && i < told.length; i++) {
+      (told[i].nulled ?? []).forEach((n) => out.add(n));
+    }
+    return out;
+  }, [upTo, told]);
+
   const mine = sides.find((s) => s.id === meId) ?? sides[0];
   const theirs = sides.find((s) => s.id !== mine?.id);
   const lineFor = (id?: string) =>
@@ -551,6 +574,8 @@ export default function BattleStory({
       <Bench
         side={theirs}
         dead={dead}
+        turned={turned}
+        nulled={nulled}
         portraits={portraits}
         rules={rules}
         lineup={lineFor(theirs?.id)}
@@ -597,7 +622,7 @@ export default function BattleStory({
               className="dm-st-beat"
               data-kill={t.kills.length ? "1" : "0"}
             >
-              {mark(t.text, t.kills)}
+              {mark(t.text, [...t.kills, ...(t.turned ?? []), ...(t.nulled ?? [])])}
             </p>
           ))}
 
@@ -628,6 +653,8 @@ export default function BattleStory({
       <Bench
         side={mine}
         dead={dead}
+        turned={turned}
+        nulled={nulled}
         portraits={portraits}
         rules={rules}
         lineup={lineFor(mine?.id)}
@@ -654,6 +681,8 @@ export default function BattleStory({
 function Bench({
   side,
   dead,
+  turned,
+  nulled,
   portraits,
   rules,
   lineup,
@@ -662,6 +691,8 @@ function Bench({
 }: {
   side: Side | undefined;
   dead: Set<string>;
+  turned: Set<string>;
+  nulled: Set<string>;
   portraits: PortraitMap;
   rules: Rules;
   lineup?: { order: string[]; captain: string | null };
@@ -676,7 +707,10 @@ function Bench({
     : side.roster.slice();
   const seen = new Set(line.map((p) => p?.name));
   const ordered = [...line, ...side.roster.filter((p) => !seen.has(p.name))];
-  const standing = side.roster.filter((p) => !dead.has(p.name)).length;
+  // Turned counts as gone from this bench: they are fighting for the others.
+  const standing = side.roster.filter(
+    (p) => !dead.has(p.name) && !turned.has(p.name) && !nulled.has(p.name)
+  ).length;
 
   return (
     <div className="dm-st-bench" data-align={align}>
@@ -691,11 +725,15 @@ function Bench({
         {ordered.map((p) => {
           if (!p) return null;
           const out = dead.has(p.name);
+          const gone = turned.has(p.name);
+          const spent = nulled.has(p.name);
           return (
             <figure
               key={p.id}
               className="dm-st-card"
               data-dead={out ? "1" : "0"}
+              data-turned={gone ? "1" : "0"}
+              data-null={spent ? "1" : "0"}
               title={p.variant ? `${p.name} — ${p.variant}` : p.name}
             >
               <span className="dm-st-art">
@@ -708,6 +746,8 @@ function Bench({
                 {/* Struck through and stamped. Grey alone reads as "not this
                     one yet"; the word is what makes it read as gone. */}
                 {out && <span className="dm-st-down">DOWN</span>}
+                {!out && gone && <span className="dm-st-turned">TURNED</span>}
+                {!out && !gone && spent && <span className="dm-st-null">NULL</span>}
               </span>
               <figcaption>{p.name}</figcaption>
               {/* The condition, not a stat line. What was drafted is the thing

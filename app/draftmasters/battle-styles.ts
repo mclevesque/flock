@@ -350,6 +350,49 @@ export const BATTLE_STYLES = `
 }
 @media (prefers-reduced-motion: reduce) { .dm-st-down { animation: none; } }
 
+/* Turned, not killed. Cold rather than bloody, because it is not a death --
+   the card is still on the field, just not on yours any more. Greyed like the
+   dead so the bench reads at a glance as "no longer mine", but the stamp says
+   which of the two happened. */
+.dm-st-card[data-turned="1"] { opacity: .62; }
+.dm-st-card[data-turned="1"] .dm-st-art { border-color: rgba(96,165,250,.45); }
+.dm-st-card[data-turned="1"] .dm-st-art img,
+.dm-st-card[data-turned="1"] .dm-st-initial { filter: grayscale(1) brightness(.55); }
+.dm-st-card[data-turned="1"] figcaption { color: rgba(191,219,254,.7); }
+.dm-st-turned {
+  position: absolute; left: -8%; right: -8%; top: 50%; z-index: 2;
+  transform: translateY(-50%) rotate(-11deg);
+  padding: 2px 0; text-align: center;
+  font-family: var(--dm-display); font-weight: 700;
+  font-size: clamp(9px, 1.1vw, 13px); letter-spacing: .18em;
+  color: #7dc0ff; background: rgba(4,10,18,.5);
+  border-top: 2px solid #3b82f6; border-bottom: 2px solid #3b82f6;
+  text-shadow: 0 1px 6px rgba(0,0,0,.95);
+  animation: dm-st-stamp .4s cubic-bezier(.2,1.6,.4,1) both;
+}
+@media (prefers-reduced-motion: reduce) { .dm-st-turned { animation: none; } }
+
+/* Nulled: a thing that stopped, not a person who died. Deliberately the
+   quietest of the three -- no blood, no defection, just spent. */
+.dm-st-card[data-null="1"] { opacity: .5; }
+.dm-st-card[data-null="1"] .dm-st-art { border-color: rgba(180,180,180,.28); }
+.dm-st-card[data-null="1"] .dm-st-art img,
+.dm-st-card[data-null="1"] .dm-st-initial { filter: grayscale(1) brightness(.4); }
+.dm-st-card[data-null="1"] figcaption { color: rgba(230,230,230,.42); }
+.dm-st-null {
+  position: absolute; left: -8%; right: -8%; top: 50%; z-index: 2;
+  transform: translateY(-50%) rotate(-11deg);
+  padding: 2px 0; text-align: center;
+  font-family: var(--dm-display); font-weight: 700;
+  font-size: clamp(9px, 1.1vw, 13px); letter-spacing: .2em;
+  color: #cfcfcf; background: rgba(10,10,10,.55);
+  border-top: 2px solid rgba(190,190,190,.75);
+  border-bottom: 2px solid rgba(190,190,190,.75);
+  text-shadow: 0 1px 6px rgba(0,0,0,.95);
+  animation: dm-st-stamp .4s cubic-bezier(.2,1.6,.4,1) both;
+}
+@media (prefers-reduced-motion: reduce) { .dm-st-null { animation: none; } }
+
 /* ── The crawl ──────────────────────────────────────────────────────────────
    One piece of prose climbing the screen at reading pace. Not a stack of
    paragraphs arriving one at a time: those make the reader start over on

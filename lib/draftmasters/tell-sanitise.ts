@@ -46,6 +46,27 @@ export interface TellBeat {
   text: string;
   /** Exact card names that die in this beat. Usually none or one. */
   kills?: string[];
+  /**
+   * Exact card names that CHANGE SIDES in this beat.
+   *
+   * The Night King raising the dead is not friendly fire and it is not a
+   * casualty -- it is the best thing that can happen in a Westeros battle, and
+   * with nowhere to record it the story had to pretend it was one or the
+   * other. A turned card is gone from the side that drafted it, which is what
+   * matters for who is left standing.
+   */
+  turned?: string[];
+  /**
+   * Exact card names that are NULLED in this beat.
+   *
+   * The third way off the board, and the one that only exists because these
+   * boards are not all people. A greyscale, a curse, a scorpion on a wall, a
+   * wight host -- things that end without dying, because they were never
+   * alive. Battles used to hang forever on exactly these: the model would
+   * kill nine cards and leave a disease standing, because it could not picture
+   * stabbing it.
+   */
+  nulled?: string[];
 }
 
 /** The one card the battle turned on, and what they did. */
@@ -61,7 +82,13 @@ export interface Told {
    * is wider than TellBeat -- the loose shape goes in, the strict one comes
    * out, and nothing downstream ever sees a number.
    */
-  beats: { text: string; kills?: (string | number)[]; by?: string | number }[];
+  beats: {
+    text: string;
+    kills?: (string | number)[];
+    converts?: (string | number)[];
+    nulls?: (string | number)[];
+    by?: string | number;
+  }[];
   winner: string;
   /** Named by whoever wrote the fight, since only they know how it went. */
   /**
@@ -83,9 +110,37 @@ export interface Told {
  * people alive on both sides leaves the result to be decided on a head-count,
  * which is not a battle anybody watched.
  */
-export function finished(told: Told, b: Body): boolean {
-  const dead = new Set((told.beats ?? []).flatMap((x) => x.kills ?? []));
-  return (b.sides ?? []).some((s) => s.cards.every((c) => dead.has(c.name)));
+/**
+ * A battle as it leaves this file: every card resolved, every state settled.
+ *
+ * Deliberately a different type from `Told`, which is what the MODEL sends.
+ * They stopped being the same shape once a card could leave the board three
+ * ways -- the model says "converts" and "nulls" with numbers in them, the
+ * screen needs "turned" and "nulled" with names -- and pretending otherwise is
+ * how you end up reading a field that is never there.
+ */
+export interface Settled {
+  beats: TellBeat[];
+  winner: string;
+  verdict: string;
+  mvp: TellMvp | null;
+}
+
+/** Anything carrying beats, told or settled. */
+type HasBeats = {
+  beats: { kills?: (string | number)[]; turned?: string[]; nulled?: string[] }[];
+};
+
+export function finished(told: HasBeats, b: Body): boolean {
+  // Gone is gone: a card that changed sides is no longer standing for the
+  // side that drafted it, and a roster emptied by conversion is just as
+  // finished as one emptied by killing.
+  const gone = new Set<string | number>([
+    ...(told.beats ?? []).flatMap((x) => x.kills ?? []),
+    ...(told.beats ?? []).flatMap((x) => x.turned ?? []),
+    ...(told.beats ?? []).flatMap((x) => x.nulled ?? []),
+  ]);
+  return (b.sides ?? []).some((s) => s.cards.every((c) => gone.has(c.name)));
 }
 
 /** Names as given, so a hallucinated casualty cannot cross anybody out. */
@@ -93,7 +148,7 @@ export function finished(told: Told, b: Body): boolean {
 const isNumber = (raw: unknown): boolean =>
   typeof raw === "number" || /^\s*\d{1,2}\s*$/.test(String(raw ?? ""));
 
-export function sanitise(told: Told, b: Body): Told {
+export function sanitise(told: Told, b: Body): Settled {
   const real = new Map<string, string>();
   /**
    * Every card on the board, numbered.
@@ -207,14 +262,40 @@ export function sanitise(told: Told, b: Body): Told {
       // killing people then it is not an aftermath, it is a second fight --
       // and keeping its text while dropping its casualties would narrate a
       // death the roster above never shows.
-      if (!(raw?.kills ?? []).length) beats.push({ text });
+      const removes =
+        (raw?.kills ?? []).length + (raw?.converts ?? []).length + (raw?.nulls ?? []).length;
+      if (!removes) beats.push({ text });
       break;
     }
 
     const kills: string[] = [];
+    const turned: string[] = [];
+    const nulled: string[] = [];
     // Who swung. Given as a roster number like the casualties are, so a side
     // can be read off it without guessing at names in the prose.
     const killerSide = sideOf.get(resolve(raw?.by) ?? "");
+
+    /**
+     * The two quiet ways off the board, counted before the killing.
+     *
+     * DEAD, CONVERTED and NULLED are the three states, and a roster loses when
+     * every card on it is in one of them. Any of the three may take the last
+     * card on a side: a team wiped out, a team turned, a team of things that
+     * simply stopped -- all of those are endings the game has.
+     */
+    const takeOut = (list: (string | number)[] | undefined, into: string[]) => {
+      for (const c of list ?? []) {
+        const hit = resolve(c);
+        if (!hit || usedUp.has(hit)) continue;
+        const from = sideOf.get(hit);
+        if (!from) continue;
+        usedUp.add(hit);
+        into.push(hit);
+        standing.set(from, (standing.get(from) ?? 1) - 1);
+      }
+    };
+    takeOut(raw?.converts, turned);
+    takeOut(raw?.nulls, nulled);
     for (const k of raw?.kills ?? []) {
       const byNum = isNumber(k);
       const hit = resolve(k);
@@ -239,7 +320,12 @@ export function sanitise(told: Told, b: Body): Told {
       const side = sideOf.get(hit);
       if (side) standing.set(side, (standing.get(side) ?? 1) - 1);
     }
-    beats.push(kills.length ? { text, kills } : { text });
+    beats.push({
+      text,
+      ...(kills.length ? { kills } : {}),
+      ...(turned.length ? { turned } : {}),
+      ...(nulled.length ? { nulled } : {}),
+    });
     if ([...standing.values()].some((n) => n <= 0)) over = true;
   }
 
