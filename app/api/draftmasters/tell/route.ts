@@ -201,7 +201,28 @@ side. Hurting your own team is allowed ONLY when the character would genuinely
 do it: a Hulk far enough gone to swing at whoever is nearest, a berserker who
 has stopped checking, somebody whose power is indiscriminate. What is never
 allowed is an ally destroyed for no reason rooted in who they are -- a
-competent, sane character does not calmly wreck their own side's equipment.
+competent, sane character does not calmly wreck their own side's equipment,
+and a disciplined knight does not put a sword through his own team's dragon.
+
+ONE BATTLE IN FOUR, AT MOST. Three fights out of four have no own goal in
+them at all. It is a moment, not a feature, and a reader who sees one every
+game stops believing any of them. Never more than one in a single battle.
+
+AND WHEN IT HAPPENS, SAY SO OUT LOUD. The reader is watching a portrait grey
+out on their OWN bench. If the prose does not tell them why, it does not read
+as a moment in the story -- it reads as the game being broken. Name whose side
+it is, and name the reason, inside the beat itself:
+
+  The High Sparrow's men close around Drogon with their spears levelled. They
+  do not care whose dragon he is. Dragons are sinful beasts, and the Faith
+  does not make exceptions for allies.
+
+Never quietly, never as something the reader has to piece together afterwards.
+
+IT IS NEVER WHAT DECIDES THE BATTLE. A team does not finish itself off, the
+last card on a side never falls to its own, and the blow that ends the fight
+always comes from the other side. Losing to your own roster is the worst way
+to lose a game.
 
 YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
@@ -222,7 +243,7 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 30-55 words", "kills": [3] }, ... ],
+  "beats": [ { "text": "one paragraph, 30-55 words", "by": 7, "kills": [3] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." }
@@ -232,6 +253,10 @@ CASUALTIES ARE NUMBERS. Every card in the brief above has a number and "kills"
 takes those numbers, not names -- [3], not ["Gohan"]. A number means exactly
 one card, so there is nothing to misread: no variant folded into a name, no
 telling two Gokus apart. The same goes for the MVP's "id".
+
+"by" IS THE CARD THAT DID IT, by number, on every beat that kills. If the
+ground or a collapsing building did it, use the number of whoever caused that.
+It is never printed; it is how we know whose side the blow came from.
 
 THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
 anything a player ever sees. In the text they are people with names.
@@ -258,7 +283,11 @@ the ONE OR TWO cards that actually decided the thing and say what it was about
 them that decided it -- the mismatch nobody on the other side could answer, the
 pick that was never going to work here, the moment it stopped being close.
 NEVER list the casualties: "the decisive kills were A, B, C and D" is a roll of
-the dead, not a reason, and anybody who just watched already knows who died. No
+the dead, not a reason, and anybody who just watched already knows who died.
+AND IT MUST AGREE WITH YOUR OWN CASUALTY LIST: check who you actually left
+alive before you write it. Crediting a card you killed with being the one left
+standing is the one mistake the reader is guaranteed to catch, because their
+portrait is greyed out on screen while they read it. No
 flourish, no crowd, no numbers, and it must match the battle you just wrote.
 Call the players by the names given. "Side A" and "Side B" are labels for you,
 not words either of them has ever seen.

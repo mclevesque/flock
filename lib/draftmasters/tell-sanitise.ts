@@ -61,7 +61,7 @@ export interface Told {
    * is wider than TellBeat -- the loose shape goes in, the strict one comes
    * out, and nothing downstream ever sees a number.
    */
-  beats: { text: string; kills?: (string | number)[] }[];
+  beats: { text: string; kills?: (string | number)[]; by?: string | number }[];
   winner: string;
   /** Named by whoever wrote the fight, since only they know how it went. */
   /**
@@ -174,6 +174,17 @@ export function sanitise(told: Told, b: Body): Told {
 
   const usedUp = new Set<string>();
   const beats: TellBeat[] = [];
+  /**
+   * Whether a card has already turned on its own side this battle.
+   *
+   * Friendly fire is worth having -- a Hulk far enough gone swings at whoever
+   * is nearest, and that is a real moment. What it cannot be is the shape of
+   * the battle. A player watched their own Mountain put a sword through their
+   * own Drogon, and that decided the fight they lost. So it happens at most
+   * once, and never to the last card on a side: a team may not finish itself
+   * off, and the blow that ends a battle is never one of your own.
+   */
+  let ownGoal = false;
   /** Set the moment a side runs out. The battle is over; the prose may not be. */
   let over = false;
 
@@ -201,6 +212,9 @@ export function sanitise(told: Told, b: Body): Told {
     }
 
     const kills: string[] = [];
+    // Who swung. Given as a roster number like the casualties are, so a side
+    // can be read off it without guessing at names in the prose.
+    const killerSide = sideOf.get(resolve(raw?.by) ?? "");
     for (const k of raw?.kills ?? []) {
       const byNum = isNumber(k);
       const hit = resolve(k);
@@ -211,6 +225,15 @@ export function sanitise(told: Told, b: Body): Told {
       // A number is taken at its word. A NAME the paragraph never supports is
       // not -- see namedIn.
       if (!byNum && !namedIn(text, hit)) continue;
+
+      const victimSide = sideOf.get(hit);
+      if (killerSide && victimSide && killerSide === victimSide) {
+        // Already spent this battle's one own goal, or this would be the last
+        // card that side has. Either way the story does not get to have it.
+        if (ownGoal || (standing.get(victimSide) ?? 0) <= 1) continue;
+        ownGoal = true;
+      }
+
       usedUp.add(hit);
       kills.push(hit);
       const side = sideOf.get(hit);

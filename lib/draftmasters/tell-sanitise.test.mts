@@ -240,6 +240,54 @@ it("accepts a death written without the parenthetical", () => {
   assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Goku (GT)"]);
 });
 
+// ── A team may not lose to itself ─────────────────────────────────────────
+// Board A is 1-5 (mclevesque), board B is 6-10 (The Shark).
+it("allows one own goal", () => {
+  const out = run({ beats: [beat("x"), { text: "Buu turns", by: 1, kills: [2] }] });
+  assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Vegeta"]);
+});
+
+it("refuses a second own goal", () => {
+  const out = run({
+    beats: [
+      beat("x"),
+      { text: "Buu turns on Vegeta", by: 1, kills: [2] },
+      { text: "and then on Android 18", by: 1, kills: [3] },
+      { text: "Iron Man falls", by: 2, kills: [6] },
+    ],
+  });
+  const dead = out.beats.flatMap((b) => b.kills ?? []);
+  assert.deepEqual(dead, ["Vegeta", "Iron Man"]);
+  assert.ok(!dead.includes("Android 18"), "only one own goal per battle");
+});
+
+it("never lets a side finish itself off", () => {
+  // Four of A already gone to the other side; the fifth may not fall to a
+  // teammate. A player lost a battle to their own Mountain killing their own
+  // Drogon, and that is the shape this exists to prevent.
+  const out = run({
+    beats: [
+      beat("x"),
+      { text: "four of A fall", by: 6, kills: [1, 2, 3, 4] },
+      { text: "and Vision turns on the last of them", by: 5, kills: [5] },
+    ],
+  });
+  const dead = out.beats.flatMap((b) => b.kills ?? []);
+  assert.equal(dead.length, 4, "the last card on a side never falls to its own");
+  assert.ok(!dead.includes("Vision"));
+});
+
+it("still lets the other side land the finishing blow", () => {
+  const out = run({
+    beats: [
+      beat("x"),
+      { text: "four of A fall", by: 6, kills: [1, 2, 3, 4] },
+      { text: "and Iron Man takes the last", by: 6, kills: [5] },
+    ],
+  });
+  assert.equal(out.beats.flatMap((b) => b.kills ?? []).length, 5);
+});
+
 // ── A battle has to actually end ───────────────────────────────────────────
 it("calls a battle unfinished when both sides still have players", () => {
   // Straight off production: 17 beats, three of B dead, and a winner declared
