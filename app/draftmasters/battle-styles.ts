@@ -401,26 +401,62 @@ export const BATTLE_STYLES = `
   text-shadow: 0 2px 14px rgba(0,0,0,.9), 0 0 40px rgba(224,90,60,.28);
 }
 
-/* While the story is being written. Three lights, breathing in turn. */
-.dm-st-writing { display: flex; gap: 9px; align-items: center; justify-content: center; }
-.dm-st-writing span {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: rgb(var(--dm-glow) / .75);
+/* ── The opening rite ──────────────────────────────────────────
+   The wait before the story lands, spent as the announcer settling the room.
+   Held over the page rather than in the reel so the beats can arrive behind
+   it, and faded out on handover so the last line dissolves into the crawl
+   instead of being cut off by it. */
+.dm-st-rite {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 0 24px; text-align: center;
+  pointer-events: none;
+  transition: opacity .9s ease, transform .9s ease;
+}
+.dm-st-rite[data-out="1"] { opacity: 0; transform: translateY(-14px); }
+
+.dm-st-rite-line {
+  margin: 0; max-width: 40ch;
+  font-family: var(--dm-display);
+  font-size: clamp(19px, 2.5vw, 31px); line-height: 1.42;
+  letter-spacing: .012em; text-wrap: balance;
+  color: #f6efe0;
+  text-shadow: 0 2px 18px rgba(0,0,0,.92), 0 0 44px rgba(0,0,0,.7);
+  animation: dm-st-rite-in 1.5s cubic-bezier(.2,.7,.25,1) both;
+}
+/* The closing line is the quiet one, and it keeps breathing while it waits. */
+.dm-st-rite-line[data-last="1"] {
+  font-size: clamp(20px, 2.7vw, 34px);
+  color: var(--dm-gold);
+  animation: dm-st-rite-in 2.2s cubic-bezier(.2,.7,.25,1) both,
+             dm-st-rite-hold 5.5s ease-in-out 2.2s infinite;
+}
+@keyframes dm-st-rite-in {
+  from { opacity: 0; transform: translateY(12px); filter: blur(7px); letter-spacing: .12em; }
+  to   { opacity: 1; transform: none; filter: blur(0); letter-spacing: .012em; }
+}
+@keyframes dm-st-rite-hold {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .62; }
+}
+
+/* Three lights under the closing line, and only once it has been said: any
+   earlier and the rite reads as a spinner sitting on top of a poem. */
+.dm-st-rite-wait { display: flex; gap: 8px; margin-top: 4px; animation: dm-st-rite-in 1.4s ease both; }
+.dm-st-rite-wait i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgb(var(--dm-glow) / .6);
   animation: dm-st-breathe 1.5s ease-in-out infinite;
 }
-.dm-st-writing em {
-  font-style: normal; margin-left: 5px;
-  font-family: var(--dm-display); font-size: 12px; letter-spacing: .18em;
-  text-transform: uppercase; color: rgba(240,230,210,.42);
-}
-.dm-st-writing span:nth-child(2) { animation-delay: .22s; }
-.dm-st-writing span:nth-child(3) { animation-delay: .44s; }
+.dm-st-rite-wait i:nth-child(2) { animation-delay: .22s; }
+.dm-st-rite-wait i:nth-child(3) { animation-delay: .44s; }
 @keyframes dm-st-breathe {
   0%, 100% { opacity: .18; transform: scale(.75); }
   50%      { opacity: 1;   transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dm-st-writing span { animation: none; opacity: .7; }
+  .dm-st-rite-line, .dm-st-rite-wait, .dm-st-rite-wait i { animation: none; }
+  .dm-st-rite-line[data-last="1"] { opacity: 1; }
 }
 
 /* ── How it ends ────────────────────────────────────────────────────────────
@@ -770,6 +806,9 @@ export const BATTLE_STYLES = `
   .dm-st-controls .dm-btn { padding: 4px 8px; font-size: 9.5px; letter-spacing: .08em; }
   .dm-st-hint { font-size: 10px; padding-bottom: 6px; }
   .dm-st-fin { padding: 12px 4px 10px; gap: 6px; }
+  .dm-st-rite { gap: 11px; padding: 0 18px; }
+  .dm-st-rite-line { font-size: 19px; max-width: none; }
+  .dm-st-rite-line[data-last="1"] { font-size: 20px; }
 }
 
 `;

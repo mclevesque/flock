@@ -62,6 +62,41 @@ const CRAWL_PX_S = 13;
 /** Where on the screen a line counts as read. Just below centre. */
 const READ_AT = 0.56;
 
+/**
+ * The opening rite.
+ *
+ * A battle takes fifteen to forty-five seconds to write, and three breathing
+ * dots make that feel like a page that has failed to load. This is the same
+ * wait spent well: the announcer settling the room before the fight, which is
+ * what the moment actually is.
+ *
+ * Each step REPLACES what is on screen, so a step listing two lines means the
+ * first is still standing when the second arrives. `at` is milliseconds from
+ * the screen opening. Nothing here is ever cut off mid-line -- the crawl waits
+ * for the last line to land and then fades it out; see `rolling`.
+ */
+function riteFor(a: string, b: string): { at: number; lines: string[] }[] {
+  return [
+    { at: 300, lines: ["The combatants gather…"] },
+    { at: 3000, lines: ["The combatants gather…", "…and the crowd goes silent in anticipation."] },
+    { at: 6600, lines: ["Who will be victorious?"] },
+    { at: 8600, lines: ["Who will be victorious?", `Team ${a} — or Team ${b}?`] },
+    { at: 12000, lines: [] },
+    { at: 13000, lines: ["May The Warrior grant strength to the righteous,"] },
+    { at: 15800, lines: [
+      "May The Warrior grant strength to the righteous,",
+      "May The Mother grant mercy to the innocent…",
+    ] },
+    { at: 19600, lines: [] },
+    { at: 20600, lines: ["And may death sustain life."] },
+  ];
+}
+
+/** How long the closing line holds before the story is allowed to start. */
+const RITE_HOLD = 2400;
+/** The handover fade, so the rite dissolves into the story rather than cutting. */
+const RITE_FADE = 1100;
+
 export default function BattleStory({
   script,
   sides,
@@ -99,6 +134,12 @@ export default function BattleStory({
   const [upTo, setUpTo] = useState(-1);
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
+  /** Which step of the opening rite is on screen. */
+  const [riteAt, setRiteAt] = useState(-1);
+  /** The rite has said its last line and held it. */
+  const [riteReady, setRiteReady] = useState(false);
+  /** The rite has faded and the story is moving. */
+  const [rolling, setRolling] = useState(false);
   /** The crawl has run out. From here the reader drives. */
   const [done, setDone] = useState(false);
   const [wonBy, setWonBy] = useState<string>(script.winnerId);
@@ -204,6 +245,39 @@ export default function BattleStory({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // -- The rite -------------------------------------------------------------
+  const rite = useMemo(() => {
+    const us = sides.find((s) => s.id === meId) ?? sides[0];
+    const them = sides.find((s) => s.id !== us?.id);
+    return riteFor(us?.name ?? "You", them?.name ?? "Them");
+  }, [sides, meId]);
+
+  useEffect(() => {
+    const timers = rite.map((step, i) =>
+      window.setTimeout(() => setRiteAt(i), step.at)
+    );
+    timers.push(
+      window.setTimeout(
+        () => setRiteReady(true),
+        rite[rite.length - 1].at + RITE_HOLD
+      )
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [rite]);
+
+  /**
+   * Hand over only when BOTH are true: the story is written and the rite has
+   * finished speaking. Starting the crawl the instant the fetch lands would
+   * cut the closing line in half, which is the one thing this was built not to
+   * do -- so a fast answer waits the couple of seconds out, and a slow one
+   * finds the rite already holding for it.
+   */
+  useEffect(() => {
+    if (writing || !riteReady || rolling) return;
+    const t = window.setTimeout(() => setRolling(true), RITE_FADE);
+    return () => clearTimeout(t);
+  }, [writing, riteReady, rolling]);
+
   // -- The crawl ------------------------------------------------------------
   /**
    * One animation-frame loop drives everything: the scroll position, which
@@ -212,7 +286,7 @@ export default function BattleStory({
    * sentence that kills them is under the reader's eye.
    */
   useEffect(() => {
-    if (writing || !told.length || done || paused) return;
+    if (!rolling || !told.length || done || paused) return;
     let raf = 0;
     let last = performance.now();
 
@@ -252,13 +326,18 @@ export default function BattleStory({
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [writing, told, done, paused, fast]);
+  }, [rolling, told, done, paused, fast]);
 
   // -- Sound ----------------------------------------------------------------
   useEffect(() => {
     if (!isMuted()) startBattleMusic();
     return () => stopBattleMusic();
   }, []);
+
+  // Under the rite the music is barely there; the walk-out lifts it.
+  useEffect(() => {
+    setBattleIntensity(rolling ? 0.22 : 0.1);
+  }, [rolling]);
 
   useEffect(() => {
     if (upTo < 0 || !told.length) return;
@@ -280,8 +359,15 @@ export default function BattleStory({
 
   // -- Controls -------------------------------------------------------------
   const winnerSide = sides.find((s) => s.id === wonBy) ?? sides[0];
-  /** Their actual name, always. "You wins!" is not a sentence. */
-  const winnerName = winnerSide?.name ?? "Nobody";
+  /**
+   * The winner, named, and grammatical either way.
+   *
+   * Sides carry the player's own name, so this normally reads "mclevesque
+   * wins!". The guard is for the one case where a side really is called
+   * "You" -- then it conjugates rather than printing "You wins!".
+   */
+  const winnerName = winnerSide?.name?.trim() || "Nobody";
+  const winLine = /^you$/i.test(winnerName) ? "You win!" : `${winnerName} wins!`;
 
   const finish = useCallback(
     () => onDone(why ? { winnerId: wonBy, why } : undefined),
@@ -375,17 +461,27 @@ export default function BattleStory({
           fighting over one scrollbar, and handed over the moment it ends --
           the first thing anybody wants is to read the good bit again. */}
       <div className="dm-st-page" ref={view} data-done={done ? "1" : "0"}>
+        {/* Over the page, not inside the reel: the beats can arrive and sit
+            below the fold without shifting the ground under the rite, and the
+            handover is a dissolve rather than a cut. */}
+        {!rolling && (
+          <div className="dm-st-rite" data-out={writing || !riteReady ? "0" : "1"}>
+            {(rite[riteAt]?.lines ?? []).map((line, i) => (
+              <p key={`${riteAt}-${i}`} className="dm-st-rite-line" data-last={riteAt === rite.length - 1 ? "1" : "0"}>
+                {line}
+              </p>
+            ))}
+            {/* Only once the rite has said its piece and is still waiting.
+                Before that it would read as a loading spinner over a poem. */}
+            {riteReady && writing && (
+              <span className="dm-st-rite-wait" aria-label="Writing the battle">
+                <i /><i /><i />
+              </span>
+            )}
+          </div>
+        )}
         <div className="dm-st-reel">
           <div className="dm-st-gap" aria-hidden="true" />
-
-          {writing && (
-            <p className="dm-st-writing">
-              <span />
-              <span />
-              <span />
-              <em>Writing the battle</em>
-            </p>
-          )}
 
           {told.map((t, i) => (
             <p
@@ -405,7 +501,7 @@ export default function BattleStory({
               <span className="dm-st-win-crown">
                 <Icon name="crown" size={22} />
               </span>
-              <h2 className="dm-st-win-name">{winnerName} wins!</h2>
+              <h2 className="dm-st-win-name">{winLine}</h2>
               <p className="dm-st-win-left">
                 {survivors.length === 0
                   ? "Nobody left standing on either side."
