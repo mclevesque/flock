@@ -375,9 +375,16 @@ export interface PowerInput {
  * Read off ATK because that is what settles a fight; the variant and grade
  * have already been applied by the time this sees it, so a diminished Gandalf
  * really does land a band lower.
+ *
+ * THE TOP NEEDS AS MANY BANDS AS THE BOTTOM. The first version stopped at
+ * "30 and above", which put Vados on 43 in the same band as Golden Frieza on
+ * 30 -- and a same-band fight is an open one, so Frieza killed an Angel. A
+ * scale that runs to 55 cannot have its last band be a quarter of the range.
  */
 export function bandOf(atk: number): string {
-  if (atk >= 30) return "BEYOND MEASURE — reality bends around them";
+  if (atk >= 41) return "ABOVE THE STORY — the fight is not a fight";
+  if (atk >= 33) return "BEYOND MEASURE — reality bends around them";
+  if (atk >= 26) return "WORLD-ENDING — a planet is the unit of damage";
   if (atk >= 20) return "WORLD-SHAPING — a power the world itself answers to";
   if (atk >= 15) return "FAR BEYOND MORTAL — armies are not the right unit";
   if (atk >= 11) return "MYTHIC — greater than any mortal, short of a god";

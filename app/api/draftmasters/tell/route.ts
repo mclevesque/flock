@@ -126,21 +126,23 @@ you already know what these characters are:
   fiction should fight like they have it.
 
 EVERY CARD CARRIES A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
-Mortal < Mythic < Far Beyond Mortal < World-Shaping < Beyond Measure.
+Mortal < Mythic < Far Beyond Mortal < World-Shaping < World-Ending < Beyond
+Measure < Above The Story.
 
 The bands INFORM the fight. They do not script it, and they say nothing about
 who dies in what order, who takes somebody with them, or how any of it reads.
 That is still yours.
 
-- SAME BAND, OR ONE APART: wide open. Ability, terrain, numbers, luck, a good
-  argument, who moves first -- any of it can decide it, either way. Do not
-  reach for the band here; reach for the characters.
-- TWO APART: the stronger one is expected to win, and an upset has to be
-  bought with something real -- a hard counter that genuinely exists in the
-  fiction, overwhelming numbers, or somebody spending their life for it. Worth
-  writing when the roster offers it, and rare.
-- THREE OR MORE APART: it does not happen. No tactic, no argument, no story
-  reason. This is the gap the whole game rests on.
+- SAME BAND: wide open. Ability, terrain, numbers, luck, a good argument, who
+  moves first -- any of it can decide it, either way. Do not reach for the
+  band here; reach for the characters.
+- ONE BAND APART: the stronger one is favoured, but it is a real fight. An
+  upset needs something behind it -- a hard counter that genuinely exists in
+  the fiction, overwhelming numbers, the ground, or somebody spending their
+  life to buy it. Worth writing when the roster offers one.
+- TWO OR MORE APART: it does not happen. No tactic, no argument, no story
+  reason, however good. This is the gap the whole game rests on: it is why an
+  Angel is not killed by Golden Frieza and why Aragorn does not beat Goku.
 
 The bands are here because appearances lie and you will be tempted by them. An
 old man with a broken staff reads as weak and is a Maia older than the world.

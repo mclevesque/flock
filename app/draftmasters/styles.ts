@@ -1182,6 +1182,40 @@ export const STYLES = `
 }
 .dm:has(.dm-stage) .dm-head-actions .dm-btn-icon { min-width: 34px; padding: 6px; }
 
+/* ── The stage header on a handset ──────────────────────────────────────────
+   Lifting the controls into the corner works on a desktop because there is a
+   corner to lift into, and the 50px reserved above the table is enough to
+   clear them. On a phone there is no spare band: the mute button, the way
+   out, the player's face and the lot's own title all landed inside that same
+   50px and printed straight over each other.
+
+   So on a narrow screen they go back into the flow and take a row of their
+   own, and the lot bar gets the line underneath. A row of buttons costs less
+   height than the overlap cost legibility. */
+@media (max-width: 700px) {
+  .dm:has(.dm-stage) .dm-head {
+    position: static;
+    width: 100%; margin: 0 0 10px; padding-right: 0;
+    justify-content: flex-end; flex-wrap: wrap; row-gap: 6px;
+  }
+  .dm:has(.dm-stage) { padding-top: 10px; }
+  /* margin-left:auto was shoving the face away from the buttons it belongs to
+     once the row is no longer pinned to a corner. */
+  .dm:has(.dm-stage) .dm-head-me { margin-left: 8px; }
+
+  /* The board name and the arena are two separate things and neither should
+     be squeezed onto one line with the other. */
+  .dm-lotbar { flex-wrap: wrap; row-gap: 6px; }
+  .dm-lotbar > span {
+    min-width: 0; display: flex; flex-wrap: wrap; align-items: center;
+    gap: 4px 8px;
+  }
+  .dm-arena-pill {
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 /* min-height:100dvh measures the whole screen, but .dm starts below the site
    nav — so it reserved a screenful of empty scroll under the table. Let the
    content set the height at every width; the table is meant to be seen in one
