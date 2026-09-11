@@ -147,6 +147,14 @@ tenth time needs a damn good reason that exists in the fiction: a hard counter,
 the drafted condition, the ground, somebody spending their life to buy it. "It
 would be a surprise" is not a reason.
 
+BRAINS ARE A REAL WAY TO WIN, and that tenth time is where they live. A weak
+card famous for out-thinking stronger people -- Tyrion and the wildfire, Olenna
+and the poison, Batman with time to prepare -- can bring down something far
+stronger with the kind of plan they are known for, set up in the story before
+it lands. It has to be THEIR trick, it has to be possible on this ground, and
+it reaches what a plan can reach: dragons, armies, kings, monsters. It does not
+reach a god, or anything that shrugs off a planet.
+
 It has to be the answer the fans would actually give, not one you talked
 yourself into. "He is a god and she is an elf" is an answer. "His light is
 impressive" is a story you are telling yourself -- that is how Feanor once cut
@@ -173,8 +181,8 @@ public. Use them to CHECK your answer and to fill in what you do not know:
 The ladder, lowest to highest: Ordinary < Dangerous < Peerless Mortal <
 Superhuman < Far Beyond Mortal < World-Shaping < World-Ending < Beyond Measure
 < Above The Story. Inside one band a fight is wide open. One band apart, the
-stronger is favoured but it is a real fight. Two or more apart is the kind of
-gap your own answer should already be telling you does not close.
+stronger is favoured but it is a real fight. Two or more apart does not close
+in a straight fight; only a famous plan, like the ones above, closes it.
 
 The bands are here because appearances lie and you will be tempted by them. An
 old man with a broken staff reads as weak and is a Maia older than the world.
