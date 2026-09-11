@@ -196,6 +196,15 @@ it("never ships a paragraph that removes nobody", () => {
   assert.equal(out.beats[1].text, "b c Venom go down.");
 });
 
+it("cuts a set-up that would turn the paragraph into a wall", () => {
+  // Live: a 34-word set-up folded onto a 28-word kill made a 62-word block.
+  const setup = Array.from({ length: 34 }, (_, i) => `w${i}`).join(" ");
+  const kill = { text: `${Array.from({ length: 25 }, (_, i) => `k${i}`).join(" ")} Iron Man falls.`, kills: ["Iron Man"] };
+  const out = run({ beats: [beat(setup), kill] });
+  assert.equal(out.beats.length, 1);
+  assert.equal(out.beats[0].text, kill.text, "the kill stands alone");
+});
+
 it("keeps set-up the model never paid off, on the last paragraph", () => {
   const out = run({ beats: [kb("Iron Man"), beat("Vegeta circles.")] });
   assert.equal(out.beats.length, 1);

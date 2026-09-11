@@ -248,6 +248,16 @@ export function sanitise(told: Told, b: Body): Settled {
    * a side, because a team may not finish itself off.
    */
   const CALLOUT = /^(friendly fire|betrayal)\s*[!:]+\s*/i;
+  /**
+   * Two paragraphs joined, or null when the join would run long.
+   *
+   * Folding a set-up into its kill is only worth it while the result is still
+   * short: live, a 34-word set-up landed on a 28-word kill and made a 62-word
+   * block, which is the wall of text "short and sweet" was asked to remove.
+   * Past the cap the set-up is cut, and the kill reads on its own.
+   */
+  const fold = (a: string, b: string) =>
+    `${a} ${b}`.split(/\s+/).length <= 50 ? `${a} ${b}` : null;
   let ownGoal = false;
   /** Set the moment a side runs out. The battle is over, and so is the story. */
   let over = false;
@@ -358,10 +368,10 @@ export function sanitise(told: Told, b: Body): Settled {
     const loudHere = loud && (ownHere || turned.length > 0) ? loud : "";
     const prev = beats[beats.length - 1];
     if (loudHere && carry && prev) {
-      prev.text = `${prev.text} ${carry}`;
+      prev.text = fold(prev.text, carry) ?? prev.text;
       carry = "";
     }
-    const body = carry ? `${carry} ${text}` : text;
+    const body = carry ? fold(carry, text) ?? text : text;
     carry = "";
     beats.push({
       text: loudHere ? `${loudHere} ${body}` : body,
@@ -376,7 +386,7 @@ export function sanitise(told: Told, b: Body): Settled {
   // building to. Kept on the last paragraph rather than lost.
   if (carry) {
     const last = beats[beats.length - 1];
-    if (last) last.text = `${last.text} ${carry}`;
+    if (last) last.text = fold(last.text, carry) ?? last.text;
     else beats.push({ text: carry });
   }
 

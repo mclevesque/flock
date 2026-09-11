@@ -67,7 +67,9 @@ not the last. A paragraph is one exchange, and it ends with at least one card
 dead, converted or nulled, named in its own text. The reader watches a portrait
 change on every paragraph; one where nothing changes reads as filler. A set-up
 does not get a paragraph of its own -- it is the first sentence of the
-paragraph where it pays off.
+paragraph where it pays off. And the rule ENDS with the losing side: the beat
+that takes their last card is the final beat. Once nobody on that side is left,
+there is nobody left who is allowed to die, so there is no next paragraph.
 
 CONTINUITY IS THE WHOLE JOB. Every beat continues the one before it. A name
 introduced once is never introduced again. A blow struck at the end of one beat
@@ -337,7 +339,8 @@ by name, and do not run out of beats before the last one is down. A battle that
 finishes with people alive on both sides has not finished.
 
 THE BATTLE IS OVER THE MOMENT THAT HAPPENS. When the last card on a side goes
-down, the fight is FINISHED and that paragraph is the last one -- no aftermath. Do not keep the
+down, the fight is FINISHED and that paragraph is the LAST ITEM IN "beats" --
+close the array right there, no aftermath. Do not keep the
 survivors fighting -- there is nobody left to fight, and turning them on each
 other to fill space is the single worst thing you can do to a player who has
 just won. Nobody on the winning side dies after the last opponent falls.
@@ -465,7 +468,12 @@ All of one list, in full, each number dead, converted or nulled. That is at
 least ${Math.min(...lists.map((l) => l.nums.length))} cards removed from a single side, out of the ${total} on the board. If your list is missing even one
 number from both rosters, the battle is not over and you have not finished the
 job -- go back and write the deaths you skipped. A fight that stops with
-people standing on both sides is the one outcome this game does not have.`;
+people standing on both sides is the one outcome this game does not have.
+
+AND THE MOMENT THE LAST NUMBER ON ONE LIST IS DOWN, STOP. That paragraph is the
+last item in "beats". The winners never turn on each other afterwards, nobody
+on the winning list dies to their own side to fill space, and the verdict and
+MVP note mention only what your beats actually contain.`;
 }
 
 function brief(b: Body, mustWipe?: string): string {
@@ -572,6 +580,20 @@ function noteScaling(b: Body, told: Told) {
   }
 }
 
+/** Removals the model claimed, and removals that survived the sanitiser. */
+function claimed(told: Told): number {
+  return (told.beats ?? []).reduce(
+    (n, x) => n + (x?.kills?.length ?? 0) + (x?.converts?.length ?? 0) + (x?.nulls?.length ?? 0),
+    0
+  );
+}
+function landed(s: Settled): number {
+  return s.beats.reduce(
+    (n, x) => n + (x.kills?.length ?? 0) + (x.turned?.length ?? 0) + (x.nulled?.length ?? 0),
+    0
+  );
+}
+
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Body;
   if (!body.sides?.length) {
@@ -602,6 +624,10 @@ export async function POST(req: Request) {
     let provider = first.provider;
     noteScaling(body, first.data);
     let clean = sanitise(first.data, body);
+    // Friendly fire without a headline, or killing after the wipe. The story
+    // that ships is clean either way; this is how we see how often it was not.
+    const thrown = claimed(first.data) - landed(clean);
+    if (thrown > 0) console.warn("[tell] sanitiser dropped", thrown, "claimed removals");
 
     /**
      * A battle has to end with one roster in the ground.
