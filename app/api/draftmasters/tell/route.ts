@@ -60,16 +60,23 @@ not a highlight reel. It has a shape and you have to give it one:
      survive contact, a mismatch nobody saw coming, somebody spending their
      life to buy one moment for their side.
   3. THE TURN. The point where it stops being close, and you can feel it stop.
-  4. THE LAST ONE GOES DOWN. That paragraph is the end of the story.
+  4. THE LAST ONE GOES DOWN -- then one short closing paragraph, and out.
 
-EVERY BEAT TAKES SOMEBODY OFF THE BOARD. No exceptions -- not the first beat,
-not the last. A paragraph is one exchange, and it ends with at least one card
+EVERY BEAT TAKES SOMEBODY OFF THE BOARD. The one exception is the closing
+paragraph at the very end. A paragraph is one exchange, and it ends with at least one card
 dead, converted or nulled, named in its own text. The reader watches a portrait
 change on every paragraph; one where nothing changes reads as filler. A set-up
 does not get a paragraph of its own -- it is the first sentence of the
-paragraph where it pays off. And the rule ENDS with the losing side: the beat
-that takes their last card is the final beat. Once nobody on that side is left,
-there is nobody left who is allowed to die, so there is no next paragraph.
+paragraph where it pays off. And the killing ENDS with the losing side: the
+beat that takes their last card is the last one that removes anybody.
+
+THEN ONE CLOSING PARAGRAPH, and nothing after it. One or two sentences, under
+30 words, with "kills", "converts" and "nulls" all empty. It is where the story
+catches its breath and adds some flavour: the survivors eyeing each other across
+the wreckage, what the win cost, who is left and in what state, the silence.
+Pick what fits THIS battle rather than the same line every time. Nobody fights
+in it and nobody dies in it -- the winners do not turn on each other, not even
+a little.
 
 CONTINUITY IS THE WHOLE JOB. Every beat continues the one before it. A name
 introduced once is never introduced again. A blow struck at the end of one beat
@@ -304,7 +311,8 @@ blow that ends the fight always comes from the other side.
 
 YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
-ruined doing it. Let it swing -- but every beat still takes somebody off.
+ruined doing it. Let it swing -- but every beat before the closing paragraph
+takes somebody off.
 
 THERE ARE EXACTLY THREE WAYS OFF THE BOARD, and a side loses when every card
 on it is in one of them:
@@ -339,8 +347,8 @@ by name, and do not run out of beats before the last one is down. A battle that
 finishes with people alive on both sides has not finished.
 
 THE BATTLE IS OVER THE MOMENT THAT HAPPENS. When the last card on a side goes
-down, the fight is FINISHED and that paragraph is the LAST ITEM IN "beats" --
-close the array right there, no aftermath. Do not keep the
+down, the fight is FINISHED: after that paragraph comes the one closing
+paragraph, then close the array. Do not keep the
 survivors fighting -- there is nobody left to fight, and turning them on each
 other to fill space is the single worst thing you can do to a player who has
 just won. Nobody on the winning side dies after the last opponent falls.
@@ -382,8 +390,8 @@ AS MANY BEATS AS IT TAKES, AND NOT ONE PAST IT. Every beat removes somebody, so
 the count is the losing roster plus whatever the winners lose, minus the blows
 that take two at once. Brevity is a WORD count: short paragraphs, but never stop
 before the job is done. A battle that runs out of beats with people standing has
-failed at the only thing it had to do. No walk-out and no aftermath: the first
-paragraph has a kill in it and so does the last. Before you finish, check your
+failed at the only thing it had to do. No walk-out: the first paragraph has a
+kill in it. The last is the closing paragraph and has none. Before you finish, check your
 own casualty list: one side's entire roster must appear in it.
 
 IF YOU WRITE IT, RECORD IT. Every death you narrate goes in that beat's list,
@@ -470,10 +478,11 @@ number from both rosters, the battle is not over and you have not finished the
 job -- go back and write the deaths you skipped. A fight that stops with
 people standing on both sides is the one outcome this game does not have.
 
-AND THE MOMENT THE LAST NUMBER ON ONE LIST IS DOWN, STOP. That paragraph is the
-last item in "beats". The winners never turn on each other afterwards, nobody
-on the winning list dies to their own side to fill space, and the verdict and
-MVP note mention only what your beats actually contain.`;
+AND THE MOMENT THE LAST NUMBER ON ONE LIST IS DOWN, STOP KILLING. Write one
+short closing paragraph with nothing in "kills", "converts" or "nulls" -- the
+survivors, the cost, the quiet -- and close "beats". The winners never turn on
+each other, nobody on the winning list dies to their own side to fill space,
+and the verdict and MVP note mention only what your beats actually contain.`;
 }
 
 function brief(b: Body, mustWipe?: string): string {

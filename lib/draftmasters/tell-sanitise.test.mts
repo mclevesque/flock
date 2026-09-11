@@ -40,7 +40,7 @@ const it = (name: string, fn: () => void) => {
 };
 
 // ── The one the player caught: the fight carried on after a wipe ────────────
-it("ends the story on the paragraph that wipes a side", () => {
+it("stops one closing paragraph after a side is wiped, and drops the friendly fire after it", () => {
   const out = run({
     beats: [
       beat("walk-out"),
@@ -55,10 +55,10 @@ it("ends the story on the paragraph that wipes a side", () => {
       kb("Android 18"),
     ],
   });
-  assert.equal(out.beats.length, 5, "one paragraph per kill, and nothing after the wipe");
+  assert.equal(out.beats.length, 6, "one paragraph per kill, then one closing paragraph");
   assert.equal(out.beats[0].text, "walk-out Iron Man go down.");
   assert.deepEqual(out.beats[4].kills, ["Saibaman"]);
-  assert.ok(!JSON.stringify(out.beats).includes("the field goes quiet"));
+  assert.equal(out.beats[5].text, "the field goes quiet");
   const dead = out.beats.flatMap((x) => x.kills ?? []);
   assert.deepEqual(dead.sort(), ["Iron Man", "Kami", "Mysterio", "Saibaman", "Venom"]);
   for (const own of ["Apocalypse", "Vision", "Android 18"]) {
@@ -155,7 +155,7 @@ it("refuses an aftermath beat that is still killing people", () => {
   assert.ok(!JSON.stringify(out.beats).includes("Apocalypse"));
 });
 
-it("drops a quiet aftermath too: the wipe is the last paragraph", () => {
+it("keeps one closing paragraph that removes nobody", () => {
   const out = run({
     beats: [
       beat("walk-out"),
@@ -164,8 +164,30 @@ it("drops a quiet aftermath too: the wipe is the last paragraph", () => {
       kb("Vision"),
     ],
   });
+  assert.equal(out.beats.length, 2);
+  assert.equal(out.beats[1].text, "the field goes quiet");
+});
+
+it("keeps only one closing paragraph", () => {
+  const out = run({
+    beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"), beat("the survivors eye each other"), beat("and again")],
+  });
+  assert.equal(out.beats.length, 2);
+  assert.equal(out.beats[1].text, "the survivors eye each other");
+});
+
+it("drops a closing paragraph that comes after winners fighting each other", () => {
+  // The ending was written about a fight the bench never shows, so it goes
+  // with that fight.
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"),
+      { text: "Buu turns on Vegeta", by: 1, kills: [2] },
+      beat("and Buu stands alone"),
+    ],
+  });
   assert.equal(out.beats.length, 1);
-  assert.ok(!JSON.stringify(out.beats).includes("the field goes quiet"));
+  assert.ok(!JSON.stringify(out.beats).includes("stands alone"));
 });
 
 // ── Every paragraph changes a portrait ────────────────────────────────────
@@ -175,7 +197,7 @@ it("folds a set-up paragraph into the kill it sets up", () => {
   assert.equal(out.beats[0].text, "Vegeta charges. Iron Man go down.");
 });
 
-it("never ships a paragraph that removes nobody", () => {
+it("never ships a mid-battle paragraph that removes nobody", () => {
   const out = run({
     beats: [
       beat("a"),

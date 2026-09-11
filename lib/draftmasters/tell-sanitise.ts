@@ -259,7 +259,7 @@ export function sanitise(told: Told, b: Body): Settled {
   const fold = (a: string, b: string) =>
     `${a} ${b}`.split(/\s+/).length <= 50 ? `${a} ${b}` : null;
   let ownGoal = false;
-  /** Set the moment a side runs out. The battle is over, and so is the story. */
+  /** Set the moment a side runs out. The battle is over; one closing paragraph may follow. */
   let over = false;
   /**
    * Prose from beats that took nobody off the board, held for the next one
@@ -281,11 +281,20 @@ export function sanitise(told: Told, b: Body): Settled {
      * Left to itself it sometimes keeps going after one team is wiped out --
      * and with no opponents left to fight, the survivors start killing each
      * other. A player watched their own bench get crossed out one card at a
-     * time in a battle they had already won. So the paragraph that empties a
-     * side is the last one. Anything past it, an aftermath included, is
-     * dropped along with any casualties it claimed.
+     * time in a battle they had already won. So the wipe is the end of the
+     * killing: one closing paragraph may follow -- the survivors eyeing each
+     * other, what it cost -- and then the story stops.
      */
-    if (over) break;
+    if (over) {
+      // Only a paragraph that removes nobody earns the last word. One that is
+      // still killing is a second fight, not an ending, and keeping its text
+      // while dropping its casualties would narrate deaths the bench never
+      // shows -- so it goes, along with everything written after it.
+      const removes =
+        (raw?.kills ?? []).length + (raw?.converts ?? []).length + (raw?.nulls ?? []).length;
+      if (!removes) beats.push({ text: text.replace(CALLOUT, "").trim() });
+      break;
+    }
 
     // The headline is read, taken off, and put back only if the beat really
     // does what it announces -- see `loudHere` below.
