@@ -17,6 +17,10 @@ const BOT_PATTERN = /googlebot|bingbot|slurp|duckduckbot|baiduspider|yandexbot|s
 const DRAFTMASTERS_HOSTS = new Set([
   "draftmasters.net",
   "www.draftmasters.net",
+  // Local development. Browsers send *.localhost to this machine, so
+  // http://draftmasters.localhost:3001 is the DraftMasters site exactly as
+  // the real domain serves it, beside Great Souls on plain localhost:3001.
+  "draftmasters.localhost",
 ]);
 
 /**

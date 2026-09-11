@@ -13,7 +13,8 @@ import { headers } from "next/headers";
  * has its own copy by necessity (it runs on the edge before this module is
  * reachable); these two lists are the only place the domain is named.
  */
-const DRAFTMASTERS_HOSTS = new Set(["draftmasters.net", "www.draftmasters.net"]);
+// draftmasters.localhost is local development; see middleware.ts.
+const DRAFTMASTERS_HOSTS = new Set(["draftmasters.net", "www.draftmasters.net", "draftmasters.localhost"]);
 
 export async function isStandaloneSite(): Promise<boolean> {
   try {
