@@ -137,6 +137,13 @@ you already know what these characters are:
   defeat, the band in the brackets is the correction -- a card two bands above
   another does not lose to them because of something that happened to them
   years before their peak.
+- NO VERSION ON THE CARD? YOU PICK THE SAGA, AND LEAN TO THEIR PRIME. When a
+  card names no form, arc or condition, decide which era of that character
+  showed up -- the saga, season or arc -- choosing their prime unless the
+  roster gives you a real reason not to, and fight them as that version for
+  the whole battle. Krillin against Nappa comes down to which Krillin and which
+  Nappa: Saiyan-saga Krillin loses to him, late-Z Krillin does not. When the
+  era is what decides a fight, let the prose make it plain.
 
 THE GOLDEN RULE OF WHO WINS: YOUR OWN ANSWER COMES FIRST. For every fight, ask
 what a fan would type into a search bar -- "Would X beat Y?" -- and answer it
