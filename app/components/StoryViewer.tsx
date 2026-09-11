@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useRef, useState } from "react";
 
 interface Story {
@@ -78,7 +79,7 @@ export default function StoryViewer({ stories, startIndex, onClose, currentUserI
 
       {/* Header */}
       <div style={{ position: "absolute", top: 22, left: 16, right: 16, display: "flex", alignItems: "center", gap: 10, zIndex: 10 }} onClick={e => e.stopPropagation()}>
-        <img src={story.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${story.username}`} alt={story.username} style={{ width: 36, height: 36, borderRadius: "50%", border: "2px solid #fff", objectFit: "cover" }} />
+        <img src={avatarSrc(story.avatar_url, story.user_id)} alt={story.username} style={{ width: 36, height: 36, borderRadius: "50%", border: "2px solid #fff", objectFit: "cover" }} />
         <div>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "monospace" }}>@{story.username}</div>
           <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, fontFamily: "monospace" }}>

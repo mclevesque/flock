@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc, defaultPortraitFor } from "@/lib/avatars";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { actionSendFriendRequest, actionAcceptFriendRequest, actionPostWallComment } from "@/lib/actions";
@@ -165,7 +166,7 @@ export default function ProfileClient({ user, wallPosts: initialWallPosts, initi
     return () => grid.removeEventListener("touchmove", handleNativeTouchMove);
   }, [isOwn]);
 
-  const avatar = user?.id ? `/api/avatar/${user.id}?v=2` : `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`;
+  const avatar = user?.id ? `/api/avatar/${user.id}?v=2` : defaultPortraitFor(username);
   const displayName = user?.display_name || username;
 
   const displayWallPosts = wallPosts;
@@ -384,7 +385,7 @@ export default function ProfileClient({ user, wallPosts: initialWallPosts, initi
               <img
                 src={`/api/avatar/${user?.id ?? username}?v=${avatarVersion}`}
                 alt={displayName}
-                onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                onError={e => { (e.currentTarget as HTMLImageElement).src = defaultPortraitFor(user?.id ?? username); (e.currentTarget as HTMLImageElement).onerror = null; }}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}
                 onClick={e => { if (!profileStory && (isMod || isOwn)) { e.stopPropagation(); avatarInputRef.current?.click(); } }}
               />
@@ -690,7 +691,7 @@ export default function ProfileClient({ user, wallPosts: initialWallPosts, initi
                       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Last Game</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <img
-                          src={opponentAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${opponent}`}
+                          src={avatarSrc(opponentAvatar, opponent)}
                           alt={opponent}
                           style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0 }}
                         />
@@ -753,8 +754,8 @@ export default function ProfileClient({ user, wallPosts: initialWallPosts, initi
                     <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Last Match</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img src={opponentAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${opponent}`} alt={opponent}
-                          onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${opponent}`; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                        <img src={avatarSrc(opponentAvatar, opponent)} alt={opponent}
+                          onError={e => { (e.currentTarget as HTMLImageElement).src = defaultPortraitFor(opponent); (e.currentTarget as HTMLImageElement).onerror = null; }}
                           style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <Link href={`/profile/${opponent}`} style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-purple-bright)", textDecoration: "none" }}>@{opponent}</Link>

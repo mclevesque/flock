@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter, usePathname } from "next/navigation";
@@ -453,7 +454,7 @@ export default function GlobalPartyWidget() {
                     {party.members.map(m => (
                       <div key={m.userId} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                         <img
-                          src={m.avatarUrl || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${m.username}`}
+                          src={avatarSrc(m.avatarUrl, m.userId)}
                           alt={m.username}
                           style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: m.isLeader ? "1px solid #ffd700" : "1px solid rgba(255,255,255,0.1)", flexShrink: 0 }}
                         />
@@ -512,7 +513,7 @@ export default function GlobalPartyWidget() {
                               .filter(f => !party.members.some(m => m.userId === f.id) && (!friendSearch || f.username.toLowerCase().includes(friendSearch.toLowerCase())))
                               .map(f => (
                                 <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                                  <img src={f.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`} alt={f.username} style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
+                                  <img src={avatarSrc(f.avatar_url, f.id)} alt={f.username} style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
                                   <span style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{f.username}</span>
                                   <button onClick={() => sendInvite(f.id)} style={{
                                     padding: "2px 8px", fontSize: 10, fontWeight: 700,

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="samurai-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="samurai-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#c9303a" stop-opacity=".8"/><stop offset=".5" stop-color="#c9303a" stop-opacity=".34"/><stop offset="1" stop-color="#c9303a" stop-opacity="0"/></radialGradient>
+<linearGradient id="samurai-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="samurai-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="samurai-clip"><circle cx="100" cy="100" r="94"/></clipPath><linearGradient id="samurai-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2dfa4"/><stop offset="1" stop-color="#b48c3c"/></linearGradient>
+<g id="samurai-fig"><path d="M138 112L160 68" fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="136" cy="116" rx="12" ry="4.5" transform="rotate(26.6 136 116)"/><circle cx="161" cy="66" r="4.5"/><path d="M20 200L26 150C28 138 44 132 62 132L88 122L112 122L138 132C156 132 172 138 174 150L180 200Z"/><path d="M22 150L70 134L78 170L28 190Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M22 150L70 134L78 170L28 190Z"/></g><ellipse cx="100" cy="94" rx="18" ry="22"/><path d="M100 44C116 44 127 54 128 74C138 88 146 104 158 118C142 116 128 116 120 120L118 100C112 96 88 96 82 100L80 120C72 116 58 116 42 118C54 104 62 88 72 74C73 54 84 44 100 44Z"/><path d="M73 76C62 70 50 74 46 84C56 84 64 86 74 90Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M73 76C62 70 50 74 46 84C56 84 64 86 74 90Z"/></g></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#samurai-bg)"/>
+<g clip-path="url(#samurai-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#samurai-glow)"/>
+<use href="#samurai-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#samurai-fig" x="-3" y="-2.2" fill="url(#samurai-rim)" stroke="url(#samurai-rim)"/>
+<use href="#samurai-fig" fill="url(#samurai-body)" stroke="url(#samurai-body)"/><path d="M58 26C66 62 84 77 100 77C116 77 134 62 142 26C128 54 114 65 100 65C86 65 72 54 58 26Z" fill="url(#samurai-gold)"/><circle cx="100" cy="74" r="4.5" fill="#8a6a24"/><ellipse cx="92" cy="94" rx="4.2" ry="1.9" transform="rotate(10 92 94)" fill="#f2dfa4"/><ellipse cx="108" cy="94" rx="4.2" ry="1.9" transform="rotate(-10 108 94)" fill="#f2dfa4"/><path d="M92 106H108M94 110H106" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

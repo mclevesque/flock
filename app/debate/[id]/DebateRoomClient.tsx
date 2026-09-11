@@ -1,4 +1,5 @@
 "use client";
+import PersonAvatar from "@/app/components/PersonAvatar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
@@ -179,8 +180,8 @@ function SideCard({ label, user, avatar, placeholder }: { label: string; user: s
       borderStyle: placeholder ? "dashed" : "solid",
       textAlign: "center",
     }}>
-      {avatar
-        ? <img src={avatar} alt="" style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", margin: "0 auto 6px", display: "block" }} />
+      {user
+        ? <PersonAvatar src={avatar} seed={user} style={{ width: 36, height: 36, borderRadius: 18, margin: "0 auto 6px", display: "block" }} />
         : <div style={{ width: 36, height: 36, borderRadius: 18, background: "rgba(255,255,255,0.1)", margin: "0 auto 6px" }} />}
       <div style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
       <div style={{ fontSize: 11, opacity: 0.65, marginTop: 2 }}>{user ? `@${user}` : "waiting…"}</div>

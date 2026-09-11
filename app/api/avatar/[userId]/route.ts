@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserById } from "@/lib/db";
+import { defaultPortraitFor } from "@/lib/avatars";
 
-function dicebearFallback(seed: string) {
-  return NextResponse.redirect(
-    `https://api.dicebear.com/9.x/pixel-art/svg?seed=${encodeURIComponent(seed)}`,
-    { status: 302, headers: { "Cache-Control": "no-store" } }
-  );
+/**
+ * No usable photo: send them to their drawn portrait. Seeded by the user id so
+ * it is the same drawing the client picks when it seeds by id.
+ */
+function portraitFallback(req: NextRequest, seed: string) {
+  return NextResponse.redirect(new URL(defaultPortraitFor(seed), req.url), {
+    status: 302,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
 ) {
+  let seed = "unknown";
   try {
     const { userId } = await params;
-    const user = await getUserById(userId) as { avatar_url?: string; username?: string } | null;
+    seed = userId;
+    const user = await getUserById(userId) as { avatar_url?: string } | null;
     const url = user?.avatar_url;
 
     if (url) {
@@ -22,7 +29,7 @@ export async function GET(
       const isVercelBlob = url.includes("vercel-storage.com");
       if (!isVercelBlob) {
         const absoluteUrl = url.startsWith("/")
-          ? `${new URL(_req.url).origin}${url}`
+          ? `${new URL(req.url).origin}${url}`
           : url;
         if (absoluteUrl.startsWith("http://") || absoluteUrl.startsWith("https://")) {
           // Proxy the image — avoids CORS issues when Phaser loads canvas textures
@@ -38,14 +45,14 @@ export async function GET(
                 },
               });
             }
-          } catch { /* fall through to dicebear */ }
+          } catch { /* fall through to the portrait */ }
         }
       }
     }
 
-    // No real avatar — generated pixel-art avatar from username (never a blank silhouette)
-    return dicebearFallback(user?.username ?? userId);
+    // No real avatar — their drawn portrait (never a blank silhouette or a letter)
+    return portraitFallback(req, seed);
   } catch {
-    return dicebearFallback("unknown");
+    return portraitFallback(req, seed);
   }
 }

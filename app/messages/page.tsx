@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSession, signIn } from "@/lib/use-session";
 import Link from "next/link";
@@ -483,6 +484,13 @@ function PartyCard({ partyId }: { partyId: string }) {
   return <InviteCard href={`/town?joinParty=${partyId}`} emoji="🎮" title="Party Invite!" subtitle="Join up in the Kingdom of Flock" cta="Join Party →" color="100,200,100" />;
 }
 
+/** `[draftmasters:CODE]` — sent when a friend invites you into a DraftMasters room. */
+const DRAFTMASTERS_TOKEN = /^\[draftmasters:([A-Z0-9]{4,6})\]$/;
+
+function DraftMastersCard({ code }: { code: string }) {
+  return <InviteCard href={`/draftmasters?room=${code}`} emoji="⚔" title="DraftMasters invite" subtitle={`Room ${code}`} cta="Join" color="212,169,66" />;
+}
+
 function MessageContent({ content, sessionUserId, senderId }: { content: string; sessionUserId?: string | null; senderId?: string }) {
   if (content.startsWith("[image:")) {
     const inner = content.slice(7, -1);
@@ -519,6 +527,10 @@ function MessageContent({ content, sessionUserId, senderId }: { content: string;
   if (content.startsWith("[party:")) {
     const partyId = content.slice(7, -1);
     return <PartyCard partyId={partyId} />;
+  }
+  const draftInvite = content.match(DRAFTMASTERS_TOKEN);
+  if (draftInvite) {
+    return <DraftMastersCard code={draftInvite[1]} />;
   }
   if (content.startsWith("[quiz:")) {
     const challengeId = content.slice(6, -1);
@@ -707,7 +719,7 @@ function ChatView({
       >
         {messages.map((msg, idx) => {
           const mine = msg.sender_id === sessionUserId;
-          const isMedia = msg.content.startsWith("[image:") || msg.content.startsWith("[gif:") || msg.content.startsWith("[chess:") || msg.content.startsWith("[quiz:") || msg.content.startsWith("[watch:") || msg.content.startsWith("[poker:") || msg.content.startsWith("[voice:") || msg.content.startsWith("[snes:") || msg.content.startsWith("[party:");
+          const isMedia = msg.content.startsWith("[image:") || msg.content.startsWith("[gif:") || msg.content.startsWith("[chess:") || msg.content.startsWith("[quiz:") || msg.content.startsWith("[watch:") || msg.content.startsWith("[poker:") || msg.content.startsWith("[voice:") || msg.content.startsWith("[snes:") || msg.content.startsWith("[party:") || DRAFTMASTERS_TOKEN.test(msg.content);
           const isQuiz = msg.content.startsWith("[quiz:");
           // Group consecutive messages from same sender — hide avatar/name if previous msg same sender
           const prevMsg = messages[idx - 1];
@@ -723,7 +735,7 @@ function ChatView({
                 {!isGrouped && (
                   <Link href={`/profile/${msg.username}`} style={{ textDecoration: "none" }}>
                     <img
-                      src={msg.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${msg.username}`}
+                      src={avatarSrc(msg.avatar_url, msg.sender_id)}
                       style={{ width: 34, height: 34, borderRadius: 9, display: "block", border: "1px solid var(--border)" }}
                       alt="avatar"
                     />
@@ -1232,7 +1244,7 @@ function MessagesInner() {
                 >
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <img
-                      src={room.creator_avatar ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${room.creator_username}`}
+                      src={avatarSrc(room.creator_avatar, room.creator_id ?? room.creator_username)}
                       style={{ width: 28, height: 28, borderRadius: 7, border: "2px solid rgba(74,222,128,0.4)" }}
                       alt=""
                     />
@@ -1263,7 +1275,7 @@ function MessagesInner() {
               <div key={u.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                 <button onClick={() => { setActiveUser(u); prevMsgIds.current = new Set(); if (isMobile) setShowChat(true); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: activeUser?.id === u.id ? "rgba(124,92,191,0.15)" : "transparent", border: "none", borderLeft: activeUser?.id === u.id ? "2px solid var(--accent-purple)" : "2px solid transparent", cursor: "pointer", textAlign: "left" }}>
                   <div style={{ position: "relative", flexShrink: 0 }}>
-                    <img src={u.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${u.username}`} style={{ width: 34, height: 34, borderRadius: 8 }} alt={u.username} />
+                    <img src={avatarSrc(u.avatar_url, u.id)} style={{ width: 34, height: 34, borderRadius: 8 }} alt={u.username} />
                     <span style={{ position: "absolute", bottom: 0, right: 0, width: 9, height: 9, borderRadius: "50%", background: isOnline(u.id) ? "var(--online)" : "var(--offline)", border: "2px solid var(--bg-surface)" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1316,7 +1328,7 @@ function MessagesInner() {
               {users.map(u => (
                 <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", cursor: "pointer" }}>
                   <input type="checkbox" checked={selectedMembers.includes(u.id)} onChange={e => setSelectedMembers(prev => e.target.checked ? [...prev, u.id] : prev.filter(id => id !== u.id))} />
-                  <img src={u.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${u.username}`} style={{ width: 26, height: 26, borderRadius: 6 }} alt="" />
+                  <img src={avatarSrc(u.avatar_url, u.id)} style={{ width: 26, height: 26, borderRadius: 6 }} alt="" />
                   <span style={{ fontSize: 13 }}>{u.display_name || u.username}</span>
                 </label>
               ))}
@@ -1571,7 +1583,7 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
   return (
     <>
       <img
-        src={activeUser.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${activeUser.username}`}
+        src={avatarSrc(activeUser.avatar_url, activeUser.id)}
         style={{ width: 26, height: 26, borderRadius: 7 }} alt={activeUser.username}
       />
       <Link href={`/profile/${activeUser.username}`} style={{ fontSize: 14, color: "var(--text-primary)", textDecoration: "none", fontWeight: 700 }}>
@@ -1654,7 +1666,7 @@ function DmCallHeader({ activeUser, onSend, sessionUserId }: {
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         }}>
           <img
-            src={incomingCall.callerAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${incomingCall.callerUsername}`}
+            src={avatarSrc(incomingCall.callerAvatar, incomingCall.callerUsername)}
             style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid #4ade80", flexShrink: 0 }}
             alt=""
           />

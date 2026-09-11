@@ -1,5 +1,6 @@
 "use client";
 
+import PersonAvatar from "@/app/components/PersonAvatar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import InviteViaDm from "@/app/components/InviteViaDm";
@@ -504,7 +505,7 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
           {players.map(p => (
             <div key={p.user_id} style={{ textAlign: "center" }}>
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2a1a4e", border: "2px solid #4a2a7e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", overflow: "hidden" }}>
-                {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🎮"}
+                {p.is_bot && !p.avatar ? "🎮" : <PersonAvatar src={p.avatar} seed={p.user_id} style={{ width: "100%", height: "100%" }} />}
               </div>
               <div style={{ fontSize: "0.65rem", color: "#7a6a9e", marginTop: 2, maxWidth: 40, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.username}</div>
             </div>
@@ -796,7 +797,7 @@ export default function WaddabiGame({ roomId, initialRoom, initialPlayers, sessi
                 return (
                   <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: "6px", background: isCurrentDrawer ? "#1e1640" : "transparent", borderRadius: "7px", padding: "5px 7px", border: isCurrentDrawer ? "1px solid #3d2a6e" : "1px solid transparent" }}>
                     <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#2a1a4e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0, overflow: "hidden" }}>
-                      {p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🎮"}
+                      {p.is_bot && !p.avatar ? "🎮" : <PersonAvatar src={p.avatar} seed={p.user_id} style={{ width: "100%", height: "100%" }} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>

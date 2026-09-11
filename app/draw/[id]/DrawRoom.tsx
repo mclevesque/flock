@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import Link from "next/link";
@@ -1598,7 +1599,7 @@ export default function DrawRoom({ roomId, isHost, initialTitle }: { roomId: str
                     style={{ display: "flex", alignItems: "center", gap: 4, background: v.is_collaborator ? "rgba(124,92,191,0.15)" : "rgba(255,255,255,0.04)", borderRadius: 6, padding: "3px 7px", cursor: "pointer", border: v.is_collaborator ? "1px solid rgba(124,92,191,0.35)" : "1px solid transparent" }}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ username: v.username, userId: v.user_id, x: e.clientX, y: e.clientY }); }}
                   >
-                    <img src={v.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${v.username}`} style={{ width: 16, height: 16, borderRadius: 4 }} alt="" />
+                    <img src={avatarSrc(v.avatar_url, v.user_id)} style={{ width: 16, height: 16, borderRadius: 4 }} alt="" />
                     <Link href={`/profile/${v.username}`} style={{ fontSize: 11, color: v.is_collaborator ? "var(--accent-purple-bright)" : "var(--text-secondary)", textDecoration: "none", fontWeight: v.is_collaborator ? 700 : 400 }} onClick={e => e.stopPropagation()}>@{v.username}</Link>
                     {v.is_collaborator && <span style={{ fontSize: 10 }}>🎨</span>}
                   </div>
@@ -1612,7 +1613,7 @@ export default function DrawRoom({ roomId, isHost, initialTitle }: { roomId: str
             {messages.map(msg => (
               <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                 <Link href={`/profile/${msg.username}`}>
-                  <img src={msg.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${msg.username}`} style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, marginTop: 2 }} alt="" />
+                  <img src={avatarSrc(msg.avatar_url, msg.user_id)} style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, marginTop: 2 }} alt="" />
                 </Link>
                 <div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>

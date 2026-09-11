@@ -1,4 +1,5 @@
 "use client";
+import PersonAvatar from "@/app/components/PersonAvatar";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -179,9 +180,7 @@ function DebateCard({ d, tab, mine }: { d: DebateRow; tab: string; mine: boolean
 function SideChip({ label, user, avatar }: { label: string; user: string; avatar: string | null }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
-      {avatar
-        ? <img src={avatar} alt="" style={{ width: 22, height: 22, borderRadius: 11, objectFit: "cover", flexShrink: 0 }} />
-        : <div style={{ width: 22, height: 22, borderRadius: 11, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />}
+      <PersonAvatar src={avatar} seed={user} style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0 }} />
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
         <div style={{ fontSize: 10, opacity: 0.65 }}>@{user}</div>

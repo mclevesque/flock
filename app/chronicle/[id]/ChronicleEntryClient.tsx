@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -152,7 +153,7 @@ export default function ChronicleEntryClient({
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
           <Link href={`/profile/${entry.username}`}>
             <img
-              src={entry.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${entry.username}`}
+              src={avatarSrc(entry.avatar_url, entry.user_id)}
               style={{ width: 48, height: 48, borderRadius: 14, border: "2px solid rgba(124,92,191,0.35)", objectFit: "cover", display: "block" }}
               alt=""
             />
@@ -239,7 +240,7 @@ export default function ChronicleEntryClient({
               <div key={c.id} style={{ display: "flex", gap: 12, padding: "14px 16px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14 }}>
                 <Link href={`/profile/${c.username}`} style={{ flexShrink: 0 }}>
                   <img
-                    src={c.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${c.username}`}
+                    src={avatarSrc(c.avatar_url, c.author_id)}
                     style={{ width: 34, height: 34, borderRadius: 9, border: "2px solid rgba(124,92,191,0.25)", objectFit: "cover", display: "block" }}
                     alt=""
                   />

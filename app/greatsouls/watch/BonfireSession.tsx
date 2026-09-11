@@ -1,5 +1,6 @@
 "use client";
 
+import PersonAvatar from "@/app/components/PersonAvatar";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useVoice } from "@/app/components/VoiceWidget";
 
@@ -510,9 +511,7 @@ export default function BonfireSession({
                 fontSize: 10, color: "#d4a942", overflow: "hidden",
                 marginLeft: i > 0 ? -6 : 0, zIndex: 4 - i,
               }}>
-                {m.avatar_url ? (
-                  <img src={m.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                ) : m.username.charAt(0).toUpperCase()}
+                <PersonAvatar src={m.avatar_url} seed={m.user_id} alt={m.username} style={{ width: "100%", height: "100%" }} />
               </div>
             ))}
           </div>

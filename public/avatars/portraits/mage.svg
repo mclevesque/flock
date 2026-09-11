@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="mage-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="mage-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8a5ad6" stop-opacity=".8"/><stop offset=".5" stop-color="#8a5ad6" stop-opacity=".34"/><stop offset="1" stop-color="#8a5ad6" stop-opacity="0"/></radialGradient>
+<linearGradient id="mage-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="mage-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="mage-clip"><circle cx="100" cy="100" r="94"/></clipPath><radialGradient id="mage-orb"><stop offset="0" stop-color="#fffbe8"/><stop offset=".35" stop-color="#f2dfa4"/><stop offset=".6" stop-color="#b58cff" stop-opacity=".55"/><stop offset="1" stop-color="#8a5ad6" stop-opacity="0"/></radialGradient>
+<g id="mage-fig"><path d="M38 200L38 70" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M38 72C28 68 27 56 31 46M38 72C48 68 49 56 45 46" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M26 200C30 168 50 146 78 138L88 116L112 116L122 138C150 146 170 168 174 200Z"/><path d="M70 142L78 110L100 126L122 110L130 142Z"/><ellipse cx="100" cy="92" rx="19" ry="23"/><path d="M82 98C82 124 92 140 100 148C108 140 118 124 118 98Z"/><ellipse cx="100" cy="72" rx="52" ry="9"/><path d="M74 72C84 60 88 46 92 34C96 22 106 16 124 18C114 24 110 32 110 44C112 54 118 64 126 72Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#mage-bg)"/>
+<g clip-path="url(#mage-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#mage-glow)"/>
+<use href="#mage-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#mage-fig" x="-3" y="-2.2" fill="url(#mage-rim)" stroke="url(#mage-rim)"/>
+<use href="#mage-fig" fill="url(#mage-body)" stroke="url(#mage-body)"/><circle cx="38" cy="54" r="22" fill="url(#mage-orb)"/><circle cx="38" cy="54" r="6.5" fill="#fffbe8" opacity=".9"/><path d="M79 66Q100 59 121 66" fill="none" stroke="#d4af5f" stroke-width="3" stroke-linecap="round"/><ellipse cx="92" cy="88" rx="4.2" ry="1.9" transform="rotate(8 92 88)" fill="#f2dfa4"/><ellipse cx="108" cy="88" rx="4.2" ry="1.9" transform="rotate(-8 108 88)" fill="#f2dfa4"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

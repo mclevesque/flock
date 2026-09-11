@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -1155,7 +1156,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
     return (
       <Link href={`/profile/${entry.username}`} style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderRadius: 7 }}>
         <span style={{ fontSize: 11, color: i < 3 ? ["#ffd700", "#c0c0c0", "#cd7f32"][i] : "var(--text-muted)", fontWeight: 700, width: 20, textAlign: "center" }}>{i + 1}</span>
-        <img src={entry.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${entry.username}`}
+        <img src={avatarSrc(entry.avatar_url, entry.id)}
           alt="" style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid var(--border)" }} />
         <div style={{ flex: 1, overflow: "hidden" }}>
           <div style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.username}</div>
@@ -1321,7 +1322,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
                 padding: "20px 28px", minWidth: 160,
               }}>
                 <img
-                  src={lobbyRoom.host_avatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${lobbyRoom.host_username}`}
+                  src={avatarSrc(lobbyRoom.host_avatar, lobbyRoom.host_id)}
                   alt="" style={{ width: 72, height: 72, borderRadius: 14, border: "3px solid var(--accent-purple, #7c5cbf)", marginBottom: 10 }}
                 />
                 <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary, #fff)", marginBottom: 4 }}>@{lobbyRoom.host_username}</div>
@@ -1346,7 +1347,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
                 {guestJoined ? (
                   <>
                     <img
-                      src={lobbyRoom.guest_avatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${lobbyRoom.guest_username}`}
+                      src={avatarSrc(lobbyRoom.guest_avatar, lobbyRoom.guest_id ?? lobbyRoom.guest_username)}
                       alt="" style={{ width: 72, height: 72, borderRadius: 14, border: "3px solid #4a90d9", marginBottom: 10 }}
                     />
                     <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary, #fff)", marginBottom: 4 }}>@{lobbyRoom.guest_username}</div>
@@ -1420,7 +1421,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
                                   padding: "6px 4px", borderRadius: 8,
                                   transition: "background 0.15s",
                                 }}>
-                                  <img src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`}
+                                  <img src={avatarSrc(f.avatar_url, f.id)}
                                     alt="" style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0 }} />
                                   <span style={{ flex: 1, fontSize: 12, color: "#e8eaf6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
                                     @{f.username}
@@ -1558,7 +1559,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 20 }}>No messages yet</div>
               ) : lobbyMessages.map(msg => (
                 <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <img src={msg.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${msg.username}`}
+                  <img src={avatarSrc(msg.avatar_url, msg.user_id)}
                     alt="" style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, marginTop: 2 }} />
                   <div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: msg.user_id === sessionUserId ? "var(--accent-purple-bright, #a78bfa)" : "rgba(255,255,255,0.6)", marginRight: 6 }}>
@@ -1887,7 +1888,7 @@ export default function EmulatorClient({ leaderboard, sfLeaderboard, mkLeaderboa
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {rooms.filter(r => r.status !== "completed" && !r.game_started).map(room => (
                         <div key={room.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-elevated)", borderRadius: 8, padding: "10px 12px" }}>
-                          <img src={room.host_avatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${room.host_username}`}
+                          <img src={avatarSrc(room.host_avatar, room.host_id)}
                             alt="" style={{ width: 32, height: 32, borderRadius: 7, border: "1px solid var(--border)" }} />
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 700 }}>{room.game_name}</div>

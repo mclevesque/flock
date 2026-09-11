@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 interface Member {
@@ -731,7 +732,7 @@ export default function WatchRoom({ roomId, sessionUserId, sessionUsername }: Pr
             <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ position: "relative" as const }}>
                 <img
-                  src={m.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${m.username}`}
+                  src={avatarSrc(m.avatar_url, m.user_id)}
                   alt={m.username}
                   style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid #2a2d3a" }}
                 />

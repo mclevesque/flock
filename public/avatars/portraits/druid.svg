@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="druid-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="druid-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8a9e34" stop-opacity=".8"/><stop offset=".5" stop-color="#8a9e34" stop-opacity=".34"/><stop offset="1" stop-color="#8a9e34" stop-opacity="0"/></radialGradient>
+<linearGradient id="druid-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="druid-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="druid-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="druid-fig"><path d="M86 64C78 50 68 42 60 24M73 47C64 45 56 42 48 32M65 37C63 31 63 25 67 18M80 56C72 59 62 59 52 55" fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M86 64C78 50 68 42 60 24M73 47C64 45 56 42 48 32M65 37C63 31 63 25 67 18M80 56C72 59 62 59 52 55" fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></g><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M76 78C70 100 70 124 58 144L142 144C130 124 130 100 124 78C120 62 110 58 100 58C90 58 80 62 76 78Z"/><ellipse cx="100" cy="88" rx="20" ry="24"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#druid-bg)"/>
+<g clip-path="url(#druid-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#druid-glow)"/>
+<use href="#druid-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#druid-fig" x="-3" y="-2.2" fill="url(#druid-rim)" stroke="url(#druid-rim)"/>
+<use href="#druid-fig" fill="url(#druid-body)" stroke="url(#druid-body)"/><g fill="#d4af5f"><path transform="translate(76 74) rotate(-40) scale(1)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><path transform="translate(88 67) rotate(-20) scale(0.9)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><path transform="translate(100 64) rotate(-90) scale(0.8)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><g transform="matrix(-1 0 0 1 200 0)"><path transform="translate(76 74) rotate(-40) scale(1)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><path transform="translate(88 67) rotate(-20) scale(0.9)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/></g></g><g fill="#b9c46a"><path transform="translate(47 32) rotate(200) scale(1)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><path transform="translate(67 18) rotate(250) scale(0.9)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><g transform="matrix(-1 0 0 1 200 0)"><path transform="translate(47 32) rotate(200) scale(1)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/><path transform="translate(67 18) rotate(250) scale(0.9)" d="M0 0C4-6 11-6 15 0C11 6 4 6 0 0Z"/></g></g><ellipse cx="91.5" cy="92" rx="4.2" ry="1.9" transform="rotate(8 91.5 92)" fill="#f2dfa4"/><ellipse cx="108.5" cy="92" rx="4.2" ry="1.9" transform="rotate(-8 108.5 92)" fill="#f2dfa4"/><path d="M84 150Q100 160 116 150" fill="none" stroke="#d4af5f" stroke-width="2.6" stroke-linecap="round"/><circle cx="100" cy="157" r="3.2" fill="#f2dfa4"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

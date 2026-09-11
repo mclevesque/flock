@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 
@@ -66,7 +67,7 @@ function EntryCard({ entry, sessionUserId, onDelete }: { entry: Entry; sessionUs
       {/* Top bar */}
       <div style={{ padding: "18px 22px 0", display: "flex", alignItems: "center", gap: 10 }}>
         <Link href={`/profile/${entry.username}`} style={{ flexShrink: 0 }}>
-          <img src={entry.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${entry.username}`}
+          <img src={avatarSrc(entry.avatar_url, entry.user_id)}
             style={{ width: 38, height: 38, borderRadius: 10, border: "2px solid rgba(124,92,191,0.3)", objectFit: "cover", display: "block" }} alt="" />
         </Link>
         <div style={{ flex: 1, minWidth: 0 }}>

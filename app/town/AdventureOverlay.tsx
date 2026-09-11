@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useRef, useState } from "react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1322,7 +1323,7 @@ export default function AdventureOverlay({
               this.playerImg = img;
             };
             el.onerror = () => { if (useCors) loadAvatar(false); };
-            el.src = avatarUrl || `https://api.dicebear.com/9.x/pixel-art/png?seed=${username}`;
+            el.src = avatarSrc(avatarUrl, userId);
           };
           loadAvatar(true);
 

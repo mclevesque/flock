@@ -20,6 +20,7 @@
  *  • Orbit camera (mouse drag to rotate, scroll to zoom)
  */
 
+import { avatarSrc } from "@/lib/avatars";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -1995,7 +1996,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
       buildCastleWalls(THREE, scene);
 
       // ── Player mesh ───────────────────────────────────────────────────────
-      const playerGroup = await buildBillboard(THREE, avatarUrl, username, 0xffffff, avatarConfig ?? undefined);
+      const playerGroup = await buildBillboard(THREE, avatarSrc(avatarUrl, userId), username, 0xffffff, avatarConfig ?? undefined);
       playerGroup.position.set(...MOONHAVEN_SPAWN);
       scene.add(playerGroup);
       playerMeshRef.current = playerGroup;
@@ -2569,7 +2570,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
     let group = otherMeshesRef.current.get(player.user_id);
     const isNew = !group;
     if (!group) {
-      group = await buildBillboard(THREE, player.avatar_url, player.username, 0x88ffaa, player.avatar_config ?? undefined);
+      group = await buildBillboard(THREE, avatarSrc(player.avatar_url, player.user_id), player.username, 0x88ffaa, player.avatar_config ?? undefined);
       scene.add(group);
       otherMeshesRef.current.set(player.user_id, group);
     }
@@ -2996,7 +2997,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
             const isMe = roomHostId === userId;
             return (
               <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
-                <img src={p.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt={p.username} style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0 }} />
+                <img src={avatarSrc(p.avatar_url, p.user_id)} alt={p.username} style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0 }} />
                 <span style={{ fontSize: 12, color: isHost ? "#ffd700" : isHand ? "#ffaa44" : "rgba(255,255,255,0.75)", flex: 1 }}>
                   @{p.username}{isHost ? " 👑" : isHand ? " ⚔️" : ""}
                 </span>
@@ -3280,7 +3281,7 @@ export default function MoonhavenClient({ userId, username, avatarUrl, avatarCon
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                           {nearbyPlayers.filter(p => p.user_id !== userId).map(p => (
                             <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <img src={p.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt={p.username} style={{ width: 20, height: 20, borderRadius: "50%" }} />
+                              <img src={avatarSrc(p.avatar_url, p.user_id)} alt={p.username} style={{ width: 20, height: 20, borderRadius: "50%" }} />
                               <span style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.65)" }}>@{p.username}</span>
                               <button
                                 onClick={() => {

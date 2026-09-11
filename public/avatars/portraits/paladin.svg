@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="paladin-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="paladin-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e2b24e" stop-opacity=".8"/><stop offset=".5" stop-color="#e2b24e" stop-opacity=".34"/><stop offset="1" stop-color="#e2b24e" stop-opacity="0"/></radialGradient>
+<linearGradient id="paladin-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="paladin-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="paladin-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="paladin-fig"><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><ellipse cx="56" cy="152" rx="32" ry="24"/><ellipse cx="144" cy="152" rx="32" ry="24"/><path d="M95 52C93 38 96 26 100 16C104 26 107 38 105 52Z"/><path d="M74 72C62 66 54 54 52 40C60 48 66 52 76 58Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M74 72C62 66 54 54 52 40C60 48 66 52 76 58Z"/></g><path d="M72 88C72 60 84 48 100 48C116 48 128 60 128 88L128 112C120 119 112 119 108 116L100 108L92 116C88 119 80 119 72 112Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#paladin-bg)"/>
+<g clip-path="url(#paladin-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#paladin-glow)"/><path d="M97.1 42.1L100 2L102.9 42.1ZM114.1 44.4L123.7 26.7L118 46ZM127.5 52.3L158 26L131.7 56.5ZM138 66L157.3 60.3L139.6 69.9ZM141.9 81.1L182 84L141.9 86.9ZM139.6 98.1L157.3 107.7L138 102ZM131.7 111.5L158 142L127.5 115.7ZM118 122L123.7 141.3L114.1 123.6ZM102.9 125.9L100 166L97.1 125.9ZM85.9 123.6L76.3 141.3L82 122ZM72.5 115.7L42 142L68.3 111.5ZM62 102L42.7 107.7L60.4 98.1ZM58.1 86.9L18 84L58.1 81.1ZM60.4 69.9L42.7 60.3L62 66ZM68.3 56.5L42 26L72.5 52.3ZM82 46L76.3 26.7L85.9 44.4Z" fill="#d4af5f" opacity=".6"/><circle cx="100" cy="84" r="41" fill="none" stroke="#f2dfa4" stroke-width="2.6" opacity=".9"/>
+<use href="#paladin-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#paladin-fig" x="-3" y="-2.2" fill="url(#paladin-rim)" stroke="url(#paladin-rim)"/>
+<use href="#paladin-fig" fill="url(#paladin-body)" stroke="url(#paladin-body)"/><path d="M84 82H116M100 82V104" fill="none" stroke="#f2dfa4" stroke-width="3.4" stroke-linecap="round"/><path d="M73 70Q100 62 127 70" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/><path d="M100 150V188M86 163H114" fill="none" stroke="#d4af5f" stroke-width="4.4" stroke-linecap="round"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

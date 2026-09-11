@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
@@ -118,7 +119,7 @@ export default function DrawHub() {
                   <div style={{ padding: "12px 14px" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: isOwner ? 28 : 0 }}>{room.title}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <img src={room.host_avatar ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${room.host_username}`} style={{ width: 18, height: 18, borderRadius: 5 }} alt="" />
+                      <img src={avatarSrc(room.host_avatar, room.host_id)} style={{ width: 18, height: 18, borderRadius: 5 }} alt="" />
                       <span style={{ fontSize: 12, color: "var(--text-muted)" }}>@{room.host_username}</span>
                       <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)" }}>Live</span>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#4caf7d" }} />

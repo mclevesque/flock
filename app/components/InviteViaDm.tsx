@@ -7,6 +7,7 @@
  *   <InviteViaDm gameTag="chess" gameId={gameId} label="Invite Friend" />
  *   <InviteViaDm gameTag="snes" gameId={roomId} label="📨 Invite" />
  */
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef } from "react";
 
 interface Friend { id: string; username: string; display_name: string | null; avatar_url: string | null; }
@@ -116,7 +117,7 @@ export default function InviteViaDm({ gameTag, gameId, label = "📨 Invite", st
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = wasSent ? "rgba(74,222,128,0.05)" : "transparent"; }}
               >
                 <img
-                  src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`}
+                  src={avatarSrc(f.avatar_url, f.id)}
                   alt="" style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0 }}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>

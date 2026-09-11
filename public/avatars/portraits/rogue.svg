@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="rogue-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="rogue-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1fb57a" stop-opacity=".8"/><stop offset=".5" stop-color="#1fb57a" stop-opacity=".34"/><stop offset="1" stop-color="#1fb57a" stop-opacity="0"/></radialGradient>
+<linearGradient id="rogue-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="rogue-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="rogue-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="rogue-fig"><path d="M56 106L76 136" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><path d="M45 113L67 99" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 106L44 86" fill="none" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="42" cy="82" r="5"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M56 106L76 136" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><path d="M45 113L67 99" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 106L44 86" fill="none" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="42" cy="82" r="5"/></g><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M100 36C112 46 132 56 136 84C138 104 142 120 158 138C130 132 116 128 100 128C84 128 70 132 42 138C58 120 62 104 64 84C68 56 88 46 100 36Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#rogue-bg)"/>
+<g clip-path="url(#rogue-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#rogue-glow)"/>
+<use href="#rogue-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#rogue-fig" x="-3" y="-2.2" fill="url(#rogue-rim)" stroke="url(#rogue-rim)"/>
+<use href="#rogue-fig" fill="url(#rogue-body)" stroke="url(#rogue-body)"/><path d="M100 64C114 64 122 80 122 96C122 112 112 122 100 125C88 122 78 112 78 96C78 80 86 64 100 64Z" fill="#050504"/><ellipse cx="100" cy="96" rx="18" ry="9" fill="#1fb57a" opacity=".22"/><ellipse cx="91" cy="95" rx="4.2" ry="1.9" transform="rotate(12 91 95)" fill="#f2dfa4"/><ellipse cx="109" cy="95" rx="4.2" ry="1.9" transform="rotate(-12 109 95)" fill="#f2dfa4"/><path d="M100 39Q97 52 100 64" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/><circle cx="100" cy="133" r="3.6" fill="#d4af5f"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

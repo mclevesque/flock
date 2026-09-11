@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="monk-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="monk-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f09a1c" stop-opacity=".8"/><stop offset=".5" stop-color="#f09a1c" stop-opacity=".34"/><stop offset="1" stop-color="#f09a1c" stop-opacity="0"/></radialGradient>
+<linearGradient id="monk-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="monk-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="monk-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="monk-fig"><path d="M158 200L158 40" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="158" cy="38" r="5"/><path d="M20 200C22 166 46 142 78 136C86 134 90 128 90 114L110 114C110 128 114 134 122 136C154 142 178 166 180 200Z"/><circle cx="100" cy="58" r="8"/><ellipse cx="100" cy="88" rx="22" ry="26"/><ellipse cx="77" cy="92" rx="4.5" ry="8"/><ellipse cx="123" cy="92" rx="4.5" ry="8"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#monk-bg)"/>
+<g clip-path="url(#monk-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#monk-glow)"/>
+<use href="#monk-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#monk-fig" x="-3" y="-2.2" fill="url(#monk-rim)" stroke="url(#monk-rim)"/>
+<use href="#monk-fig" fill="url(#monk-body)" stroke="url(#monk-body)"/><g fill="none" stroke="#d4af5f" stroke-width="4"><path d="M154 62H162M154 70H162M154 150H162"/></g><path d="M66 142C90 158 112 178 124 200" fill="none" stroke="#8a6a24" stroke-width="1.6" stroke-linecap="round"/><path d="M89 90Q93 93 97 90M103 90Q107 93 111 90" fill="none" stroke="#f2dfa4" stroke-width="1.8" stroke-linecap="round"/><g fill="#d4af5f"><circle cx="123.5" cy="131.1" r="3.4"/><circle cx="121.8" cy="140.6" r="3.4"/><circle cx="118.9" cy="149.1" r="3.4"/><circle cx="115.1" cy="156.2" r="3.4"/><circle cx="110.5" cy="161.5" r="3.4"/><circle cx="105.4" cy="164.9" r="3.4"/><circle cx="100" cy="166" r="5.2"/><circle cx="94.6" cy="164.9" r="3.4"/><circle cx="89.5" cy="161.5" r="3.4"/><circle cx="84.9" cy="156.2" r="3.4"/><circle cx="81.1" cy="149.1" r="3.4"/><circle cx="78.2" cy="140.6" r="3.4"/><circle cx="76.5" cy="131.1" r="3.4"/></g><path d="M100 176V186" fill="none" stroke="#d4af5f" stroke-width="2.5" stroke-linecap="round"/><path d="M95 64H105" fill="none" stroke="#d4af5f" stroke-width="2.2" stroke-linecap="round"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

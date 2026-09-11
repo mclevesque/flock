@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc, PORTRAITS, portraitUrl } from "@/lib/avatars";
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
@@ -288,12 +289,6 @@ function ProfileSongPicker({ currentUrl, currentTitle, currentArtist, onSelect }
   );
 }
 
-const DICEBEAR_SEEDS = [
-  "cosmic","void","neon","ghost","cipher","luna","nova","ash","rex","solar",
-  "echo","zap","hex","vex","kira","mira","dex","rae","jun","pixel",
-  "blade","frost","storm","ember","wave","comet","pulse","drift","spark","haze",
-];
-
 const CUSTOM_PRESETS: { url: string; label: string }[] = [];
 
 const FAVORITES_KEY = "ryft_avatar_favorites";
@@ -321,10 +316,6 @@ function AvatarPicker({ current, username, onSelect, sessionImage }: { current: 
 
   // Load favorites from localStorage on mount
   useEffect(() => { setFavorites(loadFavorites()); }, []);
-
-  function dicebear(seed: string) {
-    return `https://api.dicebear.com/9.x/pixel-art/svg?seed=${seed}`;
-  }
 
   // For AI-generated previews (blob: URLs) and Pollinations presets:
   // fetch the image bytes and POST to avatar-upload → saved permanently to Vercel Blob.
@@ -457,7 +448,7 @@ function AvatarPicker({ current, username, onSelect, sessionImage }: { current: 
     <div>
       {/* Current avatar */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-        <img src={selected || dicebear(username)} alt="current" style={{ width: 72, height: 72, borderRadius: 14, border: "2px solid var(--accent-purple)", background: "var(--bg-elevated)" }} />
+        <img src={avatarSrc(selected, username)} alt="current" style={{ width: 72, height: 72, borderRadius: 14, border: "2px solid var(--accent-purple)", background: "var(--bg-elevated)" }} />
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Your Avatar</div>
           {uploading
@@ -508,13 +499,13 @@ function AvatarPicker({ current, username, onSelect, sessionImage }: { current: 
               </button>
             );
           })}
-          {DICEBEAR_SEEDS.map(seed => {
-            const url = dicebear(seed);
+          {PORTRAITS.map(portrait => {
+            const url = portraitUrl(portrait.id);
             const isSelected = selected === url;
             return (
-              <button type="button" key={seed} onClick={() => pick(url)} style={{ background: isSelected ? "rgba(124,92,191,0.2)" : "var(--bg-elevated)", border: `2px solid ${isSelected ? "var(--accent-purple-bright)" : "var(--border)"}`, borderRadius: 10, padding: 4, cursor: "pointer", transition: "all 0.1s" }}>
-                <img src={url} alt={seed} style={{ width: "100%", aspectRatio: "1", display: "block", borderRadius: 6 }} />
-                <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seed}</div>
+              <button type="button" key={portrait.id} onClick={() => pick(url)} style={{ background: isSelected ? "rgba(124,92,191,0.2)" : "var(--bg-elevated)", border: `2px solid ${isSelected ? "var(--accent-purple-bright)" : "var(--border)"}`, borderRadius: 10, padding: 4, cursor: "pointer", transition: "all 0.1s" }}>
+                <img src={url} alt={portrait.name} style={{ width: "100%", aspectRatio: "1", display: "block", borderRadius: 6 }} />
+                <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{portrait.name}</div>
               </button>
             );
           })}

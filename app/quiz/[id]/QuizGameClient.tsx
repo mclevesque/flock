@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 
@@ -268,7 +269,7 @@ export default function QuizGameClient({ initialGame, sessionUserId }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px" }}>
         {/* Me */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-          <img src={myAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${myUsername}`}
+          <img src={avatarSrc(myAvatar, myUsername)}
             alt="" style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid var(--accent-purple)" }} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 700 }}>{myUsername}</div>
@@ -284,7 +285,7 @@ export default function QuizGameClient({ initialGame, sessionUserId }: Props) {
 
         {/* Opponent */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end", flexDirection: "row-reverse" }}>
-          <img src={opAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${opUsername}`}
+          <img src={avatarSrc(opAvatar, opUsername)}
             alt="" style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid var(--accent-blue)" }} />
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 12, fontWeight: 700 }}>{opUsername}</div>

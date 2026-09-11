@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="knight-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="knight-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4f7fb8" stop-opacity=".8"/><stop offset=".5" stop-color="#4f7fb8" stop-opacity=".34"/><stop offset="1" stop-color="#4f7fb8" stop-opacity="0"/></radialGradient>
+<linearGradient id="knight-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="knight-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="knight-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="knight-fig"><path d="M56 112L70 142" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 120L70 104" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M55 112L43 88" fill="none" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="41" cy="84" r="6"/><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><ellipse cx="58" cy="150" rx="30" ry="25"/><ellipse cx="142" cy="150" rx="30" ry="25"/><path d="M95 50C90 30 106 18 128 18C144 18 154 26 158 38C146 30 134 30 126 36C118 42 112 48 108 52Z"/><path d="M74 66C74 52 86 46 100 46C114 46 126 52 126 66L128 104C128 112 116 119 100 119C84 119 72 112 72 104Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#knight-bg)"/>
+<g clip-path="url(#knight-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#knight-glow)"/>
+<use href="#knight-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#knight-fig" x="-3" y="-2.2" fill="url(#knight-rim)" stroke="url(#knight-rim)"/>
+<use href="#knight-fig" fill="url(#knight-body)" stroke="url(#knight-body)"/><path d="M100 50V116" fill="none" stroke="#d4af5f" stroke-width="1.4" stroke-linecap="round" opacity="0.6"/><path d="M75 66Q100 60 125 66" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round" opacity="0.9"/><path d="M81 83H95M105 83H119" fill="none" stroke="#f2dfa4" stroke-width="3.6" stroke-linecap="round"/><g fill="#8a6a24"><circle cx="90" cy="98" r="1.4"/><circle cx="90" cy="104" r="1.4"/><circle cx="110" cy="98" r="1.4"/><circle cx="110" cy="104" r="1.4"/></g>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

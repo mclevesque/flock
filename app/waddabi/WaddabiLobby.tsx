@@ -1,5 +1,6 @@
 "use client";
 
+import PersonAvatar from "@/app/components/PersonAvatar";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -275,11 +276,7 @@ export default function WaddabiLobby({ lobbies: initialLobbies, sessionUserId, s
               {lobby.name}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#7a6a9e", fontSize: "0.8rem" }}>
-              {lobby.host_avatar ? (
-                <img src={lobby.host_avatar} alt="" style={{ width: "18px", height: "18px", borderRadius: "50%", objectFit: "cover" }} />
-              ) : (
-                <span style={{ fontSize: "14px" }}>🎮</span>
-              )}
+              <PersonAvatar src={lobby.host_avatar} seed={lobby.host_id} style={{ width: "18px", height: "18px", borderRadius: "50%" }} />
               <span>{lobby.host_name ?? "Host"}</span>
             </div>
           </div>
