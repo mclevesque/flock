@@ -191,21 +191,27 @@ const WRITTEN: [string, [number, number]][] = [
   // ── The dragons of Westeros, largest to smallest ──────────────────────
   // Size is the whole story here and it tracks nothing else: Vhagar is old
   // enough to have outgrown every other dragon alive.
+  //
+  // EVERY DRAGON IS SUPERHUMAN, a full band above the best knight in Westeros
+  // (the Mountain is 8). They used to run 6 to 11, which put Meleys, Caraxes
+  // and Syrax in the same band as Gregor Clegane -- and the storyteller, told
+  // a same-band fight is wide open, had the Mountain kill Caraxes with a
+  // sword. Still capped at 14, so a dragon stays below base Goku.
   ["balerion", [14, 18]],
-  ["vhagar", [11, 14]],
-  ["drogon", [11, 13]],
-  ["caraxes", [10, 12]],
-  ["meleys", [10, 12]],
-  ["vermithor", [10, 13]],
-  ["sunfyre", [9, 11]],
-  ["seasmoke", [9, 11]],
-  ["viserion", [9, 11]],
-  ["rhaegal", [9, 11]],
-  ["syrax", [8, 10]],
-  ["arrax", [6, 8]],
-  ["tessarion", [7, 9]],
-  ["moondancer", [6, 8]],
-  ["ice dragon", [12, 15]],
+  ["vhagar", [14, 16]],
+  ["drogon", [13, 15]],
+  ["vermithor", [13, 15]],
+  ["caraxes", [13, 14]],
+  ["meleys", [12, 14]],
+  ["sunfyre", [12, 13]],
+  ["seasmoke", [12, 13]],
+  ["viserion", [12, 13]],
+  ["rhaegal", [12, 13]],
+  ["syrax", [11, 12]],
+  ["tessarion", [11, 12]],
+  ["arrax", [11, 11]],
+  ["moondancer", [11, 11]],
+  ["ice dragon", [14, 16]],
   ["night king", [12, 14]],
 
   // ── Westeros, the ones worth naming ───────────────────────────────────

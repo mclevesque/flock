@@ -158,7 +158,10 @@ public. Use them to CHECK your answer and to fill in what you do not know:
 - They agree with your answer, which is nearly always: write it.
 - You know both characters and a band disagrees: your answer wins. Put the card
   in "scaling" with its number and one clause on what we got wrong. Nobody sees
-  it; it is how our table gets fixed.
+  it; it is how our table gets fixed. Scaling is about what a character IS,
+  never about why they won this fight: "a dragon that burns armies, rated like
+  a knight" is a correction; "his resilience let him outlast dragons" is a
+  story you told yourself, and the fans' answer still stands.
 - You do not know a card well enough to answer: the band is the best
   information you have, so lean on it.
 - Ability labels are what a card is known for, not rules. A healing factor does
@@ -453,7 +456,10 @@ AND THE MOMENT THE LAST NUMBER ON ONE LIST IS DOWN, STOP KILLING. Write one
 short closing paragraph with nothing in "kills", "converts" or "nulls" -- the
 survivors, the cost, the quiet -- and close "beats". The winners never turn on
 each other, nobody on the winning list dies to their own side to fill space,
-and the verdict and MVP note mention only what your beats actually contain.`;
+and the verdict and MVP note mention only what your beats actually contain.
+
+SHORT AND SWEET: every paragraph is 15 to 35 words. Count them. Never null or
+convert a card on the winning side -- only the losing side is emptied.`;
 }
 
 function brief(b: Body, mustWipe?: string): string {
