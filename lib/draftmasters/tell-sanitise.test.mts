@@ -40,7 +40,7 @@ const it = (name: string, fn: () => void) => {
 };
 
 // ── The one the player caught: the fight carried on after a wipe ────────────
-it("stops one beat after a side is wiped, and drops the friendly fire after it", () => {
+it("ends the story on the paragraph that wipes a side", () => {
   const out = run({
     beats: [
       beat("walk-out"),
@@ -55,8 +55,10 @@ it("stops one beat after a side is wiped, and drops the friendly fire after it",
       kb("Android 18"),
     ],
   });
-  assert.equal(out.beats.length, 7, "should keep 6 beats + one aftermath");
-  assert.equal(out.beats[6].text, "the field goes quiet");
+  assert.equal(out.beats.length, 5, "one paragraph per kill, and nothing after the wipe");
+  assert.equal(out.beats[0].text, "walk-out Iron Man go down.");
+  assert.deepEqual(out.beats[4].kills, ["Saibaman"]);
+  assert.ok(!JSON.stringify(out.beats).includes("the field goes quiet"));
   const dead = out.beats.flatMap((x) => x.kills ?? []);
   assert.deepEqual(dead.sort(), ["Iron Man", "Kami", "Mysterio", "Saibaman", "Venom"]);
   for (const own of ["Apocalypse", "Vision", "Android 18"]) {
@@ -149,11 +151,11 @@ it("refuses an aftermath beat that is still killing people", () => {
       kb("Apocalypse"),
     ],
   });
-  assert.equal(out.beats.length, 2, "the killing aftermath is dropped, not trimmed");
+  assert.equal(out.beats.length, 1, "the killing aftermath is dropped, not trimmed");
   assert.ok(!JSON.stringify(out.beats).includes("Apocalypse"));
 });
 
-it("keeps a genuine aftermath beat", () => {
+it("drops a quiet aftermath too: the wipe is the last paragraph", () => {
   const out = run({
     beats: [
       beat("walk-out"),
@@ -162,8 +164,42 @@ it("keeps a genuine aftermath beat", () => {
       kb("Vision"),
     ],
   });
-  assert.equal(out.beats.length, 3);
-  assert.equal(out.beats[2].text, "the field goes quiet");
+  assert.equal(out.beats.length, 1);
+  assert.ok(!JSON.stringify(out.beats).includes("the field goes quiet"));
+});
+
+// ── Every paragraph changes a portrait ────────────────────────────────────
+it("folds a set-up paragraph into the kill it sets up", () => {
+  const out = run({ beats: [beat("Vegeta charges."), kb("Iron Man")] });
+  assert.equal(out.beats.length, 1);
+  assert.equal(out.beats[0].text, "Vegeta charges. Iron Man go down.");
+});
+
+it("never ships a paragraph that removes nobody", () => {
+  const out = run({
+    beats: [
+      beat("a"),
+      kb("Iron Man"),
+      beat("b"),
+      beat("c"),
+      kb("Venom"),
+      { text: "the dead get up", converts: [8] },
+      beat("d"),
+      { text: "the curse burns out", nulls: [9] },
+    ],
+  });
+  assert.equal(out.beats.length, 4);
+  for (const x of out.beats) {
+    const gone = (x.kills?.length ?? 0) + (x.turned?.length ?? 0) + (x.nulled?.length ?? 0);
+    assert.ok(gone > 0, `"${x.text}" removes nobody`);
+  }
+  assert.equal(out.beats[1].text, "b c Venom go down.");
+});
+
+it("keeps set-up the model never paid off, on the last paragraph", () => {
+  const out = run({ beats: [kb("Iron Man"), beat("Vegeta circles.")] });
+  assert.equal(out.beats.length, 1);
+  assert.equal(out.beats[0].text, "Iron Man go down. Vegeta circles.");
 });
 
 // ── Numbers are the identity; the prose can call them anything ────────────
@@ -240,19 +276,56 @@ it("accepts a death written without the parenthetical", () => {
   assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Goku (GT)"]);
 });
 
-// ── A team may not lose to itself ─────────────────────────────────────────
+// ── Allies do not attack allies ───────────────────────────────────────────
 // Board A is 1-5 (mclevesque), board B is 6-10 (The Shark).
-it("allows one own goal", () => {
-  const out = run({ beats: [beat("x"), { text: "Buu turns", by: 1, kills: [2] }] });
-  assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Vegeta"]);
+it("refuses friendly fire the paragraph does not headline", () => {
+  // Meleys burning her own line with nothing in the prose saying why. The
+  // portrait stays up, and the paragraph narrating it goes with the kill.
+  const out = run({
+    beats: [kb("Iron Man"), { text: "Buu turns and blasts Vegeta", by: 1, kills: [2] }, kb("Venom")],
+  });
+  assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Iron Man", "Venom"]);
+  assert.ok(!JSON.stringify(out.beats).includes("Buu turns"));
 });
 
-it("refuses a second own goal", () => {
+it("honours one own goal that opens FRIENDLY FIRE!", () => {
+  const out = run({
+    beats: [kb("Iron Man"), { text: "FRIENDLY FIRE! Buu turns on Vegeta", by: 1, kills: [2] }],
+  });
+  assert.deepEqual(out.beats.flatMap((b) => b.kills ?? []), ["Iron Man", "Vegeta"]);
+  assert.equal(out.beats[1].text, "FRIENDLY FIRE! Buu turns on Vegeta");
+});
+
+it("reads BETRAYAL! in any case and prints it one way", () => {
+  const out = run({
+    beats: [kb("Iron Man"), { text: "Betrayal: Vision cuts Vegeta down", by: 5, kills: [2] }],
+  });
+  assert.equal(out.beats[1].text, "BETRAYAL! Vision cuts Vegeta down");
+});
+
+it("puts waiting set-up before the headline, not under it", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man"),
+      beat("Buu's eyes go wrong."),
+      { text: "FRIENDLY FIRE! Buu swats Vegeta", by: 1, kills: [2] },
+    ],
+  });
+  assert.equal(out.beats[0].text, "Iron Man go down. Buu's eyes go wrong.");
+  assert.equal(out.beats[1].text, "FRIENDLY FIRE! Buu swats Vegeta");
+});
+
+it("drops a headline the paragraph does not earn", () => {
+  const out = run({ beats: [{ text: "BETRAYAL! Vegeta blasts Iron Man", by: 2, kills: [6] }] });
+  assert.equal(out.beats[0].text, "Vegeta blasts Iron Man");
+});
+
+it("refuses a second own goal, headline or not", () => {
   const out = run({
     beats: [
       beat("x"),
-      { text: "Buu turns on Vegeta", by: 1, kills: [2] },
-      { text: "and then on Android 18", by: 1, kills: [3] },
+      { text: "FRIENDLY FIRE! Buu turns on Vegeta", by: 1, kills: [2] },
+      { text: "BETRAYAL! and then on Android 18", by: 1, kills: [3] },
       { text: "Iron Man falls", by: 2, kills: [6] },
     ],
   });
@@ -269,7 +342,7 @@ it("never lets a side finish itself off", () => {
     beats: [
       beat("x"),
       { text: "four of A fall", by: 6, kills: [1, 2, 3, 4] },
-      { text: "and Vision turns on the last of them", by: 5, kills: [5] },
+      { text: "BETRAYAL! and Vision turns on the last of them", by: 5, kills: [5] },
     ],
   });
   const dead = out.beats.flatMap((b) => b.kills ?? []);
@@ -307,13 +380,13 @@ it("still lets the other side land the finishing blow", () => {
 // ── Three ways off the board ──────────────────────────────────────────────
 it("counts a conversion as gone from the side that drafted them", () => {
   const out = run({ beats: [beat("x"), { text: "the dead get up wearing his colours", converts: [6] }] });
-  assert.deepEqual(out.beats[1].turned, ["Iron Man"]);
-  assert.deepEqual(out.beats[1].kills ?? [], []);
+  assert.deepEqual(out.beats[0].turned, ["Iron Man"]);
+  assert.deepEqual(out.beats[0].kills ?? [], []);
 });
 
 it("counts a nulled thing as gone", () => {
   const out = run({ beats: [beat("x"), { text: "the greyscale burns out", nulls: [7] }] });
-  assert.deepEqual(out.beats[1].nulled, ["Venom"]);
+  assert.deepEqual(out.beats[0].nulled, ["Venom"]);
 });
 
 it("finishes a battle by any mix of dead, converted and nulled", () => {

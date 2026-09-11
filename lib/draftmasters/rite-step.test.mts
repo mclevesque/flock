@@ -6,7 +6,7 @@
  * derives the answer instead, so a late wake-up lands on the right line rather
  * than catching up through the ones it missed.
  */
-import { stepAt } from "./rite.ts";
+import { riteFor, skipFrom, stepAt, RITE_HOLD } from "./rite.ts";
 import assert from "node:assert";
 
 const RITE = [
@@ -48,6 +48,35 @@ it("skips straight to the right line after a long stall", () => {
 
 it("never runs off the end", () => {
   assert.equal(stepAt(RITE, Number.MAX_SAFE_INTEGER), RITE.length - 1);
+});
+
+// ── A tap moves it on a line ──────────────────────────────────────────────
+const SPOKEN = riteFor("mclevesque", "The Shark");
+const END = SPOKEN[SPOKEN.length - 1].at + RITE_HOLD;
+
+it("a tap before the first line brings the first line", () => {
+  assert.equal(skipFrom(SPOKEN, 0), 300);
+});
+
+it("a tap moves to the next line", () => {
+  assert.equal(skipFrom(SPOKEN, 7000), 8600);
+  assert.equal(stepAt(SPOKEN, skipFrom(SPOKEN, 7000)), 3);
+});
+
+it("a tap steps over the blank breath between lines", () => {
+  // Team names at 8600, a blank at 12000, the Warrior at 13000. Landing on
+  // the blank would look like the tap did nothing.
+  assert.equal(skipFrom(SPOKEN, 9000), 13000);
+  assert.equal(skipFrom(SPOKEN, 12500), 13000);
+  assert.equal(skipFrom(SPOKEN, 16000), 20600);
+});
+
+it("a tap on the last line ends the hold", () => {
+  assert.equal(skipFrom(SPOKEN, 21000), END);
+});
+
+it("a tap never winds the clock back", () => {
+  assert.equal(skipFrom(SPOKEN, END + 5000), END + 5000);
 });
 
 console.log(`\n${pass} passing`);

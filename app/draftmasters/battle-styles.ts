@@ -465,6 +465,24 @@ export const BATTLE_STYLES = `
   color: #ff7a63;
   text-shadow: 0 2px 12px rgba(0,0,0,.95), 0 0 26px rgba(224,64,42,.4);
 }
+/* The other two ways off the board, lit in their own stamp's colour, so a name
+   in the prose and the portrait it changed read as one event. */
+.dm-st-fell-turned {
+  color: #7dc0ff;
+  text-shadow: 0 2px 12px rgba(0,0,0,.95), 0 0 26px rgba(59,130,246,.4);
+}
+.dm-st-fell-null {
+  color: #cfcfcf;
+  text-shadow: 0 2px 12px rgba(0,0,0,.95);
+}
+
+/* The rare paragraph where a side hurts itself. Headlined so it reads as a
+   moment in the story, not as the game misfiring. */
+.dm-st-loud {
+  font-family: var(--dm-display); font-weight: 700;
+  letter-spacing: .08em; color: #ffb547;
+  text-shadow: 0 2px 12px rgba(0,0,0,.95), 0 0 22px rgba(255,160,40,.35);
+}
 
 /* ── The opening rite ──────────────────────────────────────────
    The wait before the story lands, spent as the announcer settling the room.
@@ -479,6 +497,12 @@ export const BATTLE_STYLES = `
   transition: opacity .9s ease, transform .9s ease;
 }
 .dm-st-rite[data-out="1"] { opacity: 0; transform: translateY(-14px); }
+/* Until the rite has said its piece, a tap moves it on a line. */
+.dm-st-rite[data-skip="1"] {
+  pointer-events: auto; cursor: pointer;
+  user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.dm-st-rite:focus-visible { outline: 1px solid rgba(246,239,224,.3); outline-offset: -14px; }
 
 .dm-st-rite-line {
   margin: 0; max-width: 40ch;

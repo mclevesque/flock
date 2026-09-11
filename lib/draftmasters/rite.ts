@@ -46,6 +46,22 @@ export function stepAt(rite: { at: number }[], ms: number): number {
   return i;
 }
 
+/**
+ * Where the clock jumps to when the reader taps the rite.
+ *
+ * The start of the next step that actually says something: the blank breaths
+ * between lines are stepped over, or a tap would seem to do nothing. From the
+ * last line it goes to the end of the hold, which hands over to the story the
+ * moment the story is ready. Never backwards.
+ */
+export function skipFrom(rite: { at: number; lines: string[] }[], ms: number): number {
+  if (!rite.length) return ms;
+  for (let i = stepAt(rite, ms) + 1; i < rite.length; i++) {
+    if (rite[i].lines.length) return Math.max(rite[i].at, ms);
+  }
+  return Math.max(rite[rite.length - 1].at + RITE_HOLD, ms);
+}
+
 /** How long the closing line holds before the story is allowed to start. */
 export const RITE_HOLD = 2400;
 /** The handover fade, so the rite dissolves into the story rather than cutting. */

@@ -15,7 +15,7 @@ import {
 } from "@/lib/draftmasters/battle-music";
 import { isMuted } from "@/lib/draftmasters/sfx";
 import type { BattleScript, PortraitMap } from "./types";
-import { riteFor, stepAt, RITE_HOLD, RITE_FADE } from "@/lib/draftmasters/rite";
+import { riteFor, skipFrom, stepAt, RITE_HOLD, RITE_FADE } from "@/lib/draftmasters/rite";
 
 /**
  * The battle, as a story that scrolls.
@@ -100,20 +100,23 @@ const ESC = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * calls somebody something else entirely -- "the overgrown monkey" -- nothing
  * lights up and the portrait still greys out on the bench.
  */
-function mark(text: string, kills: string[]) {
-  if (!kills.length) return text;
-
-  const forms = new Set<string>();
-  for (const k of kills) {
-    const bare = k.replace(/\s*\(.*\)\s*$/, "").trim();
-    if (bare) forms.add(bare);
-    for (const w of bare.split(/[^A-Za-z0-9']+/)) if (w.length >= 4) forms.add(w);
+function mark(text: string, groups: { names: string[]; cls: string }[]) {
+  /** Every form a name takes in the prose, and the class it is lit with. */
+  const forms = new Map<string, string>();
+  for (const g of groups) {
+    for (const k of g.names) {
+      const bare = k.replace(/\s*\(.*\)\s*$/, "").trim();
+      const words = bare.split(/[^A-Za-z0-9']+/).filter((w) => w.length >= 4);
+      for (const f of [bare, ...words]) {
+        if (f && !forms.has(f.toLowerCase())) forms.set(f.toLowerCase(), g.cls);
+      }
+    }
   }
   if (!forms.size) return text;
 
   // Longest first, so "Gregor Clegane" wins over "Clegane" where both fit.
   const re = new RegExp(
-    `\\b(${[...forms].sort((a, b) => b.length - a.length).map(ESC).join("|")})\\b`,
+    `\\b(${[...forms.keys()].sort((a, b) => b.length - a.length).map(ESC).join("|")})\\b`,
     "gi"
   );
   // One capturing group, so split() hands back the matches at odd indices.
@@ -121,12 +124,32 @@ function mark(text: string, kills: string[]) {
   if (parts.length === 1) return text;
   return parts.map((p, i) =>
     i % 2 === 1 ? (
-      <em key={i} className="dm-st-fell">
+      <em key={i} className={forms.get(p.toLowerCase()) ?? "dm-st-fell"}>
         {p}
       </em>
     ) : (
       p
     )
+  );
+}
+
+/**
+ * One paragraph as the reader sees it: its headline if it has one, and every
+ * name it took off the board lit in the colour of that card's stamp -- red
+ * for dead, blue for turned, grey for nulled.
+ */
+function beatText(t: { text: string; kills: string[]; turned?: string[]; nulled?: string[] }) {
+  const loud = /^(FRIENDLY FIRE!|BETRAYAL!)\s*/.exec(t.text);
+  const lit = mark(loud ? t.text.slice(loud[0].length) : t.text, [
+    { names: t.kills, cls: "dm-st-fell" },
+    { names: t.turned ?? [], cls: "dm-st-fell dm-st-fell-turned" },
+    { names: t.nulled ?? [], cls: "dm-st-fell dm-st-fell-null" },
+  ]);
+  if (!loud) return lit;
+  return (
+    <>
+      <strong className="dm-st-loud">{loud[1]}</strong> {lit}
+    </>
   );
 }
 
@@ -187,6 +210,8 @@ export default function BattleStory({
   const paras = useRef<(HTMLParagraphElement | null)[]>([]);
   /** Kept out of state so the frame loop can read it without re-subscribing. */
   const readRef = useRef(-1);
+  /** When the rite started, and how far the reader has tapped it forward. */
+  const riteClock = useRef({ t0: 0, skip: 0 });
 
   // -- The telling ----------------------------------------------------------
   /**
@@ -344,9 +369,10 @@ export default function BattleStory({
    * nothing.
    */
   useEffect(() => {
-    const t0 = performance.now();
+    riteClock.current = { t0: performance.now(), skip: 0 };
     const id = window.setInterval(() => {
-      const ms = performance.now() - t0;
+      const c = riteClock.current;
+      const ms = performance.now() - c.t0 + c.skip;
       setRiteAt(stepAt(rite, ms));
       if (ms >= rite[rite.length - 1].at + RITE_HOLD) {
         setRiteReady(true);
@@ -355,6 +381,24 @@ export default function BattleStory({
     }, 100);
     return () => window.clearInterval(id);
   }, [rite]);
+
+  /**
+   * A tap on the rite moves it on a line.
+   *
+   * The skip is added to the same clock rather than stepping a counter, so the
+   * interval above keeps answering "what is true now" and cannot disagree with
+   * the tap. Past the last line it ends the hold, and the story starts as soon
+   * as it is written.
+   */
+  const skipRite = useCallback(() => {
+    if (riteReady) return;
+    const c = riteClock.current;
+    const ms = performance.now() - c.t0 + c.skip;
+    const to = skipFrom(rite, ms);
+    c.skip += to - ms;
+    setRiteAt(stepAt(rite, to));
+    if (to >= rite[rite.length - 1].at + RITE_HOLD) setRiteReady(true);
+  }, [rite, riteReady]);
 
   /**
    * Hand over only when BOTH are true: the story is written and the rite has
@@ -593,7 +637,22 @@ export default function BattleStory({
             below the fold without shifting the ground under the rite, and the
             handover is a dissolve rather than a cut. */}
         {!rolling && (
-          <div className="dm-st-rite" data-out={writing || !riteReady ? "0" : "1"}>
+          <div
+            className="dm-st-rite"
+            data-out={writing || !riteReady ? "0" : "1"}
+            data-skip={riteReady ? "0" : "1"}
+            role={riteReady ? undefined : "button"}
+            tabIndex={riteReady ? undefined : 0}
+            title={riteReady ? undefined : "Tap to skip ahead"}
+            onClick={skipRite}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              // Kept from the page's own keys, where space is pause.
+              e.preventDefault();
+              e.stopPropagation();
+              skipRite();
+            }}
+          >
             {(rite[riteAt]?.lines ?? []).map((line, i) => (
               <p key={`${riteAt}-${i}`} className="dm-st-rite-line" data-last={riteAt === rite.length - 1 ? "1" : "0"}>
                 {line}
@@ -624,7 +683,7 @@ export default function BattleStory({
               className="dm-st-beat"
               data-kill={t.kills.length ? "1" : "0"}
             >
-              {mark(t.text, [...t.kills, ...(t.turned ?? []), ...(t.nulled ?? [])])}
+              {beatText(t)}
             </p>
           ))}
 

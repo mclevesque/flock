@@ -238,21 +238,31 @@ export function sanitise(told: Told, b: Body): Settled {
   const usedUp = new Set<string>();
   const beats: TellBeat[] = [];
   /**
-   * Whether a card has already turned on its own side this battle.
+   * Whether a card has already been taken out by its own side this battle.
    *
-   * Friendly fire is worth having -- a Hulk far enough gone swings at whoever
-   * is nearest, and that is a real moment. What it cannot be is the shape of
-   * the battle. A player watched their own Mountain put a sword through their
-   * own Drogon, and that decided the fight they lost. So it happens at most
-   * once, and never to the last card on a side: a team may not finish itself
-   * off, and the blow that ends a battle is never one of your own.
+   * Allies do not attack allies. A player watched Meleys burn her own line one
+   * teammate after another with nothing in the prose saying why, and that
+   * reads as the game being broken rather than as a story. So a same-side kill
+   * is honoured only in a paragraph that headlines it -- opening "FRIENDLY
+   * FIRE!" or "BETRAYAL!" -- only once a battle, and never to the last card on
+   * a side, because a team may not finish itself off.
    */
+  const CALLOUT = /^(friendly fire|betrayal)\s*[!:]+\s*/i;
   let ownGoal = false;
-  /** Set the moment a side runs out. The battle is over; the prose may not be. */
+  /** Set the moment a side runs out. The battle is over, and so is the story. */
   let over = false;
+  /**
+   * Prose from beats that took nobody off the board, held for the next one
+   * that does.
+   *
+   * Every paragraph changes a portrait -- that is the rhythm the screen
+   * promises. A set-up paragraph is not thrown away, because the kill after it
+   * usually leans on it; it becomes the opening of the paragraph it sets up.
+   */
+  let carry = "";
 
   for (const raw of told.beats ?? []) {
-    const text = String(raw?.text ?? "").trim();
+    let text = String(raw?.text ?? "").trim();
     if (!text) continue;
 
     /**
@@ -261,24 +271,24 @@ export function sanitise(told: Told, b: Body): Settled {
      * Left to itself it sometimes keeps going after one team is wiped out --
      * and with no opponents left to fight, the survivors start killing each
      * other. A player watched their own bench get crossed out one card at a
-     * time in a battle they had already won. So the wipe is the end: one more
-     * beat for the aftermath, then the story stops and anything past it is
+     * time in a battle they had already won. So the paragraph that empties a
+     * side is the last one. Anything past it, an aftermath included, is
      * dropped along with any casualties it claimed.
      */
-    if (over) {
-      // Only a genuine aftermath earns the last word. If this beat is still
-      // killing people then it is not an aftermath, it is a second fight --
-      // and keeping its text while dropping its casualties would narrate a
-      // death the roster above never shows.
-      const removes =
-        (raw?.kills ?? []).length + (raw?.converts ?? []).length + (raw?.nulls ?? []).length;
-      if (!removes) beats.push({ text });
-      break;
-    }
+    if (over) break;
+
+    // The headline is read, taken off, and put back only if the beat really
+    // does what it announces -- see `loudHere` below.
+    const callout = CALLOUT.exec(text);
+    const loud = callout ? `${callout[1].toUpperCase()}!` : "";
+    if (callout) text = text.slice(callout[0].length).trim();
 
     const kills: string[] = [];
     const turned: string[] = [];
     const nulled: string[] = [];
+    /** Blows refused for landing on their own side without a headline. */
+    let refused = 0;
+    let ownHere = false;
     // Who swung. Given as a roster number like the casualties are, so a side
     // can be read off it without guessing at names in the prose.
     const killerSide = sideOf.get(resolve(raw?.by) ?? "");
@@ -317,10 +327,14 @@ export function sanitise(told: Told, b: Body): Settled {
 
       const victimSide = sideOf.get(hit);
       if (killerSide && victimSide && killerSide === victimSide) {
-        // Already spent this battle's one own goal, or this would be the last
-        // card that side has. Either way the story does not get to have it.
-        if (ownGoal || (standing.get(victimSide) ?? 0) <= 1) continue;
+        // Not headlined, this battle's one already spent, or the last card
+        // that side has. Any of those and the story does not get to have it.
+        if (!loud || ownGoal || (standing.get(victimSide) ?? 0) <= 1) {
+          refused += 1;
+          continue;
+        }
         ownGoal = true;
+        ownHere = true;
       }
 
       usedUp.add(hit);
@@ -328,13 +342,42 @@ export function sanitise(told: Told, b: Body): Settled {
       const side = sideOf.get(hit);
       if (side) standing.set(side, (standing.get(side) ?? 1) - 1);
     }
+
+    if (!kills.length && !turned.length && !nulled.length) {
+      // Every blow it claimed was refused as friendly fire, so the prose
+      // narrates allies dying who stay up on the bench. A small jump in the
+      // story is better than a paragraph that lies about the portraits.
+      if (refused) continue;
+      carry = carry ? `${carry} ${text}` : text;
+      continue;
+    }
+
+    // A headline the beat does not earn -- "BETRAYAL!" over an ordinary kill --
+    // is dropped. One it does earn has to open the paragraph, so set-up that
+    // is waiting goes on the end of the paragraph before instead.
+    const loudHere = loud && (ownHere || turned.length > 0) ? loud : "";
+    const prev = beats[beats.length - 1];
+    if (loudHere && carry && prev) {
+      prev.text = `${prev.text} ${carry}`;
+      carry = "";
+    }
+    const body = carry ? `${carry} ${text}` : text;
+    carry = "";
     beats.push({
-      text,
+      text: loudHere ? `${loudHere} ${body}` : body,
       ...(kills.length ? { kills } : {}),
       ...(turned.length ? { turned } : {}),
       ...(nulled.length ? { nulled } : {}),
     });
     if ([...standing.values()].some((n) => n <= 0)) over = true;
+  }
+
+  // Set-up that never paid off: the model stopped before the kill it was
+  // building to. Kept on the last paragraph rather than lost.
+  if (carry) {
+    const last = beats[beats.length - 1];
+    if (last) last.text = `${last.text} ${carry}`;
+    else beats.push({ text: carry });
   }
 
   // Whoever still has somebody standing won, whatever the model wrote in the

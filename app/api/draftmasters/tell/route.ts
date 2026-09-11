@@ -60,12 +60,14 @@ not a highlight reel. It has a shape and you have to give it one:
      survive contact, a mismatch nobody saw coming, somebody spending their
      life to buy one moment for their side.
   3. THE TURN. The point where it stops being close, and you can feel it stop.
-  4. THE LAST ONE STANDING -- and then the field afterwards. Who is still
-     breathing, what state they are in, the crowd, the walk off.
+  4. THE LAST ONE GOES DOWN. That paragraph is the end of the story.
 
-GET TO IT. Somebody should be dead inside the first two beats. Every beat
-after that either kills somebody or sets up the kill in the next one; if a
-paragraph does neither, it does not belong in the battle.
+EVERY BEAT TAKES SOMEBODY OFF THE BOARD. No exceptions -- not the first beat,
+not the last. A paragraph is one exchange, and it ends with at least one card
+dead, converted or nulled, named in its own text. The reader watches a portrait
+change on every paragraph; one where nothing changes reads as filler. A set-up
+does not get a paragraph of its own -- it is the first sentence of the
+paragraph where it pays off.
 
 CONTINUITY IS THE WHOLE JOB. Every beat continues the one before it. A name
 introduced once is never introduced again. A blow struck at the end of one beat
@@ -73,29 +75,18 @@ lands at the start of the next. Nothing is restated, nobody appears from
 nowhere, and nobody who has already gone down does anything ever again. Someone
 reading it straight through must never once feel the story jump.
 
-VOICE. Present tense, to a room that is watching it happen. The walk-out can
-carry some noise:
+VOICE. Present tense, no announcer -- just show it. SHORT AND SWEET: 15 to 35
+words a paragraph, two or three sentences, and the kill lands in the last one.
+THIS is the bar:
 
-  Mclevesque's team comes out first, and the crowd gasps -- there is a dragon
-  on that line, wings wide enough to put half the field in shadow. Then pnut
-  comes through the far gate and the noise dies in everyone's throat, because
-  pnut brought a bigger one.
+  Criston Cole steps into the Mountain's path. Gregor Clegane never slows --
+  one swing smashes through Cole's guard and folds him into the snow.
 
-Once they are fighting, drop the announcer and just show it. THIS is the bar:
+  Otto Hightower runs for the weirwood roots. Brienne of Tarth catches him in
+  four strides and puts her sword through his back.
 
-  Alicent Hightower screams, but Criston Cole draws his steel and steps into
-  the path of the giant. Before Cole can strike, Brienne of Tarth intercepts
-  him, steel ringing on steel in a furious flurry of parries. Cole is
-  brilliant, but Brienne's sheer strength pushes him back into the deep snow.
-
-  On the ground, Otto Hightower tries to fall back behind the weirwood roots,
-  but the Mountain closes the distance in terrifying strides. Ser Gregor
-  Clegane swings a broadsword with one hand, smashing through Otto's guard and
-  crushing him into the frozen dirt before the Hand can even draw his dagger.
-
-Look at what those do: every sentence moves a body somewhere. Somebody tries
-something, somebody answers it, the ground and the weather are in the shot,
-and the kill is a physical act you can picture. Nobody comments on the action
+Look at what those do: every sentence moves a body somewhere, and the kill is a
+physical act you can picture. Nobody comments on the action
 while it is happening.
 
 CUT EVERY WORD THAT IS NOT DOING WORK. The specific things that ruin it:
@@ -286,38 +277,32 @@ worth doing ONCE IN A WHILE and not every time they are drafted -- the second
 time a player sees the same card do the same thing, it stops being a surprise
 and starts being a bug. Most of the time, they just fight.
 
-TWO SIDES, AND THEY FIGHT EACH OTHER. Every card belongs to exactly one side and
-you must keep track of whose is whose. A card is normally taken out by the OTHER
-side. Hurting your own team is allowed ONLY when the character would genuinely
-do it: a Hulk far enough gone to swing at whoever is nearest, a berserker who
-has stopped checking, somebody whose power is indiscriminate. What is never
-allowed is an ally destroyed for no reason rooted in who they are -- a
-competent, sane character does not calmly wreck their own side's equipment,
-and a disciplined knight does not put a sword through his own team's dragon.
+ALLIES DO NOT ATTACK ALLIES. Every card belongs to exactly one side and you
+must keep track of whose is whose. A card is taken out by the OTHER side. Your
+own teammates are not targets, not collateral and not in the way: a dragon does
+not burn its own line, a berserker picks an enemy, a blast is aimed so it
+misses the people on its own side. Before you write each kill, check that the
+card in "by" and every card in "kills" are on opposite sides.
 
-ONE BATTLE IN FOUR, AT MOST. Three fights out of four have no own goal in
-them at all. It is a moment, not a feature, and a reader who sees one every
-game stops believing any of them. Never more than one in a single battle.
+THE ONE EXCEPTION IS A HEADLINED MOMENT, and it is rare: most battles never have
+one, and no battle has two. Only when the character genuinely would -- a Hulk
+too far gone to tell faces apart, a zealot who will not spare a sinful beast
+whoever it fights for, a known traitor choosing their moment. When it happens,
+that paragraph MUST open with exactly "FRIENDLY FIRE!" (an accident, a power
+that cannot tell friend from foe) or "BETRAYAL!" (a choice). It takes ONE
+teammate, and the same paragraph says why:
 
-AND WHEN IT HAPPENS, SAY SO OUT LOUD. The reader is watching a portrait grey
-out on their OWN bench. If the prose does not tell them why, it does not read
-as a moment in the story -- it reads as the game being broken. Name whose side
-it is, and name the reason, inside the beat itself:
+  FRIENDLY FIRE! The Hulk is past telling faces apart. He backhands Black Widow
+  off the rubble -- his own teammate -- and she does not get up.
 
-  The High Sparrow's men close around Drogon with their spears levelled. They
-  do not care whose dragon he is. Dragons are sinful beasts, and the Faith
-  does not make exceptions for allies.
-
-Never quietly, never as something the reader has to piece together afterwards.
-
-IT IS NEVER WHAT DECIDES THE BATTLE. A team does not finish itself off, the
-last card on a side never falls to its own, and the blow that ends the fight
-always comes from the other side. Losing to your own roster is the worst way
-to lose a game.
+A same-side kill in a paragraph that does not open with one of those words is
+thrown out: the portrait stays up and your prose becomes a lie. And it never
+decides the battle -- the last card on a side never falls to its own, and the
+blow that ends the fight always comes from the other side.
 
 YOU DECIDE THE FIGHT. Who dies, in what order, who is left. Take real liberty:
 somebody can survive on one lung, two can go down together, a winner can be
-ruined doing it. Not every beat kills. Let it swing.
+ruined doing it. Let it swing -- but every beat still takes somebody off.
 
 THERE ARE EXACTLY THREE WAYS OFF THE BOARD, and a side loses when every card
 on it is in one of them:
@@ -352,14 +337,14 @@ by name, and do not run out of beats before the last one is down. A battle that
 finishes with people alive on both sides has not finished.
 
 THE BATTLE IS OVER THE MOMENT THAT HAPPENS. When the last card on a side goes
-down, the fight is FINISHED: write the aftermath beat and stop. Do not keep the
+down, the fight is FINISHED and that paragraph is the last one -- no aftermath. Do not keep the
 survivors fighting -- there is nobody left to fight, and turning them on each
 other to fill space is the single worst thing you can do to a player who has
 just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 30-55 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
+  "beats": [ { "text": "one paragraph, 15-35 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." },
@@ -390,13 +375,13 @@ took them and how.
 
 THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
 anything a player ever sees. In the text they are people with names.
-11-16 beats -- however many it takes to put every card on the losing side in
-the ground, and not one beat past that. Brevity is a WORD count, not a beat
-count: keep the paragraphs short and cut the ones that do nothing, but never
-stop before the job is done. A battle that runs out of beats with people
-standing has failed at the only thing it had to do. No walk-out at all. The last beat is
-the aftermath and kills nobody. Before you finish, check your own casualty
-list: one side's entire roster must appear in it.
+AS MANY BEATS AS IT TAKES, AND NOT ONE PAST IT. Every beat removes somebody, so
+the count is the losing roster plus whatever the winners lose, minus the blows
+that take two at once. Brevity is a WORD count: short paragraphs, but never stop
+before the job is done. A battle that runs out of beats with people standing has
+failed at the only thing it had to do. No walk-out and no aftermath: the first
+paragraph has a kill in it and so does the last. Before you finish, check your
+own casualty list: one side's entire roster must appear in it.
 
 IF YOU WRITE IT, RECORD IT. Every death you narrate goes in that beat's list,
 including on the WINNING side. "They fall together and neither one gets up"
