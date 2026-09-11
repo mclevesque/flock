@@ -2075,7 +2075,19 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             {/* On its own domain there is no hub to go back to, so the slot
                 does the thing a player actually wants mid-game instead. */}
             {standalone ? (
-              <Link href="/" className="dm-btn dm-btn-ghost" onClick={(e) => exitVia(e, "/")}>
+              <Link
+                href="/"
+                className="dm-btn dm-btn-ghost"
+                onClick={(e) => {
+                  if (trapped) return exitVia(e, "/");
+                  // The game already lives at "/", so a plain link to it went
+                  // nowhere -- a player tapped it on the results screen and
+                  // nothing happened. Outside a live room it is exactly "Play
+                  // again — new topic".
+                  e.preventDefault();
+                  playAgain();
+                }}
+              >
                 New draft
               </Link>
             ) : (
@@ -2149,7 +2161,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             presetId={presetId}
             setPresetId={setPresetId}
             mixIds={mixIds}
-            onChangeUniverse={() => setScreen("setup")}
+            setMixIds={setMixIds}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
             variantRate={variantRate}
@@ -3335,7 +3347,7 @@ function RoomLobby({
   presetId,
   setPresetId,
   mixIds,
-  onChangeUniverse,
+  setMixIds,
   customTopic,
   setCustomTopic,
   variantRate,
@@ -3362,8 +3374,8 @@ function RoomLobby({
   setPresetId: (id: string | null) => void;
   /** Two or more ids means a mix, which by design has no presetId. */
   mixIds: string[];
-  /** Back to the shelf. The universe is picked there, not here. */
-  onChangeUniverse: () => void;
+  /** Picked again from inside the room, so changing it never leaves. */
+  setMixIds: (ids: string[]) => void;
   customTopic: string;
   setCustomTopic: (s: string) => void;
   variantRate: number;
@@ -3376,6 +3388,8 @@ function RoomLobby({
   onStart: () => void;
 }) {
   const others = members.filter((m) => m.userId !== meId);
+  /** The universes being picked in the sheet, or null when it is closed. */
+  const [picking, setPicking] = useState<string[] | null>(null);
   const mixing = mixIds.length > 1;
   const hasTopic = mixing || Boolean(presetId);
   const chosen = mixing
@@ -3428,9 +3442,6 @@ function RoomLobby({
           <p className="dm-eyebrow">
             In the room · {members.length} {members.length === 1 ? "person" : "people"}
           </p>
-          <button type="button" className="dm-btn dm-btn-ghost dm-rv-invite" onClick={onInvite}>
-            <Icon name="friends" size={15} /> Invite
-          </button>
         </div>
         {others.length === 0 && (
           <p className="dm-note" style={{ marginBottom: 12 }}>
@@ -3451,10 +3462,11 @@ function RoomLobby({
 
       {isHost ? (
         <div className="dm-panel">
-          {/* The universe is settled on the shelf before this room exists.
-              Asking again here -- in a text box the game no longer has, over
-              a grid of emoji the crests replaced -- was a second answer to a
-              question already answered, and the two could disagree. */}
+          {/* Change used to send the host back to the shelf to pick again --
+              and the shelf is outside the room, so a player changing the
+              universe was dropped out of their own room and could not get
+              back. It is the same picker the shelf's Custom case uses, opened
+              over the room, so the room never goes anywhere. */}
           <p className="dm-eyebrow">The universe</p>
           <div className="dm-room-board">
             {!mixing && presetId ? <Crest pack={presetId} size={22} /> : <Icon name="cards" size={20} />}
@@ -3462,10 +3474,35 @@ function RoomLobby({
               <b>{hasTopic ? chosen : "Nothing picked yet"}</b>
               <em>{hasTopic ? `${pool} characters in the pool` : "Go back and open a case."}</em>
             </span>
-            <button type="button" className="dm-btn dm-btn-ghost" onClick={onChangeUniverse}>
+            <button
+              type="button"
+              className="dm-btn dm-btn-ghost"
+              onClick={() => setPicking(mixIds.length ? mixIds : presetId ? [presetId] : [])}
+            >
               Change
             </button>
           </div>
+
+          {picking && (
+            <div className="dm-sheet-scrim" role="dialog" aria-modal="true">
+              <UniversePicker
+                boards={packs.map((b) => ({ id: b.id, name: b.name, count: b.count }))}
+                chosen={picking}
+                onChange={setPicking}
+                onClose={() => setPicking(null)}
+                onConfirm={() => {
+                  // Exactly what the shelf does: one universe plays as itself,
+                  // two or more are a mix with no preset id.
+                  if (picking.length) {
+                    setMixIds(picking);
+                    setPresetId(picking.length === 1 ? picking[0] : null);
+                    setCustomTopic("");
+                  }
+                  setPicking(null);
+                }}
+              />
+            </div>
+          )}
 
           <VariantDials rate={variantRate} setRate={setVariantRate} wild={variantWild} setWild={setVariantWild} />
 
@@ -3557,7 +3594,7 @@ function RoomCode({ code, onInvite }: { code: string; onInvite?: () => void }) {
               onInvite();
             }}
           >
-            <Icon name="friends" size={14} /> Invite friends
+            <Icon name="friends" size={14} /> Invite friend
           </button>
         )}
         <button className={onInvite ? "dm-btn" : "dm-btn dm-btn-primary"} style={{ flex: 1 }} onClick={() => void share()}>
@@ -3568,7 +3605,7 @@ function RoomCode({ code, onInvite }: { code: string; onInvite?: () => void }) {
       </div>
       <p className="dm-note" style={{ marginTop: 8 }}>
         {onInvite
-          ? "Friends get a card in their chat that drops them straight into this room. The link does the same for anyone else."
+          ? "Your friend gets a card in their chat that drops them straight into this room. The link does the same for anyone else."
           : "Send them the link and they drop straight into this room — no code to type."}
       </p>
     </div>

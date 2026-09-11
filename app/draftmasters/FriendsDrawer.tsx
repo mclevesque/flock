@@ -222,7 +222,7 @@ export function FriendsPanel({ page = false }: { page?: boolean }) {
       </div>
 
       <p className="dm-fd-foot">
-        <Icon name="friends" size={14} /> To draft with a friend, open a room and tap <b>Invite</b>.
+        <Icon name="friends" size={14} /> To draft with a friend, open a room and tap <b>Invite friend</b>.
       </p>
     </div>
   );
