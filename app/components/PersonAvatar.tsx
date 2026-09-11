@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { avatarSrc, defaultPortraitFor } from "@/lib/avatars";
 
 /**
@@ -33,10 +33,11 @@ export default function PersonAvatar({
   speaking?: boolean;
 }) {
   const wanted = avatarSrc(src, seed);
-  const [shown, setShown] = useState(wanted);
-  useEffect(() => setShown(wanted), [wanted]);
-
   const fallback = defaultPortraitFor(seed);
+  // Remember which URL failed rather than what to show instead: a new photo
+  // arriving later is a different URL, so it gets its own chance to load.
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = failed === wanted ? fallback : wanted;
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -51,7 +52,7 @@ export default function PersonAvatar({
       loading="lazy"
       decoding="async"
       onError={() => {
-        if (shown !== fallback) setShown(fallback);
+        if (shown !== fallback) setFailed(wanted);
       }}
       style={{
         objectFit: "cover",
