@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="sorceress-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="sorceress-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d43a9e" stop-opacity=".8"/><stop offset=".5" stop-color="#d43a9e" stop-opacity=".34"/><stop offset="1" stop-color="#d43a9e" stop-opacity="0"/></radialGradient>
+<linearGradient id="sorceress-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="sorceress-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="sorceress-clip"><circle cx="100" cy="100" r="94"/></clipPath><radialGradient id="sorceress-orb"><stop offset="0" stop-color="#fff3fb"/><stop offset=".3" stop-color="#f2dfa4"/><stop offset=".6" stop-color="#ff5ccf" stop-opacity=".5"/><stop offset="1" stop-color="#d43a9e" stop-opacity="0"/></radialGradient>
+<g id="sorceress-fig"><path d="M90 138C72 124 56 104 50 74C58 84 64 88 71 90C67 80 67 70 71 58C77 76 83 88 91 96C91 88 93 80 97 74L98 132Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M90 138C72 124 56 104 50 74C58 84 64 88 71 90C67 80 67 70 71 58C77 76 83 88 91 96C91 88 93 80 97 74L98 132Z"/></g><path d="M30 200C32 168 50 148 78 140C86 137 91 131 91 116L109 116C109 131 114 137 122 140C150 148 168 168 170 200Z"/><path d="M80 80C72 100 74 120 66 142C76 148 86 142 90 134C86 118 86 100 88 88Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M80 80C72 100 74 120 66 142C76 148 86 142 90 134C86 118 86 100 88 88Z"/></g><path d="M80 86C78 62 88 52 100 52C112 52 122 62 120 86Z"/><path d="M100 62C112 62 119 73 119 87C119 101 110 112 100 114C90 112 81 101 81 87C81 73 88 62 100 62Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#sorceress-bg)"/>
+<g clip-path="url(#sorceress-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#sorceress-glow)"/>
+<use href="#sorceress-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#sorceress-fig" x="-3" y="-2.2" fill="url(#sorceress-rim)" stroke="url(#sorceress-rim)"/>
+<use href="#sorceress-fig" fill="url(#sorceress-body)" stroke="url(#sorceress-body)"/><circle cx="158" cy="120" r="24" fill="url(#sorceress-orb)"/><circle cx="158" cy="120" r="13" fill="none" stroke="#f2dfa4" stroke-width="1.4"/><path d="M158 108L168.4 126L147.6 126ZM158 132L147.6 114L168.4 114Z" fill="none" stroke="#f2dfa4" stroke-width="1.1"/><circle cx="158" cy="120" r="4.5" fill="#fff3fb"/><path d="M146 96L148 100M170 144L173 147M176 104L172 107" fill="none" stroke="#f2dfa4" stroke-width="1.6" stroke-linecap="round"/><path d="M82 76Q100 69 118 76" fill="none" stroke="#d4af5f" stroke-width="2" stroke-linecap="round"/><path d="M100 74l3 4.5l-3 4.5l-3-4.5z" fill="#ff7ad6"/><g fill="#f2dfa4"><ellipse cx="91.5" cy="90" rx="4" ry="1.8" transform="rotate(10 91.5 90)"/><ellipse cx="108.5" cy="90" rx="4" ry="1.8" transform="rotate(-10 108.5 90)"/></g><path d="M87.9 88.8l-2.6 -2.2M112.1 88.8l2.6 -2.2" fill="none" stroke="#f2dfa4" stroke-width="1.1" stroke-linecap="round"/><path d="M52 76C58 98 72 118 90 134" fill="none" stroke="#d4af5f" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M52 76C58 98 72 118 90 134" fill="none" stroke="#d4af5f" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/></g>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

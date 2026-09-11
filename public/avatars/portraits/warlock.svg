@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="warlock-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="warlock-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a6d83a" stop-opacity=".8"/><stop offset=".5" stop-color="#a6d83a" stop-opacity=".34"/><stop offset="1" stop-color="#a6d83a" stop-opacity="0"/></radialGradient>
+<linearGradient id="warlock-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="warlock-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="warlock-clip"><circle cx="100" cy="100" r="94"/></clipPath><radialGradient id="warlock-fire"><stop offset="0" stop-color="#fbffe0"/><stop offset=".35" stop-color="#d8f27a"/><stop offset=".65" stop-color="#a6d83a" stop-opacity=".45"/><stop offset="1" stop-color="#a6d83a" stop-opacity="0"/></radialGradient>
+<g id="warlock-fig"><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M76 70C62 56 40 58 34 76C28 94 42 108 58 102C48 98 44 88 50 80C56 72 68 74 74 84Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M76 70C62 56 40 58 34 76C28 94 42 108 58 102C48 98 44 88 50 80C56 72 68 74 74 84Z"/></g><path d="M100 38C114 46 132 58 135 84C137 104 142 120 156 138C130 132 116 128 100 128C84 128 70 132 44 138C58 120 63 104 65 84C68 58 86 46 100 38Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#warlock-bg)"/>
+<g clip-path="url(#warlock-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#warlock-glow)"/>
+<use href="#warlock-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#warlock-fig" x="-3" y="-2.2" fill="url(#warlock-rim)" stroke="url(#warlock-rim)"/>
+<use href="#warlock-fig" fill="url(#warlock-body)" stroke="url(#warlock-body)"/><path d="M100 66C113 66 121 80 121 96C121 112 111 122 100 125C89 122 79 112 79 96C79 80 87 66 100 66Z" fill="#050504"/><ellipse cx="100" cy="95" rx="18" ry="9" fill="#a6d83a" opacity=".28"/><g fill="#e9ff9a"><ellipse cx="91" cy="94" rx="4.2" ry="1.9" transform="rotate(14 91 94)"/><ellipse cx="109" cy="94" rx="4.2" ry="1.9" transform="rotate(-14 109 94)"/></g><path d="M50 72C44 80 44 92 52 98" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M50 72C44 80 44 92 52 98" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/></g><circle cx="64" cy="134" r="26" fill="url(#warlock-fire)"/><path d="M50 200C50 184 52 172 55 164L50 150C49 146 54 145 56 148L61 160L61 144C61 140 66 140 67 144L68 160L72 147C73 143 78 144 77 148L74 164C78 161 82 160 83 163C79 171 76 180 73 188L74 200Z" fill="#17140f" stroke="#8a6a24" stroke-width="1.3"/><path d="M64 146C56 138 58 128 62 122C62 128 66 130 66 124C66 118 64 114 68 108C70 118 76 124 74 134C73 140 70 144 64 146Z" fill="#d8f27a"/><path d="M66 142C62 138 63 132 66 128C67 132 70 134 69 138Z" fill="#fbffe0"/><circle cx="78" cy="112" r="2" fill="#e9ff9a"/><circle cx="50" cy="118" r="1.6" fill="#e9ff9a"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

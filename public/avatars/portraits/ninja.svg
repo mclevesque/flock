@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="ninja-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="ninja-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7f8fa3" stop-opacity=".8"/><stop offset=".5" stop-color="#7f8fa3" stop-opacity=".34"/><stop offset="1" stop-color="#7f8fa3" stop-opacity="0"/></radialGradient>
+<linearGradient id="ninja-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="ninja-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="ninja-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="ninja-fig"><path d="M58 124L42 96" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><rect x="47" y="116" width="20" height="10" rx="2" transform="rotate(-60 57 121)"/><circle cx="41" cy="93" r="4.5"/><path d="M118 70C136 62 152 70 170 60C162 72 148 78 134 80C148 84 158 96 172 96C158 102 140 98 122 86Z"/><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M100 54C117 54 125 68 125 86C125 106 120 120 112 128L88 128C80 120 75 106 75 86C75 68 83 54 100 54Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#ninja-bg)"/>
+<g clip-path="url(#ninja-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#ninja-glow)"/>
+<use href="#ninja-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#ninja-fig" x="-3" y="-2.2" fill="url(#ninja-rim)" stroke="url(#ninja-rim)"/>
+<use href="#ninja-fig" fill="url(#ninja-body)" stroke="url(#ninja-body)"/><path d="M76 70C88 64 112 64 124 70L124 78C112 72 88 72 76 78Z" fill="#221d16" stroke="#8a6a24" stroke-width="1"/><rect x="92" y="67.5" width="16" height="8" rx="1.5" fill="#d4af5f"/><path d="M95 71.5H105" fill="none" stroke="#8a6a24" stroke-width="1" stroke-linecap="round"/><path d="M79 86C90 81 110 81 121 86C119 94 81 94 79 86Z" fill="#050504"/><ellipse cx="100" cy="87" rx="17" ry="5" fill="#9fb4d0" opacity=".3"/><g fill="#eef4ff"><ellipse cx="91" cy="87" rx="4.2" ry="1.9" transform="rotate(8 91 87)"/><ellipse cx="109" cy="87" rx="4.2" ry="1.9" transform="rotate(-8 109 87)"/></g><path d="M84 104Q100 110 116 104M88 116Q100 121 112 116" fill="none" stroke="#8a6a24" stroke-width="1.1" stroke-linecap="round" opacity="0.9"/><path d="M70 140C86 148 114 148 130 140" fill="none" stroke="#8a6a24" stroke-width="1.4" stroke-linecap="round"/><g transform="translate(146 170) rotate(15)"><path d="M0-13L3-3L13 0L3 3L0 13L-3 3L-13 0L-3-3Z" fill="#d4af5f"/><circle r="2.4" fill="#0c0b09"/></g>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

@@ -1,5 +1,6 @@
 "use client";
 
+import { avatarSrc as resolveAvatarSrc, defaultPortraitFor } from "@/lib/avatars";
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
@@ -114,7 +115,7 @@ export default function GsProfilePage() {
   const username = session?.user?.name ?? "";
   const displayName = profile.display_name || username;
   const userId = (session?.user as { id?: string })?.id;
-  const avatarDisplay = avatarSrc || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`;
+  const avatarDisplay = resolveAvatarSrc(avatarSrc, userId ?? username);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0d0d", color: "#e8dcc8" }}>
@@ -184,7 +185,7 @@ export default function GsProfilePage() {
                 src={avatarDisplay}
                 alt=""
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`; }}
+                onError={e => { (e.currentTarget as HTMLImageElement).src = defaultPortraitFor(userId ?? username); }}
               />
               <div className="gs-avatar-overlay" style={{
                 position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)",

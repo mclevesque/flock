@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import {
   useState, useEffect, useRef, useCallback, createContext, useContext,
 } from "react";
@@ -1414,7 +1415,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
           }}>
             <div style={{ position: "relative" }}>
               <img
-                src={p.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`}
+                src={avatarSrc(p.avatar_url, p.user_id)}
                 alt={p.username}
                 style={{
                   width: 36, height: 36, borderRadius: "50%",
@@ -1704,7 +1705,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
         {roomMessages.map(msg => (
           <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             <img
-              src={msg.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${msg.username}`}
+              src={avatarSrc(msg.avatar_url, msg.user_id ?? msg.username)}
               style={{ width: 22, height: 22, borderRadius: 5, flexShrink: 0, marginTop: 2 }}
               alt=""
             />
@@ -1796,7 +1797,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                 pointerEvents: "all",
               }}>
                 <div style={{ position: "relative", flexShrink: 0 }}>
-                  <img src={inv.sender_avatar ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${inv.sender_username}`} alt={inv.sender_username} style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid rgba(${color},0.8)` }} />
+                  <img src={avatarSrc(inv.sender_avatar, inv.sender_username)} alt={inv.sender_username} style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid rgba(${color},0.8)` }} />
                   <span style={{ position: "absolute", bottom: -3, right: -3, fontSize: 14, lineHeight: 1 }}>{emoji}</span>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -2046,7 +2047,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
               marginRight: 8, animation: "ringIn 0.3s ease",
             }}>
               <div style={{ position: "relative", flexShrink: 0 }}>
-                <img src={call.caller_avatar ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${call.caller_username}`} alt={call.caller_username} style={{ width: 38, height: 38, borderRadius: "50%", border: "2px solid #4ade80" }} />
+                <img src={avatarSrc(call.caller_avatar, call.caller_id)} alt={call.caller_username} style={{ width: 38, height: 38, borderRadius: "50%", border: "2px solid #4ade80" }} />
                 <span style={{ position: "absolute", bottom: -2, right: -2, width: 14, height: 14, borderRadius: "50%", background: "#4ade80", border: "2px solid #0d0f14", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7 }}>📞</span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -2111,7 +2112,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                               onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
                               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                             >
-                              <img src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`} alt="" style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0 }} />
+                              <img src={avatarSrc(f.avatar_url, f.id)} alt="" style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0 }} />
                               <div style={{ minWidth: 0, flex: 1 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: "#e8eaf6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.display_name ?? f.username}</div>
                                 <div style={{ fontSize: 11, color: "#6b7280" }}>@{f.username}</div>
@@ -2150,7 +2151,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                     <>
                       <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <button onClick={() => { setDmActiveUser(null); setDmMessages([]); clearInterval(dmPollRef.current); }} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>←</button>
-                        <img src={dmActiveUser.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${dmActiveUser.username}`} alt="" style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0 }} />
+                        <img src={avatarSrc(dmActiveUser.avatar_url, dmActiveUser.id)} alt="" style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0 }} />
                         <span style={{ flex: 1, color: "#e8eaf6", fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{dmActiveUser.username}</span>
                         <button onClick={() => { setDmOpen(false); window.location.href = `/messages`; }} title="Open in messages" style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 12 }}>⤢</button>
                         <button onClick={() => setDmOpen(false)} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 18 }}>×</button>
@@ -2167,7 +2168,7 @@ function VoiceWidgetInner({ children }: { children: React.ReactNode }) {
                               <div style={{ display: "flex", alignItems: "flex-end", gap: 6, flexDirection: isMine ? "row-reverse" : "row", width: "100%" }}>
                                 {!isMine && (
                                   <img
-                                    src={msg.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${dmActiveUser!.username}`}
+                                    src={avatarSrc(msg.avatar_url, dmActiveUser!.id)}
                                     alt=""
                                     style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, marginBottom: 2 }}
                                   />

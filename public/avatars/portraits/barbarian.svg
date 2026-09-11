@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="barbarian-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="barbarian-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e2601e" stop-opacity=".8"/><stop offset=".5" stop-color="#e2601e" stop-opacity=".34"/><stop offset="1" stop-color="#e2601e" stop-opacity="0"/></radialGradient>
+<linearGradient id="barbarian-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="barbarian-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="barbarian-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="barbarian-fig"><path d="M72 152L48 70" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M50 60C34 54 22 62 19 78C17 94 26 106 42 106C38 96 42 84 56 82Z"/><path d="M48 66L44 50" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 200C18 170 30 150 48 142L56 130L62 140L70 126L76 138L84 124L100 132L116 124L124 138L130 126L138 140L144 130L152 142C170 150 182 170 184 200Z"/><path d="M72 72L56 84L66 90L52 104L66 108L56 124L74 120L78 136L100 128L122 136L126 120L144 124L134 108L148 104L134 90L144 84L128 72Z"/><ellipse cx="100" cy="88" rx="21" ry="24"/><path d="M80 98C80 116 84 130 88 144L94 134L100 152L106 134L112 144C116 130 120 116 120 98Z"/><path d="M78 72C62 72 50 62 47 46C45 36 50 28 58 22C56 36 60 48 72 54C78 58 80 62 80 66Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M78 72C62 72 50 62 47 46C45 36 50 28 58 22C56 36 60 48 72 54C78 58 80 62 80 66Z"/></g><path d="M76 80C76 60 86 50 100 50C114 50 124 60 124 80Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#barbarian-bg)"/>
+<g clip-path="url(#barbarian-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#barbarian-glow)"/>
+<use href="#barbarian-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#barbarian-fig" x="-3" y="-2.2" fill="url(#barbarian-rim)" stroke="url(#barbarian-rim)"/>
+<use href="#barbarian-fig" fill="url(#barbarian-body)" stroke="url(#barbarian-body)"/><path d="M76 78H124" fill="none" stroke="#d4af5f" stroke-width="3" stroke-linecap="round"/><g fill="#f2dfa4"><circle cx="82" cy="78" r="1.5"/><circle cx="118" cy="78" r="1.5"/></g><ellipse cx="91" cy="89" rx="4.2" ry="1.9" transform="rotate(-8 91 89)" fill="#f2dfa4"/><ellipse cx="109" cy="89" rx="4.2" ry="1.9" transform="rotate(8 109 89)" fill="#f2dfa4"/><path d="M95.5 139H104.5" fill="none" stroke="#d4af5f" stroke-width="3" stroke-linecap="round"/><path d="M22 80C24 92 30 100 40 104" fill="none" stroke="#f2dfa4" stroke-width="1.4" stroke-linecap="round" opacity="0.9"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

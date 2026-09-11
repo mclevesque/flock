@@ -1,5 +1,6 @@
 "use client";
 
+import PersonAvatar from "@/app/components/PersonAvatar";
 import { useEffect, useState } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter } from "next/navigation";
@@ -162,11 +163,7 @@ export default function GreatSoulsHub() {
             ⚡ RYFT
           </Link>
           <Link href="/greatsouls/profile" style={{ display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
-            {avatar ? (
-              <img src={avatar} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: "2px solid #d4a942" }} />
-            ) : (
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#2a2a2a", border: "2px solid #d4a942", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>🔥</div>
-            )}
+            <PersonAvatar src={avatar} seed={session?.user?.id} style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid #d4a942" }} />
           </Link>
         </div>
       </nav>

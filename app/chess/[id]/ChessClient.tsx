@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "@/lib/use-session";
 import Link from "next/link";
@@ -29,7 +30,7 @@ function PlayerBadge({ avatar, username, display, color, isActive, isWinner, isL
       border: `1px solid ${isActive ? "rgba(124,92,191,0.5)" : "var(--border)"}`,
       borderRadius: 10, transition: "all 0.2s",
     }}>
-      <img src={avatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${username}`}
+      <img src={avatarSrc(avatar, username)}
         alt={username} style={{ width: 36, height: 36, borderRadius: 8 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? "#4ad990" : isLoser ? "#f08080" : "var(--text-primary)" }}>

@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc, defaultPortraitFor } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import Link from "next/link";
@@ -85,7 +86,7 @@ function ShareLinkModal({ share, onClose, friends }: { share: Share; onClose: ()
             <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
               {friends.map(f => (
                 <button key={f.id} onClick={() => sendToFriend(f.id, f.username)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: sentTo === f.username ? "rgba(74,217,144,0.1)" : "var(--bg-surface)", border: `1px solid ${sentTo === f.username ? "rgba(74,217,144,0.3)" : "var(--border)"}`, borderRadius: 10, cursor: "pointer", width: "100%" }}>
-                  <img src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`} style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover" }} alt="" />
+                  <img src={avatarSrc(f.avatar_url, f.id)} style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover" }} alt="" />
                   <span style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600 }}>@{f.username}</span>
                   {sentTo === f.username && <span style={{ marginLeft: "auto", fontSize: 12, color: "#4ad990" }}>Sent! ✓</span>}
                 </button>
@@ -177,8 +178,8 @@ function ShareCard({ share, onLike, onDelete, isOwn, isAdmin, onFlag, onShare, o
       <div style={{ padding: "20px 24px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
           <Link href={`/profile/${share.username}`} style={{ flexShrink: 0 }}>
-            <img src={share.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${share.username}`}
-              onError={e => { (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/9.x/pixel-art/svg?seed=${share.username}`; }}
+            <img src={avatarSrc(share.avatar_url, share.user_id)}
+              onError={e => { (e.currentTarget as HTMLImageElement).src = defaultPortraitFor(share.user_id); }}
               style={{ width: 42, height: 42, borderRadius: 12, border: "2px solid rgba(124,92,191,0.35)", display: "block", objectFit: "cover" }} alt={share.username} />
           </Link>
           <div style={{ flex: 1, minWidth: 0 }}>

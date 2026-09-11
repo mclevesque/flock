@@ -2,7 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getRecord } from "@/lib/draftmasters/db";
+import { getUserById } from "@/lib/db";
+import { avatarSrc } from "@/lib/avatars";
 import Shell from "../Shell";
+import AvatarChooser from "./AvatarChooser";
 import SignOut from "./SignOut";
 import { STYLES } from "../styles";
 
@@ -25,13 +28,19 @@ export default async function Page() {
   if (!session?.user) redirect("/signin?next=/draftmasters/you");
 
   const me = session.user.id ?? "";
-  const rec = await getRecord(me).catch(() => null);
+  const [rec, row] = await Promise.all([
+    getRecord(me).catch(() => null),
+    getUserById(me).catch(() => null),
+  ]);
+  const avatar = avatarSrc((row?.avatar_url as string | null) ?? null, me);
   const played = (rec?.pvpWins ?? 0) + (rec?.pvpLosses ?? 0) + (rec?.soloWins ?? 0) + (rec?.soloLosses ?? 0);
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
       <Shell title="You" lead={session.user.name ?? undefined}>
+        <AvatarChooser userId={me} initial={avatar} />
+
         {!rec || played === 0 ? (
           <p className="dm-note dm-empty">
             No drafts on record yet. <Link href="/draftmasters">Open a case</Link> and

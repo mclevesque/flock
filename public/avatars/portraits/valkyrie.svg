@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="valkyrie-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="valkyrie-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#86c9ec" stop-opacity=".8"/><stop offset=".5" stop-color="#86c9ec" stop-opacity=".34"/><stop offset="1" stop-color="#86c9ec" stop-opacity="0"/></radialGradient>
+<linearGradient id="valkyrie-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="valkyrie-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="valkyrie-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="valkyrie-fig"><path d="M29 200L29 88" fill="none" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M29 48C37 60 38 74 29 86C20 74 21 60 29 48Z"/><path d="M21 90H37" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M76 84C68 104 66 124 56 142L86 136Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M76 84C68 104 66 124 56 142L86 136Z"/></g><ellipse cx="100" cy="90" rx="20" ry="24"/><path d="M80 74C72 62 64 44 62 20C58 30 54 34 47 36C51 40 54 42 55 44C49 48 45 50 41 52C47 56 52 58 55 58C51 64 47 66 44 68C56 72 66 76 78 84Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M80 74C72 62 64 44 62 20C58 30 54 34 47 36C51 40 54 42 55 44C49 48 45 50 41 52C47 56 52 58 55 58C51 64 47 66 44 68C56 72 66 76 78 84Z"/></g><path d="M74 84C74 60 86 50 100 50C114 50 126 60 126 84L120 88C112 84 106 84 102 86L102 108L98 108L98 86C94 84 88 84 80 88Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#valkyrie-bg)"/>
+<g clip-path="url(#valkyrie-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#valkyrie-glow)"/>
+<use href="#valkyrie-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#valkyrie-fig" x="-3" y="-2.2" fill="url(#valkyrie-rim)" stroke="url(#valkyrie-rim)"/>
+<use href="#valkyrie-fig" fill="url(#valkyrie-body)" stroke="url(#valkyrie-body)"/><path d="M29 54V82" fill="none" stroke="#f2dfa4" stroke-width="1.2" stroke-linecap="round"/><path d="M75 76Q100 66 125 76" fill="none" stroke="#d4af5f" stroke-width="2" stroke-linecap="round"/><g fill="#15120d" stroke="#d4af5f" stroke-width="1.5"><ellipse cx="121" cy="116" rx="5.2" ry="6.4" transform="rotate(-14 121 116)"/><ellipse cx="123.6" cy="126" rx="5.2" ry="6.4" transform="rotate(-14 123.6 126)"/><ellipse cx="126.2" cy="136" rx="5.2" ry="6.4" transform="rotate(-14 126.2 136)"/><ellipse cx="128.8" cy="146" rx="5.2" ry="6.4" transform="rotate(-14 128.8 146)"/><ellipse cx="131.4" cy="156" rx="5.2" ry="6.4" transform="rotate(-14 131.4 156)"/><ellipse cx="134" cy="166" rx="5.2" ry="6.4" transform="rotate(-14 134 166)"/></g><rect x="131" y="170" width="9" height="4" rx="1.5" fill="#f2dfa4" transform="rotate(-14 135 172)"/><ellipse cx="91.5" cy="94" rx="4.2" ry="1.9" transform="rotate(6 91.5 94)" fill="#f2dfa4"/><ellipse cx="108.5" cy="94" rx="4.2" ry="1.9" transform="rotate(-6 108.5 94)" fill="#f2dfa4"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

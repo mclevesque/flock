@@ -12,6 +12,7 @@
  * - Stacks up to 3 unseen senders in the single toast
  * - Respects browser visibility API — pauses polling when tab is hidden
  */
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { usePathname } from "next/navigation";
@@ -166,13 +167,13 @@ export default function GlobalNotifications() {
       {/* Avatar(s) */}
       <div style={{ position: "relative", flexShrink: 0, width: 42, height: 42 }}>
         <img
-          src={senders[0].avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${senders[0].username}`}
+          src={avatarSrc(senders[0].avatarUrl, senders[0].userId)}
           alt={senders[0].username}
           style={{ width: 42, height: 42, borderRadius: 10, border: `2px solid ${isPartyInvite ? "rgba(100,200,100,0.6)" : "rgba(124,92,191,0.6)"}`, objectFit: "cover" }}
         />
         {multi && (
           <img
-            src={senders[1].avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${senders[1].username}`}
+            src={avatarSrc(senders[1].avatarUrl, senders[1].userId)}
             alt={senders[1].username}
             style={{
               width: 22, height: 22, borderRadius: 6,
@@ -193,7 +194,7 @@ export default function GlobalNotifications() {
             : `@${senders[0].username}`}
         </div>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {preview}
+          {/^\[draftmasters:[A-Z0-9]{4,6}\]$/.test(preview) ? "Draft invite" : preview}
         </div>
 
         {/* Party invite: Join button */}

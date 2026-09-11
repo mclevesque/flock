@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="dwarf-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="dwarf-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#c23f1e" stop-opacity=".8"/><stop offset=".5" stop-color="#c23f1e" stop-opacity=".34"/><stop offset="1" stop-color="#c23f1e" stop-opacity="0"/></radialGradient>
+<linearGradient id="dwarf-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="dwarf-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="dwarf-clip"><circle cx="100" cy="100" r="94"/></clipPath><radialGradient id="dwarf-forge" cx="100" cy="200" r="90" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f3a23a" stop-opacity=".5"/><stop offset="1" stop-color="#f3a23a" stop-opacity="0"/></radialGradient>
+<g id="dwarf-fig"><path d="M130 150L160 72" fill="none" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="143" y="56" width="34" height="19" rx="2.5" transform="rotate(21 160 65.5)"/><path d="M6 200C8 160 30 140 64 134C78 131 82 126 82 118L118 118C118 126 122 131 136 134C170 140 192 160 194 200Z"/><ellipse cx="50" cy="150" rx="34" ry="22"/><ellipse cx="150" cy="150" rx="34" ry="22"/><ellipse cx="100" cy="96" rx="25" ry="24"/><path d="M72 98C66 126 72 158 82 188L91 176L100 198L109 176L118 188C128 158 134 126 128 98Z"/><path d="M72 90C70 66 84 54 100 54C116 54 130 66 128 90Z"/><path d="M92 56C92 44 96 38 100 36C104 38 108 44 108 56Z"/><path d="M72 86C62 84 54 76 52 64C58 70 64 72 72 72Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M72 86C62 84 54 76 52 64C58 70 64 72 72 72Z"/></g></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#dwarf-bg)"/>
+<g clip-path="url(#dwarf-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#dwarf-glow)"/><circle cx="100" cy="200" r="90" fill="url(#dwarf-forge)"/>
+<use href="#dwarf-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#dwarf-fig" x="-3" y="-2.2" fill="url(#dwarf-rim)" stroke="url(#dwarf-rim)"/>
+<use href="#dwarf-fig" fill="url(#dwarf-body)" stroke="url(#dwarf-body)"/><path d="M71 86H129" fill="none" stroke="#d4af5f" stroke-width="4" stroke-linecap="round"/><g fill="#f2dfa4"><circle cx="80" cy="86" r="1.4"/><circle cx="90" cy="86" r="1.4"/><circle cx="110" cy="86" r="1.4"/><circle cx="120" cy="86" r="1.4"/></g><path d="M97 86H103L102 100H98Z" fill="#b08a3a"/><g fill="#f2dfa4"><ellipse cx="89" cy="96" rx="4.2" ry="1.9" transform="rotate(-6 89 96)"/><ellipse cx="111" cy="96" rx="4.2" ry="1.9" transform="rotate(6 111 96)"/></g><path d="M80 108C88 104 96 106 100 110C104 106 112 104 120 108" fill="none" stroke="#d4af5f" stroke-width="2.4" stroke-linecap="round"/><path d="M72 98C66 126 72 158 82 188M128 98C134 126 128 158 118 188" fill="none" stroke="#8a6a24" stroke-width="1.2" stroke-linecap="round"/><path d="M88 118C86 140 88 160 92 174M112 118C114 140 112 160 108 174M100 116V190" fill="none" stroke="#8a6a24" stroke-width="1" stroke-linecap="round" opacity="0.8"/><path d="M90 150L94 156M90 160L94 166M110 150L106 156M110 160L106 166" fill="none" stroke="#8a6a24" stroke-width="1.6" stroke-linecap="round"/><g fill="none" stroke="#d4af5f" stroke-width="2.4"><rect x="87" y="168" width="10" height="6" rx="2"/><rect x="103" y="168" width="10" height="6" rx="2"/></g><path d="M146 60L172 70" fill="none" stroke="#f2dfa4" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

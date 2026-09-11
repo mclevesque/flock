@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect } from "react";
 import { useSession } from "@/lib/use-session";
 
@@ -152,7 +153,7 @@ export default function ChallengeButton({ gameType, gameName, label, style }: Pr
                     padding: "10px 12px", border: "1px solid var(--border)",
                   }}>
                     <img
-                      src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`}
+                      src={avatarSrc(f.avatar_url, f.id)}
                       alt={f.username}
                       style={{ width: 36, height: 36, borderRadius: "50%", border: "2px solid var(--border-bright)", flexShrink: 0 }}
                     />

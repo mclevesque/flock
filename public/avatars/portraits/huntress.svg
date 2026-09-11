@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="huntress-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="huntress-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2a9384" stop-opacity=".8"/><stop offset=".5" stop-color="#2a9384" stop-opacity=".34"/><stop offset="1" stop-color="#2a9384" stop-opacity="0"/></radialGradient>
+<linearGradient id="huntress-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="huntress-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="huntress-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="huntress-fig"><path d="M56 30C44 36 40 44 44 52C30 72 28 136 44 156C40 164 44 172 56 178" fill="none" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 104H70" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M62 104L72 98L68 104L72 110Z"/><path d="M118 96L130 60L146 66L134 102Z"/><path d="M136 64L144 42M141 66L152 46M146 68L160 52" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M145 30L148 42L143 46L141 38ZM154 34L156 46L151 50L150 42ZM163 40L164 52L159 55L158 47Z"/><path d="M120 64C136 60 156 68 172 84C160 82 150 84 142 90C154 94 164 104 170 118C156 112 144 110 134 114C140 124 142 136 146 146C132 138 124 126 120 114Z"/><path d="M80 70C72 84 72 104 70 118C76 116 80 110 82 104Z"/><path d="M30 200C32 168 50 148 78 140C86 137 91 131 91 116L109 116C109 131 114 137 122 140C150 148 168 168 170 200Z"/><path d="M80 86C78 62 88 52 100 52C112 52 122 62 120 86Z"/><path d="M100 62C112 62 119 73 119 87C119 101 110 112 100 114C90 112 81 101 81 87C81 73 88 62 100 62Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#huntress-bg)"/>
+<g clip-path="url(#huntress-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#huntress-glow)"/><path d="M56 30L56 178" fill="none" stroke="#d4af5f" stroke-width="1.2" stroke-linecap="round" opacity="0.85"/>
+<use href="#huntress-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#huntress-fig" x="-3" y="-2.2" fill="url(#huntress-rim)" stroke="url(#huntress-rim)"/>
+<use href="#huntress-fig" fill="url(#huntress-body)" stroke="url(#huntress-body)"/><path d="M16 104L27 98.5L27 109.5Z" fill="#f2dfa4"/><path d="M82 74C72 62 70 50 74 40C82 50 86 62 84 74Z" fill="#d4af5f"/><path d="M83 73C78 62 76 52 75 44" fill="none" stroke="#8a6a24" stroke-width="0.8" stroke-linecap="round"/><g fill="#f2dfa4"><ellipse cx="91.5" cy="90" rx="4" ry="1.8" transform="rotate(6 91.5 90)"/><ellipse cx="108.5" cy="90" rx="4" ry="1.8" transform="rotate(-6 108.5 90)"/></g><path d="M87.9 88.8l-2.6 -2.2M112.1 88.8l2.6 -2.2" fill="none" stroke="#f2dfa4" stroke-width="1.1" stroke-linecap="round"/><path d="M84 97.5L90 96.5M85 101L90 100" fill="none" stroke="#d4af5f" stroke-width="1.5" stroke-linecap="round"/><path d="M126 140L78 200" fill="none" stroke="#8a6a24" stroke-width="3" stroke-linecap="round"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>

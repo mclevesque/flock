@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 
@@ -514,7 +515,7 @@ export default function VoicePopupClient() {
             const speaking = speakingUsers.has(p.user_id) || (p.user_id === userId && amSpeaking);
             return (
               <div key={p.user_id} style={{ position: "relative" }}>
-                <img src={p.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt="" style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${speaking ? "#4ade80" : "rgba(255,255,255,0.1)"}`, boxShadow: speaking ? "0 0 6px rgba(74,222,128,0.8)" : "none" }} />
+                <img src={avatarSrc(p.avatar_url, p.user_id)} alt="" style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${speaking ? "#4ade80" : "rgba(255,255,255,0.1)"}`, boxShadow: speaking ? "0 0 6px rgba(74,222,128,0.8)" : "none" }} />
               </div>
             );
           })}
@@ -581,7 +582,7 @@ export default function VoicePopupClient() {
                   return (
                     <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 14px", transition: "background 0.15s" }}>
                       <div style={{ position: "relative", flexShrink: 0 }}>
-                        <img src={p.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${p.username}`} alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${isSpeaking ? "#4ade80" : "rgba(255,255,255,0.1)"}`, boxShadow: isSpeaking ? "0 0 10px rgba(74,222,128,0.7)" : "none", transition: "all 0.15s" }} />
+                        <img src={avatarSrc(p.avatar_url, p.user_id)} alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${isSpeaking ? "#4ade80" : "rgba(255,255,255,0.1)"}`, boxShadow: isSpeaking ? "0 0 10px rgba(74,222,128,0.7)" : "none", transition: "all 0.15s" }} />
                         {isSpeaking && <div style={{ position: "absolute", inset: -3, borderRadius: "50%", border: "2px solid rgba(74,222,128,0.4)", animation: "pulse 1s ease infinite" }} />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -630,7 +631,7 @@ export default function VoicePopupClient() {
                     return (
                       <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", gap: 2 }}>
                         <div style={{ display: "flex", alignItems: "flex-end", gap: 6, flexDirection: isMine ? "row-reverse" : "row" }}>
-                          {!isMine && <img src={msg.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${msg.username}`} alt="" style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0 }} />}
+                          {!isMine && <img src={avatarSrc(msg.avatar_url, msg.sender_id)} alt="" style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0 }} />}
                           <div style={{ maxWidth: "80%", padding: "6px 10px", borderRadius: isMine ? "10px 10px 3px 10px" : "10px 10px 10px 3px", background: isMine ? "linear-gradient(135deg, rgba(124,58,237,0.5), rgba(79,70,229,0.4))" : "rgba(255,255,255,0.08)", color: "#e8eaf6", fontSize: 12, lineHeight: 1.45, wordBreak: "break-word", border: isMine ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)" }}>
                             {!isMine && <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>{msg.username}</div>}
                             {msg.content}
@@ -658,7 +659,7 @@ export default function VoicePopupClient() {
                         <div style={{ padding: 20, textAlign: "center", color: "#4b5563", fontSize: 12 }}>Loading contacts…</div>
                       ) : dmFriends.map(f => (
                         <div key={f.id} onClick={() => setDmActiveUser(f)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.04)" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                          <img src={f.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${f.username}`} alt="" style={{ width: 32, height: 32, borderRadius: "50%" }} />
+                          <img src={avatarSrc(f.avatar_url, f.id)} alt="" style={{ width: 32, height: 32, borderRadius: "50%" }} />
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#e8eaf6" }}>{f.display_name ?? f.username}</div>
                             <div style={{ fontSize: 11, color: "#6b7280" }}>@{f.username}</div>
@@ -671,7 +672,7 @@ export default function VoicePopupClient() {
                   <>
                     <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                       <button onClick={() => { setDmActiveUser(null); setDmMessages([]); if (dmPollRef.current) clearInterval(dmPollRef.current); }} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16 }}>←</button>
-                      <img src={dmActiveUser.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${dmActiveUser.username}`} alt="" style={{ width: 24, height: 24, borderRadius: "50%" }} />
+                      <img src={avatarSrc(dmActiveUser.avatar_url, dmActiveUser.id)} alt="" style={{ width: 24, height: 24, borderRadius: "50%" }} />
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#e8eaf6" }}>@{dmActiveUser.username}</span>
                     </div>
                     <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>

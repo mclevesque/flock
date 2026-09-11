@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "@/lib/use-session";
 import { useRouter, usePathname } from "next/navigation";
@@ -268,7 +269,7 @@ export default function ChallengePopup() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <img
-                  src={c.from_avatar ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${c.from_username}`}
+                  src={avatarSrc(c.from_avatar, c.from_user_id)}
                   alt={c.from_username}
                   style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid var(--accent-purple)" }}
                 />
@@ -359,7 +360,7 @@ export default function ChallengePopup() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <img
-                src={c.challenger_avatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${c.challenger_username}`}
+                src={avatarSrc(c.challenger_avatar, c.challenger_id)}
                 alt={c.challenger_username}
                 style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid var(--accent-purple)" }}
               />

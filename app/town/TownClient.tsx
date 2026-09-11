@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useRef, useState, useCallback } from "react";
 // PartySocket is lazy-loaded in the WS useEffect to keep it out of the main bundle
 import Link from "next/link";
@@ -459,7 +460,7 @@ function InvitePanel({ myParty, myUserId, partyInviteSent, onSend, onClose }: {
         ) : filtered.map(u => (
           <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, padding: "4px 6px", background: "rgba(255,255,255,0.03)", borderRadius: 7 }}>
             <img
-              src={u.avatar_url || `https://api.dicebear.com/9.x/adventurer/svg?seed=${u.username}`}
+              src={avatarSrc(u.avatar_url, u.id)}
               style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} alt=""
             />
             <span style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.85)" }}>@{u.username}</span>
@@ -1951,9 +1952,9 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
             // try without CORS
             const el2 = new Image();
             el2.onload = () => applyTexture(el2);
-            el2.src = avatarUrl;
+            el2.src = avatarSrc(avatarUrl, userId);
           };
-          el.src = avatarUrl;
+          el.src = avatarSrc(avatarUrl, userId);
         }
 
         create() {
@@ -5135,7 +5136,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginBottom: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Nearby · {nearbyPlayers.length}</div>
           {nearbyPlayers.map(p => (
             <div key={p.user_id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <img src={p.avatar_url || `https://api.dicebear.com/9.x/adventurer/svg?seed=${p.username}`} style={{ width: 28, height: 28, borderRadius: 4, border: "1px solid rgba(255,255,255,0.2)" }} alt={p.username} />
+              <img src={avatarSrc(p.avatar_url, p.user_id)} style={{ width: 28, height: 28, borderRadius: 4, border: "1px solid rgba(255,255,255,0.2)" }} alt={p.username} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Link href={`/profile/${p.username}`} style={{ fontSize: 12, fontWeight: 700, color: "#c8aaff", textDecoration: "none" }}>@{p.username}</Link>
                 {p.user_id === tagItId && <span style={{ fontSize: 10, color: "#ff4444", marginLeft: 4 }}>IT</span>}
@@ -6114,7 +6115,7 @@ export default function TownClient({ userId, username, avatarUrl, partyId }: Pro
               <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No friends yet — add some!</div>
             ) : friends.map(f => (
               <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                <img src={f.avatar_url ?? `https://api.dicebear.com/9.x/adventurer/svg?seed=${f.username}`} style={{ width: 32, height: 32, borderRadius: 4 }} alt={f.username} />
+                <img src={avatarSrc(f.avatar_url, f.id)} style={{ width: 32, height: 32, borderRadius: 4 }} alt={f.username} />
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>@{f.username}</span>
                 <button onClick={() => inviteFriend(f.id, f.username)} style={{ background: "rgba(124,92,191,0.25)", border: "1px solid rgba(124,92,191,0.4)", borderRadius: 8, padding: "5px 12px", fontSize: 12, color: "#c8aaff", cursor: "pointer", fontWeight: 700 }}>Invite</button>
               </div>

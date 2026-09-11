@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { avatarSrc } from "@/lib/avatars";
 import { auth } from "@/auth";
 import { getShareById, getFriendshipStatus } from "@/lib/db";
 import { notFound } from "next/navigation";
@@ -67,7 +68,7 @@ export default async function PublicSharePage({ params }: { params: Promise<{ id
           {/* Author */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <Link href={`/profile/${s.username}`}>
-              <img src={s.avatar_url ?? `https://api.dicebear.com/9.x/pixel-art/svg?seed=${s.username}`}
+              <img src={avatarSrc(s.avatar_url, s.user_id)}
                 style={{ width: 44, height: 44, borderRadius: 12, border: "2px solid rgba(124,92,191,0.35)", objectFit: "cover" }} alt={s.username} />
             </Link>
             <div style={{ flex: 1 }}>

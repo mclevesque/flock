@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import PersonAvatar from "@/app/components/PersonAvatar";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
@@ -87,9 +88,7 @@ export default async function DebateLeaderboardPage() {
                 <div style={{ width: 24, textAlign: "center", fontWeight: 800, opacity: i < 3 ? 1 : 0.5, color: i === 0 ? "var(--accent-purple-bright, #e8c05a)" : "inherit" }}>
                   {i + 1}
                 </div>
-                {r.avatar_url
-                  ? <img src={r.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: 14, objectFit: "cover" }} />
-                  : <div style={{ width: 28, height: 28, borderRadius: 14, background: "rgba(255,255,255,0.1)" }} />}
+                <PersonAvatar src={r.avatar_url} seed={r.id} style={{ width: 28, height: 28, borderRadius: 14 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{r.username}</div>
                 </div>

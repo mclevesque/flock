@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -193,7 +194,7 @@ export default function QuizHubClient({ pending, recent, leaderboard, allUsers, 
       {/* My rating strip */}
       {myEntry && (
         <div className="panel" style={{ marginBottom: 20, padding: "12px 16px", display: "flex", alignItems: "center", gap: 16 }}>
-          <img src={myEntry.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${myEntry.username}`}
+          <img src={avatarSrc(myEntry.avatar_url, myEntry.id)}
             alt="" style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid var(--border)" }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Your Rating</div>
@@ -238,7 +239,7 @@ export default function QuizHubClient({ pending, recent, leaderboard, allUsers, 
                         background: "var(--bg-elevated)", borderRadius: 10, padding: "10px 12px",
                         border: `1px solid ${isIncoming ? "rgba(124,92,191,0.4)" : "var(--border)"}`,
                       }}>
-                        <img src={otherAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${otherUsername}`}
+                        <img src={avatarSrc(otherAvatar, otherUsername)}
                           alt="" style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--border)", flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 700 }}>
@@ -305,7 +306,7 @@ export default function QuizHubClient({ pending, recent, leaderboard, allUsers, 
                     const resultLabel = won ? "Win" : lost ? "Loss" : "Draw";
                     return (
                       <Link key={g.id} href={`/quiz/${g.id}`} style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10, background: "var(--bg-elevated)", borderRadius: 8, padding: "8px 12px" }}>
-                        <img src={opAvatar || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${opName}`}
+                        <img src={avatarSrc(opAvatar, opName)}
                           alt="" style={{ width: 32, height: 32, borderRadius: 7, border: "1px solid var(--border)", flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>vs {opName}</div>
@@ -333,7 +334,7 @@ export default function QuizHubClient({ pending, recent, leaderboard, allUsers, 
                 <span style={{ fontSize: 11, color: i < 3 ? ["#ffd700", "#c0c0c0", "#cd7f32"][i] : "var(--text-muted)", fontWeight: 700, width: 20, textAlign: "center" }}>
                   {i + 1}
                 </span>
-                <img src={entry.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${entry.username}`}
+                <img src={avatarSrc(entry.avatar_url, entry.id)}
                   alt="" style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border)", flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.username}</div>
@@ -439,7 +440,7 @@ export default function QuizHubClient({ pending, recent, leaderboard, allUsers, 
                   border: `1px solid ${selectedUser?.id === u.id ? "var(--accent-purple)" : "var(--border)"}`,
                   borderRadius: 8, padding: "8px 10px", cursor: "pointer", textAlign: "left",
                 }}>
-                  <img src={u.avatar_url || `https://api.dicebear.com/9.x/pixel-art/svg?seed=${u.username}`}
+                  <img src={avatarSrc(u.avatar_url, u.id)}
                     alt="" style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border)", flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{u.display_name || u.username}</div>

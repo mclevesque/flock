@@ -20,7 +20,7 @@ export type IconName =
   | "pin" | "eye" | "camera" | "search"
   | "up" | "down" | "check" | "close" | "arrow"
   | "trophy" | "crown" | "scales" | "swords" | "flame"
-  | "friends" | "profile" | "cards" | "dice" | "bot" | "chevron" | "link" | "mail";
+  | "friends" | "profile" | "cards" | "dice" | "bot" | "chevron" | "link" | "mail" | "chat";
 
 const PATHS: Record<IconName, string> = {
   // ── Audio ────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ const PATHS: Record<IconName, string> = {
   cards: "M8 6h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z M3.5 16.5V6a2 2 0 0 1 2-2h10",
   dice: "M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-11Z M8.5 9h.01 M15.5 9h.01 M12 12h.01 M8.5 15h.01 M15.5 15h.01",
   mail: "M3.5 6.5h17v11h-17ZM3.5 7l8.5 6 8.5-6",
+  chat: "M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5v-7Z M8.5 10h7",
   link: "M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2 M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.2-1.2",
   bot: "M7 9h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2Z M12 6V9 M12 4.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z M9.5 13.5h.01 M14.5 13.5h.01 M9.5 16.5h5 M2.5 12v3 M21.5 12v3",
 };

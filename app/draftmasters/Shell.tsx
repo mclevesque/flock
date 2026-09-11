@@ -25,7 +25,11 @@ export default function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dm">
+    /* data-standalone for the same reason the game root has it: the hub's
+       floating chat bubble and voice pill were sitting on these pages next to
+       the game's own friends sheet — two chat systems for the same friends,
+       one of which could not invite anybody to a draft. */
+    <div className="dm" data-standalone="1">
       <Motes />
       <BottomTabs />
 

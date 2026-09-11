@@ -1,4 +1,5 @@
 "use client";
+import { avatarSrc } from "@/lib/avatars";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   WALLPAPERS, FLOORS, FURNITURE, PETS,
@@ -103,12 +104,11 @@ export default function HouseRoom({
 
   // ── Load avatar ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!viewerAvatarUrl) return;
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = viewerAvatarUrl;
+    img.src = avatarSrc(viewerAvatarUrl, viewerUsername);
     img.onload = () => { avatarImgRef.current = img; };
-  }, [viewerAvatarUrl]);
+  }, [viewerAvatarUrl, viewerUsername]);
 
   // ── Reload after edit ────────────────────────────────────────────────────
   const reloadConfig = useCallback(() => {

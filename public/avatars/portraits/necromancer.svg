@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<defs>
+<radialGradient id="necromancer-bg" cx="100" cy="90" r="130" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17140f"/><stop offset=".6" stop-color="#100e0b"/><stop offset="1" stop-color="#08080a"/></radialGradient>
+<radialGradient id="necromancer-glow" cx="100" cy="82" r="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2fb0a6" stop-opacity=".8"/><stop offset=".5" stop-color="#2fb0a6" stop-opacity=".34"/><stop offset="1" stop-color="#2fb0a6" stop-opacity="0"/></radialGradient>
+<linearGradient id="necromancer-body" x1="70" y1="40" x2="130" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1c1812"/><stop offset="1" stop-color="#0c0b09"/></linearGradient>
+<linearGradient id="necromancer-rim" x1="30" y1="20" x2="170" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f2dfa4"/><stop offset=".5" stop-color="#d4af5f"/><stop offset="1" stop-color="#8a6a24"/></linearGradient>
+<clipPath id="necromancer-clip"><circle cx="100" cy="100" r="94"/></clipPath>
+<g id="necromancer-fig"><path d="M158 200L150 46" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M152 34C122 10 78 10 42 40C78 34 118 38 150 58Z"/><path d="M18 200C20 164 42 142 74 135C84 133 88 127 88 114L112 114C112 127 116 133 126 135C158 142 180 164 182 200Z"/><path d="M54 142L44 112L68 134ZM72 136L70 106L88 128Z"/><g transform="matrix(-1 0 0 1 200 0)"><path d="M54 142L44 112L68 134ZM72 136L70 106L88 128Z"/></g><path d="M100 48C122 48 134 66 134 92C134 110 138 124 152 138L48 138C62 124 66 110 66 92C66 66 78 48 100 48Z"/><path d="M78 60L72 38L88 52L94 32L100 48L106 32L112 52L128 38L122 60Z"/></g>
+</defs>
+<rect width="200" height="200" fill="#08080a"/>
+<circle cx="100" cy="100" r="100" fill="url(#necromancer-bg)"/>
+<g clip-path="url(#necromancer-clip)">
+<circle cx="100" cy="82" r="84" fill="url(#necromancer-glow)"/>
+<use href="#necromancer-fig" x="2.2" fill="#8a6a24" stroke="#8a6a24" opacity=".55"/>
+<use href="#necromancer-fig" x="-3" y="-2.2" fill="url(#necromancer-rim)" stroke="url(#necromancer-rim)"/>
+<use href="#necromancer-fig" fill="url(#necromancer-body)" stroke="url(#necromancer-body)"/><path d="M45 39C80 33 118 37 148 56" fill="none" stroke="#f2dfa4" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/><path d="M100 74C113 74 120 86 120 99C120 113 111 123 100 125C89 123 80 113 80 99C80 86 87 74 100 74Z" fill="#050504"/><ellipse cx="100" cy="100" rx="18" ry="9" fill="#2fb0a6" opacity=".3"/><ellipse cx="91.5" cy="100" rx="4.2" ry="1.9" transform="rotate(12 91.5 100)" fill="#c9fff2"/><ellipse cx="108.5" cy="100" rx="4.2" ry="1.9" transform="rotate(-12 108.5 100)" fill="#c9fff2"/><path d="M93 58A7 7 0 1 1 107 58L106 64L94 64Z" fill="#e6d3a0"/><circle cx="97" cy="58" r="1.8" fill="#0c0b09"/><circle cx="103" cy="58" r="1.8" fill="#0c0b09"/><path d="M95.5 66V68M100 66V68M104.5 66V68" fill="none" stroke="#e6d3a0" stroke-width="1.2" stroke-linecap="round"/>
+</g>
+<circle cx="100" cy="100" r="95.5" fill="none" stroke="#d4af5f" stroke-width="3"/>
+<circle cx="100" cy="100" r="91" fill="none" stroke="#8a6a24" stroke-width="1" opacity=".7"/>
+</svg>
