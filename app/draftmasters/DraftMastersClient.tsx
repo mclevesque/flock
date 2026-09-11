@@ -253,6 +253,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * this one line and the setup toggle that used to set it.
    */
   const [argumentsOn] = useState(false);
+  const argumentsOnRef = useRef(argumentsOn);
+  argumentsOnRef.current = argumentsOn;
   const [rulings, setRulings] = useState<ArgumentRuling[]>([]);
   const [arguing, setArguing] = useState(false);
   const [argSubmitted, setArgSubmitted] = useState<string[]>([]);
@@ -273,6 +275,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const [portraitSources, setPortraitSources] = useState<Record<string, string>>({});
   const [portraitNote, setPortraitNote] = useState<string | null>(null);
   const [view, setView] = useState<GameView>(EMPTY_VIEW);
+  /**
+   * The room's own view, readable outside a render.
+   *
+   * A friend game keeps its rosters here; only a solo game fills gameRef. The
+   * battle path read gameRef either way, found nothing in PvP, and returned
+   * without a word -- which is what "BATTLE! does nothing" was.
+   */
+  const viewRef = useRef<GameView>(EMPTY_VIEW);
+  viewRef.current = view;
   /**
    * What the prep screen is actually doing, not which of three boxes is lit.
    *
@@ -298,6 +309,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * sitting underneath it a lie. So the story is cached and replayed.
    */
   const [toldBattle, setToldBattle] = useState<ToldBattle | null>(null);
+  /** The script this client put up, so the told can be sent along with it. */
+  const battleRef = useRef<BattleScript | null>(null);
+  /** Both sides' cases, once the room has sealed them. Driver only. */
+  const [pvpArgs, setPvpArgs] = useState<Record<string, string> | null>(null);
+  /** One case each, sealed once -- the room refuses a rewrite anyway. */
+  const argSealed = useRef(false);
   /**
    * The case this player makes before the fight, in their own words.
    *
@@ -1484,6 +1501,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       // exactly one — the one that has to call the panel.
       if (msg.type === "args-ready") {
         const args = (msg.args as { sideId: string; text: string }[]) ?? [];
+        // With the argument ROUND off -- which it is -- there is no panel to
+        // call. The cases exist so the storyteller can weigh both of them.
+        if (!argumentsOnRef.current) {
+          setPvpArgs(Object.fromEntries(args.map((x) => [x.sideId, x.text])));
+          return;
+        }
         void (async () => {
           setArguing(true);
           try {
@@ -1552,7 +1575,11 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       setBattle((current) => {
         if (!serverBattle) return null;
         if (watchedBattleRef.current) return current; // don't replay for someone who skipped
-        return current && current.beats.length === serverBattle.beats.length ? current : serverBattle;
+        // Same fight: keep what is running -- unless the story has just been
+        // written and has arrived attached to it.
+        const sameFight = current && current.beats.length === serverBattle.beats.length;
+        if (sameFight && !(serverBattle.told && !current.told)) return current;
+        return serverBattle;
       });
 
       // New board arrived — pull its portraits before the first lot drops.
@@ -1677,7 +1704,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    */
   const settleWithTheFight = useCallback(async (line: LineupResult) => {
     const g = gameRef.current;
-    const [a, b] = g.sides;
+    const [a, b] = mode === "pvp" ? viewRef.current.sides : g.sides;
     if (!a || !b) return;
 
     const boardId = pack?.id?.split("#")[0];
@@ -1759,7 +1786,17 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     };
     setWatchedBattle(false);
     setBattle(script);
-    if (mode === "pvp") send({ type: "battle", battle: script });
+    battleRef.current = script;
+    if (mode === "pvp") {
+      // The script first, so both players watch the same fight -- then the
+      // verdict, which nothing here ever sent. Without it the guest sat on
+      // "waiting for the host to call it" for the rest of the game, and
+      // finishVerdictRef is the solo path: it rewrites gameRef, which in a
+      // friend game is empty, and files the result as a solo match.
+      send({ type: "battle", battle: script });
+      send({ type: "verdict", verdict });
+      return;
+    }
 
     finishVerdictRef.current?.(verdict);
   }, [meId, mode, pack, send]);
@@ -1834,6 +1871,13 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    */
   const takeTold = useCallback((told: ToldBattle) => {
     setToldBattle(told);
+    // One telling, shared. Both clients used to write their own -- two calls
+    // for one fight, and two different accounts of it on the two screens.
+    if (mode === "pvp" && battleRef.current) {
+      const script = { ...battleRef.current, told };
+      battleRef.current = script;
+      send({ type: "battle", battle: script });
+    }
     setVerdict((v) => {
       if (!v) return v;
       const won = g_sideName(gameRef.current, told.winnerId) ?? "The winner";
@@ -1846,7 +1890,18 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         mvp: told.mvp,
       };
     });
-  }, []);
+  }, [mode, send]);
+
+  /** Seal this player's case to the room, once, when the box closes. */
+  const sealArgument = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (mode !== "pvp" || !t || argSealed.current) return;
+      argSealed.current = true;
+      send({ type: "argument", text: t });
+    },
+    [mode, send]
+  );
 
   const endBattle = useCallback(() => {
     setWatchedBattle(true);
@@ -1860,6 +1915,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     // has nothing to do with this one.
     setToldBattle(null);
     setArgument("");
+    battleRef.current = null;
+    argSealed.current = false;
+    setPvpArgs(null);
     clearNpc();
     setBattle(null);
     setWatchedBattle(false);
@@ -2280,6 +2338,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             watched={watchedBattle}
             argument={argument}
             setArgument={setArgument}
+            onSealArgument={sealArgument}
             record={record}
             ratingDelta={ratingDelta}
             mode={mode}
@@ -2306,7 +2365,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           packName={pack?.name ?? "Draft"}
           arena={pack?.arenaName ?? null}
           argument={argument}
-          replay={toldBattle}
+          args={pvpArgs}
+          writer={mode !== "pvp" || canDrive}
+          replay={toldBattle ?? battle.told ?? null}
           onTold={takeTold}
           onDone={endBattle}
         />

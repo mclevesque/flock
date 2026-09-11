@@ -58,6 +58,21 @@ interface Props {
   arena?: string | null;
   /** This player's case for why they win, judged by whoever writes the fight. */
   argument?: string;
+  /**
+   * Every side's case, by side id, once the room has sealed them.
+   *
+   * A friend game has two cases and only one of them was ever sent: each
+   * client attached its own and nobody's opponent was ever answered.
+   */
+  args?: Record<string, string> | null;
+  /**
+   * Whether this screen writes the story or waits for one.
+   *
+   * Both clients used to write their own: two calls for a single fight, and
+   * two different accounts of it side by side. The driver writes; the other
+   * player gets it on the script.
+   */
+  writer?: boolean;
   /** A story already written. Given one, this screen makes no request at all. */
   replay?: ToldBattle | null;
   /** Handed up the moment it is written, so a rewatch costs nothing. */
@@ -163,6 +178,8 @@ export default function BattleStory({
   packName,
   arena,
   argument,
+  args,
+  writer = true,
   replay,
   onTold,
   onDone,
@@ -228,10 +245,8 @@ export default function BattleStory({
    */
   const asked = useRef(false);
   useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
-
-    // Already written. Nothing to ask anybody.
+    // Already written -- by this screen before a rewatch, or by the other
+    // player and sent along with the script. Nothing to ask anybody.
     if (replay) {
       setTold(replay.beats);
       setWonBy(replay.winnerId);
@@ -239,6 +254,12 @@ export default function BattleStory({
       setWriting(false);
       return;
     }
+
+    // Somebody else is writing it. Sit on the rite until it arrives.
+    if (!writer) return;
+
+    if (asked.current) return;
+    asked.current = true;
 
     const body = JSON.stringify({
       arena,
@@ -248,7 +269,8 @@ export default function BattleStory({
         // is not a name it can use.
         name: s.name,
         // Only this player's case. Nobody argues on somebody else's behalf.
-        argument: s.id === meId ? argument?.trim() || null : null,
+        // Both cases when the room has them; otherwise just this player's.
+        argument: args ? args[s.id]?.trim() || null : s.id === meId ? argument?.trim() || null : null,
         cards: s.roster.map((p) => {
           const c = cardFor(
             {
@@ -330,9 +352,10 @@ export default function BattleStory({
         setWriting(false);
       }
     })();
-    // Deliberately empty: one battle, one telling. See `asked`.
+    // One battle, one telling -- `asked` guards that. The two deps are the
+    // ways a story can arrive from outside: a rewatch, or the other player's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [replay, writer]);
 
   // -- The rite -------------------------------------------------------------
   /**

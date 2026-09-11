@@ -44,6 +44,8 @@ interface Props {
   /** The case this player wants to make before the fight. */
   argument: string;
   setArgument: (s: string) => void;
+  /** Seal it to the room, so the writer weighs both cases and not just one. */
+  onSealArgument?: (text: string) => void;
   /**
    * What the room is waiting on, if anything. Set for BOTH players, not just
    * whoever pressed the button — the one who didn't press it used to get a
@@ -71,6 +73,7 @@ export default function VerdictScreen({
   watched,
   argument,
   setArgument,
+  onSealArgument,
   busy,
   onBattle,
   onPlayAgain,
@@ -104,9 +107,9 @@ export default function VerdictScreen({
           </div>
         )}
 
-        {!busy && canJudge && (
-          <ArgueBox value={argument} onChange={setArgument} />
-        )}
+        {/* Both players, not just the host. The guest had no box at all: one
+            player got to argue their roster and the other watched them do it. */}
+        {!busy && <ArgueBox value={argument} onChange={setArgument} onSeal={onSealArgument} />}
 
         {busy && <StagingBar key={busy} kind={busy} />}
 
@@ -239,8 +242,21 @@ export default function VerdictScreen({
  * story just quietly goes the way a good argument said it would, which is the
  * difference between making a case and writing the ending yourself.
  */
-function ArgueBox({ value, onChange }: { value: string; onChange: (s: string) => void }) {
+function ArgueBox({
+  value,
+  onChange,
+  onSeal,
+}: {
+  value: string;
+  onChange: (s: string) => void;
+  /** Called when the box closes: one case, sealed once, like the room's rule. */
+  onSeal?: (text: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const close = () => {
+    setOpen(false);
+    onSeal?.(value);
+  };
 
   if (!open) {
     return (
@@ -273,7 +289,7 @@ function ArgueBox({ value, onChange }: { value: string; onChange: (s: string) =>
       />
       <div className="dm-argue-foot">
         <span className="dm-note">{value.length}/{ARGUE_MAX}</span>
-        <button className="dm-btn dm-btn-ghost dm-bt-mini" onClick={() => setOpen(false)}>
+        <button className="dm-btn dm-btn-ghost dm-bt-mini" onClick={close}>
           Done
         </button>
       </div>

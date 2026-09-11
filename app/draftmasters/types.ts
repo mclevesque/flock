@@ -104,6 +104,20 @@ export interface BattleScript {
    */
   lineup?: { sideId: string; order: string[]; captain: string | null }[];
   scripted: "ai" | "offline";
+  /**
+   * The story, once somebody has written it.
+   *
+   * In a friend game both clients used to call the writer with the same fight
+   * and get two different accounts of it -- two bills, and two players reading
+   * different battles. The driver writes it and it rides here, on the script
+   * the room already shares, so the other player replays the same prose.
+   */
+  told?: {
+    beats: { text: string; kills: string[]; turned: string[]; nulled: string[] }[];
+    winnerId: string;
+    why: string;
+    mvp: { name: string; note: string } | null;
+  } | null;
   /** FormatId the contest was staged as — see lib/draftmasters/contest */
   format?: string;
   /** Shown on the cinematic's top bar, e.g. "Judged beauty pageant" */
