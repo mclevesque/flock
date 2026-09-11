@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PersonAvatar from "../components/PersonAvatar";
 import { parseInvite } from "@/lib/draftmasters/invite";
+import { chatGif, isHubOnly } from "@/lib/draftmasters/chat-text";
 import { rememberedMicGrant } from "./useDraftMedia";
 import Icon from "./Icon";
 import { useSocial, type ChatMsg, type SocialFriend } from "./social-context";
@@ -385,9 +386,18 @@ function ChatView({ friend }: { friend: SocialFriend }) {
               </div>
             );
           }
+          // Great Souls features (quizzes, parties, chess) are not part of this
+          // chat. A GIF is ordinary chat and is drawn rather than shown raw.
+          if (isHubOnly(m.text)) return null;
+          const gif = chatGif(m.text);
           return (
             <div key={m.id} className="dm-bubble" data-mine={mine ? "1" : "0"} data-pending={m.pending ? "1" : "0"}>
-              <span>{m.text}</span>
+              {gif ? (
+                // eslint-disable-next-line @next/next/no-img-element -- an arbitrary GIF host
+                <img src={gif} alt="GIF" style={{ maxWidth: "100%", maxHeight: 180, borderRadius: 10, display: "block" }} />
+              ) : (
+                <span>{m.text}</span>
+              )}
               <time>{clock(m.at)}</time>
             </div>
           );

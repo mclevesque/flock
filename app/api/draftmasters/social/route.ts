@@ -14,6 +14,7 @@ import {
   updateLastSeen,
 } from "@/lib/db";
 import { getRecord } from "@/lib/draftmasters/db";
+import { chatGif, isHubOnly } from "@/lib/draftmasters/chat-text";
 import {
   getActiveRoom,
   getChat,
@@ -94,9 +95,11 @@ export async function GET(req: Request) {
           online: !!f.is_online,
           inDraft: drafting.has(id),
           unread: unread.get(id) ?? 0,
-          last: last
+          // A quiz or party invite is the hub's business; it is not a last
+          // message worth previewing here.
+          last: last && !isHubOnly(lastText)
             ? {
-                text: parseInvite(lastText) ? "Draft invite" : lastText.slice(0, 80),
+                text: parseInvite(lastText) ? "Draft invite" : chatGif(lastText) ? "GIF" : lastText.slice(0, 80),
                 fromMe: String(last.last_sender_id) === me,
                 at: new Date(last.created_at as string).toISOString(),
               }

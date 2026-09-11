@@ -3243,7 +3243,7 @@ function SetupScreen({
         )}
 
         <p className="dm-note" style={{ marginTop: 12 }}>
-          Drafting with a friend turns mics on by default — cameras stay off until someone asks for them. Ranked play is
+          Drafting with a friend turns voice on by default, and you can mute anyone from their portrait. Ranked play is
           PvP only; solo games count toward your win/loss.
         </p>
       </section>
