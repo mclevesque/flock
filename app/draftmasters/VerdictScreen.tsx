@@ -309,7 +309,7 @@ const STAGES: Record<"judging" | "staging", string[]> = {
     "Setting the scene…",
     "Blocking out the contest…",
     "Finding the moment it turns…",
-    "Rolling the cameras…",
+    "Setting the stage…",
   ],
 };
 
