@@ -14,6 +14,8 @@ import LineupScreen, { type LineupResult } from "./LineupScreen";
 import Scene, { SceneDefs } from "./Scene";
 import Crest from "./Crest";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { normaliseRoomCode } from "@/lib/draftmasters/invite";
 import {
   BUDGET_PRESETS,
   DEFAULT_RULES,
@@ -48,10 +50,13 @@ import { initAudio, isMuted, setMuted, sfx } from "@/lib/draftmasters/sfx";
 import AuctionStage from "./AuctionStage";
 import BattleStory, { type ToldBattle } from "./BattleStory";
 import Icon from "./Icon";
-import MediaRail from "./MediaRail";
+import PersonAvatar from "../components/PersonAvatar";
+import { InviteSheet, RoomDock, RoomVoice } from "./RoomVoice";
+import { useSocial } from "./social-context";
+import { PeerAudio } from "./VoiceKit";
 import Wordmark from "./Wordmark";
 import VerdictScreen from "./VerdictScreen";
-import { useDraftMedia, type DraftMedia } from "./useDraftMedia";
+import { rememberedMicGrant, useDraftMedia, type DraftMedia } from "./useDraftMedia";
 import { STYLES } from "./styles";
 import { BATTLE_STYLES } from "./battle-styles";
 import {
@@ -122,6 +127,8 @@ interface Props {
   standalone?: boolean;
   sessionUser: { id: string; name: string; avatarUrl: string | null } | null;
   packs: PackSummary[];
+  /** A room code from an invite link (?room=), already validated on the server. */
+  initialRoom?: string | null;
 }
 
 /**
@@ -185,7 +192,7 @@ async function storePortraitImage(name: string, dataUrl: string): Promise<string
   );
 }
 
-export default function DraftMastersClient({ sessionUser, packs, standalone = false }: Props) {
+export default function DraftMastersClient({ sessionUser, packs, standalone = false, initialRoom = null }: Props) {
   // ── Identity ───────────────────────────────────────────────────────────────
   const [guestName, setGuestName] = useState("");
   const meId = useGuestId(sessionUser?.id);
@@ -325,7 +332,19 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const [connected, setConnected] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
   const [chat, setChat] = useState<ChatLine[]>([]);
+  /** The room an invite link or a rejoin is checking before walking in. */
+  const [joining, setJoining] = useState<string | null>(null);
+  /** Why a room could not be joined — said on the shelf, instead of a blank screen. */
+  const [roomNotice, setRoomNotice] = useState<{ code: string; kind: "gone" | "started" } | null>(null);
+  /** The room this player was last in, for Back to your game. */
+  const [remembered, setRemembered] = useState<StoredRoom | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  /** "Leave the game?" — and what to do once they say yes. */
+  const [leaveAsk, setLeaveAsk] = useState<{ then: () => void } | null>(null);
   const matchIdRef = useRef<string>("");
+  const router = useRouter();
+  const social = useSocial();
+  const { rememberRoom, setInGame, setJoinHandler } = social;
   const wsRef = useRef<{ send: (s: string) => void; close: () => void } | null>(null);
 
   const send = useCallback((payload: Record<string, unknown>) => {
@@ -417,16 +436,6 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     },
     [loadRecords, meId, pack?.name, roomCode]
   );
-
-  // ── Invite links ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    try {
-      const invited = new URLSearchParams(window.location.search).get("room");
-      if (invited) setJoinCode(invited.toUpperCase().slice(0, 6));
-    } catch {
-      /* no search params to read */
-    }
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -1144,26 +1153,92 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   // ── PvP ────────────────────────────────────────────────────────────────────
 
+  /**
+   * Walk into a room.
+   *
+   * `check` is for every way of arriving that is not "I just made this room":
+   * an invite link, a typed code, Back to your game. The server sends its
+   * state the moment the socket opens, BEFORE anyone joins — so the room can
+   * be looked at without sitting down in it. Empty with no host means it has
+   * closed; mid-game with both seats taken and yours not among them means it
+   * started without you. Either way the player is told so on the shelf,
+   * instead of being seated alone in a room that is never going to fill —
+   * which is what following an old invite link used to do.
+   *
+   * `tapped` says this came from a tap, which is what the browser needs
+   * before it will show the mic prompt for the first time.
+   */
   const connectRoom = useCallback(
-    async (code: string, asHost: boolean) => {
+    async (code: string, asHost: boolean, opts: { check?: boolean; tapped?: boolean } = {}) => {
       initAudio();
+      // One room at a time.
+      wsRef.current?.close();
+      wsRef.current = null;
       setMode("pvp");
       setRoomCode(code);
       setIOpenedRoom(asHost);
       setError(null);
+      setRoomNotice(null);
       setChat([]);
+      setMembers([]);
       reportedRef.current = null;
+      if (opts.check) setJoining(code);
 
       const { default: PartySocket } = await import("partysocket");
       const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
       const ws = new PartySocket({ host, room: code, party: "draftmasters" });
       wsRef.current = ws as unknown as { send: (s: string) => void; close: () => void };
 
-      // Every open — first connect or any reconnect — re-joins and resyncs.
-      ws.addEventListener("open", () => {
-        setConnected(true);
-        ws.send(JSON.stringify({ type: "join", userId: meId, name: myName, avatarUrl: myAvatar, mic: true }));
+      let admitted = false;
+      let opened = false;
+
+      const sendJoin = () => {
+        ws.send(
+          JSON.stringify({ type: "join", userId: meId, name: myName, avatarUrl: myAvatar, mic: mediaRef.current.micOn })
+        );
         ws.send(JSON.stringify({ type: "sync" }));
+      };
+
+      const admit = () => {
+        admitted = true;
+        setJoining(null);
+        if (opened) sendJoin();
+        const stored: StoredRoom = { code, host: asHost, at: Date.now() };
+        writeStoredRoom(stored);
+        setRemembered(stored);
+        rememberRoom(code, asHost);
+        // The address carries the room, so a refresh lands back in it.
+        setRoomParam(code);
+        // Voice starts by itself once the mic has been allowed before, and
+        // on any tap (Draft with a friend, Join, Rejoin, an invite card). An
+        // invite link opened cold shows Turn on voice instead of a prompt
+        // appearing out of nowhere.
+        if (!opts.check || opts.tapped || rememberedMicGrant()) void mediaRef.current.start();
+        setScreen("room");
+      };
+
+      const refuse = (kind: "gone" | "started") => {
+        ws.close();
+        if ((wsRef.current as unknown) === (ws as unknown)) wsRef.current = null;
+        setJoining(null);
+        setRoomNotice({ code, kind });
+        setRoomCode(null);
+        setMode("solo");
+        setScreen("setup");
+        setRoomParam(null);
+        if (readStoredRoom()?.code === code) {
+          writeStoredRoom(null);
+          setRemembered(null);
+          rememberRoom(null);
+        }
+      };
+
+      // Every open — first connect or any reconnect — re-joins and resyncs.
+      // Until the room has been looked at, an open only listens.
+      ws.addEventListener("open", () => {
+        opened = true;
+        setConnected(true);
+        if (admitted) sendJoin();
       });
       ws.addEventListener("close", () => setConnected(false));
       ws.addEventListener("message", (ev: MessageEvent) => {
@@ -1173,14 +1248,21 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         } catch {
           return;
         }
+        if (!admitted) {
+          if (msg.type !== "state") return;
+          const verdict = judgeRoom(msg.state as Record<string, unknown>, meId, asHost);
+          if (verdict !== "ok") {
+            refuse(verdict);
+            return;
+          }
+          admit();
+        }
         void serverMessageRef.current(msg);
       });
 
-      // Mics on by default — arguing about the picks is the game.
-      void mediaRef.current.start({ mic: true, cam: false });
-      setScreen("room");
+      if (!opts.check) admit();
     },
-    [meId, myAvatar, myName]
+    [meId, myAvatar, myName, rememberRoom]
   );
 
   // Safety net: periodically and whenever the tab comes back, ask for the
@@ -1200,6 +1282,126 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       window.removeEventListener("online", sync);
     };
   }, [mode, send]);
+
+  // The room shows everyone whether your mic is live. Tell it when that changes.
+  useEffect(() => {
+    if (mode !== "pvp" || !roomCode || joining) return;
+    send({ type: "media", mic: media.micOn });
+  }, [joining, media.micOn, mode, roomCode, send]);
+
+  // A room in play keeps its row fresh, so friends see "In a draft" and a
+  // second device can offer Back to your game.
+  useEffect(() => {
+    if (mode !== "pvp" || !roomCode || joining) return;
+    const id = setInterval(() => rememberRoom(roomCode, iOpenedRoom), 4 * 60_000);
+    return () => clearInterval(id);
+  }, [iOpenedRoom, joining, mode, rememberRoom, roomCode]);
+
+  // Arriving on an invite link — or refreshing inside a room, which keeps
+  // ?room= in the address — goes straight into the room. No code to type.
+  const autoJoined = useRef(false);
+  useEffect(() => {
+    if (autoJoined.current) return;
+    autoJoined.current = true;
+    const stored = readStoredRoom();
+    setRemembered(stored);
+    if (!initialRoom) return;
+    // Your own room, reopened after a refresh: you are its host, not a guest.
+    void connectRoom(initialRoom, stored?.code === initialRoom && stored.host, { check: true });
+  }, [connectRoom, initialRoom]);
+
+  /** A room or a game is on screen. Everything that guards against leaving keys off this. */
+  const trapped = screen !== "setup";
+  const trappedRef = useRef(trapped);
+  trappedRef.current = trapped;
+  const roomCodeRef = useRef(roomCode);
+  roomCodeRef.current = roomCode;
+
+  // An invite card tapped in the friends sheet, or a toast's Join, while the
+  // game is already open: join here rather than reloading the page.
+  useEffect(() => {
+    setJoinHandler((code) => {
+      if (code === roomCodeRef.current && wsRef.current) return; // already there
+      const mine = readStoredRoom();
+      const go = () => void connectRoom(code, mine?.code === code && mine.host, { check: true, tapped: true });
+      if (trappedRef.current) setLeaveAsk({ then: go });
+      else go();
+    });
+    return () => setJoinHandler(null);
+  }, [connectRoom, setJoinHandler]);
+
+  // Friends' toasts and the chat sheet stay out of a game in progress.
+  useEffect(() => {
+    setInGame(trapped);
+    return () => setInGame(false);
+  }, [setInGame, trapped]);
+
+  /**
+   * The back gesture, inside a game.
+   *
+   * On a phone a swipe in from the screen edge is Back, and Back from a page
+   * you arrived on by link is "leave the app" — which is how drafts were being
+   * abandoned mid-bid by a thumb resting on the edge. While a room or a game
+   * is on screen there is one extra history entry on top of this page: Back
+   * lands on it, it is put straight back, and the player is asked. Nothing on
+   * the shelf is guarded.
+   */
+  const leavingByLink = useRef(false);
+  /**
+   * The guard's own history.back() arrives as a popstate like any other. In
+   * development React runs this effect twice, so that event can land on the
+   * second run's listener and ask "Leave the game?" of a player who has only
+   * just sat down. Pops inside this window are ours.
+   */
+  const ignorePopsUntil = useRef(0);
+  useEffect(() => {
+    if (!trapped) return;
+    leavingByLink.current = false;
+    const root = document.documentElement;
+    root.classList.add("dm-guarded");
+    const push = () => {
+      try {
+        window.history.pushState({ ...(window.history.state ?? {}), dmGuard: true }, "", window.location.href);
+      } catch {
+        /* history locked down in some webviews — the overscroll rule still helps */
+      }
+    };
+    push();
+    const onPop = () => {
+      if (Date.now() < ignorePopsUntil.current) return;
+      push();
+      setLeaveAsk((cur) => cur ?? { then: () => {} });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      root.classList.remove("dm-guarded");
+      // Take the extra entry back out so a later Back goes where it should —
+      // unless a link is already taking the player somewhere else.
+      if (!leavingByLink.current && (window.history.state as { dmGuard?: boolean } | null)?.dmGuard) {
+        const tidy = () => {
+          window.removeEventListener("popstate", tidy);
+          if (!roomCodeRef.current) setRoomParam(null);
+        };
+        window.addEventListener("popstate", tidy);
+        ignorePopsUntil.current = Date.now() + 500;
+        window.history.back();
+      }
+    };
+  }, [trapped]);
+
+  // Closing the tab or reloading mid-draft asks too. Only while it is live:
+  // a lobby survives a reload (the address has the room), a verdict is over.
+  const live = screen === "prep" || screen === "ready" || screen === "auction" || screen === "arguments" || screen === "lineup";
+  useEffect(() => {
+    if (!live) return;
+    const hold = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", hold);
+    return () => window.removeEventListener("beforeunload", hold);
+  }, [live]);
 
   /** Host commits the topic and deals the board. Everyone is already in the room. */
   const startPvpDraft = useCallback(async () => {
@@ -1253,7 +1455,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         return;
       }
       if (msg.type === "peer-joined") {
+        // A (re)join is a fresh browser session on their side. Whatever
+        // connection was left from before is dead and would fight the new offer.
+        mediaRef.current.dropPeer(String(msg.userId));
         void mediaRef.current.connectTo(String(msg.userId));
+        return;
+      }
+      if (msg.type === "media") {
+        const id = String(msg.userId);
+        setMembers((prev) => prev.map((m) => (m.userId === id ? { ...m, mic: Boolean(msg.mic) } : m)));
         return;
       }
       if (msg.type === "peer-left") {
@@ -1683,6 +1893,66 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
 
   const sendChat = useCallback((text: string) => send({ type: "chat", text }), [send]);
 
+  /**
+   * Leave the room (or the game against the house) for the shelf.
+   *
+   * The seat is not given up — the server keeps a side for anyone who drops —
+   * and the room stays remembered, so Back to your game and the same invite
+   * link both put the player straight back where they were.
+   */
+  const leaveRoom = useCallback(() => {
+    if (mode === "pvp") {
+      wsRef.current?.close();
+      wsRef.current = null;
+      mediaRef.current.teardown();
+      setRoomCode(null);
+      setMembers([]);
+      setChat([]);
+      setJoining(null);
+      setInviteOpen(false);
+      setMode("solo");
+    }
+    clearNpc();
+    setBattle(null);
+    setVerdict(null);
+    setPack(null);
+    knownPackId.current = null;
+    prevPhase.current = "";
+    prevBid.current = 0;
+    gameRef.current = { ...EMPTY_VIEW };
+    setView(EMPTY_VIEW);
+    setRoomParam(null);
+    // Walking away from a finished game is being done with it. Walking away
+    // mid-draft is not, so that room stays on offer as Back to your game.
+    if (screen === "verdict") {
+      writeStoredRoom(null);
+      setRemembered(null);
+      rememberRoom(null);
+    }
+    setScreen("setup");
+  }, [clearNpc, mode, rememberRoom, screen]);
+
+  const forgetRoom = useCallback(() => {
+    writeStoredRoom(null);
+    setRemembered(null);
+    rememberRoom(null);
+  }, [rememberRoom]);
+
+  /** A link out of a game asks first. */
+  const exitVia = useCallback(
+    (e: React.MouseEvent, href: string) => {
+      if (!trapped) return;
+      e.preventDefault();
+      setLeaveAsk({
+        then: () => {
+          leavingByLink.current = true;
+          router.push(href);
+        },
+      });
+    },
+    [router, trapped]
+  );
+
   const toggleAudio = useCallback(() => {
     initAudio();
     const next = !audioMuted;
@@ -1698,6 +1968,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     mode === "solo" || hostId === meId || (hostId === null && iOpenedRoom) || (hostId !== null && !hostConnected);
   const topicLabel = customTopic.trim() || packs.find((p) => p.id === presetId)?.name || "a topic";
   const iAmReady = view.readyIds.includes(meId);
+  /** Back to your game: this device's memory first, then the account's. */
+  const backTo =
+    remembered ?? (social.activeRoom ? { code: social.activeRoom.code, host: social.activeRoom.isHost, at: 0 } : null);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1707,33 +1980,58 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
        it is mounted (see styles.ts, "Standalone"). DraftMasters is heading for
        its own site, and on a phone that chrome was eating ~134px of a 812px
        screen to show controls that belong to a different app. */
-    <div className="dm" data-standalone="1">
+    <div className="dm" data-standalone="1" data-guard={trapped ? "1" : "0"}>
       <style dangerouslySetInnerHTML={{ __html: STYLES + BATTLE_STYLES }} />
       {mode === "pvp" && !connected && <div className="dm-conn">Reconnecting…</div>}
 
-      {/* The shelf gets a tab bar; a draft in progress does not. Once the
-          auction starts the screen is the table, and a nav strip along the
-          bottom would be four ways to abandon a live game. */}
-      {screen === "setup" && (
-        <nav className="dm-tabs" aria-label="DraftMasters">
-          <span className="dm-tab" data-on="1" aria-current="page">
-            <Icon name="cards" size={19} className="dm-tab-mark" />
-            Packs
-          </span>
-          <Link href="/leaderboard" className="dm-tab">
-            <Icon name="trophy" size={19} className="dm-tab-mark" />
-            Leaderboard
-          </Link>
-          <Link href="/friends" className="dm-tab">
-            <Icon name="friends" size={19} className="dm-tab-mark" />
-            Friends
-          </Link>
-          <Link href="/profile" className="dm-tab">
-            <Icon name="profile" size={19} className="dm-tab-mark" />
-            Profile
-          </Link>
-        </nav>
+      {/* The room's voice plays from up here, above every screen, so a call
+          carries on from lobby to auction to battle without a gap. */}
+      {mode === "pvp" && <PeerAudio media={media} />}
+      {mode === "pvp" && roomCode && !joining && screen !== "setup" && screen !== "room" && screen !== "ready" && (
+        <RoomDock
+          key={roomCode}
+          defaultOpen={screen !== "auction" && typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches}
+          members={members}
+          meId={meId}
+          myName={myName}
+          myAvatar={myAvatar}
+          media={media}
+          chat={chat}
+          onSendChat={sendChat}
+          onMicChange={IGNORE}
+        />
       )}
+      {inviteOpen && roomCode && <InviteSheet code={roomCode} onClose={() => setInviteOpen(false)} />}
+      {leaveAsk && (
+        <div className="dm-leave-scrim" role="alertdialog" aria-modal="true" aria-labelledby="dm-leave-title">
+          <div className="dm-leave">
+            <h2 id="dm-leave-title">Leave the game?</h2>
+            <p>
+              {mode === "pvp"
+                ? "Your seat is kept. Rejoin from the shelf, or open the room link again."
+                : "This draft against the house will end."}
+            </p>
+            <div className="dm-leave-actions">
+              <button type="button" className="dm-btn dm-btn-primary" autoFocus onClick={() => setLeaveAsk(null)}>
+                Stay in the game
+              </button>
+              <button
+                type="button"
+                className="dm-btn dm-btn-ghost"
+                onClick={() => {
+                  const then = leaveAsk.then;
+                  setLeaveAsk(null);
+                  leaveRoom();
+                  then();
+                }}
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="dm-shell">
         {screen === "setup" && <Motes />}
         {screen === "setup" && <BottomTabs />}
@@ -1755,35 +2053,17 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           {/* The one header control that stays on the shelf. Everything else
               in this row is for a draft that is running; a way into your own
               profile is not, and the design puts a face in the top corner. */}
-          <Link href="/draftmasters/you" className="dm-head-me" title={`Signed in as ${myName}`}>
-            {myAvatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={myAvatar} alt="" />
-            ) : (
-              <span>{myName.charAt(0).toUpperCase()}</span>
-            )}
+          <Link
+            href="/draftmasters/you"
+            className="dm-head-me"
+            title={`Signed in as ${myName}`}
+            onClick={(e) => exitVia(e, "/draftmasters/you")}
+          >
+            <PersonAvatar src={myAvatar} seed={meId} />
           </Link>
 
           <div className="dm-head-actions" data-hide={screen === "setup" ? "1" : "0"}>
-            {/* Voice, one tap, wherever you are in the game.
-                It used to live inside the media rail, which is PvP-only, sits
-                below the table, and is hidden outright on a phone — so the
-                one control you reach for mid-auction ("let me say something",
-                "stop hearing me chew") was the hardest one to find. Here it
-                is beside the sound toggle in the floating corner, which is
-                on screen for the whole draft. */}
-            {mode === "pvp" && (
-              <button
-                className="dm-btn dm-btn-icon dm-btn-ghost"
-                onClick={media.toggleMic}
-                disabled={!media.ready}
-                data-live={media.micOn ? "1" : "0"}
-                title={media.micOn ? "Mute your mic" : "Unmute your mic"}
-                aria-pressed={media.micOn}
-              >
-                <Icon name={media.micOn ? "mic" : "micOff"} size={17} />
-              </button>
-            )}
+            {/* Your mic is your own face now: on the dock and in the room, tap it to mute. */}
             <button
               className="dm-btn dm-btn-icon dm-btn-ghost"
               onClick={toggleAudio}
@@ -1795,17 +2075,27 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             {/* On its own domain there is no hub to go back to, so the slot
                 does the thing a player actually wants mid-game instead. */}
             {standalone ? (
-              <Link href="/" className="dm-btn dm-btn-ghost">
+              <Link href="/" className="dm-btn dm-btn-ghost" onClick={(e) => exitVia(e, "/")}>
                 New draft
               </Link>
             ) : (
-              <Link href="/games" className="dm-btn dm-btn-ghost">
+              <Link href="/games" className="dm-btn dm-btn-ghost" onClick={(e) => exitVia(e, "/games")}>
                 Great Souls
               </Link>
             )}
           </div>
         </header>
 
+        {screen === "setup" && (
+          <RoomBanner
+            joining={joining}
+            notice={roomNotice}
+            backTo={backTo}
+            onRejoin={(code, host) => void connectRoom(code, host, { check: true, tapped: true })}
+            onDismiss={() => setRoomNotice(null)}
+            onForget={forgetRoom}
+          />
+        )}
         {screen === "setup" && (
           <SetupScreen
             standalone={standalone}
@@ -1835,7 +2125,11 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             meId={meId}
             onSolo={startSolo}
             onCreate={() => void connectRoom(makeRoomCode(), true)}
-            onJoin={() => void connectRoom(joinCode.trim().toUpperCase(), false)}
+            onJoin={() => {
+              const code = normaliseRoomCode(joinCode);
+              if (code) void connectRoom(code, false, { check: true, tapped: true });
+              else setError("Room codes are 4 to 6 letters and numbers.");
+            }}
           />
         )}
 
@@ -1848,6 +2142,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             media={media}
             chat={chat}
             onSendChat={sendChat}
+            myName={myName}
+            myAvatar={myAvatar}
+            onInvite={() => setInviteOpen(true)}
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
@@ -1867,7 +2164,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         )}
 
         {screen === "prep" && (
-          <PrepScreen prep={prep} topic={topicLabel} isHost={canDrive} roomCode={roomCode} />
+          <PrepScreen prep={prep} topic={topicLabel} isHost={canDrive} roomCode={roomCode} onInvite={() => setInviteOpen(true)} />
         )}
 
         {screen === "ready" && (
@@ -1885,6 +2182,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             members={members}
             chat={chat}
             onSendChat={sendChat}
+            myName={myName}
+            myAvatar={myAvatar}
+            onInvite={() => setInviteOpen(true)}
           />
         )}
 
@@ -1909,7 +2209,16 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
               onPortraitUpload={(f) => void handlePortraitUpload(f)}
               media={
                 mode === "pvp" ? (
-                  <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={sendChat} />
+                  <RoomVoice
+                    members={members}
+                    meId={meId}
+                    myName={myName}
+                    myAvatar={myAvatar}
+                    media={media}
+                    chat={chat}
+                    onSendChat={sendChat}
+                    onMicChange={IGNORE}
+                  />
                 ) : null
               }
             />
@@ -2776,21 +3085,6 @@ function SetupScreen({
         </div>
       )}
 
-      {joinCode && (
-        <div className="dm-panel" style={{ marginBottom: 22, borderColor: "var(--dm-gold)", textAlign: "center" }}>
-          <p className="dm-eyebrow" style={{ marginBottom: 6 }}>
-            You&apos;ve been invited
-          </p>
-          <p style={{ margin: "0 0 12px", fontSize: 15, color: "var(--dm-dim)" }}>
-            Room <strong style={{ color: "var(--dm-gold)", letterSpacing: ".12em" }}>{joinCode}</strong> is waiting for
-            you.
-          </p>
-          <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onJoin}>
-            Join room {joinCode}
-          </button>
-        </div>
-      )}
-
       {/* The ladder used to sit here, above the shelf — a panel of statistics
           between the player and the thing they came to do, which on a first
           visit read "no games on record yet" and said nothing at all. It moves
@@ -3034,6 +3328,9 @@ function RoomLobby({
   media,
   chat,
   onSendChat,
+  myName,
+  myAvatar,
+  onInvite,
   packs,
   presetId,
   setPresetId,
@@ -3057,6 +3354,9 @@ function RoomLobby({
   media: DraftMedia;
   chat: ChatLine[];
   onSendChat: (t: string) => void;
+  myName: string;
+  myAvatar: string | null;
+  onInvite: () => void;
   packs: PackSummary[];
   presetId: string | null;
   setPresetId: (id: string | null) => void;
@@ -3100,7 +3400,7 @@ function RoomLobby({
             like it matters rather than a line of small print under a button. */}
         <div className="dm-seat-card" data-filled={others.length ? "1" : "0"}>
           <span className="dm-seat-face">
-            {others.length ? others[0].name.charAt(0).toUpperCase() : "?"}
+            {others.length ? <PersonAvatar src={others[0].avatarUrl} seed={others[0].userId} /> : <Icon name="profile" size={18} />}
           </span>
           <span className="dm-seat-who">
             <b>{others.length ? others[0].name : "Nobody yet"}</b>
@@ -3116,7 +3416,7 @@ function RoomLobby({
         {others.length === 0 &&
           (roomCode ? (
             <div style={{ marginTop: 12 }}>
-              <RoomCode code={roomCode} />
+              <RoomCode code={roomCode} onInvite={onInvite} />
             </div>
           ) : (
             <p className="dm-note" style={{ marginTop: 12 }}>Opening room…</p>
@@ -3124,15 +3424,29 @@ function RoomLobby({
       </div>
 
       <div className="dm-panel" style={{ marginBottom: 18 }}>
-        <p className="dm-eyebrow">
-          In the room · {members.length} {members.length === 1 ? "person" : "people"}
-        </p>
+        <div className="dm-rv-head">
+          <p className="dm-eyebrow">
+            In the room · {members.length} {members.length === 1 ? "person" : "people"}
+          </p>
+          <button type="button" className="dm-btn dm-btn-ghost dm-rv-invite" onClick={onInvite}>
+            <Icon name="friends" size={15} /> Invite
+          </button>
+        </div>
         {others.length === 0 && (
           <p className="dm-note" style={{ marginBottom: 12 }}>
-            Just you so far. Your mic is already live — as soon as they join you can talk.
+            Just you so far. Voice is on — the moment they join, you can talk.
           </p>
         )}
-        <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={onSendChat} />
+        <RoomVoice
+          members={members}
+          meId={meId}
+          myName={myName}
+          myAvatar={myAvatar}
+          media={media}
+          chat={chat}
+          onSendChat={onSendChat}
+          onMicChange={IGNORE}
+        />
       </div>
 
       {isHost ? (
@@ -3192,7 +3506,7 @@ function RoomLobby({
 
 // ── Room code + invite link ──────────────────────────────────────────────────
 
-function RoomCode({ code }: { code: string }) {
+function RoomCode({ code, onInvite }: { code: string; onInvite?: () => void }) {
   const [copied, setCopied] = useState<"link" | "code" | null>(null);
 
   const link =
@@ -3232,14 +3546,30 @@ function RoomCode({ code }: { code: string }) {
         {copied === "code" ? "COPIED" : code}
       </button>
       <div className="dm-row" style={{ marginTop: 8 }}>
-        <button className="dm-btn dm-btn-primary" style={{ flex: 1 }} onClick={() => void share()}>
+        {/* Friends first: a card in their chat is one tap for them, where a
+            link has to be sent somewhere and opened. */}
+        {onInvite && (
+          <button
+            className="dm-btn dm-btn-primary"
+            style={{ flex: 1 }}
+            onClick={() => {
+              sfx.click();
+              onInvite();
+            }}
+          >
+            <Icon name="friends" size={14} /> Invite friends
+          </button>
+        )}
+        <button className={onInvite ? "dm-btn" : "dm-btn dm-btn-primary"} style={{ flex: 1 }} onClick={() => void share()}>
           {copied === "link"
               ? <><Icon name="check" size={14} /> Link copied</>
               : <><Icon name="link" size={14} /> Copy invite link</>}
         </button>
       </div>
       <p className="dm-note" style={{ marginTop: 8 }}>
-        Send them the link and they drop straight into this room — no code to type.
+        {onInvite
+          ? "Friends get a card in their chat that drops them straight into this room. The link does the same for anyone else."
+          : "Send them the link and they drop straight into this room — no code to type."}
       </p>
     </div>
   );
@@ -3266,11 +3596,13 @@ function PrepScreen({
   topic,
   isHost,
   roomCode,
+  onInvite,
 }: {
   prep: PrepState;
   topic: string;
   isHost: boolean;
   roomCode: string | null;
+  onInvite?: () => void;
 }) {
   /* The board phase gets the first third of the bar; portraits take it to
      94%, and the room closes it out. */
@@ -3311,7 +3643,7 @@ function PrepScreen({
         <p className="dm-tagline">They&apos;re building the board.</p>
         {roomCode && (
           <div style={{ marginTop: 20 }}>
-            <RoomCode code={roomCode} />
+            <RoomCode code={roomCode} onInvite={onInvite} />
           </div>
         )}
       </div>
@@ -3364,6 +3696,9 @@ function ReadyScreen({
   members,
   chat,
   onSendChat,
+  myName,
+  myAvatar,
+  onInvite,
 }: {
   pack: Pack | null;
   rules: Rules;
@@ -3378,6 +3713,9 @@ function ReadyScreen({
   members: Member[];
   chat: ChatLine[];
   onSendChat: (t: string) => void;
+  myName: string;
+  myAvatar: string | null;
+  onInvite: () => void;
 }) {
   const waitingForOpponent = mode === "pvp" && sides.length < 2;
 
@@ -3406,9 +3744,9 @@ function ReadyScreen({
       {waitingForOpponent && roomCode && (
         <>
           <p className="dm-eyebrow" style={{ marginTop: 22 }}>
-            Send this code to your opponent
+            Bring in your opponent
           </p>
-          <RoomCode code={roomCode} />
+          <RoomCode code={roomCode} onInvite={onInvite} />
         </>
       )}
 
@@ -3417,9 +3755,9 @@ function ReadyScreen({
           const ready = readyIds.includes(side.id);
           return (
             <div key={side.id} className="dm-ready-card" data-ready={ready ? "1" : "0"}>
-              <div style={{ display: "grid", placeItems: "center", color: "var(--dm-gold)" }}>
-                    <Icon name={side.isNpc ? "bot" : "profile"} size={30} />
-                  </div>
+              <div className="dm-ready-face">
+                {side.isNpc ? <Icon name="bot" size={30} /> : <PersonAvatar src={side.avatarUrl} seed={side.id} />}
+              </div>
               <div style={{ fontWeight: 750, marginTop: 6 }}>{side.id === meId ? "You" : side.name}</div>
               <div className="dm-ready-state" style={{ color: ready ? "var(--dm-green)" : "var(--dm-mute)" }}>
                 {ready ? "Ready" : "Not ready"}
@@ -3429,7 +3767,7 @@ function ReadyScreen({
         })}
         {waitingForOpponent && (
           <div className="dm-ready-card">
-            <div style={{ fontSize: 30 }}>⏳</div>
+            <div className="dm-ready-face" data-empty="1"><Icon name="profile" size={26} /></div>
             <div style={{ fontWeight: 750, marginTop: 6 }}>Empty seat</div>
             <div className="dm-ready-state" style={{ color: "var(--dm-mute)" }}>
               Waiting
@@ -3446,7 +3784,16 @@ function ReadyScreen({
 
       {mode === "pvp" && media && (
         <div style={{ marginTop: 18, textAlign: "left" }}>
-          <MediaRail media={media} members={members} meId={meId} chat={chat} onSendChat={onSendChat} />
+          <RoomVoice
+            members={members}
+            meId={meId}
+            myName={myName}
+            myAvatar={myAvatar}
+            media={media}
+            chat={chat}
+            onSendChat={onSendChat}
+            onMicChange={IGNORE}
+          />
         </div>
       )}
     </div>
@@ -3477,6 +3824,141 @@ function useGuestId(sessionId?: string): string {
   }, [sessionId]);
 
   return id;
+}
+
+/** Voice panels whose mic changes already reach the room through an effect. */
+const IGNORE = () => {};
+
+interface StoredRoom {
+  code: string;
+  host: boolean;
+  at: number;
+}
+
+const ROOM_KEY = "dm_room";
+/** Older than this and the room itself is long gone; not worth offering. */
+const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
+
+function readStoredRoom(): StoredRoom | null {
+  try {
+    const raw = localStorage.getItem(ROOM_KEY);
+    if (!raw) return null;
+    const r = JSON.parse(raw) as Partial<StoredRoom>;
+    if (!r?.code || Date.now() - Number(r.at) > ROOM_TTL_MS) return null;
+    return { code: String(r.code), host: Boolean(r.host), at: Number(r.at) };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredRoom(room: StoredRoom | null) {
+  try {
+    if (room) localStorage.setItem(ROOM_KEY, JSON.stringify(room));
+    else localStorage.removeItem(ROOM_KEY);
+  } catch {
+    /* no storage — the server row still offers the way back */
+  }
+}
+
+/** Keep ?room= in the address while in a room, so a refresh walks back in. */
+function setRoomParam(code: string | null) {
+  try {
+    const url = new URL(window.location.href);
+    if (code) url.searchParams.set("room", code);
+    else url.searchParams.delete("room");
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url.href);
+  } catch {
+    /* the room still works; a refresh just lands on the shelf */
+  }
+}
+
+/**
+ * Should a player walk into this room?
+ *
+ * Read from the state the server sends on connect, before any join. A seat
+ * already holding your id is always yours to come back to.
+ */
+function judgeRoom(s: Record<string, unknown>, meId: string, asHost: boolean): "ok" | "gone" | "started" {
+  const sides = (s.sides as { id: string }[] | undefined) ?? [];
+  const members = (s.members as unknown[] | undefined) ?? [];
+  if (sides.some((x) => x.id === meId)) return "ok";
+  if (!s.hostId && !members.length && !sides.length) return asHost ? "ok" : "gone";
+  if (s.phase !== "lobby" && sides.length >= 2) return "started";
+  return "ok";
+}
+
+/** Joining, why a room could not be joined, or the way back into one. */
+function RoomBanner({
+  joining,
+  notice,
+  backTo,
+  onRejoin,
+  onDismiss,
+  onForget,
+}: {
+  joining: string | null;
+  notice: { code: string; kind: "gone" | "started" } | null;
+  backTo: { code: string; host: boolean } | null;
+  onRejoin: (code: string, host: boolean) => void;
+  onDismiss: () => void;
+  onForget: () => void;
+}) {
+  if (joining) {
+    return (
+      <div className="dm-rejoin" data-kind="joining" role="status">
+        <span className="dm-rejoin-mark">
+          <span className="dm-spin" aria-hidden="true" />
+        </span>
+        <span className="dm-rejoin-who">
+          <b>Joining room {joining}…</b>
+          <em>Checking the room is still open.</em>
+        </span>
+      </div>
+    );
+  }
+  if (notice) {
+    return (
+      <div className="dm-rejoin" data-kind="notice" role="status">
+        <span className="dm-rejoin-mark">
+          <Icon name="cards" size={20} />
+        </span>
+        <span className="dm-rejoin-who">
+          <b>{notice.kind === "gone" ? `Room ${notice.code} has closed` : `Room ${notice.code} already started`}</b>
+          <em>
+            {notice.kind === "gone"
+              ? "Everyone left, so the room is gone. Host a new one and send a fresh invite."
+              : "Both seats are taken and the draft is underway. Ask to be invited to the next one."}
+          </em>
+        </span>
+        <button type="button" className="dm-rejoin-x" onClick={onDismiss} aria-label="Dismiss">
+          <Icon name="close" size={15} />
+        </button>
+      </div>
+    );
+  }
+  if (backTo) {
+    return (
+      <div className="dm-rejoin">
+        <span className="dm-rejoin-mark">
+          <Icon name="swords" size={20} />
+        </span>
+        <span className="dm-rejoin-who">
+          <b>Back to your game</b>
+          <em>
+            Room {backTo.code}
+            {backTo.host ? " · you're hosting" : ""}
+          </em>
+        </span>
+        <button type="button" className="dm-btn dm-btn-primary" onClick={() => onRejoin(backTo.code, backTo.host)}>
+          Rejoin
+        </button>
+        <button type="button" className="dm-rejoin-x" onClick={onForget} aria-label="Forget this room" title="Forget this room">
+          <Icon name="close" size={15} />
+        </button>
+      </div>
+    );
+  }
+  return null;
 }
 
 /** Unambiguous room codes — no O/0/I/1. */

@@ -5,6 +5,9 @@ import { auth } from "@/auth";
 import { PACKS } from "@/lib/draftmasters/packs";
 import { BRAND, isStandaloneSite } from "@/lib/draftmasters/site";
 import { redirect } from "next/navigation";
+import { getUserById } from "@/lib/db";
+import { avatarSrc } from "@/lib/avatars";
+import { normaliseRoomCode } from "@/lib/draftmasters/invite";
 import DraftMastersClient from "./DraftMastersClient";
 
 /**
@@ -54,11 +57,25 @@ export default async function DraftMastersPage({
     redirect(`/signin?next=${encodeURIComponent(here)}`);
   }
 
+  /**
+   * The avatar comes from the users row, not the session.
+   *
+   * Every sign-in path in auth.ts returns `image: null`, so reading it off the
+   * session meant nobody ever had a face in a draft — the corner, the seat
+   * cards and the other player's screen all fell back to a letter. The row has
+   * the real one; a player who never chose gets their drawn portrait.
+   */
+  const row = await getUserById(session.user.id).catch(() => null);
   const sessionUser = {
     id: session.user.id,
     name: session.user.name ?? "Drafter",
-    avatarUrl: (session.user as { image?: string | null }).image ?? null,
+    avatarUrl: avatarSrc((row?.avatar_url as string | null) ?? null, session.user.id),
   };
+
+  /* Arriving on an invite link. Read here rather than off window.location so
+     the client knows on its very first render that it is joining, not
+     browsing — no flash of the shelf before the room. */
+  const initialRoom = normaliseRoomCode(typeof params.room === "string" ? params.room : null);
 
   /**
    * Strip entries — the client only needs pack metadata to render the picker,
@@ -86,5 +103,12 @@ export default async function DraftMastersPage({
     };
   });
 
-  return <DraftMastersClient sessionUser={sessionUser} packs={packSummaries} standalone={standalone} />;
+  return (
+    <DraftMastersClient
+      sessionUser={sessionUser}
+      packs={packSummaries}
+      standalone={standalone}
+      initialRoom={initialRoom}
+    />
+  );
 }

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 /** Long enough for a real case, short enough that nobody writes an essay. */
 const ARGUE_MAX = 700;
 import Icon from "./Icon";
+import PersonAvatar from "../components/PersonAvatar";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
 import type { PlayerRecord, PortraitMap, Verdict } from "./types";
 import { Thumb } from "./AuctionStage";
@@ -437,7 +438,13 @@ function RosterCard({
   return (
     <div className="dm-verdict-side">
       <div className="dm-score-top">
-        <div className="dm-avatar">{side.isNpc ? <Icon name="bot" size={15} /> : side.name.charAt(0).toUpperCase()}</div>
+        {side.isNpc ? (
+          <div className="dm-avatar">
+            <Icon name="bot" size={15} />
+          </div>
+        ) : (
+          <PersonAvatar className="dm-avatar" src={side.avatarUrl} seed={side.id} />
+        )}
         <div className="dm-score-name">{isMe ? "You" : side.name}</div>
       </div>
       <div className="dm-verdict-picks">

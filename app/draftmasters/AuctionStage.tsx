@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { canMatch, canOpen, canRaise, maxBid, openingBid, priceLabel, type Rules, type Side } from "@/lib/draftmasters/engine";
 import Icon from "./Icon";
+import PersonAvatar from "../components/PersonAvatar";
 import type { VariantGrade } from "@/lib/draftmasters/packs";
 import type { DiceState, GameView, PortraitMap } from "./types";
 
@@ -649,13 +650,15 @@ function ScoreCard({
               on desktop it becomes the 4:3 box a <video> can drop straight into
               alongside (or instead of) the avatar below. */}
           <div className="dm-seat-feed">
-            {side.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="dm-avatar" data-speaking={speaking ? "1" : "0"} src={side.avatarUrl} alt="" />
-            ) : (
+            {/* A person is always a face — their photo or their drawn
+                portrait, never the first letter of their name. The house
+                opponent is a machine and says so. */}
+            {side.isNpc ? (
               <div className="dm-avatar" data-speaking={speaking ? "1" : "0"}>
-                {side.isNpc ? <Icon name="bot" size={22} /> : side.name.charAt(0).toUpperCase()}
+                <Icon name="bot" size={22} />
               </div>
+            ) : (
+              <PersonAvatar className="dm-avatar" speaking={speaking} src={side.avatarUrl} seed={side.id} />
             )}
           </div>
           <div className="dm-score-name">{isMe ? "You" : side.name}</div>

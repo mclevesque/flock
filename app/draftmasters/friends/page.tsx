@@ -11,7 +11,7 @@ export default async function Page() {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-      <FriendsClient myName={session.user.name ?? "you"} />
+      <FriendsClient />
     </>
   );
 }
