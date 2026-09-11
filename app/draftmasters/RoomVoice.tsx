@@ -9,6 +9,8 @@ import { useSocial } from "./social-context";
 import type { ChatLine } from "./types";
 import type { DraftMedia } from "./useDraftMedia";
 import { MicPicker, VoiceHint, VoicePortrait } from "./VoiceKit";
+import { chatGif } from "@/lib/draftmasters/chat-text";
+import { GifButton } from "./GifPicker";
 
 /**
  * Voice and chat inside a room.
@@ -111,7 +113,13 @@ export function RoomChat({
             data-system={line.system ? "1" : "0"}
             data-me={line.userId === meId ? "1" : "0"}
           >
-            <strong>{line.userId === meId ? "You" : line.name}</strong> {line.text}
+            <strong>{line.userId === meId ? "You" : line.name}</strong>{" "}
+            {!line.system && chatGif(line.text) ? (
+              // eslint-disable-next-line @next/next/no-img-element -- GIPHY's CDN, animated
+              <img className="dm-chat-gif" src={chatGif(line.text) ?? ""} alt="GIF" loading="lazy" />
+            ) : (
+              line.text
+            )}
           </div>
         ))}
       </div>
@@ -125,6 +133,7 @@ export function RoomChat({
           setDraft("");
         }}
       >
+        <GifButton onSend={onSend} />
         <input
           className="dm-input"
           value={draft}

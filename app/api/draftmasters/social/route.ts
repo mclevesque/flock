@@ -187,8 +187,10 @@ export async function POST(req: Request) {
         // A typed "[draftmasters:ABCDE]" would render as a real invite card —
         // here and in the hub's messages page. Only the room sends those.
         // A zero-width space in front stops it matching; the text reads the same.
-        if (/^\[[a-z]+:/i.test(text)) text = String.fromCharCode(0x200b) + text;
-        const message = await deliver(me, myName, other, text, text.slice(0, 60));
+        // The one token a player may send is a GIF from GIPHY's own hosts --
+        // the picker builds it, and chatGif is what draws it.
+        if (/^\[[a-z]+:/i.test(text) && !chatGif(text)) text = String.fromCharCode(0x200b) + text;
+        const message = await deliver(me, myName, other, text, chatGif(text) ? "GIF" : text.slice(0, 60));
         return NextResponse.json({ ok: true, message });
       }
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PersonAvatar from "../components/PersonAvatar";
 import { parseInvite } from "@/lib/draftmasters/invite";
 import { chatGif, isHubOnly } from "@/lib/draftmasters/chat-text";
+import { GifButton } from "./GifPicker";
 import { rememberedMicGrant } from "./useDraftMedia";
 import Icon from "./Icon";
 import { useSocial, type ChatMsg, type SocialFriend } from "./social-context";
@@ -316,10 +317,12 @@ function ChatView({ friend }: { friend: SocialFriend }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [friend.id]);
 
-  const send = useCallback(async () => {
-    const text = draft.trim();
+  // Typed text and a picked GIF travel the same way; only a typed message that
+  // fails to send is put back in the box.
+  const sendText = useCallback(async (raw: string, typed: boolean) => {
+    const text = raw.trim();
     if (!text || !meId) return;
-    setDraft("");
+    if (typed) setDraft("");
     setError(null);
     const temp: ChatMsg = { id: -Date.now(), from: meId, to: friend.id, text, at: new Date().toISOString(), pending: true };
     setMsgs((prev) => [...prev, temp]);
@@ -332,9 +335,10 @@ function ChatView({ friend }: { friend: SocialFriend }) {
     });
     if (!res.ok) {
       setError(res.error ?? "Not sent.");
-      setDraft(text);
+      if (typed) setDraft(text);
     }
-  }, [draft, friend.id, meId, s]);
+  }, [friend.id, meId, s]);
+  const send = useCallback(() => sendText(draft, true), [draft, sendText]);
 
   const status = friend.inDraft ? "In a draft" : friend.online ? "Online" : "Offline";
 
@@ -413,6 +417,7 @@ function ChatView({ friend }: { friend: SocialFriend }) {
           void send();
         }}
       >
+        <GifButton onSend={(t) => void sendText(t, false)} />
         <input
           className="dm-input"
           value={draft}

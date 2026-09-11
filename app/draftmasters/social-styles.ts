@@ -659,4 +659,23 @@ button.dm-fd-row:active { transform: scale(.99); }
 .dm-crop .dm-note { margin: 0; }
 .dm-crop-actions { display: flex; gap: 8px; }
 .dm-crop-actions .dm-btn { min-height: 44px; }
+/* GIF picker: a card above whichever chat opened it. Fixed, so it clears the
+   friends sheet, the room dock and a phone keyboard alike. */
+.dm-gif-btn { min-height: 44px; min-width: 52px; padding: 0 10px; flex: 0 0 auto; font-weight: 700; letter-spacing: .08em; }
+.dm-gif {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 2147483000;
+  width: min(420px, calc(100vw - 20px)); max-height: min(60vh, 520px);
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  background: #15120d; border: 1px solid rgba(212,175,95,.45); border-radius: 16px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.7);
+}
+.dm-gif-head { display: flex; gap: 8px; align-items: center; }
+.dm-gif-head .dm-input { flex: 1 1 auto; min-height: 44px; font-size: 16px; }
+.dm-gif-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; overflow-y: auto; min-height: 0; }
+.dm-gif-pick { padding: 0; border: 1px solid transparent; border-radius: 8px; overflow: hidden; background: #0c0b09; cursor: pointer; aspect-ratio: 1; }
+.dm-gif-pick:hover, .dm-gif-pick:focus-visible { border-color: var(--dm-gold); outline: none; }
+.dm-gif-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dm-gif-empty { margin: 6px 0; text-align: center; font-size: 13px; color: var(--dm-dim); }
+.dm-gif-credit { margin: 0; text-align: right; font-size: 10px; color: var(--dm-dim); }
+.dm-chat-gif { display: block; max-width: min(220px, 100%); max-height: 140px; border-radius: 8px; margin-top: 4px; }
 `;
