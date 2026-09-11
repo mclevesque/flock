@@ -385,7 +385,7 @@ const EFFECTS_CORE: { match: string; not?: string[]; fx: CardEffect }[] = [
         "worse for whoever is opposite him.",
     },
   },
-  { match: "deadpool", fx: { k: "regen", n: 3, label: "Cannot die", note: "Regrows faster than anything on the board can take him apart. Three points back every round, indefinitely, while narrating it." } },
+  { match: "deadpool", fx: { k: "regen", n: 3, label: "Heals from nearly anything", note: "Regrows faster than anything on the board can take him apart. Three points back every round, indefinitely, while narrating it." } },
   { match: "troll", fx: { k: "regen", n: 1, label: "Knits shut", note: "Wounds close on their own between exchanges. One point back each round." } },
   { match: "hydra", fx: { k: "regen", n: 2, label: "Two more heads", note: "Cutting a piece off is how it gets bigger. Two points back each round." } },
   {

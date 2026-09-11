@@ -249,6 +249,54 @@ const WRITTEN: [string, [number, number]][] = [
   ["captain america", [11, 14]],
   ["spider-man", [14, 12]],
   ["wolverine", [11, 16]],
+
+  // ── The rest of Marvel and the X-Men ──────────────────────────────────
+  // Unwritten, these fell through to the board's ordinary value and reached
+  // the storyteller with no band, while Iron Man carried one -- and Jean Grey
+  // and the Silver Surfer lost to Iron Man and Deadpool. Written at the plain
+  // version; the drafted condition moves them from here, so Dark Phoenix
+  // (mythic) lands two bands above Jean before the Phoenix (weakening).
+  //
+  // Storm, Vision, Beast, Colossus, Cable and Apocalypse are deliberately NOT
+  // here: each of those words appears in another board's names or variants
+  // ("the storm behind him" is Zeus), and the longer-key-wins match would
+  // hand those cards this rating. They need a match that knows the board.
+  ["silver surfer", [26, 26]],
+  ["scarlet witch", [24, 18]],
+  ["doctor strange", [22, 20]],
+  ["captain marvel", [22, 22]],
+  ["juggernaut", [22, 30]],
+  ["magneto", [21, 18]],
+  ["jean grey", [20, 16]],
+  ["ghost rider", [20, 22]],
+  ["just a man on a bike", [3, 3]],
+  ["ms. marvel", [18, 20]],
+  ["professor x", [16, 8]],
+  ["magik", [15, 12]],
+  ["iceman", [14, 14]],
+  ["emma frost", [14, 16]],
+  ["rogue", [12, 14]],
+  // Cap-level, not Surfer-level: a healing factor is how long he lasts, not
+  // how hard he hits. His "regen" label used to say "Cannot die", and the
+  // storyteller believed it.
+  ["deadpool", [11, 16]],
+  ["black panther", [11, 13]],
+  ["bishop", [10, 12]],
+  ["psylocke", [10, 9]],
+  ["groot", [9, 14]],
+  ["baby groot", [1, 2]],
+  ["gambit", [9, 8]],
+  ["ant-man", [9, 9]],
+  ["nightcrawler", [8, 8]],
+  ["daredevil", [8, 7]],
+  ["punisher", [7, 6]],
+  ["kitty pryde", [6, 12]],
+  ["kingpin", [6, 8]],
+  ["black widow", [6, 6]],
+  ["hawkeye", [6, 5]],
+  ["rocket raccoon", [6, 4]],
+  ["star-lord", [6, 5]],
+  ["nick fury", [5, 5]],
   ["aunt may", [1, 2]],
 
   // ── People who are not what their reputation says ─────────────────────

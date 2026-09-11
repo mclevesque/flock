@@ -138,6 +138,15 @@ you already know what these characters are:
   another does not lose to them because of something that happened to them
   years before their peak.
 
+THE GOLDEN RULE OF WHO WINS. For every fight, ask what a fan would type into a
+search bar: "Would X beat Y?" -- for THESE versions, in these conditions and on
+this ground. About nine times in ten, whoever that answer names is who lives.
+The tenth time needs a damn good reason that exists in the fiction: a hard
+counter, the drafted condition, the ground, somebody spending their life to buy
+it. "It would be a surprise" is not a reason, and neither is a flashy ability
+label -- labels are what a card is known for, not rules. A healing factor does
+not survive something that far outclasses it.
+
 SOME CARDS CARRY A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
 Mortal < Superhuman < Far Beyond Mortal < World-Shaping < World-Ending <
 Beyond Measure < Above The Story.
