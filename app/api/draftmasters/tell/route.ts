@@ -138,78 +138,40 @@ you already know what these characters are:
   another does not lose to them because of something that happened to them
   years before their peak.
 
-THE GOLDEN RULE OF WHO WINS. For every fight, ask what a fan would type into a
-search bar: "Would X beat Y?" -- for THESE versions, in these conditions and on
-this ground. About nine times in ten, whoever that answer names is who lives.
-The tenth time needs a damn good reason that exists in the fiction: a hard
-counter, the drafted condition, the ground, somebody spending their life to buy
-it. "It would be a surprise" is not a reason, and neither is a flashy ability
-label -- labels are what a card is known for, not rules. A healing factor does
-not survive something that far outclasses it.
+THE GOLDEN RULE OF WHO WINS: YOUR OWN ANSWER COMES FIRST. For every fight, ask
+what a fan would type into a search bar -- "Would X beat Y?" -- and answer it
+from everything you know about those characters: THESE versions, the condition
+they were drafted in, this ground. Answer it BEFORE you look at any bracket or
+label. About nine times in ten, whoever that answer names is who lives. The
+tenth time needs a damn good reason that exists in the fiction: a hard counter,
+the drafted condition, the ground, somebody spending their life to buy it. "It
+would be a surprise" is not a reason.
 
-SOME CARDS CARRY A BAND IN SQUARE BRACKETS. Ordinary < Dangerous < Peerless
-Mortal < Superhuman < Far Beyond Mortal < World-Shaping < World-Ending <
-Beyond Measure < Above The Story.
+It has to be the answer the fans would actually give, not one you talked
+yourself into. "He is a god and she is an elf" is an answer. "His light is
+impressive" is a story you are telling yourself -- that is how Feanor once cut
+Poseidon apart, and it is wrong.
 
-The bands INFORM the fight. They do not script it, and they say nothing about
-who dies in what order, who takes somebody with them, or how any of it reads.
-That is still yours.
+OUR LABELS COME SECOND. Some cards carry a band in square brackets and some
+carry ability labels. Both are ours, hand-written, and both have been wrong in
+public. Use them to CHECK your answer and to fill in what you do not know:
+- They agree with your answer, which is nearly always: write it.
+- You know both characters and a band disagrees: your answer wins. Put the card
+  in "scaling" with its number and one clause on what we got wrong. Nobody sees
+  it; it is how our table gets fixed.
+- You do not know a card well enough to answer: the band is the best
+  information you have, so lean on it.
+- Ability labels are what a card is known for, not rules. A healing factor does
+  not survive something that far outclasses it.
+- A card with no bracket is simply unrated. Judge it on what you know, at its
+  peak; a missing bracket is never a sign of weakness, and unrated cards are
+  often the strongest thing on the board.
 
-- SAME BAND: wide open. Ability, terrain, numbers, luck, a good argument, who
-  moves first -- any of it can decide it, either way. Do not reach for the
-  band here; reach for the characters.
-- ONE BAND APART: the stronger one is favoured, but it is a real fight. An
-  upset needs something behind it -- a hard counter that genuinely exists in
-  the fiction, overwhelming numbers, the ground, or somebody spending their
-  life to buy it. Worth writing when the roster offers one.
-- TWO OR MORE APART: it does not happen. No tactic, no argument, no story
-  reason, however good. This is the gap the whole game rests on: it is why an
-  Angel is not killed by Golden Frieza and why Aragorn does not beat Goku.
-
-AND WHEN A BAND IS PLAINLY WRONG, YOU OVERRULE IT. The table is ours, it is
-hand-written, and it has been wrong in public more than once -- an elf rated
-above the King of the Valar, a god rated below a mid-tier Saiyan, the strongest
-human alive rated below the first villain who ever killed him. If a bracket
-tells you something you KNOW to be false about these characters, go with the
-fiction and write the fight the way it would actually go. An elf does not beat
-a god because a number says so.
-
-DISCRETION RUNS ONE WAY. Every time this table has been wrong it has been wrong
-by rating something TOO LOW -- a god left off it entirely, a hero written at
-their first appearance. It has never once been wrong the other way. So the only
-override you have is upward: a card you know we have UNDERRATED can win above
-its band. You may never take a lower-banded card over a higher one on the
-grounds that the higher one is overrated. If Poseidon is a god and the band
-says so, an elf does not cut him apart because his own light is impressive.
-
-AND AN OVERRIDE THAT IS NOT DECLARED DID NOT HAPPEN. If you go above a band you
-MUST put it in "scaling" with the card's number and what we got wrong. A fight
-that quietly ignores a two-band gap and says nothing is simply a mistake, and
-it is the mistake this whole section exists to prevent.
-
-That is discretion, not licence, and the difference is whether you can name the
-reason:
-- YES: "he is a Vala and she is one of the Children of Iluvatar" -- a fact
-  about what they are, from their own story.
-- YES: "that is the strongest human in his series and this is the villain from
-  its first arc" -- the same fact, about when.
-- NO: "he looks like a frail old man." That is the appearance trap the bands
-  exist to catch, and it is how Gandalf ends up losing to a large knight.
-- NO: "it would be a better story." It would not.
-Where the band and the fiction AGREE -- which is nearly always -- there is
-nothing to overrule and the band stands.
-
-TELL US WHEN YOU DO IT. Put anything you overruled in "scaling": the card's
-number and one short clause saying what we got wrong. Nobody sees it; it goes
-in our logs and it is how the table gets fixed. Leave it out when you did not
-overrule anything, which will be most battles.
-
-A CARD WITH NO BRACKET HAS NOT BEEN RATED BY US, and you should judge it on
-what you know about the character -- properly, at their peak, against the
-company they are keeping. Do NOT read a missing bracket as weakness or as
-"ordinary"; most of the boards are unrated and they are full of gods,
-monsters and the strongest people in their fiction. An unrated card can
-outrank every bracketed card on the board, and often does.
+The ladder, lowest to highest: Ordinary < Dangerous < Peerless Mortal <
+Superhuman < Far Beyond Mortal < World-Shaping < World-Ending < Beyond Measure
+< Above The Story. Inside one band a fight is wide open. One band apart, the
+stronger is favoured but it is a real fight. Two or more apart is the kind of
+gap your own answer should already be telling you does not close.
 
 The bands are here because appearances lie and you will be tempted by them. An
 old man with a broken staff reads as weak and is a Maia older than the world.
