@@ -3,7 +3,7 @@
  *
  * Every one of these cases is something a player actually saw happen.
  */
-import { sanitise, finished, type Body, type Told } from "./tell-sanitise.ts";
+import { sanitise, finished, agreesOnWinner, type Body, type Told } from "./tell-sanitise.ts";
 import assert from "node:assert";
 
 const board: Body = {
@@ -480,6 +480,33 @@ it("sees a finish through a name that carried its variant", () => {
   };
   const out = run({ beats: [beat("x"), kb("Ultimate Gohan")] }, dbz);
   assert.equal(finished(out, dbz), true);
+});
+
+// -- The story and the bench have to name the same winner ----------------
+it("agrees when the model names the side still standing", () => {
+  const out = run({ winner: "A", beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman")] });
+  assert.equal(out.winner, "A");
+  assert.equal(agreesOnWinner({ winner: "A" }, out, board), true);
+});
+
+it("catches a story that declares the side the bench just wiped out", () => {
+  // Straight off a player's screen: "mclevesque wins!" over a summary
+  // explaining why The Shark's numbers had been decisive.
+  const out = run({ winner: "B", beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman")] });
+  assert.equal(out.winner, "A");
+  assert.equal(agreesOnWinner({ winner: "B" }, out, board), false);
+});
+
+it("reads the winner by player name as well as by side id", () => {
+  const out = run({ winner: "A", beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman")] });
+  assert.equal(agreesOnWinner({ winner: "The Shark" }, out, board), false);
+  assert.equal(agreesOnWinner({ winner: "mclevesque" }, out, board), true);
+});
+
+it("does not call a winner it cannot place a disagreement", () => {
+  const out = run({ winner: "A", beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman")] });
+  assert.equal(agreesOnWinner({ winner: "" }, out, board), true);
+  assert.equal(agreesOnWinner({ winner: "nobody on this board" }, out, board), true);
 });
 
 console.log(`\n${pass} passing`);

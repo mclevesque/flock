@@ -139,6 +139,27 @@ type HasBeats = {
   beats: { kills?: (string | number)[]; turned?: string[]; nulled?: string[] }[];
 };
 
+/**
+ * Does the story's own declared winner match the one the bench shows?
+ *
+ * sanitise recomputes the winner from who is still standing, because the
+ * portraits are the one thing a player can check for themselves. When the
+ * model has declared the OTHER side, everything it wrote around that is about
+ * a different result -- a player read "mclevesque wins!" over a summary
+ * explaining why The Shark's numbers had been decisive, both on one screen.
+ *
+ * A winner we cannot place on this board is not a disagreement we can prove,
+ * so it passes: this only ever catches a stated, resolvable contradiction.
+ */
+export function agreesOnWinner(told: { winner?: string }, settled: Settled, b: Body): boolean {
+  const said = String(told.winner ?? "").trim().toLowerCase();
+  if (!said) return true;
+  const hit = (b.sides ?? []).find(
+    (s) => s.id.trim().toLowerCase() === said || s.name.trim().toLowerCase() === said
+  );
+  return !hit || hit.id === settled.winner;
+}
+
 export function finished(told: HasBeats, b: Body): boolean {
   // Gone is gone: a card that changed sides is no longer standing for the
   // side that drafted it, and a roster emptied by conversion is just as

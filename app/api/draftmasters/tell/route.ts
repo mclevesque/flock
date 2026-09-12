@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callModelJson, hasAnyProvider } from "@/lib/draftmasters/model";
-import { sanitise, finished, type Body, type Told, type Settled } from "@/lib/draftmasters/tell-sanitise";
+import { sanitise, finished, agreesOnWinner, type Body, type Told, type Settled } from "@/lib/draftmasters/tell-sanitise";
 export type { TellBeat, TellMvp } from "@/lib/draftmasters/tell-sanitise";
 
 /**
@@ -705,15 +705,27 @@ export async function POST(req: Request) {
      * sanitise has resolved those back to cards. Asking the raw story would
      * call a perfectly finished battle unfinished and pay for a second one.
      */
-    for (let tries = 1; tries < 3 && !finished(clean, body); tries++) {
+    // Whose win the STORY says it was, checked against whose win the bench
+    // shows. They are allowed to be retried apart; they are not allowed to
+    // ship apart.
+    let said: Told = first.data;
+    const settled = () => finished(clean, body) && agreesOnWinner(said, clean, body);
+
+    for (let tries = 1; tries < 3 && !settled(); tries++) {
       // Each attempt costs a fraction of a cent and about fifteen seconds, and
       // an unfinished battle costs the player the whole point of the game.
       if (budget - (Date.now() - started) < 15000) break;
-      console.error("[tell]", provider, "left both sides standing - asking again");
+      console.error(
+        "[tell]",
+        provider,
+        finished(clean, body)
+          ? "declared a winner the bench contradicts - asking again"
+          : "left both sides standing - asking again"
+      );
       try {
         const again = await ask(orderTheFinish(body, clean));
         const retry = sanitise(again.data, body);
-        if (finished(retry, body)) {
+        if (finished(retry, body) && agreesOnWinner(again.data, retry, body)) {
           // Keep what the first attempt got right. The retry only has to
           // FINISH the fight, and one that answered with beats alone took the
           // MVP and the summary down with it -- a player watched a battle end
@@ -735,6 +747,7 @@ export async function POST(req: Request) {
             verdict: retry.verdict || clean.verdict,
           };
           provider = again.provider;
+          said = again.data;
         }
       } catch {
         // The answer in hand is unfinished but real. Better than nothing.
@@ -743,6 +756,15 @@ export async function POST(req: Request) {
     }
     if (!finished(clean, body)) {
       console.error("[tell] shipping an UNFINISHED battle after", 3, "attempts");
+    }
+
+    // Last resort, and better than the alternative: a summary that explains
+    // why the OTHER side won, printed under the winner's name, is the one
+    // thing on that screen a player can see is wrong.
+    if (!agreesOnWinner(said, clean, body)) {
+      const won = (body.sides ?? []).find((s) => s.id === clean.winner)?.name ?? "";
+      console.error("[tell] shipping a battle whose verdict names the other side - dropping it");
+      clean = { ...clean, verdict: won ? `${won} is the side still standing.` : "" };
     }
 
     if (clean.beats.length < 3) {
