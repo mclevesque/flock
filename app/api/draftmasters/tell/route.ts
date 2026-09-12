@@ -406,13 +406,20 @@ took them and how.
 
 THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
 anything a player ever sees. In the text they are people with names.
-AS MANY BEATS AS IT TAKES, AND NOT ONE PAST IT. Every beat removes somebody, so
-the count is the losing roster plus whatever the winners lose, minus the blows
-that take two at once. Brevity is a WORD count: short paragraphs, but never stop
-before the job is done. A battle that runs out of beats with people standing has
-failed at the only thing it had to do. No walk-out: the first paragraph has a
-kill in it. The last is the closing paragraph and has none. Before you finish, check your
-own casualty list: one side's entire roster must appear in it.
+ONE PARAGRAPH PER CARD, AND THAT IS THE LENGTH. Every paragraph takes somebody
+off the board, so the count is the losing roster, plus whatever the winners
+lose, plus the closing one: on a ten-card board that is usually EIGHT TO TWELVE
+paragraphs. A ten-card battle told in four has not been told, it has been
+summarised -- the players watched a row of portraits go out and read almost
+nothing about how.
+
+TWO IN ONE PARAGRAPH ONLY WHEN ONE BLOW PLAINLY REACHES BOTH: a disc through
+two of them, a tail sweep down a line. Never three, and never as a way to be
+finished sooner. Brevity is a WORD count, not a paragraph count.
+
+No walk-out: the first paragraph has a kill in it. The last is the closing
+paragraph and has none. Before you finish, check your own casualty list: one
+side's entire roster must appear in it.
 
 IF YOU WRITE IT, RECORD IT. Every death you narrate goes in that beat's list,
 including on the WINNING side. "They fall together and neither one gets up"
@@ -514,7 +521,12 @@ keep failing:
      paragraph.
   2. The LAST paragraph is that closing one: nothing in kills, converts or
      nulls, under 30 words, written after the losing side's final card is
-     down. A battle that ends on a killing has not been closed. Never null or
+     down. A battle that ends on a killing has not been closed.
+  3. EVERY number in "kills", "converts" or "nulls" is NAMED in that same
+     paragraph's text. The reader watches that portrait grey out and that name
+     light up as they read the sentence, so a number with no name crosses
+     somebody out in silence. Numbers are how you talk to us; names are the
+     only thing a player ever sees. Never null or
 convert a card on the winning side -- only the losing side is emptied.`;
 }
 
@@ -598,7 +610,15 @@ a beat that names them. ${winner.name} is the side left standing.
 That is not a suggestion about who is stronger -- it is the ending, and your
 job is the fight that gets there. The last attempt stopped with people alive
 on both sides, which is not a result this game has. Count the numbers
-${loser.label} in your casualty list before you answer.`;
+${loser.label} in your casualty list before you answer.
+
+EVERYTHING ELSE STANDS. This is the same battle, answered again in the same
+shape -- "beats", "winner", "verdict", "mvp" -- and to the same rules: every
+paragraph 15 to 45 words and taking at least one card off the board, one image
+in about every third, a closing paragraph that removes nobody, and an "mvp"
+naming the card the fight turned on with one sentence on what they did. A
+finished battle that arrives without its verdict and its MVP is not finished
+either.`;
 }
 
 /**
@@ -694,7 +714,26 @@ export async function POST(req: Request) {
         const again = await ask(orderTheFinish(body, clean));
         const retry = sanitise(again.data, body);
         if (finished(retry, body)) {
-          clean = retry;
+          // Keep what the first attempt got right. The retry only has to
+          // FINISH the fight, and one that answered with beats alone took the
+          // MVP and the summary down with it -- a player watched a battle end
+          // with no most-valuable card and a verdict written by the resolver.
+          // Carried over ONLY where it still describes THIS story. A kept
+          // MVP note had the Night King "raising Jorah as a wight" -- which
+          // happened in the attempt that was thrown away, and never in the
+          // one the player read.
+          const shipped = JSON.stringify(retry.beats).toLowerCase();
+          const inStory = (name: string) =>
+            name
+              .replace(/\s*\(.*\)\s*$/, "")
+              .split(/[^A-Za-z0-9']+/)
+              .filter((w) => w.length >= 4)
+              .some((w) => shipped.includes(w.toLowerCase()));
+          clean = {
+            ...retry,
+            mvp: retry.mvp ?? (clean.mvp && inStory(clean.mvp.name) ? clean.mvp : null),
+            verdict: retry.verdict || clean.verdict,
+          };
           provider = again.provider;
         }
       } catch {
