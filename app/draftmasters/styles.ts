@@ -708,6 +708,28 @@ export const STYLES = `
   gap: 10px; margin-top: 8px;
 }
 
+/* Checkbox filters under a picked universe. */
+.dm-filters {
+  margin: 14px 0 4px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--dm-line); background: var(--dm-panel);
+  display: grid; gap: 8px; text-align: left;
+}
+.dm-filters legend { padding: 0 6px; }
+.dm-filter {
+  display: flex; align-items: flex-start; gap: 12px;
+  min-height: 44px; padding: 8px 10px; border-radius: 10px;
+  cursor: pointer; border: 1px solid transparent;
+}
+.dm-filter[data-on="1"] { border-color: rgb(var(--dm-glow) / .45); background: rgb(var(--dm-glow) / .07); }
+.dm-filter input {
+  width: 20px; height: 20px; margin: 2px 0 0; flex: none;
+  accent-color: var(--dm-gold);
+}
+.dm-filter input:focus-visible { outline: 2px solid rgb(var(--dm-glow) / .6); outline-offset: 2px; }
+.dm-filter-text { display: grid; gap: 2px; }
+.dm-filter-text b { font-size: 15px; color: var(--dm-text); }
+.dm-filter-text em { font-style: normal; font-size: 13px; color: var(--dm-dim); line-height: 1.4; }
+
 .dm-verdict-actions {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   margin-top: 28px;

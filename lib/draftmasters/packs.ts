@@ -234,6 +234,12 @@ export interface Arena {
 export interface Pack {
   id: string;
   name: string;
+  /**
+   * Filter ids this board was dealt with (see ./filters). Set on the board so
+   * it travels to a PvP guest, and so the uber roll can stay out of a board
+   * somebody deliberately narrowed.
+   */
+  filters?: string[];
   emoji: string;
   blurb: string;
   /** Portrait search context appended to every name */

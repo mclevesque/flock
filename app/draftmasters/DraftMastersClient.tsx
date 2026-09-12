@@ -56,6 +56,7 @@ import { useSocial } from "./social-context";
 import { PeerAudio } from "./VoiceKit";
 import Wordmark from "./Wordmark";
 import VerdictScreen from "./VerdictScreen";
+import { applyFilters, filtersFor } from "@/lib/draftmasters/filters";
 import { rememberedMicGrant, useDraftMedia, type DraftMedia } from "./useDraftMedia";
 import { STYLES } from "./styles";
 import { BATTLE_STYLES } from "./battle-styles";
@@ -264,6 +265,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * worse version of a board we already had.
    */
   const [mixIds, setMixIds] = useState<string[]>([]);
+  /**
+   * Filters switched on for the picked universe. They belong to that
+   * universe, so picking another one clears them.
+   */
+  const [filterIds, setFilterIds] = useState<string[]>([]);
+  useEffect(() => setFilterIds([]), [presetId]);
   /**
    * Whether a model rewrites the battle's prose.
    *
@@ -817,6 +824,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         // board carries its own settings, which is what lets them ride along
         // to a PvP guest and into a rematch.
         board = { ...board, variantRate, variantWild };
+        board = applyFilters(board, filterIds);
       }
       if (board) {
         // The argument round is the host's call and has to reach the guest.
@@ -835,7 +843,9 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     board = applyArena(board, Math.random);
     // One chance in five hundred that this board carries a cosmic card. Done
     // here so it is baked into the pack a PvP guest receives.
-    board = withUberCard(board, Math.random);
+    // Not on a filtered board: somebody who asked for Gen 1 or for fighters
+    // only did not ask for Eru Iluvatar to turn up.
+    if (!board.filters?.length) board = withUberCard(board, Math.random);
 
     setPack(board);
     // prefetchPortraits drives the portrait phase itself, entry by entry.
@@ -843,7 +853,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     setPrep({ phase: "room", done: 0, total: 0 });
     sfx.boardReady();
     return board;
-  }, [customTopic, mixIds, presetId, prefetchPortraits, variantRate, variantWild]);
+  }, [customTopic, mixIds, presetId, filterIds, prefetchPortraits, variantRate, variantWild]);
 
   /** Names drafted in recent games on this board, so they get demoted. */
   const recentKey = (id: string) => `dm_recent_${id.split("#")[0]}`;
@@ -2260,6 +2270,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
+            filterIds={filterIds}
+            setFilterIds={setFilterIds}
             customTopic={customTopic}
             setCustomTopic={setCustomTopic}
             variantRate={variantRate}
@@ -2304,6 +2316,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             packs={packs}
             presetId={presetId}
             setPresetId={setPresetId}
+            filterIds={filterIds}
+            setFilterIds={setFilterIds}
             mixIds={mixIds}
             setMixIds={setMixIds}
             customTopic={customTopic}
@@ -3167,6 +3181,8 @@ function SetupScreen({
   setMixIds,
   presetId,
   setPresetId,
+  filterIds,
+  setFilterIds,
   customTopic,
   setCustomTopic,
   variantRate,
@@ -3198,6 +3214,8 @@ function SetupScreen({
   setMixIds: (ids: string[]) => void;
   presetId: string | null;
   setPresetId: (id: string | null) => void;
+  filterIds: string[];
+  setFilterIds: (ids: string[]) => void;
   customTopic: string;
   setCustomTopic: (s: string) => void;
   variantRate: number;
@@ -3337,6 +3355,7 @@ function SetupScreen({
           >
             ← {usingCustom ? "Custom" : packs.find((p) => p.id === presetId)?.name ?? "Change universe"}
           </button>
+          {!usingCustom && <PackFilters packId={presetId} chosen={filterIds} onChange={setFilterIds} />}
           <section className="dm-section">
             {/* The numbering started at 2, because this section never had a
                 heading -- three steps on the page and only two of them said
@@ -3501,6 +3520,8 @@ function RoomLobby({
   packs,
   presetId,
   setPresetId,
+  filterIds,
+  setFilterIds,
   mixIds,
   setMixIds,
   customTopic,
@@ -3527,6 +3548,8 @@ function RoomLobby({
   packs: PackSummary[];
   presetId: string | null;
   setPresetId: (id: string | null) => void;
+  filterIds: string[];
+  setFilterIds: (ids: string[]) => void;
   /** Two or more ids means a mix, which by design has no presetId. */
   mixIds: string[];
   /** Picked again from inside the room, so changing it never leaves. */
@@ -3637,6 +3660,7 @@ function RoomLobby({
               Change
             </button>
           </div>
+          {!mixing && <PackFilters packId={presetId} chosen={filterIds} onChange={setFilterIds} />}
 
           {picking && (
             <div className="dm-sheet-scrim" role="dialog" aria-modal="true">
@@ -4159,4 +4183,45 @@ function makeRoomCode(): string {
   let out = "";
   for (let i = 0; i < 5; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
   return out;
+}
+
+/**
+ * Checkbox filters for the picked universe -- Gen 1 only, Fighters only.
+ *
+ * Renders nothing for a universe with no filters, so it can sit under any
+ * picker without a condition around it. The chosen ids are applied when the
+ * board is dealt; see lib/draftmasters/filters.
+ */
+function PackFilters({
+  packId,
+  chosen,
+  onChange,
+}: {
+  packId: string | null;
+  chosen: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const filters = filtersFor(packId);
+  if (!filters.length) return null;
+  return (
+    <fieldset className="dm-filters">
+      <legend className="dm-eyebrow">Filters</legend>
+      {filters.map((f) => {
+        const on = chosen.includes(f.id);
+        return (
+          <label key={f.id} className="dm-filter" data-on={on ? "1" : "0"}>
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => onChange(on ? chosen.filter((x) => x !== f.id) : [...chosen, f.id])}
+            />
+            <span className="dm-filter-text">
+              <b>{f.label}</b>
+              <em>{f.hint}</em>
+            </span>
+          </label>
+        );
+      })}
+    </fieldset>
+  );
 }
