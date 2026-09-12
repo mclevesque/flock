@@ -440,9 +440,35 @@ OUTPUT -- JSON only:
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." },
+  "fallen": [ { "id": 6, "how": "dead" }, { "id": 7, "how": "converted" }, ... ],
   "cases": [ { "id": "A", "weight": 2, "note": "One sentence: what you did with their case." } ],
-  "scaling": [ { "id": 4, "note": "rated below a god; he is a Vala" } ]
+  "scaling": [ { "id": 4, "note": "rated below a god; he is a Vala" } ],
+  "accounted": [ { "id": 6, "beat": 3 }, { "id": 7, "beat": 8 }, ... ]
 }
+
+"fallen" IS THE ROLL-CALL, AND YOU WRITE IT FIRST. Every card on the losing
+side, by number, with how each one goes: "dead", "converted" or "nulled". All
+of them -- if they drafted five, there are five entries, and the fifth is the
+one that always gets forgotten. Decide the whole list before you write a word
+of prose, then write the battle that does exactly that.
+
+It is not a summary of the beats: it is the plan they have to match. Every
+number in "fallen" appears in the "kills", "converts" or "nulls" of the beat
+where it happens, named in that paragraph's text, and nothing is in "fallen"
+that the story does not actually do.
+
+"accounted" IS THE COUNT-BACK, AND YOU WRITE IT LAST. After the beats are
+written -- not before -- go back through the losing roster one name at a time
+and give each one the number of the paragraph where they go down, counting the
+first beat as 1. Same length as "fallen": every name in the plan has a
+paragraph in the story.
+
+This is where you catch it. If you reach a name and there is no paragraph to
+point at, you wrote the plan and then forgot them -- go back into the beats,
+give them the death you promised them, and then finish "accounted". Do not
+answer with a name you cannot point at, and do not quietly drop them from
+"fallen" instead: they were drafted, they are on the board, and the player
+watching is waiting to see that portrait go out.
 
 CASUALTIES ARE NUMBERS. Every card in the brief above has a number and "kills"
 takes those numbers, not names -- [3], not ["Gohan"]. A number means exactly
@@ -561,6 +587,10 @@ function finishRule(b: Body): string {
   const sides = b.sides ?? [];
   if (sides.length < 2) return "Write the battle.";
 
+  /** "6 Iron Man, 7 Deadpool, ..." -- a roll-call reads better than digits. */
+  const rollCall = (l: { nums: number[]; cards: { name: string }[] }) =>
+    l.nums.map((n, i) => `${n} ${l.cards[i]?.name ?? ""}`.trim()).join(", ");
+
   /**
    * Named, with their ids, in the last thing the model reads.
    *
@@ -604,15 +634,21 @@ function finishRule(b: Body): string {
   const total = lists.reduce((t, l) => t + l.nums.length, 0);
   return `Write the battle.
 
-BEFORE YOU ANSWER, COUNT. Your casualty list must contain EVERY number from
-one of these two rosters:
-  ${lists[0].name}: ${lists[0].label}
-  ${lists[1].name}: ${lists[1].label}
-All of one list, in full, each number dead, converted or nulled. That is at
-least ${Math.min(...lists.map((l) => l.nums.length))} cards removed from a single side, out of the ${total} on the board. If your list is missing even one
-number from both rosters, the battle is not over and you have not finished the
-job -- go back and write the deaths you skipped. A fight that stops with
-people standing on both sides is the one outcome this game does not have.${caseRule}
+BEFORE YOU WRITE A WORD, PICK THE LOSING SIDE AND CALL THE ROLL. One of these
+two rosters is going into the ground, all of it:
+  ${lists[0].name}: ${rollCall(lists[0])}
+  ${lists[1].name}: ${rollCall(lists[1])}
+
+Write "fallen" first: every card on the losing side, by number, each with how
+they go -- "dead", "converted" or "nulled". ${Math.min(...lists.map((l) => l.nums.length))} entries, not ${Math.min(...lists.map((l) => l.nums.length)) - 1}. Then write
+the battle that does exactly that, giving every one of those names the
+paragraph where they go down, by name, in the prose.
+
+THEN COUNT THEM BACK before you answer. Take the losing roster one name at a
+time and find where each of them ends: if you cannot point at the paragraph,
+that card is still standing and the battle is not finished. A fight that stops
+with people alive on both sides is the one outcome this game does not have --
+and there is no second attempt at it, so it has to be right the first time.${caseRule}
 
 AND THE MOMENT THE LAST NUMBER ON ONE LIST IS DOWN, STOP KILLING. Write one
 short closing paragraph with nothing in "kills", "converts" or "nulls" -- the
@@ -624,6 +660,13 @@ LENGTH: every paragraph is 20 to 80 words. The WHOLE battle stays under 900
 words -- a hard ceiling, and a story that reaches it has run long. Count them.
 
 READ YOUR OWN BEATS BACK BEFORE YOU SEND:
+  0. COUNT THE LOSING SIDE, OUT IN "accounted". Say their names one at a
+     time and write down the paragraph each one goes down in. Five drafted
+     means five in "fallen" and five in "accounted", each with a paragraph
+     number. The one you cannot point at is the one you forgot -- go back and
+     write their death into a beat, by name, before you answer. If even one is
+     still standing when the prose stops, the battle is not finished and you
+     have not done the job.
   1. SOMEBODY GOES DOWN AT LEAST EVERY OTHER PARAGRAPH. One that takes nobody
      is fine and often better -- two running is not. Count them: no two
      neighbours may both have empty "kills", "converts" and "nulls".
@@ -687,65 +730,6 @@ function brief(b: Body, mustWipe?: string): string {
 ${mustWipe ?? finishRule(b)}`;
 }
 
-/**
- * Re-ask, naming the side that has to fall.
- *
- * Asking the same question again gets the same answer: on some boards the
- * model writes eight beats, kills five of ten, and stops -- three attempts in
- * a row, measured. It is not being stubborn about WHO wins; it just does not
- * finish. So the second attempt stops asking it to decide and starts asking
- * it to write down the ending it already chose: whichever side it left with
- * fewer standing is the side that loses, by name and by number.
- *
- * The model still decides the outcome. It only loses the option of leaving
- * the fight hanging, which was never an outcome the game had.
- */
-function orderTheFinish(b: Body, tried: Settled): string {
-  const gone = new Set([
-    ...tried.beats.flatMap((x) => x.kills ?? []),
-    ...tried.beats.flatMap((x) => x.turned ?? []),
-    ...tried.beats.flatMap((x) => x.nulled ?? []),
-  ]);
-  const lists = rosterNumbers(b);
-
-  /**
-   * Whoever the model SAID won keeps winning.
-   *
-   * Ranking by survivors instead looked obvious and was wrong: an attempt that
-   * had killed four of one side and written a verdict crediting that same side
-   * with the win got told it had lost, and the next attempt inherited the
-   * contradiction. It is not confused about who should win -- only about
-   * stopping. So the ending it declared stands, and the only thing being
-   * forced is that the other roster actually empties.
-   */
-  const said = lists.find((l) => l.id === tried.winner);
-  const ranked = lists
-    .map((l) => ({ ...l, left: l.cards.filter((c) => !gone.has(c.name)).length }))
-    .sort((x, y) => x.left - y.left);
-  const winner = said ?? ranked[ranked.length - 1];
-  const loser = lists.find((l) => l.id !== winner?.id) ?? ranked[0];
-  if (!loser || !winner) return finishRule(b);
-
-  return `Write the battle again, and this time FINISH IT.
-
-${loser.name} LOSES. Every card on that side is gone by the end: ${loser.label}.
-All of them, each one written going down -- killed, converted or nulled -- in
-a beat that names them. ${winner.name} is the side left standing.
-
-That is not a suggestion about who is stronger -- it is the ending, and your
-job is the fight that gets there. The last attempt stopped with people alive
-on both sides, which is not a result this game has. Count the numbers
-${loser.label} in your casualty list before you answer.
-
-EVERYTHING ELSE STANDS. This is the same battle, answered again in the same
-shape -- "beats", "winner", "verdict", "mvp", "cases" -- and to the same rules:
-every paragraph 20 to 80 words, somebody going down at least every other one,
-an image in every other one, EIGHT TO FOURTEEN paragraphs on a ten-card board,
-a closing paragraph that removes nobody, an "mvp" naming the card the fight
-turned on, and a ruling for every case. A
-finished battle that arrives without its verdict and its MVP is not finished
-either.`;
-}
 
 /**
  * Log whatever the storyteller thought our table got wrong.
@@ -809,7 +793,7 @@ export async function POST(req: Request) {
 
   try {
     const first = await ask();
-    let provider = first.provider;
+    const provider = first.provider;
     noteScaling(body, first.data);
     let clean = sanitise(first.data, body);
     // Friendly fire without a headline, or killing after the wipe. The story
@@ -834,7 +818,7 @@ export async function POST(req: Request) {
     // Whose win the STORY says it was, checked against whose win the bench
     // shows. They are allowed to be retried apart; they are not allowed to
     // ship apart.
-    let said: Told = first.data;
+    const said: Told = first.data;
     /**
      * Ten cards and a hundred words is not a battle, it is a summary.
      *
@@ -854,59 +838,30 @@ export async function POST(req: Request) {
       !thin(clean) &&
       unnamedRemovals(clean).length === 0;
 
-    for (let tries = 1; tries < 3 && !settled(); tries++) {
-      // Each attempt costs a fraction of a cent and about fifteen seconds, and
-      // an unfinished battle costs the player the whole point of the game.
-      if (budget - (Date.now() - started) < 15000) break;
-      console.error(
+    /**
+     * ONE CALL PER BATTLE. No second attempt, ever.
+     *
+     * Asking again fixed the one answer in five that came back unfinished or
+     * thin -- and charged for a whole extra battle to do it, on a game that is
+     * played dozens of times an evening. So the board fixes what it can by
+     * itself (sanitise closes out a roster the story forgot) and what is left
+     * is written down here rather than paid for again.
+     */
+    if (!settled()) {
+      console.warn(
         "[tell]",
         provider,
         !finished(clean, body)
-          ? "left both sides standing - asking again"
+          ? "left somebody standing"
           : !agreesOnWinner(said, clean, body)
-            ? "declared a winner the bench contradicts - asking again"
+            ? "declared a winner the bench contradicts"
             : thin(clean)
-              ? `told it in ${clean.beats.length} paragraphs - asking again`
-              : `greyed out ${unnamedRemovals(clean).join(", ")} without naming them - asking again`
+              ? `told it in ${clean.beats.length} paragraphs`
+              : `greyed out ${unnamedRemovals(clean).join(", ")} without naming them`,
+        "- shipping it anyway, one call is the budget"
       );
-      try {
-        const again = await ask(orderTheFinish(body, clean));
-        const retry = sanitise(again.data, body);
-        // A retry has to clear the same bar, except thinness: a finished,
-        // consistent story is worth more than a longer contradictory one.
-        // The retry has to clear the same bar -- except that a finished,
-        // consistent story beats a longer or better-named contradictory one.
-        const better =
-          (!thin(retry) && unnamedRemovals(retry).length === 0) || !finished(clean, body);
-        if (finished(retry, body) && agreesOnWinner(again.data, retry, body) && better) {
-          // Keep what the first attempt got right. The retry only has to
-          // FINISH the fight, and one that answered with beats alone took the
-          // MVP and the summary down with it -- a player watched a battle end
-          // with no most-valuable card and a verdict written by the resolver.
-          // Carried over ONLY where it still describes THIS story. A kept
-          // MVP note had the Night King "raising Jorah as a wight" -- which
-          // happened in the attempt that was thrown away, and never in the
-          // one the player read.
-          const shipped = JSON.stringify(retry.beats).toLowerCase();
-          const inStory = (name: string) =>
-            name
-              .replace(/\s*\(.*\)\s*$/, "")
-              .split(/[^A-Za-z0-9']+/)
-              .filter((w) => w.length >= 4)
-              .some((w) => shipped.includes(w.toLowerCase()));
-          clean = {
-            ...retry,
-            mvp: retry.mvp ?? (clean.mvp && inStory(clean.mvp.name) ? clean.mvp : null),
-            verdict: retry.verdict || clean.verdict,
-          };
-          provider = again.provider;
-          said = again.data;
-        }
-      } catch {
-        // The answer in hand is unfinished but real. Better than nothing.
-        break;
-      }
     }
+
     if (!finished(clean, body)) {
       console.error("[tell] shipping an UNFINISHED battle after", 3, "attempts");
     }

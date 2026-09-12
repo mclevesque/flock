@@ -586,4 +586,113 @@ it("says nothing when every casualty is named", () => {
   assert.deepEqual(unnamedRemovals(out), []);
 });
 
+// -- The roll-call, against the prose --------------------------------------
+it("records the death the prose wrote and the beat forgot", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom"),
+      { text: "Mysterio's illusion folds and Kami dies with it." },
+      kb("Saibaman"),
+      { text: "The yard is quiet." },
+    ],
+    fallen: [
+      { id: 6, how: "dead" }, { id: 7, how: "dead" }, { id: 8, how: "dead" },
+      { id: 9, how: "dead" }, { id: 10, how: "dead" },
+    ],
+    accounted: [{ id: 8, beat: 2 }, { id: 9, beat: 2 }],
+  });
+  assert.deepEqual(out.beats[1].kills, ["Kami", "Mysterio"]);
+  assert.ok(finished(out, board), "the battle finishes on its own prose");
+  assert.deepEqual(unnamedRemovals(out), [], "both were named where they fell");
+});
+
+it("leaves a card standing when the prose never names them", () => {
+  const out = run({
+    beats: [kb("Iron Man", "Venom"), kb("Kami", "Mysterio"), { text: "The yard is quiet." }],
+    fallen: [{ id: 10, how: "dead" }],
+    accounted: [{ id: 10, beat: 2 }],
+  });
+  assert.equal(finished(out, board), false, "a list alone never crosses anybody out");
+  assert.deepEqual(out.beats.flatMap((x) => x.kills ?? []), ["Iron Man", "Venom", "Kami", "Mysterio"]);
+});
+
+it("refuses a roll-call entry that strayed onto the winning side", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom"),
+      { text: "Kami and Mysterio and Saibaman fall to Vegeta, who stands over them." },
+      { text: "The yard is quiet." },
+    ],
+    fallen: [
+      { id: 8, how: "dead" }, { id: 9, how: "dead" }, { id: 10, how: "dead" },
+      { id: 2, how: "dead" },
+    ],
+  });
+  assert.deepEqual(out.beats[1].kills, ["Kami", "Mysterio", "Saibaman"]);
+  assert.equal(out.winner, "A");
+  assert.ok(!out.beats.some((x) => (x.kills ?? []).includes("Vegeta")), "Vegeta is still standing");
+});
+
+it("hangs the death on the fighting paragraph, not the closing one", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom"),
+      { text: "Kami dies, and Mysterio and Saibaman break beside him.", kills: [8] },
+      { text: "Mysterio and Saibaman are counted among the dead." },
+    ],
+    fallen: [{ id: 9, how: "dead" }, { id: 10, how: "dead" }],
+  });
+  assert.deepEqual(out.beats[1].kills, ["Kami", "Mysterio", "Saibaman"]);
+  assert.equal(out.beats[2].kills, undefined, "the closing paragraph stays quiet");
+});
+
+it("takes the count-back's paragraph when the prose backs it", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man"),
+      { text: "Kami turns on his own line, and Venom dies for it." },
+      kb("Mysterio", "Saibaman"),
+      { text: "The yard is quiet." },
+    ],
+    fallen: [{ id: 8, how: "converted" }, { id: 7, how: "dead" }],
+    accounted: [{ id: 8, beat: 2 }, { id: 7, beat: 2 }],
+  });
+  assert.deepEqual(out.beats[1].turned, ["Kami"]);
+  assert.deepEqual(out.beats[1].kills, ["Venom"]);
+  assert.ok(finished(out, board));
+});
+
+// -- The losing side, finished off its own prose ---------------------------
+it("records the death the prose wrote and both the beat and the roll-call forgot", () => {
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom"),
+      { text: "Kami puts a hand on Majin Buu, and Vegeta shoots him in the back. Kami falls beside him.", kills: [1] },
+      kb("Mysterio"),
+      { text: "The yard is quiet." },
+    ],
+  });
+  assert.deepEqual(out.beats[1].kills, ["Majin Buu", "Kami"], "Kami dies where the prose kills him");
+  assert.deepEqual(unnamedRemovals(out), [], "and he is named in that paragraph");
+});
+
+it("never crosses out a card the prose never mentions", () => {
+  const out = run({
+    beats: [kb("Iron Man", "Venom"), kb("Kami", "Mysterio"), { text: "The yard is quiet." }],
+  });
+  assert.equal(finished(out, board), false);
+  assert.ok(!out.beats.some((x) => (x.kills ?? []).includes("Saibaman")), "Saibaman is still up");
+});
+
+it("leaves level sides alone rather than picking a loser", () => {
+  const even: Body = {
+    sides: [
+      { id: "A", name: "me", cards: [{ name: "Brienne of Tarth" }] },
+      { id: "B", name: "them", cards: [{ name: "Gregor Clegane" }] },
+    ],
+  };
+  const out = run({ beats: [{ text: "Clegane swings, Brienne turns it, and neither of them dies." }] }, even);
+  assert.deepEqual(out.beats.flatMap((x) => x.kills ?? []), [], "nobody is invented a loser");
+});
+
 console.log(`\n${pass} passing`);

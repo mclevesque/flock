@@ -110,6 +110,21 @@ export interface Told {
    */
   cases?: { id?: string | number; weight?: number | string; note?: string }[] | null;
   /**
+   * The roll-call: every card on the losing side and how it goes.
+   *
+   * Written before the prose, as a plan the beats are supposed to carry out.
+   * It is not trusted on its own -- a card is only taken off the board where
+   * the story says so -- but it catches the one the model listed, described,
+   * and then forgot to record.
+   */
+  fallen?: { id?: string | number; how?: string }[] | null;
+  /**
+   * The count-back, written after the beats: each fallen card and the
+   * paragraph it goes down in, counting from 1. Used as a pointer, never as
+   * permission -- the paragraph still has to name them.
+   */
+  accounted?: { id?: string | number; beat?: number }[] | null;
+  /**
    * Bands the storyteller overruled, and why.
    *
    * Never shown to anybody. It is a bug report for power.ts written by the
@@ -182,6 +197,10 @@ export function agreesOnWinner(told: { winner?: string }, settled: Settled, b: B
   );
   return !hit || hit.id === settled.winner;
 }
+
+/** Prose that reads like somebody stopped getting up. */
+const ENDS =
+  /\b(dies|died|dead|kills|killed|falls|fell|drops|dropped|collaps\w*|bleeds out|goes limp|does not get up|never gets up|body|corpse|slumps|crumples|buried|gone|erased|vaporis\w*|vaporiz\w*|ash|ashes|last breath|throat|skull|chest)\b/i;
 
 /** The drafted parenthetical, e.g. "Goku (GT)" -> "Goku". */
 const PAREN = /\s*\(.*\)\s*$/;
@@ -566,6 +585,112 @@ export function sanitise(told: Told, b: Body): Settled {
     const last = beats[beats.length - 1];
     if (last) last.text = fold(last.text, carry) ?? last.text;
     else beats.push({ text: carry });
+  }
+
+  /**
+   * The roll-call, reconciled against the prose.
+   *
+   * The model plans the losing side properly and then loses one of them on
+   * the way through: it listed Punisher among the fallen, wrote eleven
+   * paragraphs, and never put him in any of them. Where the PROSE names
+   * somebody it planned to take off, the board records it in that paragraph.
+   * Where the prose says nothing about them, nothing happens -- a card is
+   * never crossed out on the strength of a list alone.
+   */
+  // Where the model's own count-back says each one goes down. The beats it
+  // counted are the ones it wrote, so an index only holds if the paragraph
+  // still standing there names them.
+  const pointed = new Map<string, number>();
+  for (const row of told.accounted ?? []) {
+    const name = resolve(row?.id);
+    const at = Number(row?.beat);
+    if (name && Number.isFinite(at)) pointed.set(name, Math.round(at) - 1);
+  }
+  const rollCall = (told.fallen ?? [])
+    .map((row) => ({ name: resolve(row?.id), how: String(row?.how ?? "") }))
+    .filter((row): row is { name: string; how: string } => Boolean(row.name));
+  // A name the count-back points at but the plan forgot still gets looked for.
+  for (const name of pointed.keys()) {
+    if (!rollCall.some((row) => row.name === name)) rollCall.push({ name, how: "dead" });
+  }
+  // The roll-call is one side's. If it strayed onto the other bench, only the
+  // side it named most is honoured -- a list is never allowed to cross out a
+  // card on the winning team.
+  const perSide = new Map<string, number>();
+  for (const row of rollCall) {
+    const side = sideOf.get(row.name);
+    if (side) perSide.set(side, (perSide.get(side) ?? 0) + 1);
+  }
+  const losing = [...perSide.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
+  for (const row of rollCall) {
+    if (usedUp.has(row.name) || sideOf.get(row.name) !== losing) continue;
+    const how = row.how.toLowerCase();
+    const list: "kills" | "turned" | "nulled" = how.startsWith("conv")
+      ? "turned"
+      : how.startsWith("null")
+        ? "nulled"
+        : "kills";
+    // Last paragraph that names them, but the closing summary only if no
+    // fighting paragraph does -- the death belongs where it was described.
+    let at = -1;
+    const said = pointed.get(row.name);
+    if (said !== undefined && beats[said] && mentions(beats[said].text, row.name)) at = said;
+    if (at < 0)
+      for (let i = beats.length - 2; i >= 0; i--) {
+        if (mentions(beats[i].text, row.name)) {
+          at = i;
+          break;
+        }
+      }
+    const end = beats.length - 1;
+    if (at < 0 && end >= 0 && mentions(beats[end].text, row.name)) at = end;
+    if (at < 0) continue;
+    beats[at][list] = [...(beats[at][list] ?? []), row.name];
+    usedUp.add(row.name);
+    standing.set(losing, (standing.get(losing) ?? 1) - 1);
+  }
+
+  /**
+   * Last pass: the losing side, finished off its own prose.
+   *
+   * The roll-call above only helps with names the model remembered to list.
+   * It forgets them too -- Black Widow was shot in the back in paragraph four,
+   * "she falls beside him", and the model neither put her in that beat's
+   * "kills" nor in its own roll-call. A battle always ends with one bench
+   * empty, so anybody left standing on the losing side is somebody the story
+   * already dealt with and forgot to write down.
+   *
+   * Still nothing invented: they are only taken off on a paragraph that names
+   * them, and only on the side that is plainly losing. If the prose never
+   * mentions them at all, they stay up and the battle stays unfinished --
+   * better an open ending than a portrait going dark for no reason.
+   */
+  const leftUp = (b.sides ?? []).map((side) => ({
+    id: side.id,
+    up: side.cards.map((c) => c.name).filter((n) => !usedUp.has(n)),
+  }));
+  const fewest = leftUp.slice().sort((x, y) => x.up.length - y.up.length);
+  // Only a side plainly behind. Level pegging is a story that genuinely did
+  // not finish, and guessing which bench to empty would be inventing a winner.
+  if (fewest.length > 1 && fewest[0].up.length && fewest[0].up.length < fewest[1].up.length) {
+    for (const name of fewest[0].up) {
+      let at = -1;
+      for (let i = beats.length - 2; i >= 0; i--) {
+        if (!mentions(beats[i].text, name)) continue;
+        if (at < 0) at = i;
+        // The paragraph that reads like an ending, if there is one -- a name
+        // in a line about somebody dying beats a name walking up the street.
+        if (ENDS.test(beats[i].text)) {
+          at = i;
+          break;
+        }
+      }
+      const end = beats.length - 1;
+      if (at < 0 && end >= 0 && mentions(beats[end].text, name)) at = end;
+      if (at < 0) continue;
+      beats[at].kills = [...(beats[at].kills ?? []), name];
+      usedUp.add(name);
+    }
   }
 
   // Whoever still has somebody standing won, whatever the model wrote in the
