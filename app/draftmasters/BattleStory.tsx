@@ -73,6 +73,8 @@ interface Props {
    * player gets it on the script.
    */
   writer?: boolean;
+  /** The moment the crawl begins, set by the driver so both screens match. */
+  beginAt?: number | null;
   /** A story already written. Given one, this screen makes no request at all. */
   replay?: ToldBattle | null;
   /** Handed up the moment it is written, so a rewatch costs nothing. */
@@ -180,6 +182,7 @@ export default function BattleStory({
   argument,
   args,
   writer = true,
+  beginAt,
   replay,
   onTold,
   onDone,
@@ -346,7 +349,12 @@ export default function BattleStory({
           if (data.verdict) setWhy(data.verdict);
           onTold({ beats, winnerId, why: data.verdict ?? "", mvp: data.mvp ?? null });
         } else {
+          // Shared even though it is ours. The other player is waiting on a
+          // told and gets NOTHING if the writer quietly falls back -- they sat
+          // through the rite and then landed on the result having read no
+          // story at all.
           setTold(offline);
+          onTold({ beats: offline, winnerId: script.winnerId, why: "", mvp: null });
         }
       } finally {
         setWriting(false);
@@ -432,9 +440,12 @@ export default function BattleStory({
    */
   useEffect(() => {
     if (writing || !riteReady || rolling) return;
-    const t = window.setTimeout(() => setRolling(true), RITE_FADE);
+    // In a friend game the driver stamps the moment both crawls begin, so the
+    // two read in step rather than one racing ahead of the other.
+    const wait = Math.max(RITE_FADE, beginAt ? beginAt - Date.now() : 0);
+    const t = window.setTimeout(() => setRolling(true), wait);
     return () => clearTimeout(t);
-  }, [writing, riteReady, rolling]);
+  }, [writing, riteReady, rolling, beginAt]);
 
   // -- The crawl ------------------------------------------------------------
   /**

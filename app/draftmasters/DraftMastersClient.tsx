@@ -192,6 +192,14 @@ async function storePortraitImage(name: string, dataUrl: string): Promise<string
   );
 }
 
+/**
+ * How long after the story is written both crawls begin.
+ *
+ * Long enough for the script to reach the other player before the moment it
+ * names, so neither screen starts reading ahead of the other.
+ */
+const TOLD_LEAD = 1500;
+
 export default function DraftMastersClient({ sessionUser, packs, standalone = false, initialRoom = null }: Props) {
   // ── Identity ───────────────────────────────────────────────────────────────
   const [guestName, setGuestName] = useState("");
@@ -1869,28 +1877,43 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * 11 rounds") describes a battle nobody watched. Whatever the story says
    * happened is what happened.
    */
-  const takeTold = useCallback((told: ToldBattle) => {
-    setToldBattle(told);
-    // One telling, shared. Both clients used to write their own -- two calls
-    // for one fight, and two different accounts of it on the two screens.
-    if (mode === "pvp" && battleRef.current) {
-      const script = { ...battleRef.current, told };
-      battleRef.current = script;
-      send({ type: "battle", battle: script });
-    }
-    setVerdict((v) => {
-      if (!v) return v;
-      const won = g_sideName(gameRef.current, told.winnerId) ?? "The winner";
-      const name = /^you$/i.test(won) ? "You win!" : `${won} wins!`;
-      return {
-        ...v,
-        winnerId: told.winnerId || v.winnerId,
-        headline: name,
-        reasoning: told.why || v.reasoning,
-        mvp: told.mvp,
-      };
-    });
-  }, [mode, send]);
+  const takeTold = useCallback(
+    (told: ToldBattle) => {
+      setToldBattle(told);
+
+      // The story decided the fight, so the story's ending is the result --
+      // the offline resolver ran before a word of it existed. Look the winner
+      // up in the ROOM's rosters too: in a friend game gameRef is empty, so
+      // the headline read "The winner wins!".
+      const sides = mode === "pvp" ? viewRef.current.sides : gameRef.current.sides;
+      const base = verdictRef.current;
+      const won = sides.find((s) => s.id === told.winnerId)?.name ?? "The winner";
+      const next = base
+        ? {
+            ...base,
+            winnerId: told.winnerId || base.winnerId,
+            headline: /^you$/i.test(won) ? "You win!" : `${won} wins!`,
+            reasoning: told.why || base.reasoning,
+            mvp: told.mvp,
+          }
+        : null;
+      if (next) setVerdict(next);
+
+      if (mode !== "pvp") return;
+      // The room has to hold it as well. Sending only the script left the
+      // server on the resolver's verdict -- so the other player read one
+      // ending and saw another, with no MVP and no summary, and the next
+      // state push put that same stale verdict back on BOTH screens.
+      if (next) send({ type: "verdict", verdict: next });
+      if (battleRef.current) {
+        const script = { ...battleRef.current, told, startAt: Date.now() + TOLD_LEAD };
+        battleRef.current = script;
+        setBattle(script);
+        send({ type: "battle", battle: script });
+      }
+    },
+    [mode, send]
+  );
 
   /** Seal this player's case to the room, once, when the box closes. */
   const sealArgument = useCallback(
@@ -1906,7 +1929,10 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const endBattle = useCallback(() => {
     setWatchedBattle(true);
     setBattle(null);
-    if (mode === "pvp") send({ type: "battle", battle: null });
+    // Leaving the story is a LOCAL thing. Clearing the room's copy here tore
+    // the story off the other player's screen mid-read and dropped them on
+    // the result -- which is what "Peanut goes right to the result" was.
+    // The room's copy is cleared when the next draft starts.
   }, [mode, send]);
 
   const playAgain = useCallback(() => {
@@ -1942,6 +1968,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     setView(EMPTY_VIEW);
     if (mode === "pvp") {
       // The room goes back to its lobby; the server drives the screen.
+      send({ type: "battle", battle: null });
       send({ type: "rematch" });
       setScreen("room");
     } else {
@@ -2367,6 +2394,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           argument={argument}
           args={pvpArgs}
           writer={mode !== "pvp" || canDrive}
+          beginAt={battle.startAt ?? null}
           replay={toldBattle ?? battle.told ?? null}
           onTold={takeTold}
           onDone={endBattle}

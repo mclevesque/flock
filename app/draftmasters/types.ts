@@ -112,6 +112,13 @@ export interface BattleScript {
    * different battles. The driver writes it and it rides here, on the script
    * the room already shares, so the other player replays the same prose.
    */
+  /**
+   * When both screens start the crawl, as a wall clock instant.
+   *
+   * The driver sets it a moment ahead when it shares the story, so the two
+   * readers move together instead of one finishing while the other waits.
+   */
+  startAt?: number | null;
   told?: {
     beats: { text: string; kills: string[]; turned: string[]; nulled: string[] }[];
     winnerId: string;
