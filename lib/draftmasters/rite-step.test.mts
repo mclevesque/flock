@@ -9,10 +9,8 @@
 import { riteFor, skipFrom, stepAt, RITE_HOLD } from "./rite.ts";
 import assert from "node:assert";
 
-const RITE = [
-  { at: 300 }, { at: 3000 }, { at: 6600 }, { at: 8600 }, { at: 12000 },
-  { at: 13000 }, { at: 15800 }, { at: 19600 }, { at: 20600 },
-];
+const RITE = riteFor("mclevesque", "The Shark");
+const END = RITE[RITE.length - 1].at + RITE_HOLD;
 
 let pass = 0;
 const it = (name: string, fn: () => void) => {
@@ -20,63 +18,56 @@ const it = (name: string, fn: () => void) => {
   catch (e) { console.log("FAIL  " + name + "\n      " + (e as Error).message); process.exitCode = 1; }
 };
 
-it("shows nothing before the first line is due", () => {
-  assert.equal(stepAt(RITE, 0), -1);
-  assert.equal(stepAt(RITE, 299), -1);
+it("opens on the first line, with nothing before it", () => {
+  assert.equal(stepAt(RITE, -1), -1);
+  assert.equal(stepAt(RITE, 0), 0);
 });
 
 it("lands exactly on a step at its own moment", () => {
-  assert.equal(stepAt(RITE, 300), 0);
-  assert.equal(stepAt(RITE, 6600), 2);
-  assert.equal(stepAt(RITE, 20600), 8);
+  assert.equal(stepAt(RITE, 2600), 1);
+  assert.equal(stepAt(RITE, 8800), 4);
 });
 
 it("holds a line until the next one is due", () => {
-  // The window the glitch was reported in: between "Who will be victorious?"
-  // and the team names, nothing else may appear.
-  for (let ms = 6600; ms < 8600; ms += 37) {
-    assert.equal(stepAt(RITE, ms), 2, `ms=${ms} should still be step 2`);
+  for (let ms = 2600; ms < 5400; ms += 37) {
+    assert.equal(stepAt(RITE, ms), 1, `ms=${ms} should still be step 1`);
   }
 });
 
 it("skips straight to the right line after a long stall", () => {
-  // A throttled tab wakes up 14 seconds late. The nine-timer version fired
-  // every missed step in a burst; this one simply answers correctly.
-  assert.equal(stepAt(RITE, 14000), 5);
-  assert.equal(stepAt(RITE, 99000), 8);
+  assert.equal(stepAt(RITE, 6000), 2);
+  assert.equal(stepAt(RITE, 99000), RITE.length - 1);
 });
 
-it("never runs off the end", () => {
-  assert.equal(stepAt(RITE, Number.MAX_SAFE_INTEGER), RITE.length - 1);
+it("is over in about ten seconds", () => {
+  // The whole point of the rewrite: the old one ran past twenty-three.
+  assert.ok(END > 8000 && END < 11000, `rite runs ${END}ms`);
+});
+
+it("says both team names, and both blessings", () => {
+  const said = RITE.flatMap((s) => s.lines).join(" ");
+  for (const want of ["mclevesque", "The Shark", "The Warrior", "The Mother", "death sustain life"]) {
+    assert.ok(said.includes(want), `the rite never says "${want}"`);
+  }
 });
 
 // ── A tap moves it on a line ──────────────────────────────────────────────
-const SPOKEN = riteFor("mclevesque", "The Shark");
-const END = SPOKEN[SPOKEN.length - 1].at + RITE_HOLD;
-
-it("a tap before the first line brings the first line", () => {
-  assert.equal(skipFrom(SPOKEN, 0), 300);
+it("a tap moves to the next line that speaks", () => {
+  assert.equal(skipFrom(RITE, 0), 2600);
+  assert.equal(skipFrom(RITE, 2600), 5400);
 });
 
-it("a tap moves to the next line", () => {
-  assert.equal(skipFrom(SPOKEN, 7000), 8600);
-  assert.equal(stepAt(SPOKEN, skipFrom(SPOKEN, 7000)), 3);
-});
-
-it("a tap steps over the blank breath between lines", () => {
-  // Team names at 8600, a blank at 12000, the Warrior at 13000. Landing on
-  // the blank would look like the tap did nothing.
-  assert.equal(skipFrom(SPOKEN, 9000), 13000);
-  assert.equal(skipFrom(SPOKEN, 12500), 13000);
-  assert.equal(skipFrom(SPOKEN, 16000), 20600);
+it("a tap steps over the blank breath before the last line", () => {
+  assert.equal(skipFrom(RITE, 5400), 8800);
+  assert.equal(skipFrom(RITE, 8300), 8800);
 });
 
 it("a tap on the last line ends the hold", () => {
-  assert.equal(skipFrom(SPOKEN, 21000), END);
+  assert.equal(skipFrom(RITE, 9000), END);
 });
 
 it("a tap never winds the clock back", () => {
-  assert.equal(skipFrom(SPOKEN, END + 5000), END + 5000);
+  assert.equal(skipFrom(RITE, END + 5000), END + 5000);
 });
 
 console.log(`\n${pass} passing`);

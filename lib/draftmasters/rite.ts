@@ -21,15 +21,17 @@
  */
 export function riteFor(a: string, b: string): { at: number; lines: string[] }[] {
   return [
-    { at: 300, lines: ["The combatants gather\u2026"] },
-    { at: 3000, lines: ["\u2026and the crowd goes silent in anticipation."] },
-    { at: 6600, lines: ["Who will be victorious?"] },
-    { at: 8600, lines: [`Team ${a} \u2014 or Team ${b}?`] },
-    { at: 12000, lines: [] },
-    { at: 13000, lines: ["May The Warrior grant strength to the righteous,"] },
-    { at: 15800, lines: ["May The Mother grant mercy to the innocent\u2026"] },
-    { at: 19600, lines: [] },
-    { at: 20600, lines: ["And may death sustain life."] },
+    { at: 0, lines: ["The combatants gather, and the crowd goes silent."] },
+    { at: 2600, lines: ["Who will be victorious?", `Team ${a} — or Team ${b}?`] },
+    {
+      at: 5400,
+      lines: [
+        "May The Warrior grant strength to the righteous,",
+        "May The Mother grant mercy to the innocent…",
+      ],
+    },
+    { at: 8200, lines: [] },
+    { at: 8800, lines: ["And may death sustain life."] },
   ];
 }
 
@@ -63,6 +65,6 @@ export function skipFrom(rite: { at: number; lines: string[] }[], ms: number): n
 }
 
 /** How long the closing line holds before the story is allowed to start. */
-export const RITE_HOLD = 2400;
+export const RITE_HOLD = 1400;
 /** The handover fade, so the rite dissolves into the story rather than cutting. */
 export const RITE_FADE = 1100;

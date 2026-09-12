@@ -504,6 +504,27 @@ export const BATTLE_STYLES = `
 }
 .dm-st-rite:focus-visible { outline: 1px solid rgba(246,239,224,.3); outline-offset: -14px; }
 
+/* The waiting bar, under the rite. Slim and gold: the rite is the thing on
+   this screen and the bar is only the honest part of it -- it eases toward the
+   end and holds there rather than pretending to know when the writer answers. */
+.dm-st-load {
+  position: relative; width: min(260px, 62vw); height: 3px;
+  margin-top: 14px; border-radius: 2px;
+  background: rgba(212,175,95,.16);
+}
+.dm-st-load i {
+  display: block; height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, #8a6a24, #d4af5f 60%, #f2dfa4);
+  box-shadow: 0 0 14px rgba(212,175,95,.45);
+  transition: width .4s ease;
+}
+.dm-st-load em {
+  position: absolute; left: 0; right: 0; top: 12px;
+  font-style: normal; text-align: center;
+  font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+  color: rgba(246,239,224,.45);
+}
+
 .dm-st-rite-line {
   margin: 0; max-width: 40ch;
   font-family: var(--dm-display);

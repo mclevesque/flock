@@ -97,6 +97,15 @@ const BARE = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
  */
 const CRAWL_PX_S = 21;
 
+/**
+ * The waiting bar's fill, as a percentage of the way there.
+ *
+ * Eased toward 95% over the time a battle usually takes to write, and parked
+ * there until the real thing lands. A bar that claims to be at 100% and then
+ * sits is worse than no bar.
+ */
+const LOAD = (ms: number) => Math.min(95, 95 * (1 - Math.pow(1 - Math.min(1, ms / 20000), 2)));
+
 /** Where on the screen a line counts as read. Just below centre. */
 const READ_AT = 0.56;
 
@@ -219,6 +228,17 @@ export default function BattleStory({
   const [riteReady, setRiteReady] = useState(false);
   /** The rite has faded and the story is moving. */
   const [rolling, setRolling] = useState(false);
+  /** How long this screen has been waiting on the writer, for the bar. */
+  const [waited, setWaited] = useState(0);
+  /**
+   * How far into the story the room already is, for somebody arriving late.
+   *
+   * The crawl is a constant speed from one stamped moment, so "where is the
+   * other player" is just how long it has been running. Leaving and coming
+   * back puts you back beside them rather than at the top of a story they
+   * are halfway down.
+   */
+  const [late] = useState(() => (beginAt ? Math.max(0, Date.now() - beginAt) : 0));
   /** The crawl has run out. From here the reader drives. */
   const [done, setDone] = useState(false);
   const [wonBy, setWonBy] = useState<string>(script.winnerId);
@@ -246,6 +266,21 @@ export default function BattleStory({
    * sits on the loading dots forever with a perfectly good battle in hand.
    * Setting state after unmount is a no-op in React 18; a lost story is not.
    */
+  useEffect(() => {
+    if (late < 1500) return;
+    startAt.current = (CRAWL_PX_S * late) / 1000;
+    setRiteReady(true);
+    setRolling(true);
+  }, [late]);
+
+  // The bar under the rite: it only runs while somebody is still writing.
+  useEffect(() => {
+    if (!writing) return;
+    const t0 = Date.now();
+    const id = window.setInterval(() => setWaited(Date.now() - t0), 200);
+    return () => window.clearInterval(id);
+  }, [writing]);
+
   const asked = useRef(false);
   useEffect(() => {
     // Already written -- by this screen before a rewatch, or by the other
@@ -696,12 +731,22 @@ export default function BattleStory({
                 {line}
               </p>
             ))}
-            {/* Only once the rite has said its piece and is still waiting.
-                Before that it would read as a loading spinner over a poem. */}
-            {riteReady && writing && (
-              <span className="dm-st-rite-wait" aria-label="Writing the battle">
-                <i /><i /><i />
-              </span>
+            {/* Under the rite from the first breath, not after it: the
+                words and the waiting are one screen, and the bar is the only
+                honest thing on it -- it eases toward the end and then holds,
+                rather than pretending to know when the writer will answer. */}
+            {writing && (
+              <div
+                className="dm-st-load"
+                role="progressbar"
+                aria-label="Preparing for battle"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(LOAD(waited))}
+              >
+                <i style={{ width: `${LOAD(waited)}%` }} />
+                <em>Preparing for battle…</em>
+              </div>
             )}
           </div>
         )}
