@@ -334,6 +334,12 @@ export default class DraftMastersParty implements Party.Server {
     this.lotEntryIndex = -1;
     this.verdict = null;
     this.battle = null;
+    // Last game's cases. Never cleared before, so from the second game on the
+    // room held the old ones, refused every new one ("first answer stands"),
+    // and never handed the pair to the storyteller again -- which is how only
+    // one player's case ever reached the story.
+    this.args.clear();
+    this.rulings = null;
     this.clearStaging();
     this.dice = null;
     this.ticker = [];
@@ -768,6 +774,8 @@ export default class DraftMastersParty implements Party.Server {
     this.lot = null;
     this.verdict = null;
     this.battle = null;
+    this.args.clear();
+    this.rulings = null;
     this.clearStaging();
     this.dice = null;
     this.currentBid = 0;

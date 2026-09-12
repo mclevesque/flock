@@ -77,6 +77,15 @@ interface Props {
    */
   args?: Record<string, string> | null;
   /**
+   * Hold the story until both players' cases are in.
+   *
+   * The writer used to ask the moment the battle opened, and the other
+   * player's case reaches the room a beat after that -- so the story went
+   * out with one case and the other player read a ruling on nothing. Waits
+   * for the pair, or CASE_WAIT_MS, whichever comes first; the bar covers it.
+   */
+  awaitCases?: boolean;
+  /**
    * Whether this screen writes the story or waits for one.
    *
    * Both clients used to write their own: two calls for a single fight, and
@@ -118,7 +127,10 @@ const CRAWL_PX_S = 21;
  * taken from that and the speed falls out of whatever height it happens to
  * occupy. Clamped at both ends so a freak layout cannot crawl or bolt.
  */
-const MS_PER_CHAR = 28;
+const MS_PER_CHAR = 36;
+
+/** The longest the writer holds the story for the other player's case. */
+const CASE_WAIT_MS = 8000;
 const MIN_PX_S = 8;
 const MAX_PX_S = 60;
 
@@ -216,6 +228,7 @@ export default function BattleStory({
   argument,
   args,
   writer = true,
+  awaitCases = false,
   beginAt,
   replay,
   onTold,
@@ -302,6 +315,13 @@ export default function BattleStory({
   }, [writing]);
 
   const asked = useRef(false);
+  /** Set when the other player's case has had long enough to arrive. */
+  const [casesLate, setCasesLate] = useState(false);
+  useEffect(() => {
+    if (!awaitCases || replay || !writer) return;
+    const id = window.setTimeout(() => setCasesLate(true), CASE_WAIT_MS);
+    return () => window.clearTimeout(id);
+  }, [awaitCases, replay, writer]);
   useEffect(() => {
     // Already written -- by this screen before a rewatch, or by the other
     // player and sent along with the script. Nothing to ask anybody.
@@ -317,6 +337,8 @@ export default function BattleStory({
     if (!writer) return;
 
     if (asked.current) return;
+    // Both cases, or as long as we can fairly wait for the second one.
+    if (awaitCases && !args && !casesLate) return;
     asked.current = true;
 
     const body = JSON.stringify({
@@ -423,7 +445,7 @@ export default function BattleStory({
     // One battle, one telling -- `asked` guards that. The two deps are the
     // ways a story can arrive from outside: a rewatch, or the other player's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replay, writer]);
+  }, [replay, writer, args, casesLate]);
 
   // -- The rite -------------------------------------------------------------
   /**

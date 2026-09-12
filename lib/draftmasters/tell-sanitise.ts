@@ -470,15 +470,24 @@ export function sanitise(told: Told, b: Body): Settled {
    * back exactly as they typed it with the ruling underneath.
    */
   const rulings = new Map<string, { weight: number; note: string }>();
+  const stray: { weight: number; note: string }[] = [];
   for (const row of told.cases ?? []) {
     const want = String(row?.id ?? "").trim().toLowerCase();
     const side = (b.sides ?? []).find(
       (s) => s.id.toLowerCase() === want || s.name.trim().toLowerCase() === want
     );
-    if (!side) continue;
     const weight = Math.max(0, Math.min(3, Math.round(Number(row?.weight)) || 0));
-    rulings.set(side.id, { weight, note: named(String(row?.note ?? "").trim()) });
+    const ruling = { weight, note: named(String(row?.note ?? "").trim()) };
+    if (side && !rulings.has(side.id)) rulings.set(side.id, ruling);
+    else if (ruling.note) stray.push(ruling);
   }
+  // A ruling under an id we cannot place, with exactly one case left
+  // unanswered: that is whose it is. Anything less certain stays unassigned
+  // rather than putting one player's ruling under the other's words.
+  const unanswered = (b.sides ?? []).filter(
+    (s) => (s.argument ?? "").trim() && !rulings.has(s.id)
+  );
+  if (stray.length === 1 && unanswered.length === 1) rulings.set(unanswered[0].id, stray[0]);
   const cases: TellCase[] = (b.sides ?? [])
     .filter((s) => (s.argument ?? "").trim())
     .map((s) => ({

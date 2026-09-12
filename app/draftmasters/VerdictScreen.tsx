@@ -173,17 +173,21 @@ export default function VerdictScreen({
       {/* What the battle did with what each player argued. Their own words,
           the weight it carried, and the reason -- side by side, because the
           interesting half of a case is how it was answered. */}
-      {/* Only the ones actually answered. A case with no ruling is the writer
-          having skipped it, and printing "Changed nothing" over somebody's
-          argument would be us inventing a verdict on their behalf. */}
-      {verdict.cases?.some((c) => c.note.trim()) && (
+      {/* EVERY case that was made, not just the ones the writer answered --
+          hiding an unanswered one made it look as though only one player had
+          argued at all. The weight is only printed over a real ruling:
+          "Changed nothing" on a case nobody ruled on would be us inventing a
+          verdict on their behalf. */}
+      {verdict.cases?.some((c) => c.text.trim()) && (
         <section className="dm-cases">
           <span className="dm-cases-tag">The cases</span>
-          {verdict.cases.filter((c) => c.note.trim()).map((c) => (
-            <article key={c.sideId} className="dm-case" data-weight={c.weight}>
+          {verdict.cases.filter((c) => c.text.trim()).map((c) => (
+            <article key={c.sideId} className="dm-case" data-weight={c.note.trim() ? c.weight : undefined}>
               <header className="dm-case-head">
                 <strong>{c.name}</strong>
-                <span className="dm-case-weight">{CASE_WEIGHT[c.weight] ?? CASE_WEIGHT[0]}</span>
+                {c.note.trim() && (
+                  <span className="dm-case-weight">{CASE_WEIGHT[c.weight] ?? CASE_WEIGHT[0]}</span>
+                )}
               </header>
               <blockquote className="dm-case-said">{c.text}</blockquote>
               {c.note && <p className="dm-case-note">{c.note}</p>}

@@ -440,7 +440,7 @@ OUTPUT -- JSON only:
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." },
-  "cases": [ { "id": "A", "weight": 2, "note": "One sentence: what you did with their case." } ],
+  "cases": [ { "id": "A", "weight": 2, "note": "One sentence: what you did with A's case." }, { "id": "B", "weight": 0, "note": "One sentence: what you did with B's case." } ],
   "scaling": [ { "id": 4, "note": "rated below a god; he is a Vala" } ]
 }
 
@@ -609,8 +609,23 @@ function finishRule(b: Body): string {
             `  id "${s.id}" -- ${s.name} wrote:\n    "${(s.argument ?? "").trim().slice(0, 1200)}"`
         )
         .join("\n") +
-      `\n\n"cases" gets ${arguing.length === 1 ? "that entry" : "BOTH entries"}` +
-      ": the id, a weight from 0 to 3, and one sentence answering THOSE words." +
+      // The exact array, ids already written in. Told "BOTH entries" in words,
+      // it still came back with one: the friend's case plainly shaped the
+      // story and the results screen had no ruling to show them. A model fills
+      // in a shape far more reliably than it counts, so the shape is handed
+      // over with only the rulings left blank.
+      `\n\n"cases" is EXACTLY this array -- ${
+        arguing.length === 1
+          ? "one entry"
+          : `${arguing.length} entries, one per player, and NEITHER may be left out`
+      } -- with the weight and note filled in:\n  "cases": [\n` +
+      arguing
+        .map(
+          (s) =>
+            `    { "id": "${s.id}", "weight": <0-3>, "note": "<one sentence to ${s.name}, answering what ${s.name} wrote>" }`
+        )
+        .join(",\n") +
+      "\n  ]\n\nEach entry: a weight from 0 to 3, and one sentence answering THOSE words." +
       " Not their cards' abilities, not a case you would rather they had made," +
       " and not a case from another battle. If a case asks for something small" +
       " -- a good death, a card going down fighting -- give it to them where it" +

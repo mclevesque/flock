@@ -1954,6 +1954,22 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     [mode, send]
   );
 
+  /**
+   * Both cases go in the moment the fight starts.
+   *
+   * A case used to seal only when its box was CLOSED -- so a friend who typed
+   * one and went straight to the battle, or never opened the box at all,
+   * never counted as done. The room waits for every seat before it hands the
+   * cases over, so it never did, and the story went out with one player's
+   * case in it. Whatever is in the box when the battle starts is the case,
+   * and an empty box is a player saying nothing, which also counts.
+   */
+  useEffect(() => {
+    if (mode !== "pvp" || !battle || argSealed.current) return;
+    argSealed.current = true;
+    send({ type: "argument", text: argument.trim() });
+  }, [mode, battle, argument, send]);
+
   const endBattle = useCallback(() => {
     setWatchedBattle(true);
     setBattle(null);
@@ -2422,6 +2438,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
           arena={pack?.arenaName ?? null}
           argument={argument}
           args={pvpArgs}
+          awaitCases={mode === "pvp"}
           writer={mode !== "pvp" || canDrive}
           beginAt={battle.startAt ?? null}
           replay={toldBattle ?? battle.told ?? null}
