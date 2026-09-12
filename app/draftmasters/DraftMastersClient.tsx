@@ -200,6 +200,36 @@ async function storePortraitImage(name: string, dataUrl: string): Promise<string
  */
 const TOLD_LEAD = 1500;
 
+/**
+ * The story's ending, laid over whatever verdict we are holding.
+ *
+ * The told is the only account of the fight anybody actually read, so its
+ * winner, its reason and its MVP outrank the resolver's -- that one ran before
+ * a word of the story existed. Two things went wrong without this: takeTold
+ * began "if there is no verdict yet, keep it", and in a friend game the host's
+ * verdict now arrives from the ROOM, so a story that finished first had its
+ * MVP and its summary dropped on the floor. And the room keeps re-sending its
+ * copy, which put the pre-story verdict back on both screens.
+ */
+function withTold(
+  v: Verdict | null,
+  told: ToldBattle | null,
+  sides: { id: string; name: string }[]
+): Verdict | null {
+  if (!told) return v;
+  const won = sides.find((x) => x.id === told.winnerId)?.name ?? "The winner";
+  const headline = /^you$/i.test(won) ? "You win!" : `${won} wins!`;
+  const base: Verdict =
+    v ?? { winnerId: told.winnerId, headline, reasoning: told.why, sideNotes: [], judged: "ai" };
+  return {
+    ...base,
+    winnerId: told.winnerId || base.winnerId,
+    headline,
+    reasoning: told.why || base.reasoning,
+    mvp: told.mvp,
+  };
+}
+
 export default function DraftMastersClient({ sessionUser, packs, standalone = false, initialRoom = null }: Props) {
   // ── Identity ───────────────────────────────────────────────────────────────
   const [guestName, setGuestName] = useState("");
@@ -317,6 +347,8 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
    * sitting underneath it a lie. So the story is cached and replayed.
    */
   const [toldBattle, setToldBattle] = useState<ToldBattle | null>(null);
+  /** The told, readable outside a render so every verdict can carry it. */
+  const toldRef = useRef<ToldBattle | null>(null);
   /** The script this client put up, so the told can be sent along with it. */
   const battleRef = useRef<BattleScript | null>(null);
   /** Both sides' cases, once the room has sealed them. Driver only. */
@@ -1555,7 +1587,13 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
       setHostConnected(Boolean(s.hostConnected));
       setRules(s.rules as Rules);
       setMembers((s.members as Member[]) ?? []);
-      setVerdict((s.verdict as Verdict | null) ?? null);
+      // The story outranks the resolver, and it may have been written by the
+      // other player -- in which case it arrives on the script, not from here.
+      {
+        const shared = ((s.battle as BattleScript | null)?.told ?? null) as ToldBattle | null;
+        const told = toldRef.current ?? shared;
+        setVerdict(withTold((s.verdict as Verdict | null) ?? null, told, (s.sides as Side[]) ?? []));
+      }
       // Who has sealed a case — the server never sends what they wrote.
       //
       // Merged, never replaced. Sealing is one-way: once you have committed a
@@ -1880,23 +1918,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const takeTold = useCallback(
     (told: ToldBattle) => {
       setToldBattle(told);
+      toldRef.current = told;
 
-      // The story decided the fight, so the story's ending is the result --
-      // the offline resolver ran before a word of it existed. Look the winner
-      // up in the ROOM's rosters too: in a friend game gameRef is empty, so
-      // the headline read "The winner wins!".
+      // Built from the told when there is no verdict yet, rather than dropped:
+      // that is how the MVP and the story's own summary went missing.
       const sides = mode === "pvp" ? viewRef.current.sides : gameRef.current.sides;
-      const base = verdictRef.current;
-      const won = sides.find((s) => s.id === told.winnerId)?.name ?? "The winner";
-      const next = base
-        ? {
-            ...base,
-            winnerId: told.winnerId || base.winnerId,
-            headline: /^you$/i.test(won) ? "You win!" : `${won} wins!`,
-            reasoning: told.why || base.reasoning,
-            mvp: told.mvp,
-          }
-        : null;
+      const next = withTold(verdictRef.current, told, sides);
       if (next) setVerdict(next);
 
       if (mode !== "pvp") return;
@@ -1940,6 +1967,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     // A new draft is a new battle. Nothing to replay, and last game's case
     // has nothing to do with this one.
     setToldBattle(null);
+    toldRef.current = null;
     setArgument("");
     battleRef.current = null;
     argSealed.current = false;
