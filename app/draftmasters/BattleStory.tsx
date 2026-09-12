@@ -353,6 +353,10 @@ export default function BattleStory({
           // told and gets NOTHING if the writer quietly falls back -- they sat
           // through the rite and then landed on the result having read no
           // story at all.
+          // Say so in the console. "The prose seems less creative" is what
+          // this looks like from the outside, and there was no way to tell
+          // the fallback from a telling that simply came back plain.
+          console.warn("[battle] the writer did not answer - offline narration");
           setTold(offline);
           onTold({ beats: offline, winnerId: script.winnerId, why: "", mvp: null });
         }
