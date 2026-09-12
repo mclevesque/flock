@@ -435,12 +435,11 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 15-50 words" }, ... ],
+  "beats": [ { "text": "one paragraph, 15-50 words, carrying a marker for every card that goes down in it" }, ... ],
   "loser": "<side id of the team that is wiped out>",
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." },
-  "fallen": [ { "id": 6, "how": "dead" }, { "id": 7, "how": "converted" }, ... ],
   "cases": [ { "id": "A", "weight": 2, "note": "One sentence: what you did with their case." } ],
   "scaling": [ { "id": 4, "note": "rated below a god; he is a Vala" } ]
 }
@@ -449,51 +448,40 @@ NAME THE LOSING SIDE FIRST. Before you write a word of prose, pick which of
 the two rosters is going into the ground -- all of it -- and put its side id
 in "loser". Everything after this is the story of how that happens.
 
-"fallen" IS THE ROLL-CALL, AND YOU WRITE IT NEXT. Every card that goes down in
-this battle, by number, each with how it goes: "dead", "converted" or
-"nulled".
+A CARD LEAVES THE BOARD BY A MARKER IN THE SENTENCE. Every card in the rosters
+above has a number. When a card goes down, put its number in square brackets
+right there in the sentence, with how it goes:
 
-BOTH SIDES GO IN IT. The whole losing roster -- if they drafted five, five
-entries, and the fifth is the one that always gets forgotten -- AND every
-winner who paid for it. Winning is not surviving. Daredevil, Star-Lord and
-Hawkeye all died in a battle their side won, and if they are not in "fallen"
-their portraits stay lit over a story that buried them. The only cards left
-out are the ones still on their feet when the prose stops, and all of those
-are on the winning side.
+  [6 dead]       killed. Roughly five cards in six end this way.
+  [6 converted]  changed sides, and fighting for the other team now.
+  [6 nulled]     a thing rather than a person, and it has stopped.
 
-THEN GIVE EVERY NAME IN IT A SENTENCE. This is the whole mechanism, so read it
-twice: the reader watches the story scroll, and when it reaches a name from
-"fallen", that portrait goes out. The paragraph that names them LAST is the
-one that does it. So every single card in "fallen" needs a sentence in the
-prose that says plainly how they go -- who did it, what it looked like -- and
-a name in the roll-call that the story never writes at all is a portrait that
-never goes out and a battle that never ends.
+  "The dwarf goes over the rail and the water takes him [2 dead]."
+  "He opens his eyes and they are blue [7 converted]."
 
-Count them one more time before you answer. Take the losing roster a name at a
-time and find the sentence. Five drafted, five in "fallen", five sentences. If
-you cannot find the sentence, you forgot them: go back and write it. There is
-no second attempt at this, so it has to be right the first time.
+THE READER NEVER SEES THE BRACKET. We lift it out before the sentence reaches
+the screen, so what a player reads is "The dwarf goes over the rail and the
+water takes him." What the game does is cross card 2 off the board in that
+exact paragraph, while they are reading that sentence.
 
-CASUALTIES ARE NUMBERS. Every card in the brief above has a number and
-"fallen" takes those numbers, not names -- {"id": 3}, not "Gohan". A number
-means exactly one card, so there is nothing to misread: no variant folded into
-a name, no telling two Gokus apart. The same goes for the MVP's "id".
+So the marker goes in the paragraph where it happens and nowhere else. One
+marker per card in the whole battle -- a card does not go down twice. A
+paragraph with no marker takes nobody, and that is allowed.
 
-"converted" IS FOR CHANGING SIDES, not dying. The Night King raises the dead
-and they get up wearing his colours; a mind-controller takes somebody's will;
-a character is talked round mid-fight by an old friend. Those cards are GONE
-from the side that drafted them, which counts towards emptying that roster
-exactly as a death does -- and it is a far better moment than another sword
-through another chest.
+THE LOSING ROSTER IS EVERY ONE OF ITS NUMBERS. If they drafted five, all five
+of their numbers carry a marker somewhere in your prose -- dead, converted or
+nulled -- and the fifth is the one that always gets forgotten. A number with
+no marker is a card still standing, and a battle that stops with people alive
+on both sides is the one outcome this game does not have.
 
-Only when the card can genuinely do it. Most battles have no conversions at
-all, and it is never the last card on a side: a roster does not end by
-everybody defecting. WRITE IT PLAINLY when it happens -- the reader is
-watching a portrait change on their own bench and the prose has to say who
-took them and how.
+THE WINNING SIDE TAKES CASUALTIES TOO, and they get markers exactly the same
+way. Winning is not surviving. Daredevil, Star-Lord and Hawkeye all died in a
+battle their side won, and a death you narrate without a marker leaves a lit
+portrait over the paragraph that buried them: if you write it, mark it.
 
-THE NUMBERS NEVER APPEAR IN THE PROSE. They are how you talk to us, not
-anything a player ever sees. In the text they are people with names.
+NEVER WRITE A NUMBER ANY OTHER WAY. Inside square brackets it is an
+instruction to the board; anywhere else it is a digit in a sentence a player
+is reading. In the prose they are people with names.
 LENGTH. On a ten-card board a battle runs EIGHT TO FOURTEEN paragraphs: one per
 card that goes down, the quiet ones in between, and the closing one. A ten-card
 battle told in four has not been told, it has been summarised -- the players
@@ -507,12 +495,11 @@ No walk-out: the first paragraph has a kill in it. The last is the closing
 paragraph and has none. Before you finish, check your own casualty list: one
 side's entire roster must appear in it.
 
-IF YOU WRITE IT, ROLL-CALL IT. Every death you narrate belongs in "fallen",
-including on the WINNING side. "They fall together and neither one gets up"
-kills two people and both of them go in the list -- the reader is looking at
-both portraits while they read it, and leaving one of them lit makes the prose
-a liar. The losing side must be emptied, but the winning side takes casualties
-too and every one of them is in "fallen".
+IF YOU WRITE IT, MARK IT -- including on the WINNING side. "They fall together
+and neither one gets up [4 dead] [9 dead]" takes two people and needs both
+markers: the reader is looking at both portraits while they read it, and
+leaving one unmarked makes the prose a liar. The losing side must be emptied,
+but the winning side takes casualties too and every one of them is marked.
 
 KNOW WHOSE SIDE EVERYBODY IS ON, ALL THE WAY THROUGH. The numbered rosters
 above are the truth and they do not drift: a card belongs to the side it was
@@ -523,14 +510,12 @@ blow, check the two rosters: who is swinging, and whose card is going down.
 Nothing else changes allegiance, and nobody fights for a team they were never
 on.
 
-WRITE EVERY DEATH WHERE IT HAPPENS. The paragraph that names a fallen card
-LAST is the paragraph their portrait goes out in, so that is where their end
-has to be written -- named, and visibly going down. Do not bring somebody back
-into a later paragraph after you have killed them, and do not save all the
-names for a summary at the end: the reader is watching the portraits grey out
-in the order the story reaches them.
-If you cannot name them going down, do not list them -- write their death in a
-beat of its own instead.
+WRITE EVERY DEATH WHERE IT HAPPENS, and mark it there. The marker is not a
+summary of the paragraph, it IS the paragraph: that portrait goes out while
+the reader is on those words, so a card with nothing said about it going down
+is crossed out in the middle of a sentence about somebody else. Name them, put
+them visibly down, mark them. Do not bring somebody back after you have killed
+them, and do not collect the markers in a paragraph at the end.
 
 TWO AT ONCE IS GOOD WHEN THE BLOW EARNS IT. A Destructo Disc through two of
 them, a tail sweep that takes a pair off the wall, one blast catching people
@@ -635,48 +620,47 @@ function finishRule(b: Body): string {
   const total = lists.reduce((t, l) => t + l.nums.length, 0);
   return `Write the battle.
 
-BEFORE YOU WRITE A WORD, PICK THE LOSING SIDE AND CALL THE ROLL. One of these
-two rosters is going into the ground, all of it:
+BEFORE YOU WRITE A WORD, PICK THE LOSING SIDE. One of these two rosters is
+going into the ground, all of it, and these are its numbers:
   ${lists[0].name}: ${rollCall(lists[0])}
   ${lists[1].name}: ${rollCall(lists[1])}
 
-Write "fallen" next: every card that goes down in this battle, by number, each
-with how it goes -- "dead", "converted" or "nulled". The whole losing roster,
-${Math.min(...lists.map((l) => l.nums.length))} entries, not ${Math.min(...lists.map((l) => l.nums.length)) - 1} -- PLUS every winner who dies along the way. Winning
-is not surviving, and a winner who dies unlisted keeps a lit portrait over the
-paragraph that buried them.
+Every one of the losing side's numbers carries a marker before you are done --
+${Math.min(...lists.map((l) => l.nums.length))} of them, not ${Math.min(...lists.map((l) => l.nums.length)) - 1} -- written into the sentence where that card goes
+down: [n dead], [n converted] or [n nulled]. Plus a marker on every winner who
+dies along the way, because a death you narrate without one leaves a lit
+portrait over the paragraph that buried them.
 
-THEN GIVE EVERY NAME IN IT A SENTENCE, and count them one more time before you
-answer. Take the list a name at a time and find the sentence that ends them:
-who did it, what it looked like. The paragraph that names them LAST is the one
-their portrait goes out in. A name you cannot find a sentence for is one you
-forgot -- go back and write it. A fight that stops with people alive on both
-sides is the one outcome this game does not have, and there is no second
-attempt at it, so it has to be right the first time.${caseRule}
+THEN COUNT THE LOSING ROSTER BACK, NUMBER BY NUMBER, BEFORE YOU ANSWER. Go
+along the list above and find each number in your own prose. A number you
+cannot find is a card still on its feet: go back and write its end. A fight
+that stops with people alive on both sides is the one outcome this game does
+not have, and there is no second attempt at it, so it has to be right the
+first time.${caseRule}
 
-AND THE MOMENT THE LAST CARD ON ONE ROSTER IS DOWN, STOP KILLING. Write one
-short closing paragraph that takes nobody -- the survivors, the cost, the
-quiet -- and close "beats". The winners never turn on each other, nobody on
-the winning side dies to their own side to fill space, and the verdict and MVP
-note mention only what your prose actually contains.
+AND THE MOMENT THE LAST NUMBER ON ONE ROSTER IS MARKED, STOP KILLING. Write
+one short closing paragraph with no marker in it at all -- the survivors, the
+cost, the quiet -- and close "beats". The winners never turn on each other,
+nobody on the winning side dies to their own side to fill space, and the
+verdict and MVP note mention only what your prose actually contains.
 
 LENGTH: every paragraph is 20 to 80 words. The WHOLE battle stays under 900
 words -- a hard ceiling, and a story that reaches it has run long. Count them.
 
 READ YOUR OWN BEATS BACK BEFORE YOU SEND:
-  0. EVERY NAME IN "fallen" HAS ITS SENTENCE. Say them one at a time -- the
-     whole losing roster, plus your own winning-side dead -- and point at the
-     paragraph where each one goes down. The one you cannot point at is the
-     one you forgot. Go back and write it, by name, before you answer.
+  0. EVERY NUMBER ON THE LOSING ROSTER IS MARKED. Read them off one at a time
+     and find each one in your prose. The one you cannot find is the one you
+     forgot -- go back and write that card's end, with its marker, before you
+     answer.
   1. SOMEBODY GOES DOWN AT LEAST EVERY OTHER PARAGRAPH. One that takes nobody
      is fine and often better -- two running is not.
-  2. The LAST paragraph is that closing one: it takes nobody, runs under 30
-     words, and comes after the losing side's final card is down. A battle
-     that ends on a killing has not been closed.
-  3. NOBODY COMES BACK. Once a card's end is written, that name does not
-     appear again -- not in a later paragraph, not in a list of the dead at
-     the end. The last mention is the one the portrait goes out on, so a name
-     repeated afterwards moves their death to the wrong paragraph.
+  2. The LAST paragraph is that closing one: no marker in it, under 30 words,
+     written after the losing side's final card is down. A battle that ends on
+     a killing has not been closed.
+  3. EVERY MARKER SITS WHERE IT HAPPENS. The bracket goes in the sentence that
+     ends that card, because the portrait goes out while the reader is on that
+     paragraph. Never collect them at the end, never mark the same number
+     twice, and never write a bare number in a sentence.
   4. "cases" HAS ONE ENTRY PER SIDE THAT WROTE ONE -- BOTH of them when both
      did, under the ids given beside the cases above. They are shown their own
      words with your ruling underneath, so a missing entry is somebody who
@@ -750,9 +734,12 @@ function noteScaling(b: Body, told: Told) {
   }
 }
 
-/** Names the roll-call gave, and names the prose actually placed. */
+/** Markers the prose carried, and removals that survived the sanitiser. */
 function claimed(told: Told): number {
-  return (told.fallen ?? []).length;
+  return (told.beats ?? []).reduce(
+    (n, x) => n + (String(x?.text ?? "").match(/\[\s*\d+[^\]]*\]/g) ?? []).length,
+    0
+  );
 }
 function landed(s: Settled): number {
   return s.beats.reduce(

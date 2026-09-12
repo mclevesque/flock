@@ -90,6 +90,13 @@ export interface Told {
    * is wider than TellBeat -- the loose shape goes in, the strict one comes
    * out, and nothing downstream ever sees a number.
    */
+  /**
+   * The prose, with the roster numbers still in it.
+   *
+   * "He goes over the rail [2 dead]" -- the bracket says which card leaves
+   * the board and how, and sanitise lifts it out before anybody reads the
+   * sentence. A paragraph with no bracket takes nobody.
+   */
   beats: { text: string }[];
   winner: string;
   /**
@@ -119,19 +126,6 @@ export interface Told {
    * worth risking.
    */
   cases?: { id?: string | number; weight?: number | string; note?: string }[] | null;
-  /**
-   * The roll-call, and the only place a card leaves the board.
-   *
-   * EVERY card that goes down, on BOTH sides -- the whole losing roster, and
-   * the winners who paid for it. Daredevil, Star-Lord and Hawkeye all died in
-   * a battle mclevesque won, and three portraits stayed lit through a story
-   * that had buried them.
-   *
-   * Each one carries its fate: "dead", "converted" or "nulled". The prose
-   * then has to name them, because the paragraph that names them last is the
-   * paragraph they go down in.
-   */
-  fallen?: { id?: string | number; how?: string }[] | null;
   /**
    * Bands the storyteller overruled, and why.
    *
@@ -204,40 +198,6 @@ export function agreesOnWinner(told: { winner?: string }, settled: Settled, b: B
     (s) => s.id.trim().toLowerCase() === said || s.name.trim().toLowerCase() === said
   );
   return !hit || hit.id === settled.winner;
-}
-
-/** The drafted parenthetical, e.g. "Goku (GT)" -> "Goku". */
-const PAREN = /\s*\(.*\)\s*$/;
-const WORDS = /[^a-z0-9']+/;
-
-/** Does this paragraph name this card, by full name or a distinctive word? */
-function mentions(text: string, card: string): boolean {
-  const hay = text.toLowerCase();
-  const bare = card.replace(PAREN, "").trim().toLowerCase();
-  if (!bare) return false;
-  if (hay.includes(bare)) return true;
-  return bare
-    .split(WORDS)
-    .filter((w) => w.length >= 4)
-    .some((w) => hay.includes(w));
-}
-
-/**
- * Cards the board says are gone that the prose never mentions.
- *
- * Casualties arrive as roster numbers and a number is taken at its word, so a
- * portrait can grey out in silence -- the reader watches a card leave the
- * board in the middle of a sentence about somebody else. The route asks for
- * the battle again when this comes back with anybody in it.
- */
-export function unnamedRemovals(s: Settled): string[] {
-  const missed: string[] = [];
-  for (const beat of s.beats) {
-    for (const name of [...(beat.kills ?? []), ...(beat.turned ?? []), ...(beat.nulled ?? [])]) {
-      if (!mentions(beat.text, name)) missed.push(name);
-    }
-  }
-  return missed;
 }
 
 export function finished(told: HasBeats, b: Body): boolean {
@@ -332,87 +292,74 @@ export function sanitise(told: Told, b: Body): Settled {
     `${x} ${y}`.split(/\s+/).length <= 50 ? `${x} ${y}` : null;
 
   /**
-   * THE ROLL-CALL IS THE RESULT.
+   * THE NUMBER IN THE PROSE IS THE RESULT.
    *
-   * The model names the losing side, calls the roll -- every card that goes
-   * down, each with the fate it goes down by -- and then writes a sentence in
-   * the prose for each of them. That is the whole mechanism. The scroller
-   * reaches the name, and that portrait goes out.
+   * Every card has a roster number, and the storyteller writes that number
+   * into the sentence where the card goes down: "he goes over the rail
+   * [2 dead]". The bracket is lifted out before anybody reads it -- the
+   * player sees the sentence, and the board crosses out number 2 in that
+   * exact paragraph.
    *
-   * It used to work the other way round: the model tagged every paragraph
-   * with the roster numbers it had just killed, and this file spent two
-   * hundred lines refereeing tags that disagreed with the prose -- a number
-   * with nobody named, an ally killed by an ally, a card dying twice, a card
-   * the prose killed and the tags forgot. None of those can be written down
-   * any more. There is nowhere left to write them.
+   * There is no name matching left in this file. It used to work out which
+   * paragraph a casualty belonged to by looking for the card's name in the
+   * prose, which meant guessing: "Clegane" for Gregor Clegane, and "his
+   * vision blurred" for Vision. A number cannot be guessed at. It means one
+   * card, and it sits in one paragraph.
    */
-  const fate = new Map<string, "kills" | "turned" | "nulled">();
-  const rollCall: string[] = [];
-  for (const row of told.fallen ?? []) {
-    const name = resolve(row?.id);
-    if (!name || fate.has(name)) continue;
-    const how = String(row?.how ?? "").trim().toLowerCase();
-    fate.set(
-      name,
-      /^(conv|turn|betr|rais|join)/.test(how)
-        ? "turned"
-        : /^null/.test(how)
-          ? "nulled"
-          : "kills"
-    );
-    rollCall.push(name);
-  }
+  const MARK = /\[\s*(\d+)\s*([a-z]*)\s*\]/gi;
+  /** The fate a marker names. Anything unrecognised is a death. */
+  const fateOf = (word: string): "kills" | "turned" | "nulled" =>
+    /^(conv|turn|betr|rais|join|defect)/i.test(word)
+      ? "turned"
+      : /^null/i.test(word)
+        ? "nulled"
+        : "kills";
+  /** Whitespace and orphaned punctuation left where a marker was lifted out. */
+  const tidy = (s: string) =>
+    s
+      .replace(/\s+/g, " ")
+      .replace(/\s+([.,;:!?])/g, "$1")
+      .trim();
 
+  const usedUp = new Set<string>();
   /**
-   * The paragraph each one goes down in: the LAST one that names them.
+   * Each paragraph with its markers read off and taken out of the text.
    *
-   * A card is written about while it fights and then written about dying, so
-   * the last time the story says their name is the end of them. The closing
-   * paragraph is the exception -- it is a summary and often names the dead
-   * over again -- so it only counts for somebody the fight itself never
-   * mentioned.
-   *
-   * A name the prose never writes at all is not placed. The roll-call says
-   * they fell and the story does not, and a portrait going dark with nothing
-   * on the screen to explain it is the thing this file exists to prevent.
+   * Read in order, so a number written twice only counts the first time --
+   * a card does not leave the board twice, whatever the prose does later.
    */
-  const texts = (told.beats ?? [])
-    .map((t) => String(t?.text ?? "").trim())
-    .filter(Boolean);
-  const last = texts.length - 1;
-  const goesDownIn = new Map<string, number>();
   /**
-   * The full name wins over a word out of it.
+   * The fight ends when a roster is empty, whatever the prose does next.
    *
-   * Placement is the whole mechanism now, and the loose match -- any word of
-   * four letters or more from the card's name -- is what lets prose write
-   * "Clegane" and "Hightower" after the introduction. It also lets "his
-   * vision blurred" stand in for Vision. So the full name is looked for
-   * first, everywhere, and the loose match only answers for a card the prose
-   * never writes out in full.
+   * Left to itself the model sometimes keeps going after one team is wiped
+   * out -- and with no opponents left, the survivors start killing each
+   * other. A player watched their own bench get crossed out one card at a
+   * time in a battle they had already won. So markers past the wipe are read
+   * and thrown away: the brackets come out of the text either way, and
+   * nobody dies after the last opponent falls.
    */
-  const find = (name: string, loose: boolean) => {
-    const bare = name.replace(PAREN, "").trim().toLowerCase();
-    const hit = (text: string) =>
-      loose ? mentions(text, name) : Boolean(bare) && text.toLowerCase().includes(bare);
-    for (let i = last - 1; i >= 0; i--) if (hit(texts[i])) return i;
-    return last >= 0 && hit(texts[last]) ? last : -1;
-  };
-  for (const name of rollCall) {
-    const at = (() => {
-      const exact = find(name, false);
-      return exact >= 0 ? exact : find(name, true);
-    })();
-    if (at >= 0) goesDownIn.set(name, at);
-  }
+  let over = false;
+  const read = (told.beats ?? [])
+    .map((b) => {
+      const raw = String(b?.text ?? "");
+      const falls: { name: string; how: "kills" | "turned" | "nulled" }[] = [];
+      for (const m of raw.matchAll(MARK)) {
+        const name = byNumber.get(Number(m[1]));
+        if (over || !name || usedUp.has(name)) continue;
+        usedUp.add(name);
+        falls.push({ name, how: fateOf(m[2] ?? "") });
+        const side = sideOf.get(name);
+        if (side) standing.set(side, (standing.get(side) ?? 1) - 1);
+        if ([...standing.values()].some((x) => x <= 0)) over = true;
+      }
+      return { text: tidy(raw.replace(MARK, " ")), falls };
+    })
+    .filter((x) => x.text);
 
-  /** Who goes down in each paragraph, in the order the roll-call named them. */
-  const falls = texts.map(() => [] as string[]);
-  for (const [name, i] of goesDownIn) falls[i].push(name);
   /** The paragraph the last card goes down in. The fight is over after it. */
   let ending = -1;
-  falls.forEach((f, i) => {
-    if (f.length) ending = i;
+  read.forEach((x, i) => {
+    if (x.falls.length) ending = i;
   });
 
   const beats: TellBeat[] = [];
@@ -424,19 +371,17 @@ export function sanitise(told: Told, b: Body): Settled {
    * sets up.
    */
   let carry = "";
-  for (let i = 0; i < texts.length; i++) {
+  for (let i = 0; i < read.length; i++) {
     // Past the last card going down: one closing paragraph, and the story
     // stops. Anything after that is a second fight nobody asked for.
     if (ending >= 0 && i > ending + 1) break;
-    const here = falls[i];
-    const callout = CALLOUT.exec(texts[i]);
-    let text = callout ? texts[i].slice(callout[0].length).trim() : texts[i];
+    const here = read[i].falls;
+    const callout = CALLOUT.exec(read[i].text);
+    const text = callout ? read[i].text.slice(callout[0].length).trim() : read[i].text;
     // A headline is only earned by somebody changing sides. "BETRAYAL!" over
     // an ordinary blow is just shouting, and gets taken off.
     const loud =
-      callout && here.some((nm) => fate.get(nm) === "turned")
-        ? `${callout[1].toUpperCase()}!`
-        : "";
+      callout && here.some((x) => x.how === "turned") ? `${callout[1].toUpperCase()}!` : "";
 
     if (!here.length) {
       /**
@@ -472,10 +417,7 @@ export function sanitise(told: Told, b: Body): Settled {
     const body = carry ? fold(carry, text) ?? text : text;
     carry = "";
     const beat: TellBeat = { text: loud ? `${loud} ${body}` : body };
-    for (const name of here) {
-      const how = fate.get(name) ?? "kills";
-      beat[how] = [...(beat[how] ?? []), name];
-    }
+    for (const { name, how } of here) beat[how] = [...(beat[how] ?? []), name];
     beats.push(beat);
   }
 
@@ -487,8 +429,6 @@ export function sanitise(told: Told, b: Body): Settled {
     else beats.push({ text: carry });
   }
 
-  /** Everybody the story actually took off the board. */
-  const usedUp = new Set(goesDownIn.keys());
 
   // Whoever still has somebody standing won, whatever the model wrote in the
   // field -- this is the one fact the prose is not allowed to contradict.
