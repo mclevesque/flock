@@ -481,7 +481,17 @@ survivors, the cost, the quiet -- and close "beats". The winners never turn on
 each other, nobody on the winning list dies to their own side to fill space,
 and the verdict and MVP note mention only what your beats actually contain.
 
-LENGTH: every paragraph is 15 to 45 words, and most sit under 35. Count them. Never null or
+LENGTH: every paragraph is 15 to 45 words, and most sit under 35. Count them.
+
+READ YOUR OWN BEATS BACK BEFORE YOU SEND. Two checks, and they are the two you
+keep failing:
+  1. EVERY paragraph removes at least one card -- "kills", "converts" or
+     "nulls" is non-empty. If one does not, it is not a paragraph: fold it into
+     the next one as its opening sentence. The ONLY exception is the closing
+     paragraph.
+  2. The LAST paragraph is that closing one: nothing in kills, converts or
+     nulls, under 30 words, written after the losing side's final card is
+     down. A battle that ends on a killing has not been closed. Never null or
 convert a card on the winning side -- only the losing side is emptied.`;
 }
 

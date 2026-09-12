@@ -331,6 +331,27 @@ export function sanitise(told: Told, b: Body): Settled {
         standing.set(from, (standing.get(from) ?? 1) - 1);
       }
     };
+    /**
+     * Does everything this beat kills belong to the striker's own side?
+     *
+     * A paragraph can hold a TRADE -- one side's blow and the answer to it --
+     * and there is only one "by" for the whole paragraph, so it cannot
+     * describe both. Read as the killer of everybody, it turned Fingolfin
+     * killing Achilles into Hermes killing his own teammate: the kill was
+     * refused, the prose still said he died, and the battle could not finish.
+     * Friendly fire is only refused when EVERY card the beat takes is on the
+     * striker's own side, which is what Meleys burning her own line looks like.
+     */
+    const victimSides = new Set(
+      (raw?.kills ?? [])
+        .map((k) => {
+          const who = resolve(k);
+          return who ? sideOf.get(who) : undefined;
+        })
+        .filter((x): x is string => Boolean(x))
+    );
+    const oneSided = victimSides.size <= 1;
+
     takeOut(raw?.converts, turned);
     takeOut(raw?.nulls, nulled);
     for (const k of raw?.kills ?? []) {
@@ -345,7 +366,7 @@ export function sanitise(told: Told, b: Body): Settled {
       if (!byNum && !namedIn(text, hit)) continue;
 
       const victimSide = sideOf.get(hit);
-      if (killerSide && victimSide && killerSide === victimSide) {
+      if (killerSide && victimSide && killerSide === victimSide && oneSided) {
         // Not headlined, this battle's one already spent, or the last card
         // that side has. Any of those and the story does not get to have it.
         if (!loud || ownGoal || (standing.get(victimSide) ?? 0) <= 1) {
