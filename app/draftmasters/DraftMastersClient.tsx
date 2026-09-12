@@ -1637,6 +1637,16 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
         await prefetchPortraits(serverPack);
         sfx.boardReady();
       } else if (!serverPack) {
+        // The board just went away: somebody called the next draft. Last
+        // game's case goes with it on THIS screen too -- otherwise the player
+        // who didn't press the button stays sealed, can never submit again,
+        // and the next battle waits on them forever.
+        if (knownPackId.current) {
+          argSealed.current = false;
+          setPvpArgs(null);
+          setArgSubmitted([]);
+          setArgument("");
+        }
         knownPackId.current = null;
         setPack(null);
       }
@@ -1947,28 +1957,15 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   const sealArgument = useCallback(
     (text: string) => {
       const t = text.trim();
-      if (mode !== "pvp" || !t || argSealed.current) return;
+      if (mode !== "pvp" || argSealed.current) return;
       argSealed.current = true;
+      // Empty counts: "Submit — no case" is a player choosing to say nothing,
+      // and the battle waits on everybody having chosen.
       send({ type: "argument", text: t });
+      setArgSubmitted((prev) => (prev.includes(meId) ? prev : [...prev, meId]));
     },
-    [mode, send]
+    [mode, send, meId]
   );
-
-  /**
-   * Both cases go in the moment the fight starts.
-   *
-   * A case used to seal only when its box was CLOSED -- so a friend who typed
-   * one and went straight to the battle, or never opened the box at all,
-   * never counted as done. The room waits for every seat before it hands the
-   * cases over, so it never did, and the story went out with one player's
-   * case in it. Whatever is in the box when the battle starts is the case,
-   * and an empty box is a player saying nothing, which also counts.
-   */
-  useEffect(() => {
-    if (mode !== "pvp" || !battle || argSealed.current) return;
-    argSealed.current = true;
-    send({ type: "argument", text: argument.trim() });
-  }, [mode, battle, argument, send]);
 
   const endBattle = useCallback(() => {
     setWatchedBattle(true);
@@ -1989,6 +1986,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
     battleRef.current = null;
     argSealed.current = false;
     setPvpArgs(null);
+    setArgSubmitted([]);
     clearNpc();
     setBattle(null);
     setWatchedBattle(false);
@@ -2096,6 +2094,22 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
   // Mirrors the server's rule: the host drives, unless they're gone.
   const canDrive =
     mode === "solo" || hostId === meId || (hostId === null && iOpenedRoom) || (hostId !== null && !hostConnected);
+
+  /**
+   * The writer asks the room for both cases until it has them.
+   *
+   * args-ready is sent once, the moment the second case seals. A driver that
+   * reloaded, or whose socket blinked at that moment, never got it -- and the
+   * story went out answering only their own case. So while a fight is on and
+   * the cases are missing, ask again every couple of seconds.
+   */
+  useEffect(() => {
+    if (mode !== "pvp" || !battle || !canDrive || pvpArgs || toldBattle || battle.told) return;
+    send({ type: "args-request" });
+    const id = window.setInterval(() => send({ type: "args-request" }), 2000);
+    return () => window.clearInterval(id);
+  }, [mode, battle, canDrive, pvpArgs, toldBattle, send]);
+
   const topicLabel = customTopic.trim() || packs.find((p) => p.id === presetId)?.name || "a topic";
   const iAmReady = view.readyIds.includes(meId);
   /** Back to your game: this device's memory first, then the account's. */
@@ -2411,6 +2425,12 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
             argument={argument}
             setArgument={setArgument}
             onSealArgument={sealArgument}
+            sealed={mode === "pvp" && argSubmitted.includes(meId)}
+            waitingOn={
+              mode === "pvp"
+                ? view.sides.filter((x) => !argSubmitted.includes(x.id)).map((x) => x.name)
+                : []
+            }
             record={record}
             ratingDelta={ratingDelta}
             mode={mode}

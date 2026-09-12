@@ -613,7 +613,10 @@ export const STYLES = `
   font-family: var(--dm-display); font-size: 10px; letter-spacing: .2em;
   text-transform: uppercase; color: rgb(var(--dm-glow) / .6);
 }
-.dm-case {
+/* dm-ruling, NOT dm-case: that name belongs to the collector's-case cards on
+   the shelf (aspect-ratio 3/4, no border, no background), and sharing it made
+   every case a 600px-tall unstyled box that pushed Play again off the screen. */
+.dm-ruling {
   margin-bottom: 10px; padding: 11px 13px; border-radius: 12px;
   border: 1px solid rgb(var(--dm-glow) / .18);
   background: linear-gradient(180deg, rgba(28,24,18,.7), rgba(12,11,9,.7));
@@ -629,11 +632,11 @@ export const STYLES = `
   border: 1px solid rgb(var(--dm-glow) / .3); color: rgba(240,230,210,.6);
 }
 /* Louder the more it counted: a case that decided a fight should look like it. */
-.dm-case[data-weight="2"] .dm-case-weight { color: var(--dm-gold); border-color: rgb(var(--dm-glow) / .55); }
-.dm-case[data-weight="3"] .dm-case-weight {
+.dm-ruling[data-weight="2"] .dm-case-weight { color: var(--dm-gold); border-color: rgb(var(--dm-glow) / .55); }
+.dm-ruling[data-weight="3"] .dm-case-weight {
   color: #17130a; background: var(--dm-gold); border-color: var(--dm-gold); font-weight: 700;
 }
-.dm-case[data-weight="0"] { opacity: .78; }
+.dm-ruling[data-weight="0"] { opacity: .78; }
 .dm-case-said {
   margin: 0 0 7px; padding-left: 10px;
   border-left: 2px solid rgb(var(--dm-glow) / .35);

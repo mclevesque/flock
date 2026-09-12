@@ -127,10 +127,10 @@ const CRAWL_PX_S = 21;
  * taken from that and the speed falls out of whatever height it happens to
  * occupy. Clamped at both ends so a freak layout cannot crawl or bolt.
  */
-const MS_PER_CHAR = 36;
+const MS_PER_CHAR = 46;
 
 /** The longest the writer holds the story for the other player's case. */
-const CASE_WAIT_MS = 8000;
+const CASE_WAIT_MS = 20000;
 const MIN_PX_S = 8;
 const MAX_PX_S = 60;
 

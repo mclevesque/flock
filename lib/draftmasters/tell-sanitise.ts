@@ -289,7 +289,7 @@ export function sanitise(told: Told, b: Body): Settled {
    * Past the cap the set-up is cut, and the blow reads on its own.
    */
   const fold = (x: string, y: string) =>
-    `${x} ${y}`.split(/\s+/).length <= 50 ? `${x} ${y}` : null;
+    `${x} ${y}`.split(/\s+/).length <= 90 ? `${x} ${y}` : null;
 
   /**
    * THE NUMBER IN THE PROSE IS THE RESULT.

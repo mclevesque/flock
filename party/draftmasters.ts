@@ -219,6 +219,15 @@ export default class DraftMastersParty implements Party.Server {
         return this.handleMedia(msg, sender);
       case "argument":
         return this.handleArgument(msg, sender);
+      case "args-request": {
+        // The writer is about to tell the story and does not have the cases --
+        // it reloaded, or missed the one args-ready. Hand them over again, to
+        // the driver alone, but only once every seat has actually sealed.
+        const seated = [...this.sides.keys()];
+        if (!this.canDrive(sender) || !seated.length || !seated.every((id) => this.args.has(id))) return;
+        sender.send(JSON.stringify({ type: "args-ready", args: this.sealedArgs() }));
+        return;
+      }
       case "rulings":
         return this.handleRulings(msg, sender);
       case "verdict":

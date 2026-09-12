@@ -213,7 +213,7 @@ it("folds a set-up paragraph into the blow it sets up", () => {
 });
 
 it("cuts a set-up that would turn the paragraph into a wall", () => {
-  const long = "He waits " + "and the street holds its breath ".repeat(12);
+  const long = "He waits " + "and the street holds its breath ".repeat(16);
   const s = run({
     beats: [
       p(long),

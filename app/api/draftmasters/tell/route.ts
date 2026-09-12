@@ -91,7 +91,7 @@ lands at the start of the next. Nothing is restated, nobody appears from
 nowhere, and nobody who has already gone down does anything ever again. Someone
 reading it straight through must never once feel the story jump.
 
-VOICE. Present tense, no announcer -- just show it. 20 to 80 words a paragraph,
+VOICE. Present tense, no announcer -- just show it. 35 to 90 words a paragraph,
 two to six sentences. Write it properly: this is the part people actually read,
 and the only part they will quote back at each other afterwards.
 
@@ -237,6 +237,15 @@ WEIGH THEM PROPERLY -- THEY ARE NOT GOSPEL AND THEY ARE NOT NOISE.
   offers a surrender is not trying to win the fight in the box. Give them what
   they asked for where it fits: they have asked the story for something the
   story can actually give.
+- CREATIVE CASES GET ROOM. A case that invents a scene inside the fiction --
+  Qyburn has just raised Ser Arthur Dayne on his table, a plan laid before
+  the fight, somebody arriving from where nobody is looking -- is the player
+  writing WITH you. If these characters could plausibly do it and it is not
+  simply the ending, PUT IT IN THE STORY AND LET IT PLAY OUT: Dayne gets off
+  the table and draws Dawn, whether or not it wins them the battle. Deny the
+  RESULT if the fight says so, never the IDEA. "He never came off the table"
+  throws away the best thing anybody wrote, and it is the one answer a
+  player who made something up for you will never forgive.
 - FORCING IT EARNS LESS. "My team is unkillable", "X simply wins", an
   instruction rather than an argument -- that is somebody trying to write the
   result from outside, and it is exactly the case to answer in the prose and
@@ -435,7 +444,7 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 15-50 words, carrying a marker for every card that goes down in it" }, ... ],
+  "beats": [ { "text": "one paragraph, 35-90 words, carrying a marker for every card that goes down in it" }, ... ],
   "loser": "<side id of the team that is wiped out>",
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
@@ -659,7 +668,7 @@ cost, the quiet -- and close "beats". The winners never turn on each other,
 nobody on the winning side dies to their own side to fill space, and the
 verdict and MVP note mention only what your prose actually contains.
 
-LENGTH: every paragraph is 20 to 80 words. The WHOLE battle stays under 900
+LENGTH: every paragraph is 35 to 90 words. The WHOLE battle stays under 1200
 words -- a hard ceiling, and a story that reaches it has run long. Count them.
 
 READ YOUR OWN BEATS BACK BEFORE YOU SEND:
@@ -682,7 +691,7 @@ READ YOUR OWN BEATS BACK BEFORE YOU SEND:
      argued their roster and got silence back. Rule on what they ACTUALLY
      wrote: not on their cards' ability labels, not on a better case you would
      have made for them.
-  5. YOUR PARAGRAPHS ARE 20 TO 80 WORDS. If every one of them is under 35 you
+  5. YOUR PARAGRAPHS ARE 35 TO 90 WORDS. If most of them are under 45 you
      have written a summary of a battle rather than the battle: go back and
      put the fight into the sentences.
   6. NOBODY IS ON THE WRONG SIDE. Blows land on the OTHER roster -- unless

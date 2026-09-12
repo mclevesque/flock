@@ -49,6 +49,14 @@ interface Props {
   setArgument: (s: string) => void;
   /** Seal it to the room, so the writer weighs both cases and not just one. */
   onSealArgument?: (text: string) => void;
+  /** This player's case is sealed in the room -- the box is closed for good. */
+  sealed?: boolean;
+  /**
+   * Players whose case is not in yet. The fight cannot start while anybody is
+   * on this list: a story written before both cases arrive answers one player
+   * and leaves the other reading a ruling on nothing.
+   */
+  waitingOn?: string[];
   /**
    * What the room is waiting on, if anything. Set for BOTH players, not just
    * whoever pressed the button — the one who didn't press it used to get a
@@ -77,6 +85,8 @@ export default function VerdictScreen({
   argument,
   setArgument,
   onSealArgument,
+  sealed = false,
+  waitingOn = [],
   busy,
   onBattle,
   onPlayAgain,
@@ -112,7 +122,9 @@ export default function VerdictScreen({
 
         {/* Both players, not just the host. The guest had no box at all: one
             player got to argue their roster and the other watched them do it. */}
-        {!busy && <ArgueBox value={argument} onChange={setArgument} onSeal={onSealArgument} />}
+        {!busy && (
+          <ArgueBox value={argument} onChange={setArgument} onSeal={onSealArgument} sealed={sealed} />
+        )}
 
         {busy && <StagingBar key={busy} kind={busy} />}
 
@@ -123,10 +135,19 @@ export default function VerdictScreen({
                   result is read off the fight, so a "just calculate it" path
                   would have to run the same fight and then hide it. */}
               <div className="dm-row" style={{ justifyContent: "center" }}>
-                <button className="dm-btn dm-btn-battle dm-btn-lg" onClick={onBattle} disabled={loading || battleLoading}>
+                <button
+                  className="dm-btn dm-btn-battle dm-btn-lg"
+                  onClick={onBattle}
+                  disabled={loading || battleLoading || waitingOn.length > 0}
+                >
                   {battleLoading ? "Staging the fight…" : <><Icon name="swords" size={15} /> BATTLE!</>}
                 </button>
               </div>
+              {waitingOn.length > 0 && (
+                <p className="dm-note" style={{ marginTop: 10, color: "var(--dm-gold)" }}>
+                  Waiting on {waitingOn.join(" and ")} to submit {waitingOn.length === 1 ? "a case" : "their cases"}.
+                </p>
+              )}
               <p className="dm-note" style={{ marginTop: 10 }}>
                 Nobody has judged anything yet — the fight decides it.
               </p>
@@ -182,7 +203,7 @@ export default function VerdictScreen({
         <section className="dm-cases">
           <span className="dm-cases-tag">The cases</span>
           {verdict.cases.filter((c) => c.text.trim()).map((c) => (
-            <article key={c.sideId} className="dm-case" data-weight={c.note.trim() ? c.weight : undefined}>
+            <article key={c.sideId} className="dm-ruling" data-weight={c.note.trim() ? c.weight : undefined}>
               <header className="dm-case-head">
                 <strong>{c.name}</strong>
                 {c.note.trim() && (
@@ -255,7 +276,7 @@ export default function VerdictScreen({
           </button>
         )}
         <button className="dm-btn dm-btn-primary dm-btn-lg" onClick={onPlayAgain}>
-          Play again — new topic
+          {mode === "pvp" ? "Next draft — same players" : "Play again — new topic"}
         </button>
       </div>
     </div>
@@ -275,17 +296,28 @@ function ArgueBox({
   value,
   onChange,
   onSeal,
+  sealed = false,
 }: {
   value: string;
   onChange: (s: string) => void;
   /** Called when the box closes: one case, sealed once, like the room's rule. */
   onSeal?: (text: string) => void;
+  /** Already in the room. First answer stands, so there is nothing to edit. */
+  sealed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => {
     setOpen(false);
     onSeal?.(value);
   };
+
+  if (sealed) {
+    return (
+      <p className="dm-note" style={{ marginTop: 18 }}>
+        {value.trim() ? "Your case is in." : "You're going in without a case."}
+      </p>
+    );
+  }
 
   if (!open) {
     return (
@@ -318,8 +350,8 @@ function ArgueBox({
       />
       <div className="dm-argue-foot">
         <span className="dm-note">{value.length}/{ARGUE_MAX}</span>
-        <button className="dm-btn dm-btn-ghost dm-bt-mini" onClick={close}>
-          Done
+        <button className="dm-btn dm-btn-primary dm-bt-mini" onClick={close}>
+          {value.trim() ? "Submit case" : "Submit — no case"}
         </button>
       </div>
     </div>
