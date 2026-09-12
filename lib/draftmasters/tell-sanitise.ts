@@ -41,6 +41,14 @@ export interface Body {
   }[];
 }
 
+/**
+ * One paragraph, and who leaves the board while the reader is reading it.
+ *
+ * The model does not write this shape -- it writes prose and a roll-call, and
+ * sanitise works out which paragraph each name belongs to. What is here is
+ * what the screen needs: as the crawl reaches this paragraph, these portraits
+ * go out.
+ */
 export interface TellBeat {
   /** One paragraph of the fight. */
   text: string;
@@ -82,14 +90,16 @@ export interface Told {
    * is wider than TellBeat -- the loose shape goes in, the strict one comes
    * out, and nothing downstream ever sees a number.
    */
-  beats: {
-    text: string;
-    kills?: (string | number)[];
-    converts?: (string | number)[];
-    nulls?: (string | number)[];
-    by?: string | number;
-  }[];
+  beats: { text: string }[];
   winner: string;
+  /**
+   * The side the model committed to losing, before it wrote a word.
+   *
+   * Declarative: nothing here branches on it. It is in the schema because a
+   * storyteller that has decided who loses writes a battle that ends, and one
+   * that has not writes until it runs out of paragraphs.
+   */
+  loser?: string | null;
   /** Named by whoever wrote the fight, since only they know how it went. */
   /**
    * As the MODEL sends it: a number, or a name from an older answer. What
@@ -110,20 +120,18 @@ export interface Told {
    */
   cases?: { id?: string | number; weight?: number | string; note?: string }[] | null;
   /**
-   * The roll-call: every card on the losing side and how it goes.
+   * The roll-call, and the only place a card leaves the board.
    *
-   * Written before the prose, as a plan the beats are supposed to carry out.
-   * It is not trusted on its own -- a card is only taken off the board where
-   * the story says so -- but it catches the one the model listed, described,
-   * and then forgot to record.
+   * EVERY card that goes down, on BOTH sides -- the whole losing roster, and
+   * the winners who paid for it. Daredevil, Star-Lord and Hawkeye all died in
+   * a battle mclevesque won, and three portraits stayed lit through a story
+   * that had buried them.
+   *
+   * Each one carries its fate: "dead", "converted" or "nulled". The prose
+   * then has to name them, because the paragraph that names them last is the
+   * paragraph they go down in.
    */
   fallen?: { id?: string | number; how?: string }[] | null;
-  /**
-   * The count-back, written after the beats: each fallen card and the
-   * paragraph it goes down in, counting from 1. Used as a pointer, never as
-   * permission -- the paragraph still has to name them.
-   */
-  accounted?: { id?: string | number; beat?: number }[] | null;
   /**
    * Bands the storyteller overruled, and why.
    *
@@ -197,10 +205,6 @@ export function agreesOnWinner(told: { winner?: string }, settled: Settled, b: B
   );
   return !hit || hit.id === settled.winner;
 }
-
-/** Prose that reads like somebody stopped getting up. */
-const ENDS =
-  /\b(dies|died|dead|kills|killed|falls|fell|drops|dropped|collaps\w*|bleeds out|goes limp|does not get up|never gets up|body|corpse|slumps|crumples|buried|gone|erased|vaporis\w*|vaporiz\w*|ash|ashes|last breath|throat|skull|chest)\b/i;
 
 /** The drafted parenthetical, e.g. "Goku (GT)" -> "Goku". */
 const PAREN = /\s*\(.*\)\s*$/;
@@ -300,30 +304,6 @@ export function sanitise(told: Told, b: Body): Settled {
     return hits.length === 1 ? hits[0][1] : undefined;
   };
 
-  /**
-   * Does this beat's prose back up a casualty given BY NAME?
-   *
-   * Only ever applied to the name fallback, never to a number. A number is
-   * proof: it points at one card and the portrait dies, whatever the prose
-   * decided to call them -- "the Great Ape", "the overgrown monkey", or a
-   * pronoun three sentences after the introduction. A NAME is a guess, and a
-   * guess the paragraph does not support would grey somebody out in the middle
-   * of a sentence about somebody else.
-   *
-   * Matched on the bare name first, then on any distinctive word in it, since
-   * prose properly writes "Clegane" or "Hightower" after the introduction
-   * rather than the full name every time.
-   */
-  const namedIn = (text: string, card: string): boolean => {
-    const hay = text.toLowerCase();
-    const bare = card.replace(/\s*\(.*\)\s*$/, "").toLowerCase().trim();
-    if (bare && hay.includes(bare)) return true;
-    return bare
-      .split(/[^a-z0-9']+/)
-      .filter((w) => w.length >= 4)
-      .some((w) => hay.includes(w));
-  };
-
   /** Which side each card belongs to, and how many of each are still up. */
   const sideOf = new Map<string, string>();
   const standing = new Map<string, number>();
@@ -332,218 +312,149 @@ export function sanitise(told: Told, b: Body): Settled {
     for (const c of s.cards) sideOf.set(c.name, s.id);
   }
 
-  const usedUp = new Set<string>();
-  const beats: TellBeat[] = [];
   /**
-   * Where each card left the board, so the dead can still be raised.
-   *
-   * The Night King kills a man and then stands him back up wearing blue --
-   * which is the best thing he does, and the board could not hold it: one
-   * state per card meant the raise was dropped and the bench said DEAD under
-   * prose about him getting up. A conversion may take somebody already
-   * killed, and it moves them from the dead list to the turned one.
-   */
-  const placed = new Map<string, { beat: TellBeat; list: "kills" | "turned" | "nulled" }>();
-  /**
-   * Whether a card has already been taken out by its own side this battle.
+   * A headline the paragraph has to earn -- see `loud` below.
    *
    * Allies do not attack allies. A player watched Meleys burn her own line one
    * teammate after another with nothing in the prose saying why, and that
-   * reads as the game being broken rather than as a story. So a same-side kill
-   * is honoured only in a paragraph that headlines it -- opening "FRIENDLY
-   * FIRE!" or "BETRAYAL!" -- only once a battle, and never to the last card on
-   * a side, because a team may not finish itself off.
+   * reads as the game being broken rather than as a story.
    */
   const CALLOUT = /^(friendly fire|betrayal)\s*[!:]+\s*/i;
   /**
    * Two paragraphs joined, or null when the join would run long.
    *
-   * Folding a set-up into its kill is only worth it while the result is still
+   * Folding a set-up into its blow is only worth it while the result is still
    * short: live, a 34-word set-up landed on a 28-word kill and made a 62-word
    * block, which is the wall of text "short and sweet" was asked to remove.
-   * Past the cap the set-up is cut, and the kill reads on its own.
+   * Past the cap the set-up is cut, and the blow reads on its own.
    */
-  const fold = (a: string, b: string) =>
-    `${a} ${b}`.split(/\s+/).length <= 50 ? `${a} ${b}` : null;
-  let ownGoal = false;
-  /** Set the moment a side runs out. The battle is over; one closing paragraph may follow. */
-  let over = false;
-  /** Paragraphs seen since the wipe, so the search for an ending is bounded. */
-  let pastWipe = 0;
+  const fold = (x: string, y: string) =>
+    `${x} ${y}`.split(/\s+/).length <= 50 ? `${x} ${y}` : null;
+
   /**
-   * Prose from beats that took nobody off the board, held for the next one
-   * that does.
+   * THE ROLL-CALL IS THE RESULT.
    *
-   * Every paragraph changes a portrait -- that is the rhythm the screen
-   * promises. A set-up paragraph is not thrown away, because the kill after it
-   * usually leans on it; it becomes the opening of the paragraph it sets up.
+   * The model names the losing side, calls the roll -- every card that goes
+   * down, each with the fate it goes down by -- and then writes a sentence in
+   * the prose for each of them. That is the whole mechanism. The scroller
+   * reaches the name, and that portrait goes out.
+   *
+   * It used to work the other way round: the model tagged every paragraph
+   * with the roster numbers it had just killed, and this file spent two
+   * hundred lines refereeing tags that disagreed with the prose -- a number
+   * with nobody named, an ally killed by an ally, a card dying twice, a card
+   * the prose killed and the tags forgot. None of those can be written down
+   * any more. There is nowhere left to write them.
+   */
+  const fate = new Map<string, "kills" | "turned" | "nulled">();
+  const rollCall: string[] = [];
+  for (const row of told.fallen ?? []) {
+    const name = resolve(row?.id);
+    if (!name || fate.has(name)) continue;
+    const how = String(row?.how ?? "").trim().toLowerCase();
+    fate.set(
+      name,
+      /^(conv|turn|betr|rais|join)/.test(how)
+        ? "turned"
+        : /^null/.test(how)
+          ? "nulled"
+          : "kills"
+    );
+    rollCall.push(name);
+  }
+
+  /**
+   * The paragraph each one goes down in: the LAST one that names them.
+   *
+   * A card is written about while it fights and then written about dying, so
+   * the last time the story says their name is the end of them. The closing
+   * paragraph is the exception -- it is a summary and often names the dead
+   * over again -- so it only counts for somebody the fight itself never
+   * mentioned.
+   *
+   * A name the prose never writes at all is not placed. The roll-call says
+   * they fell and the story does not, and a portrait going dark with nothing
+   * on the screen to explain it is the thing this file exists to prevent.
+   */
+  const texts = (told.beats ?? [])
+    .map((t) => String(t?.text ?? "").trim())
+    .filter(Boolean);
+  const last = texts.length - 1;
+  const goesDownIn = new Map<string, number>();
+  /**
+   * The full name wins over a word out of it.
+   *
+   * Placement is the whole mechanism now, and the loose match -- any word of
+   * four letters or more from the card's name -- is what lets prose write
+   * "Clegane" and "Hightower" after the introduction. It also lets "his
+   * vision blurred" stand in for Vision. So the full name is looked for
+   * first, everywhere, and the loose match only answers for a card the prose
+   * never writes out in full.
+   */
+  const find = (name: string, loose: boolean) => {
+    const bare = name.replace(PAREN, "").trim().toLowerCase();
+    const hit = (text: string) =>
+      loose ? mentions(text, name) : Boolean(bare) && text.toLowerCase().includes(bare);
+    for (let i = last - 1; i >= 0; i--) if (hit(texts[i])) return i;
+    return last >= 0 && hit(texts[last]) ? last : -1;
+  };
+  for (const name of rollCall) {
+    const at = (() => {
+      const exact = find(name, false);
+      return exact >= 0 ? exact : find(name, true);
+    })();
+    if (at >= 0) goesDownIn.set(name, at);
+  }
+
+  /** Who goes down in each paragraph, in the order the roll-call named them. */
+  const falls = texts.map(() => [] as string[]);
+  for (const [name, i] of goesDownIn) falls[i].push(name);
+  /** The paragraph the last card goes down in. The fight is over after it. */
+  let ending = -1;
+  falls.forEach((f, i) => {
+    if (f.length) ending = i;
+  });
+
+  const beats: TellBeat[] = [];
+  /**
+   * Prose from a paragraph that takes nobody, held for the next one that
+   * does. Every paragraph changes a portrait -- that is the rhythm the screen
+   * promises -- and a set-up paragraph is not thrown away, because the blow
+   * after it usually leans on it. It becomes the opening of the paragraph it
+   * sets up.
    */
   let carry = "";
+  for (let i = 0; i < texts.length; i++) {
+    // Past the last card going down: one closing paragraph, and the story
+    // stops. Anything after that is a second fight nobody asked for.
+    if (ending >= 0 && i > ending + 1) break;
+    const here = falls[i];
+    const callout = CALLOUT.exec(texts[i]);
+    let text = callout ? texts[i].slice(callout[0].length).trim() : texts[i];
+    // A headline is only earned by somebody changing sides. "BETRAYAL!" over
+    // an ordinary blow is just shouting, and gets taken off.
+    const loud =
+      callout && here.some((nm) => fate.get(nm) === "turned")
+        ? `${callout[1].toUpperCase()}!`
+        : "";
 
-  for (const raw of told.beats ?? []) {
-    let text = String(raw?.text ?? "").trim();
-    if (!text) continue;
-
-    /**
-     * The fight ends when a side is empty, whatever the model wrote next.
-     *
-     * Left to itself it sometimes keeps going after one team is wiped out --
-     * and with no opponents left to fight, the survivors start killing each
-     * other. A player watched their own bench get crossed out one card at a
-     * time in a battle they had already won. So the wipe is the end of the
-     * killing: one closing paragraph may follow -- the survivors eyeing each
-     * other, what it cost -- and then the story stops.
-     */
-    if (over) {
-      /**
-       * Past the wipe, the only thing still worth having is the ending.
-       *
-       * A paragraph that is still killing is a second fight -- keeping its
-       * text while dropping its casualties would narrate deaths the bench
-       * never shows. But the model often writes one of those and THEN the
-       * real closing paragraph, and cutting at the first one threw the
-       * ending away with it. So the killing ones are dropped and the next
-       * quiet paragraph closes the story, within a couple of tries.
-       */
-      const removes =
-        (raw?.kills ?? []).length + (raw?.converts ?? []).length + (raw?.nulls ?? []).length;
-      if (!removes) {
-        beats.push({ text: text.replace(CALLOUT, "").trim() });
-        break;
-      }
-      if (++pastWipe >= 3) break;
-      continue;
-    }
-
-    // The headline is read, taken off, and put back only if the beat really
-    // does what it announces -- see `loudHere` below.
-    const callout = CALLOUT.exec(text);
-    const loud = callout ? `${callout[1].toUpperCase()}!` : "";
-    if (callout) text = text.slice(callout[0].length).trim();
-
-    const kills: string[] = [];
-    const turned: string[] = [];
-    const nulled: string[] = [];
-    /** Blows refused for landing on their own side without a headline. */
-    let refused = 0;
-    let ownHere = false;
-    // Who swung. Given as a roster number like the casualties are, so a side
-    // can be read off it without guessing at names in the prose.
-    const killerSide = sideOf.get(resolve(raw?.by) ?? "");
-
-    /**
-     * The two quiet ways off the board, counted before the killing.
-     *
-     * DEAD, CONVERTED and NULLED are the three states, and a roster loses when
-     * every card on it is in one of them. Any of the three may take the last
-     * card on a side: a team wiped out, a team turned, a team of things that
-     * simply stopped -- all of those are endings the game has.
-     */
-    const takeOut = (
-      list: (string | number)[] | undefined,
-      into: string[],
-      changesSides = false
-    ) => {
-      for (const c of list ?? []) {
-        const hit = resolve(c);
-        if (!hit) continue;
-        if (usedUp.has(hit)) {
-          // Raising somebody this battle already killed: they change lists,
-          // and they change sides. Anything else is a card leaving twice.
-          const was = placed.get(hit);
-          if (!changesSides || !was || was.list !== "kills") continue;
-          was.beat.kills = (was.beat.kills ?? []).filter((x) => x !== hit);
-          if (!was.beat.kills.length) delete was.beat.kills;
-          into.push(hit);
-          const old = sideOf.get(hit);
-          const to = (b.sides ?? []).find((x) => x.id !== old)?.id;
-          if (to) sideOf.set(hit, to);
-          continue;
-        }
-        const from = sideOf.get(hit);
-        if (!from) continue;
-        usedUp.add(hit);
-        into.push(hit);
-        standing.set(from, (standing.get(from) ?? 1) - 1);
-        // A turned card fights for the other team from here. Without this the
-        // board still had Jon Snow down as a Stark after the Night King raised
-        // him, so his next blow read as friendly fire and was thrown out.
-        if (changesSides) {
-          const to = (b.sides ?? []).find((x) => x.id !== from)?.id;
-          if (to) sideOf.set(hit, to);
-        }
-      }
-    };
-    /**
-     * Does everything this beat kills belong to the striker's own side?
-     *
-     * A paragraph can hold a TRADE -- one side's blow and the answer to it --
-     * and there is only one "by" for the whole paragraph, so it cannot
-     * describe both. Read as the killer of everybody, it turned Fingolfin
-     * killing Achilles into Hermes killing his own teammate: the kill was
-     * refused, the prose still said he died, and the battle could not finish.
-     * Friendly fire is only refused when EVERY card the beat takes is on the
-     * striker's own side, which is what Meleys burning her own line looks like.
-     */
-    const victimSides = new Set(
-      (raw?.kills ?? [])
-        .map((k) => {
-          const who = resolve(k);
-          return who ? sideOf.get(who) : undefined;
-        })
-        .filter((x): x is string => Boolean(x))
-    );
-    const oneSided = victimSides.size <= 1;
-
-    takeOut(raw?.converts, turned, true);
-    takeOut(raw?.nulls, nulled);
-    for (const k of raw?.kills ?? []) {
-      const byNum = isNumber(k);
-      const hit = resolve(k);
-      // Unknown card, or somebody who already died: dropped rather than
-      // trusted. The story survives a missing crossing-out; it does not
-      // survive a card dying twice or a card that was never drafted dying.
-      if (!hit || usedUp.has(hit)) continue;
-      // A number is taken at its word. A NAME the paragraph never supports is
-      // not -- see namedIn.
-      if (!byNum && !namedIn(text, hit)) continue;
-
-      const victimSide = sideOf.get(hit);
-      if (killerSide && victimSide && killerSide === victimSide && oneSided) {
-        // Not headlined, this battle's one already spent, or the last card
-        // that side has. Any of those and the story does not get to have it.
-        if (!loud || ownGoal || (standing.get(victimSide) ?? 0) <= 1) {
-          refused += 1;
-          continue;
-        }
-        ownGoal = true;
-        ownHere = true;
-      }
-
-      usedUp.add(hit);
-      kills.push(hit);
-      const side = sideOf.get(hit);
-      if (side) standing.set(side, (standing.get(side) ?? 1) - 1);
-    }
-
-    if (!kills.length && !turned.length && !nulled.length) {
-      // Every blow it claimed was refused as friendly fire, so the prose
-      // narrates allies dying who stay up on the bench. A small jump in the
-      // story is better than a paragraph that lies about the portraits.
-      if (refused) continue;
-
+    if (!here.length) {
       /**
        * A paragraph that takes nobody is allowed -- but never two running.
        *
-       * A kill in every single one made the battle a list of executions with
+       * A death in every single one made the battle a list of executions with
        * no room to breathe; letting them pile up made it a story where
        * nothing happens. So one quiet paragraph stands, and a second folds
        * into the next one that lands a blow.
        */
-      const last = beats[beats.length - 1];
-      const lastWasQuiet =
-        !!last && !(last.kills?.length || last.turned?.length || last.nulled?.length);
-      if (!last || lastWasQuiet || carry) {
+      if (ending < 0) {
+        beats.push({ text });
+        continue;
+      }
+      const prev = beats[beats.length - 1];
+      const prevWasQuiet =
+        !!prev && !(prev.kills?.length || prev.turned?.length || prev.nulled?.length);
+      if (!prev || prevWasQuiet || carry) {
         carry = carry ? fold(carry, text) ?? carry : text;
         continue;
       }
@@ -551,147 +462,33 @@ export function sanitise(told: Told, b: Body): Settled {
       continue;
     }
 
-    // A headline the beat does not earn -- "BETRAYAL!" over an ordinary kill --
-    // is dropped. One it does earn has to open the paragraph, so set-up that
-    // is waiting goes on the end of the paragraph before instead.
-    const loudHere = loud && (ownHere || turned.length > 0) ? loud : "";
+    // A headline has to open its paragraph, so set-up that is still waiting
+    // goes on the end of the paragraph before instead.
     const prev = beats[beats.length - 1];
-    if (loudHere && carry && prev) {
+    if (loud && carry && prev) {
       prev.text = fold(prev.text, carry) ?? prev.text;
       carry = "";
     }
     const body = carry ? fold(carry, text) ?? text : text;
     carry = "";
-    const settledBeat: TellBeat = {
-      text: loudHere ? `${loudHere} ${body}` : body,
-      ...(kills.length ? { kills } : {}),
-      ...(turned.length ? { turned } : {}),
-      ...(nulled.length ? { nulled } : {}),
-    };
-    beats.push(settledBeat);
-    for (const [list, names] of [
-      ["kills", kills],
-      ["turned", turned],
-      ["nulled", nulled],
-    ] as const) {
-      for (const name of names) placed.set(name, { beat: settledBeat, list });
+    const beat: TellBeat = { text: loud ? `${loud} ${body}` : body };
+    for (const name of here) {
+      const how = fate.get(name) ?? "kills";
+      beat[how] = [...(beat[how] ?? []), name];
     }
-    if ([...standing.values()].some((n) => n <= 0)) over = true;
+    beats.push(beat);
   }
 
-  // Set-up that never paid off: the model stopped before the kill it was
+  // Set-up that never paid off: the model stopped before the blow it was
   // building to. Kept on the last paragraph rather than lost.
   if (carry) {
-    const last = beats[beats.length - 1];
-    if (last) last.text = fold(last.text, carry) ?? last.text;
+    const tail = beats[beats.length - 1];
+    if (tail) tail.text = fold(tail.text, carry) ?? tail.text;
     else beats.push({ text: carry });
   }
 
-  /**
-   * The roll-call, reconciled against the prose.
-   *
-   * The model plans the losing side properly and then loses one of them on
-   * the way through: it listed Punisher among the fallen, wrote eleven
-   * paragraphs, and never put him in any of them. Where the PROSE names
-   * somebody it planned to take off, the board records it in that paragraph.
-   * Where the prose says nothing about them, nothing happens -- a card is
-   * never crossed out on the strength of a list alone.
-   */
-  // Where the model's own count-back says each one goes down. The beats it
-  // counted are the ones it wrote, so an index only holds if the paragraph
-  // still standing there names them.
-  const pointed = new Map<string, number>();
-  for (const row of told.accounted ?? []) {
-    const name = resolve(row?.id);
-    const at = Number(row?.beat);
-    if (name && Number.isFinite(at)) pointed.set(name, Math.round(at) - 1);
-  }
-  const rollCall = (told.fallen ?? [])
-    .map((row) => ({ name: resolve(row?.id), how: String(row?.how ?? "") }))
-    .filter((row): row is { name: string; how: string } => Boolean(row.name));
-  // A name the count-back points at but the plan forgot still gets looked for.
-  for (const name of pointed.keys()) {
-    if (!rollCall.some((row) => row.name === name)) rollCall.push({ name, how: "dead" });
-  }
-  // The roll-call is one side's. If it strayed onto the other bench, only the
-  // side it named most is honoured -- a list is never allowed to cross out a
-  // card on the winning team.
-  const perSide = new Map<string, number>();
-  for (const row of rollCall) {
-    const side = sideOf.get(row.name);
-    if (side) perSide.set(side, (perSide.get(side) ?? 0) + 1);
-  }
-  const losing = [...perSide.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
-  for (const row of rollCall) {
-    if (usedUp.has(row.name) || sideOf.get(row.name) !== losing) continue;
-    const how = row.how.toLowerCase();
-    const list: "kills" | "turned" | "nulled" = how.startsWith("conv")
-      ? "turned"
-      : how.startsWith("null")
-        ? "nulled"
-        : "kills";
-    // Last paragraph that names them, but the closing summary only if no
-    // fighting paragraph does -- the death belongs where it was described.
-    let at = -1;
-    const said = pointed.get(row.name);
-    if (said !== undefined && beats[said] && mentions(beats[said].text, row.name)) at = said;
-    if (at < 0)
-      for (let i = beats.length - 2; i >= 0; i--) {
-        if (mentions(beats[i].text, row.name)) {
-          at = i;
-          break;
-        }
-      }
-    const end = beats.length - 1;
-    if (at < 0 && end >= 0 && mentions(beats[end].text, row.name)) at = end;
-    if (at < 0) continue;
-    beats[at][list] = [...(beats[at][list] ?? []), row.name];
-    usedUp.add(row.name);
-    standing.set(losing, (standing.get(losing) ?? 1) - 1);
-  }
-
-  /**
-   * Last pass: the losing side, finished off its own prose.
-   *
-   * The roll-call above only helps with names the model remembered to list.
-   * It forgets them too -- Black Widow was shot in the back in paragraph four,
-   * "she falls beside him", and the model neither put her in that beat's
-   * "kills" nor in its own roll-call. A battle always ends with one bench
-   * empty, so anybody left standing on the losing side is somebody the story
-   * already dealt with and forgot to write down.
-   *
-   * Still nothing invented: they are only taken off on a paragraph that names
-   * them, and only on the side that is plainly losing. If the prose never
-   * mentions them at all, they stay up and the battle stays unfinished --
-   * better an open ending than a portrait going dark for no reason.
-   */
-  const leftUp = (b.sides ?? []).map((side) => ({
-    id: side.id,
-    up: side.cards.map((c) => c.name).filter((n) => !usedUp.has(n)),
-  }));
-  const fewest = leftUp.slice().sort((x, y) => x.up.length - y.up.length);
-  // Only a side plainly behind. Level pegging is a story that genuinely did
-  // not finish, and guessing which bench to empty would be inventing a winner.
-  if (fewest.length > 1 && fewest[0].up.length && fewest[0].up.length < fewest[1].up.length) {
-    for (const name of fewest[0].up) {
-      let at = -1;
-      for (let i = beats.length - 2; i >= 0; i--) {
-        if (!mentions(beats[i].text, name)) continue;
-        if (at < 0) at = i;
-        // The paragraph that reads like an ending, if there is one -- a name
-        // in a line about somebody dying beats a name walking up the street.
-        if (ENDS.test(beats[i].text)) {
-          at = i;
-          break;
-        }
-      }
-      const end = beats.length - 1;
-      if (at < 0 && end >= 0 && mentions(beats[end].text, name)) at = end;
-      if (at < 0) continue;
-      beats[at].kills = [...(beats[at].kills ?? []), name];
-      usedUp.add(name);
-    }
-  }
+  /** Everybody the story actually took off the board. */
+  const usedUp = new Set(goesDownIn.keys());
 
   // Whoever still has somebody standing won, whatever the model wrote in the
   // field -- this is the one fact the prose is not allowed to contradict.
