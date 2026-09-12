@@ -84,8 +84,16 @@ lands at the start of the next. Nothing is restated, nobody appears from
 nowhere, and nobody who has already gone down does anything ever again. Someone
 reading it straight through must never once feel the story jump.
 
-VOICE. Present tense, no announcer -- just show it. SHORT AND SWEET: 15 to 35
-words a paragraph, two or three sentences, and the kill lands in the last one.
+VOICE. Present tense, no announcer -- just show it. SHORT: 15 to 45 words a
+paragraph, two to four sentences, and the kill lands in the last one.
+
+ROOM FOR ONE IMAGE, about one paragraph in three. The ground, the weather, what
+the crowd does, how somebody takes the thing that just happened -- one stroke,
+inside the same paragraph, which still takes somebody off the board. The other
+two get in and get out. What this is not is a licence to describe: an image
+that does not show you something about THIS fight is padding, and padding was
+what the short rule was written to kill.
+
 THIS is the bar:
 
   Criston Cole steps into the Mountain's path. Gregor Clegane never slows --
@@ -344,7 +352,7 @@ just won. Nobody on the winning side dies after the last opponent falls.
 
 OUTPUT -- JSON only:
 {
-  "beats": [ { "text": "one paragraph, 15-35 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
+  "beats": [ { "text": "one paragraph, 15-45 words", "by": 7, "kills": [3], "converts": [], "nulls": [] }, ... ],
   "winner": "<side id of the team with survivors>",
   "verdict": "Why that side won, in 2-3 plain sentences.",
   "mvp": { "id": 7, "note": "One sentence on what they did." },
@@ -473,7 +481,7 @@ survivors, the cost, the quiet -- and close "beats". The winners never turn on
 each other, nobody on the winning list dies to their own side to fill space,
 and the verdict and MVP note mention only what your beats actually contain.
 
-SHORT AND SWEET: every paragraph is 15 to 35 words. Count them. Never null or
+LENGTH: every paragraph is 15 to 45 words, and most sit under 35. Count them. Never null or
 convert a card on the winning side -- only the losing side is emptied.`;
 }
 
