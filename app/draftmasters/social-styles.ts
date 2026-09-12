@@ -483,6 +483,10 @@ button.dm-fd-row:active { transform: scale(.99); }
   display: flex; align-items: center; gap: 8px; pointer-events: none;
 }
 .dm-dock > * { pointer-events: auto; }
+/* The battle is a fixed full-screen stage at z-index 100, and the dock sat
+   under it: the room could talk right up to the fight and then lost each
+   other for the length of it. Over the story it goes. */
+.dm[data-battle="1"] .dm-dock { z-index: 120; }
 .dm-dock-rail {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 7px 4px 2px; border-radius: 999px;

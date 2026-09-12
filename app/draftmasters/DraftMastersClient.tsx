@@ -2093,7 +2093,7 @@ export default function DraftMastersClient({ sessionUser, packs, standalone = fa
        it is mounted (see styles.ts, "Standalone"). DraftMasters is heading for
        its own site, and on a phone that chrome was eating ~134px of a 812px
        screen to show controls that belong to a different app. */
-    <div className="dm" data-standalone="1" data-guard={trapped ? "1" : "0"}>
+    <div className="dm" data-standalone="1" data-guard={trapped ? "1" : "0"} data-battle={battle ? "1" : "0"}>
       <style dangerouslySetInnerHTML={{ __html: STYLES + BATTLE_STYLES }} />
       {mode === "pvp" && !connected && <div className="dm-conn">Reconnecting…</div>}
 
