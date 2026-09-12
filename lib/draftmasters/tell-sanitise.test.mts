@@ -3,7 +3,7 @@
  *
  * Every one of these cases is something a player actually saw happen.
  */
-import { sanitise, finished, agreesOnWinner, type Body, type Told } from "./tell-sanitise.ts";
+import { sanitise, finished, agreesOnWinner, unnamedRemovals, type Body, type Told } from "./tell-sanitise.ts";
 import assert from "node:assert";
 
 const board: Body = {
@@ -168,6 +168,23 @@ it("keeps one closing paragraph that removes nobody", () => {
   assert.equal(out.beats[1].text, "the field goes quiet");
 });
 
+it("finds the ending past a paragraph that overran the wipe", () => {
+  // Live: the model wiped the board, wrote one more killing paragraph, and
+  // then the real ending. Cutting at the killing one lost the ending too.
+  const out = run({
+    beats: [
+      kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"),
+      { text: "Buu turns on Vegeta", by: 1, kills: [2] },
+      beat("the field goes quiet"),
+    ],
+  });
+  assert.deepEqual(out.beats.map((x) => x.text), [
+    "Iron Man and Venom and Kami and Mysterio and Saibaman go down.",
+    "the field goes quiet",
+  ]);
+  assert.ok(!JSON.stringify(out.beats).includes("Buu turns"));
+});
+
 it("keeps only one closing paragraph", () => {
   const out = run({
     beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"), beat("the survivors eye each other"), beat("and again")],
@@ -176,9 +193,10 @@ it("keeps only one closing paragraph", () => {
   assert.equal(out.beats[1].text, "the survivors eye each other");
 });
 
-it("drops a closing paragraph that comes after winners fighting each other", () => {
-  // The ending was written about a fight the bench never shows, so it goes
-  // with that fight.
+it("drops the winners' extra fight but keeps the ending after it", () => {
+  // The scuffle is refused -- the bench never shows those deaths -- and the
+  // ending is kept, because losing the close of the story every time the
+  // model overran was the worse of the two faults.
   const out = run({
     beats: [
       kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman"),
@@ -186,8 +204,10 @@ it("drops a closing paragraph that comes after winners fighting each other", () 
       beat("and Buu stands alone"),
     ],
   });
-  assert.equal(out.beats.length, 1);
-  assert.ok(!JSON.stringify(out.beats).includes("stands alone"));
+  assert.equal(out.beats.length, 2);
+  assert.ok(!JSON.stringify(out.beats).includes("Buu turns on Vegeta"));
+  assert.equal(out.beats[1].text, "and Buu stands alone");
+  assert.deepEqual(out.beats.flatMap((x) => x.kills ?? []).includes("Vegeta"), false);
 });
 
 // ── Every paragraph changes a portrait ────────────────────────────────────
@@ -197,7 +217,7 @@ it("folds a set-up paragraph into the kill it sets up", () => {
   assert.equal(out.beats[0].text, "Vegeta charges. Iron Man go down.");
 });
 
-it("never ships a mid-battle paragraph that removes nobody", () => {
+it("allows a quiet paragraph, but never two running", () => {
   const out = run({
     beats: [
       beat("a"),
@@ -210,12 +230,19 @@ it("never ships a mid-battle paragraph that removes nobody", () => {
       { text: "the curse burns out", nulls: [9] },
     ],
   });
-  assert.equal(out.beats.length, 4);
+  // "a" opens with nothing behind it, so it rides with the first kill. "b"
+  // stands alone; "c" would be a second in a row, so it folds into Venom's.
+  // "d" stands alone after a kill.
+  assert.deepEqual(
+    out.beats.map((x) => x.text),
+    ["a Iron Man go down.", "b", "c Venom go down.", "the dead get up", "d", "the curse burns out"]
+  );
+  let quiet = 0;
   for (const x of out.beats) {
     const gone = (x.kills?.length ?? 0) + (x.turned?.length ?? 0) + (x.nulled?.length ?? 0);
-    assert.ok(gone > 0, `"${x.text}" removes nobody`);
+    quiet = gone ? 0 : quiet + 1;
+    assert.ok(quiet < 2, `two quiet paragraphs running at "${x.text}"`);
   }
-  assert.equal(out.beats[1].text, "b c Venom go down.");
 });
 
 it("cuts a set-up that would turn the paragraph into a wall", () => {
@@ -227,10 +254,9 @@ it("cuts a set-up that would turn the paragraph into a wall", () => {
   assert.equal(out.beats[0].text, kill.text, "the kill stands alone");
 });
 
-it("keeps set-up the model never paid off, on the last paragraph", () => {
+it("lets a quiet paragraph stand after one that landed a blow", () => {
   const out = run({ beats: [kb("Iron Man"), beat("Vegeta circles.")] });
-  assert.equal(out.beats.length, 1);
-  assert.equal(out.beats[0].text, "Iron Man go down. Vegeta circles.");
+  assert.deepEqual(out.beats.map((x) => x.text), ["Iron Man go down.", "Vegeta circles."]);
 });
 
 // ── Numbers are the identity; the prose can call them anything ────────────
@@ -342,8 +368,9 @@ it("puts waiting set-up before the headline, not under it", () => {
       { text: "FRIENDLY FIRE! Buu swats Vegeta", by: 1, kills: [2] },
     ],
   });
-  assert.equal(out.beats[0].text, "Iron Man go down. Buu's eyes go wrong.");
-  assert.equal(out.beats[1].text, "FRIENDLY FIRE! Buu swats Vegeta");
+  assert.equal(out.beats[0].text, "Iron Man go down.");
+  assert.equal(out.beats[1].text, "Buu's eyes go wrong.");
+  assert.equal(out.beats[2].text, "FRIENDLY FIRE! Buu swats Vegeta");
 });
 
 it("drops a headline the paragraph does not earn", () => {
@@ -507,6 +534,56 @@ it("does not call a winner it cannot place a disagreement", () => {
   const out = run({ winner: "A", beats: [kb("Iron Man", "Venom", "Kami", "Mysterio", "Saibaman")] });
   assert.equal(agreesOnWinner({ winner: "" }, out, board), true);
   assert.equal(agreesOnWinner({ winner: "nobody on this board" }, out, board), true);
+});
+
+// -- A turned card fights for the other team ------------------------------
+it("does not call it friendly fire once the card has changed sides", () => {
+  // The Night King raises Jon Snow, then Jon kills his own former team. That
+  // is the point of raising him, and the board used to refuse it.
+  const out = run({
+    beats: [
+      { text: "the dead get up wearing his colours", converts: [6] },
+      { text: "Iron Man turns on Venom", by: 6, kills: [7] },
+    ],
+  });
+  assert.deepEqual(out.beats[0].turned, ["Iron Man"]);
+  assert.deepEqual(out.beats[1].kills, ["Venom"], "a turned card may kill its old side");
+});
+
+it("still refuses friendly fire from a card that never turned", () => {
+  const out = run({ beats: [kb("Iron Man"), { text: "Buu turns on Vegeta", by: 1, kills: [2] }] });
+  assert.deepEqual(out.beats.flatMap((x) => x.kills ?? []), ["Iron Man"]);
+});
+
+it("lets the Night King raise somebody he just killed", () => {
+  // One state per card meant the raise was dropped: the bench said DEAD under
+  // prose about a man getting up with blue eyes.
+  const out = run({
+    beats: [
+      { text: "Iron Man goes down in the snow", by: 1, kills: [6] },
+      { text: "and gets up again wearing his colours", converts: [6] },
+    ],
+  });
+  assert.equal(out.beats[0].kills, undefined, "he is not dead any more");
+  assert.deepEqual(out.beats[1].turned, ["Iron Man"]);
+  assert.equal(finished(out, board), false, "one raised card is not a wiped roster");
+});
+
+it("still refuses to remove the same card twice the ordinary way", () => {
+  const out = run({ beats: [kb("Iron Man"), kb("Iron Man"), kb("Venom")] });
+  assert.deepEqual(out.beats.flatMap((x) => x.kills ?? []), ["Iron Man", "Venom"]);
+});
+
+// -- Everybody who goes down is named where they go down -------------------
+it("reports a casualty the prose never names", () => {
+  const out = run({ beats: [{ text: "the street goes quiet all at once", kills: [6] }] });
+  assert.deepEqual(out.beats[0].kills, ["Iron Man"], "a number is still taken at its word");
+  assert.deepEqual(unnamedRemovals(out), ["Iron Man"]);
+});
+
+it("says nothing when every casualty is named", () => {
+  const out = run({ beats: [kb("Iron Man", "Venom")] });
+  assert.deepEqual(unnamedRemovals(out), []);
 });
 
 console.log(`\n${pass} passing`);

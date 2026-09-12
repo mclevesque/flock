@@ -183,6 +183,40 @@ export function agreesOnWinner(told: { winner?: string }, settled: Settled, b: B
   return !hit || hit.id === settled.winner;
 }
 
+/** The drafted parenthetical, e.g. "Goku (GT)" -> "Goku". */
+const PAREN = /\s*\(.*\)\s*$/;
+const WORDS = /[^a-z0-9']+/;
+
+/** Does this paragraph name this card, by full name or a distinctive word? */
+function mentions(text: string, card: string): boolean {
+  const hay = text.toLowerCase();
+  const bare = card.replace(PAREN, "").trim().toLowerCase();
+  if (!bare) return false;
+  if (hay.includes(bare)) return true;
+  return bare
+    .split(WORDS)
+    .filter((w) => w.length >= 4)
+    .some((w) => hay.includes(w));
+}
+
+/**
+ * Cards the board says are gone that the prose never mentions.
+ *
+ * Casualties arrive as roster numbers and a number is taken at its word, so a
+ * portrait can grey out in silence -- the reader watches a card leave the
+ * board in the middle of a sentence about somebody else. The route asks for
+ * the battle again when this comes back with anybody in it.
+ */
+export function unnamedRemovals(s: Settled): string[] {
+  const missed: string[] = [];
+  for (const beat of s.beats) {
+    for (const name of [...(beat.kills ?? []), ...(beat.turned ?? []), ...(beat.nulled ?? [])]) {
+      if (!mentions(beat.text, name)) missed.push(name);
+    }
+  }
+  return missed;
+}
+
 export function finished(told: HasBeats, b: Body): boolean {
   // Gone is gone: a card that changed sides is no longer standing for the
   // side that drafted it, and a roster emptied by conversion is just as
@@ -282,6 +316,16 @@ export function sanitise(told: Told, b: Body): Settled {
   const usedUp = new Set<string>();
   const beats: TellBeat[] = [];
   /**
+   * Where each card left the board, so the dead can still be raised.
+   *
+   * The Night King kills a man and then stands him back up wearing blue --
+   * which is the best thing he does, and the board could not hold it: one
+   * state per card meant the raise was dropped and the bench said DEAD under
+   * prose about him getting up. A conversion may take somebody already
+   * killed, and it moves them from the dead list to the turned one.
+   */
+  const placed = new Map<string, { beat: TellBeat; list: "kills" | "turned" | "nulled" }>();
+  /**
    * Whether a card has already been taken out by its own side this battle.
    *
    * Allies do not attack allies. A player watched Meleys burn her own line one
@@ -305,6 +349,8 @@ export function sanitise(told: Told, b: Body): Settled {
   let ownGoal = false;
   /** Set the moment a side runs out. The battle is over; one closing paragraph may follow. */
   let over = false;
+  /** Paragraphs seen since the wipe, so the search for an ending is bounded. */
+  let pastWipe = 0;
   /**
    * Prose from beats that took nobody off the board, held for the next one
    * that does.
@@ -330,14 +376,24 @@ export function sanitise(told: Told, b: Body): Settled {
      * other, what it cost -- and then the story stops.
      */
     if (over) {
-      // Only a paragraph that removes nobody earns the last word. One that is
-      // still killing is a second fight, not an ending, and keeping its text
-      // while dropping its casualties would narrate deaths the bench never
-      // shows -- so it goes, along with everything written after it.
+      /**
+       * Past the wipe, the only thing still worth having is the ending.
+       *
+       * A paragraph that is still killing is a second fight -- keeping its
+       * text while dropping its casualties would narrate deaths the bench
+       * never shows. But the model often writes one of those and THEN the
+       * real closing paragraph, and cutting at the first one threw the
+       * ending away with it. So the killing ones are dropped and the next
+       * quiet paragraph closes the story, within a couple of tries.
+       */
       const removes =
         (raw?.kills ?? []).length + (raw?.converts ?? []).length + (raw?.nulls ?? []).length;
-      if (!removes) beats.push({ text: text.replace(CALLOUT, "").trim() });
-      break;
+      if (!removes) {
+        beats.push({ text: text.replace(CALLOUT, "").trim() });
+        break;
+      }
+      if (++pastWipe >= 3) break;
+      continue;
     }
 
     // The headline is read, taken off, and put back only if the beat really
@@ -364,15 +420,39 @@ export function sanitise(told: Told, b: Body): Settled {
      * card on a side: a team wiped out, a team turned, a team of things that
      * simply stopped -- all of those are endings the game has.
      */
-    const takeOut = (list: (string | number)[] | undefined, into: string[]) => {
+    const takeOut = (
+      list: (string | number)[] | undefined,
+      into: string[],
+      changesSides = false
+    ) => {
       for (const c of list ?? []) {
         const hit = resolve(c);
-        if (!hit || usedUp.has(hit)) continue;
+        if (!hit) continue;
+        if (usedUp.has(hit)) {
+          // Raising somebody this battle already killed: they change lists,
+          // and they change sides. Anything else is a card leaving twice.
+          const was = placed.get(hit);
+          if (!changesSides || !was || was.list !== "kills") continue;
+          was.beat.kills = (was.beat.kills ?? []).filter((x) => x !== hit);
+          if (!was.beat.kills.length) delete was.beat.kills;
+          into.push(hit);
+          const old = sideOf.get(hit);
+          const to = (b.sides ?? []).find((x) => x.id !== old)?.id;
+          if (to) sideOf.set(hit, to);
+          continue;
+        }
         const from = sideOf.get(hit);
         if (!from) continue;
         usedUp.add(hit);
         into.push(hit);
         standing.set(from, (standing.get(from) ?? 1) - 1);
+        // A turned card fights for the other team from here. Without this the
+        // board still had Jon Snow down as a Stark after the Night King raised
+        // him, so his next blow read as friendly fire and was thrown out.
+        if (changesSides) {
+          const to = (b.sides ?? []).find((x) => x.id !== from)?.id;
+          if (to) sideOf.set(hit, to);
+        }
       }
     };
     /**
@@ -396,7 +476,7 @@ export function sanitise(told: Told, b: Body): Settled {
     );
     const oneSided = victimSides.size <= 1;
 
-    takeOut(raw?.converts, turned);
+    takeOut(raw?.converts, turned, true);
     takeOut(raw?.nulls, nulled);
     for (const k of raw?.kills ?? []) {
       const byNum = isNumber(k);
@@ -432,7 +512,23 @@ export function sanitise(told: Told, b: Body): Settled {
       // narrates allies dying who stay up on the bench. A small jump in the
       // story is better than a paragraph that lies about the portraits.
       if (refused) continue;
-      carry = carry ? `${carry} ${text}` : text;
+
+      /**
+       * A paragraph that takes nobody is allowed -- but never two running.
+       *
+       * A kill in every single one made the battle a list of executions with
+       * no room to breathe; letting them pile up made it a story where
+       * nothing happens. So one quiet paragraph stands, and a second folds
+       * into the next one that lands a blow.
+       */
+      const last = beats[beats.length - 1];
+      const lastWasQuiet =
+        !!last && !(last.kills?.length || last.turned?.length || last.nulled?.length);
+      if (!last || lastWasQuiet || carry) {
+        carry = carry ? fold(carry, text) ?? carry : text;
+        continue;
+      }
+      beats.push({ text });
       continue;
     }
 
@@ -447,12 +543,20 @@ export function sanitise(told: Told, b: Body): Settled {
     }
     const body = carry ? fold(carry, text) ?? text : text;
     carry = "";
-    beats.push({
+    const settledBeat: TellBeat = {
       text: loudHere ? `${loudHere} ${body}` : body,
       ...(kills.length ? { kills } : {}),
       ...(turned.length ? { turned } : {}),
       ...(nulled.length ? { nulled } : {}),
-    });
+    };
+    beats.push(settledBeat);
+    for (const [list, names] of [
+      ["kills", kills],
+      ["turned", turned],
+      ["nulled", nulled],
+    ] as const) {
+      for (const name of names) placed.set(name, { beat: settledBeat, list });
+    }
     if ([...standing.values()].some((n) => n <= 0)) over = true;
   }
 
