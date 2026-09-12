@@ -751,7 +751,12 @@ export default class DraftMastersParty implements Party.Server {
   }
 
   private handleRematch(sender: Party.Connection) {
-    if (!this.canDrive(sender)) return;
+    // EITHER seated player can call the next game. Driver-only meant the
+    // guest's "Play again" was swallowed here while their own screen went
+    // back to the lobby -- and the next state push dragged them to the
+    // verdict again. Whoever is sitting at this table can start another.
+    const who = this.members.get(sender.id)?.userId;
+    if (!who || !this.sides.has(who)) return;
     this.phase = "lobby";
     // Drop the old board entirely — leaving it here is how a rematch kept
     // dealing the previous topic.

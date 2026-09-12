@@ -15,7 +15,16 @@ import {
 } from "@/lib/draftmasters/battle-music";
 import { isMuted } from "@/lib/draftmasters/sfx";
 import type { BattleScript, PortraitMap } from "./types";
-import { riteFor, skipFrom, stepAt, RITE_HOLD, RITE_FADE } from "@/lib/draftmasters/rite";
+/**
+ * The handover fade, and the least time the wait is allowed to take.
+ *
+ * The rite is gone: nine lines of invocation before a battle was a wall
+ * between the player and the thing they came for. What is left is the bar,
+ * and a bar that flashes past is worse than none -- so a story that lands in
+ * four seconds still gets its bar filled properly before the crawl starts.
+ */
+const HANDOVER = 900;
+const MIN_WAIT = 4200;
 
 /**
  * The battle, as a story that scrolls.
@@ -98,6 +107,20 @@ const BARE = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
  * front of the thing people came to watch.
  */
 const CRAWL_PX_S = 21;
+
+/**
+ * How long the crawl takes, per character of story.
+ *
+ * Pixels are the wrong unit for two people reading together: the same story
+ * is a taller column on a narrow window, so a fixed pixels-per-second had one
+ * player still reading while the other was already looking at the result. The
+ * story is the same length in CHARACTERS on both screens, so the duration is
+ * taken from that and the speed falls out of whatever height it happens to
+ * occupy. Clamped at both ends so a freak layout cannot crawl or bolt.
+ */
+const MS_PER_CHAR = 28;
+const MIN_PX_S = 8;
+const MAX_PX_S = 60;
 
 /**
  * The waiting bar's fill, as a percentage of the way there.
@@ -224,10 +247,7 @@ export default function BattleStory({
   /** Index of the last paragraph the reader has reached. */
   const [upTo, setUpTo] = useState(-1);
   const [paused, setPaused] = useState(false);
-  /** Which step of the opening rite is on screen. */
-  const [riteAt, setRiteAt] = useState(-1);
-  /** The rite has said its last line and held it. */
-  const [riteReady, setRiteReady] = useState(false);
+
   /** The rite has faded and the story is moving. */
   const [rolling, setRolling] = useState(false);
   /** How long this screen has been waiting on the writer, for the bar. */
@@ -252,8 +272,8 @@ export default function BattleStory({
   const paras = useRef<(HTMLParagraphElement | null)[]>([]);
   /** Kept out of state so the frame loop can read it without re-subscribing. */
   const readRef = useRef(-1);
-  /** When the rite started, and how far the reader has tapped it forward. */
-  const riteClock = useRef({ t0: 0, skip: 0 });
+  /** When this screen opened, so the wait can be given a floor. */
+  const openedAt = useRef(Date.now());
 
   // -- The telling ----------------------------------------------------------
   /**
@@ -270,8 +290,6 @@ export default function BattleStory({
    */
   useEffect(() => {
     if (late < 1500) return;
-    startAt.current = (CRAWL_PX_S * late) / 1000;
-    setRiteReady(true);
     setRolling(true);
   }, [late]);
 
@@ -424,7 +442,6 @@ export default function BattleStory({
    */
   const usName = (sides.find((x) => x.id === meId) ?? sides[0])?.name ?? "You";
   const themName = sides.find((x) => x.id !== meId)?.name ?? "Them";
-  const rite = useMemo(() => riteFor(usName, themName), [usName, themName]);
 
   /**
    * ONE CLOCK, not nine timers.
@@ -441,53 +458,24 @@ export default function BattleStory({
    * development double-invoke costs nothing instead of silently arming
    * nothing.
    */
-  useEffect(() => {
-    riteClock.current = { t0: performance.now(), skip: 0 };
-    const id = window.setInterval(() => {
-      const c = riteClock.current;
-      const ms = performance.now() - c.t0 + c.skip;
-      setRiteAt(stepAt(rite, ms));
-      if (ms >= rite[rite.length - 1].at + RITE_HOLD) {
-        setRiteReady(true);
-        window.clearInterval(id);
-      }
-    }, 100);
-    return () => window.clearInterval(id);
-  }, [rite]);
-
   /**
-   * A tap on the rite moves it on a line.
+   * Hand over when the story is in hand AND the bar has had its moment.
    *
-   * The skip is added to the same clock rather than stepping a counter, so the
-   * interval above keeps answering "what is true now" and cannot disagree with
-   * the tap. Past the last line it ends the hold, and the story starts as soon
-   * as it is written.
-   */
-  const skipRite = useCallback(() => {
-    if (riteReady) return;
-    const c = riteClock.current;
-    const ms = performance.now() - c.t0 + c.skip;
-    const to = skipFrom(rite, ms);
-    c.skip += to - ms;
-    setRiteAt(stepAt(rite, to));
-    if (to >= rite[rite.length - 1].at + RITE_HOLD) setRiteReady(true);
-  }, [rite, riteReady]);
-
-  /**
-   * Hand over only when BOTH are true: the story is written and the rite has
-   * finished speaking. Starting the crawl the instant the fetch lands would
-   * cut the closing line in half, which is the one thing this was built not to
-   * do -- so a fast answer waits the couple of seconds out, and a slow one
-   * finds the rite already holding for it.
+   * Three clocks meet here: the writer's answer, the bar's own floor, and --
+   * in a friend game -- the instant the driver stamped for both screens, so
+   * the two of them start reading together.
    */
   useEffect(() => {
-    if (writing || !riteReady || rolling) return;
-    // In a friend game the driver stamps the moment both crawls begin, so the
-    // two read in step rather than one racing ahead of the other.
-    const wait = Math.max(RITE_FADE, beginAt ? beginAt - Date.now() : 0);
+    if (writing || rolling) return;
+    const now = Date.now();
+    const wait = Math.max(
+      HANDOVER,
+      MIN_WAIT - (now - openedAt.current),
+      beginAt ? beginAt - now : 0
+    );
     const t = window.setTimeout(() => setRolling(true), wait);
     return () => clearTimeout(t);
-  }, [writing, riteReady, rolling, beginAt]);
+  }, [writing, rolling, beginAt]);
 
   // -- The crawl ------------------------------------------------------------
   /**
@@ -517,6 +505,10 @@ export default function BattleStory({
      * the read-line arithmetic below is unchanged.
      */
     let pos = startAt.current;
+    // The whole story, as both screens measure it: characters, not pixels.
+    const chars = told.reduce((n, t) => n + t.text.length, 0);
+    const runMs = Math.max(8000, chars * MS_PER_CHAR);
+    let seeked = false;
 
     const step = (now: number) => {
       // Clamped: a backgrounded tab hands back a gap of seconds, and without
@@ -530,7 +522,15 @@ export default function BattleStory({
       }
       const reel = reelRef.current;
       const max = el.scrollHeight - el.clientHeight;
-      pos = Math.min(max, pos + (CRAWL_PX_S * dt) / 1000);
+      // Same duration on both screens; the speed is whatever that takes here.
+      const pxS = Math.min(MAX_PX_S, Math.max(MIN_PX_S, max / (runMs / 1000)));
+      // Somebody who joined late starts where the room already is, and that
+      // distance is only knowable once the column has a height.
+      if (!seeked) {
+        seeked = true;
+        if (late > 1500) pos = Math.min(max, (pxS * late) / 1000);
+      }
+      pos = Math.min(max, pos + (pxS * dt) / 1000);
       startAt.current = pos;
       if (reel) reel.style.transform = `translate3d(0, ${-pos}px, 0)`;
 
@@ -712,49 +712,22 @@ export default function BattleStory({
         {/* Over the page, not inside the reel: the beats can arrive and sit
             below the fold without shifting the ground under the rite, and the
             handover is a dissolve rather than a cut. */}
-        {/* Kept mounted through the handover: unmounting it the instant the
-            crawl began cut the closing line dead instead of dissolving it. */}
-        {(
+        {/* The whole of the wait: one bar, holding the screen while the
+            battle is written. Kept mounted through the handover so it
+            dissolves into the story rather than being cut off. */}
+        <div className="dm-st-rite" data-out={rolling ? "1" : "0"} data-skip="0">
           <div
-            className="dm-st-rite"
-            data-out={writing || !riteReady ? "0" : "1"}
-            data-skip={riteReady ? "0" : "1"}
-            role={riteReady ? undefined : "button"}
-            tabIndex={riteReady ? undefined : 0}
-            title={riteReady ? undefined : "Tap to skip ahead"}
-            onClick={skipRite}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return;
-              // Kept from the page's own keys, where space is pause.
-              e.preventDefault();
-              e.stopPropagation();
-              skipRite();
-            }}
+            className="dm-st-load"
+            role="progressbar"
+            aria-label="Preparing for battle"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(writing ? LOAD(waited) : 100)}
           >
-            {(rite[riteAt]?.lines ?? []).map((line, i) => (
-              <p key={`${riteAt}-${i}`} className="dm-st-rite-line" data-last={riteAt === rite.length - 1 ? "1" : "0"}>
-                {line}
-              </p>
-            ))}
-            {/* Under the rite from the first breath, not after it: the
-                words and the waiting are one screen, and the bar is the only
-                honest thing on it -- it eases toward the end and then holds,
-                rather than pretending to know when the writer will answer. */}
-            {writing && (
-              <div
-                className="dm-st-load"
-                role="progressbar"
-                aria-label="Preparing for battle"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(LOAD(waited))}
-              >
-                <i style={{ width: `${LOAD(waited)}%` }} />
-                <em>Preparing for battle…</em>
-              </div>
-            )}
+            <i style={{ width: `${writing ? LOAD(waited) : 100}%` }} />
+            <em>Preparing for battle…</em>
           </div>
-        )}
+        </div>
         {/* Laid out from the first frame, because the crawl measures it, but
             invisible until the rite has finished speaking. Rendering it
             plainly meant the opening beats sat behind the invocation, two
