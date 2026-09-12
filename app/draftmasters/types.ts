@@ -172,6 +172,13 @@ export interface Verdict {
    * and could crown a card the prose never mentions.
    */
   mvp?: { name: string; note: string } | null;
+  /**
+   * Each player's case, and what the battle did with it.
+   *
+   * The words are the player's own, carried back from the request rather than
+   * rewritten by anybody, with the ruling the story gave them underneath.
+   */
+  cases?: { sideId: string; name: string; text: string; weight: number; note: string }[] | null;
 }
 
 export interface ChatLine {

@@ -496,7 +496,10 @@ export const BATTLE_STYLES = `
   pointer-events: none;
   transition: opacity .9s ease, transform .9s ease;
 }
-.dm-st-rite[data-out="1"] { opacity: 0; transform: translateY(-14px); }
+.dm-st-rite[data-out="1"] {
+  opacity: 0; transform: translateY(-14px); visibility: hidden;
+  transition: opacity .9s ease, transform .9s ease, visibility 0s linear .9s;
+}
 /* Until the rite has said its piece, a tap moves it on a line. */
 .dm-st-rite[data-skip="1"] {
   pointer-events: auto; cursor: pointer;

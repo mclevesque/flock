@@ -227,6 +227,7 @@ function withTold(
     headline,
     reasoning: told.why || base.reasoning,
     mvp: told.mvp,
+    cases: told.cases?.length ? told.cases : base.cases ?? null,
   };
 }
 

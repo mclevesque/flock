@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 
 /** Long enough for a real case, short enough that nobody writes an essay. */
 const ARGUE_MAX = 700;
+
+/** How much of a case the battle took, in the order the model scores them. */
+const CASE_WEIGHT = ["Changed nothing", "Noted", "Shaped the fight", "Decided it"];
 import Icon from "./Icon";
 import PersonAvatar from "../components/PersonAvatar";
 import type { Rules, Side } from "@/lib/draftmasters/engine";
@@ -165,6 +168,28 @@ export default function VerdictScreen({
             {verdict.mvp?.note && <p className="dm-mvp-note">{verdict.mvp.note}</p>}
           </div>
         </div>
+      )}
+
+      {/* What the battle did with what each player argued. Their own words,
+          the weight it carried, and the reason -- side by side, because the
+          interesting half of a case is how it was answered. */}
+      {/* Only the ones actually answered. A case with no ruling is the writer
+          having skipped it, and printing "Changed nothing" over somebody's
+          argument would be us inventing a verdict on their behalf. */}
+      {verdict.cases?.some((c) => c.note.trim()) && (
+        <section className="dm-cases">
+          <span className="dm-cases-tag">The cases</span>
+          {verdict.cases.filter((c) => c.note.trim()).map((c) => (
+            <article key={c.sideId} className="dm-case" data-weight={c.weight}>
+              <header className="dm-case-head">
+                <strong>{c.name}</strong>
+                <span className="dm-case-weight">{CASE_WEIGHT[c.weight] ?? CASE_WEIGHT[0]}</span>
+              </header>
+              <blockquote className="dm-case-said">{c.text}</blockquote>
+              {c.note && <p className="dm-case-note">{c.note}</p>}
+            </article>
+          ))}
+        </section>
       )}
 
       {verdict.plan && <PlanPanel plan={verdict.plan} />}

@@ -101,6 +101,15 @@ export interface Told {
    *  so one battle costs one request. */
   verdict: string;
   /**
+   * What the storyteller did with each player's case.
+   *
+   * A weight of 0-3 and one sentence. The case's TEXT never comes back from
+   * the model: it came from the player, and a model paraphrasing somebody's
+   * own words back at them on the screen where they read them is not a thing
+   * worth risking.
+   */
+  cases?: { id?: string | number; weight?: number | string; note?: string }[] | null;
+  /**
    * Bands the storyteller overruled, and why.
    *
    * Never shown to anybody. It is a bug report for power.ts written by the
@@ -127,11 +136,25 @@ export interface Told {
  * screen needs "turned" and "nulled" with names -- and pretending otherwise is
  * how you end up reading a field that is never there.
  */
+/** A player's case, and what the battle did with it. */
+export interface TellCase {
+  sideId: string;
+  /** Whose case it was, for the panel. */
+  name: string;
+  /** Their own words, straight from the body -- never the model's copy. */
+  text: string;
+  /** 0 ignored, 1 small, 2 shaped the fight, 3 decided it. */
+  weight: number;
+  note: string;
+}
+
 export interface Settled {
   beats: TellBeat[];
   winner: string;
   verdict: string;
   mvp: TellMvp | null;
+  /** One entry per side that wrote a case. Empty when nobody did. */
+  cases: TellCase[];
 }
 
 /** Anything carrying beats, told or settled. */
@@ -473,10 +496,38 @@ export function sanitise(told: Told, b: Body): Settled {
     ? { name: mvpName, note: named(String(rawMvp?.note ?? "").trim()) }
     : null;
 
+  /**
+   * Each case, put back beside the ruling it earned.
+   *
+   * The words come from the BODY, not from the answer: the model is told what
+   * somebody wrote and rules on it, and the player reads their own sentence
+   * back exactly as they typed it with the ruling underneath.
+   */
+  const rulings = new Map<string, { weight: number; note: string }>();
+  for (const row of told.cases ?? []) {
+    const want = String(row?.id ?? "").trim().toLowerCase();
+    const side = (b.sides ?? []).find(
+      (s) => s.id.toLowerCase() === want || s.name.trim().toLowerCase() === want
+    );
+    if (!side) continue;
+    const weight = Math.max(0, Math.min(3, Math.round(Number(row?.weight)) || 0));
+    rulings.set(side.id, { weight, note: named(String(row?.note ?? "").trim()) });
+  }
+  const cases: TellCase[] = (b.sides ?? [])
+    .filter((s) => (s.argument ?? "").trim())
+    .map((s) => ({
+      sideId: s.id,
+      name: s.name,
+      text: (s.argument ?? "").trim(),
+      weight: rulings.get(s.id)?.weight ?? 0,
+      note: rulings.get(s.id)?.note ?? "",
+    }));
+
   return {
     beats,
     winner: best?.id ?? told.winner,
     verdict: named(String(told.verdict ?? "").trim()),
     mvp,
+    cases,
   };
 }

@@ -46,6 +46,8 @@ export interface ToldBattle {
   winnerId: string;
   why: string;
   mvp: { name: string; note: string } | null;
+  /** Each player's case and the ruling it earned. Empty when nobody wrote one. */
+  cases?: { sideId: string; name: string; text: string; weight: number; note: string }[];
 }
 
 interface Props {
@@ -342,6 +344,7 @@ export default function BattleStory({
       winner?: string;
       verdict?: string;
       mvp?: { name: string; note: string } | null;
+      cases?: { sideId: string; name: string; text: string; weight: number; note: string }[];
     };
 
     const ask = async (): Promise<Answer | null> => {
@@ -382,7 +385,7 @@ export default function BattleStory({
           setTold(beats);
           setWonBy(winnerId);
           if (data.verdict) setWhy(data.verdict);
-          onTold({ beats, winnerId, why: data.verdict ?? "", mvp: data.mvp ?? null });
+          onTold({ beats, winnerId, why: data.verdict ?? "", mvp: data.mvp ?? null, cases: data.cases ?? [] });
         } else {
           // Shared even though it is ours. The other player is waiting on a
           // told and gets NOTHING if the writer quietly falls back -- they sat
@@ -393,7 +396,7 @@ export default function BattleStory({
           // the fallback from a telling that simply came back plain.
           console.warn("[battle] the writer did not answer - offline narration");
           setTold(offline);
-          onTold({ beats: offline, winnerId: script.winnerId, why: "", mvp: null });
+          onTold({ beats: offline, winnerId: script.winnerId, why: "", mvp: null, cases: [] });
         }
       } finally {
         setWriting(false);
@@ -709,7 +712,9 @@ export default function BattleStory({
         {/* Over the page, not inside the reel: the beats can arrive and sit
             below the fold without shifting the ground under the rite, and the
             handover is a dissolve rather than a cut. */}
-        {!rolling && (
+        {/* Kept mounted through the handover: unmounting it the instant the
+            crawl began cut the closing line dead instead of dissolving it. */}
+        {(
           <div
             className="dm-st-rite"
             data-out={writing || !riteReady ? "0" : "1"}

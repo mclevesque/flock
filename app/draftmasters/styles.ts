@@ -604,6 +604,43 @@ export const STYLES = `
   font-size: 15px; line-height: 1.65; color: var(--dm-dim);
 }
 
+/* ── The cases, and what the battle did with them ──────────────────────────
+   Their own words with the ruling underneath: the interesting half of making
+   a case is how it was answered. */
+.dm-cases { margin-top: 20px; text-align: left; }
+.dm-cases-tag {
+  display: block; margin-bottom: 8px;
+  font-family: var(--dm-display); font-size: 10px; letter-spacing: .2em;
+  text-transform: uppercase; color: rgb(var(--dm-glow) / .6);
+}
+.dm-case {
+  margin-bottom: 10px; padding: 11px 13px; border-radius: 12px;
+  border: 1px solid rgb(var(--dm-glow) / .18);
+  background: linear-gradient(180deg, rgba(28,24,18,.7), rgba(12,11,9,.7));
+}
+.dm-case-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-bottom: 7px;
+}
+.dm-case-head strong { font-family: var(--dm-display); font-size: 15px; color: #f0e6d2; }
+.dm-case-weight {
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid rgb(var(--dm-glow) / .3); color: rgba(240,230,210,.6);
+}
+/* Louder the more it counted: a case that decided a fight should look like it. */
+.dm-case[data-weight="2"] .dm-case-weight { color: var(--dm-gold); border-color: rgb(var(--dm-glow) / .55); }
+.dm-case[data-weight="3"] .dm-case-weight {
+  color: #17130a; background: var(--dm-gold); border-color: var(--dm-gold); font-weight: 700;
+}
+.dm-case[data-weight="0"] { opacity: .78; }
+.dm-case-said {
+  margin: 0 0 7px; padding-left: 10px;
+  border-left: 2px solid rgb(var(--dm-glow) / .35);
+  font-size: 13.5px; line-height: 1.5; color: rgba(240,230,210,.72);
+}
+.dm-case-note { margin: 0; font-size: 13.5px; line-height: 1.55; color: #e8dcc2; }
+
 /* The one card the battle turned on.
    The only portrait left on this screen, now that both rosters are gone from
    it -- which is what makes it read as a distinction rather than as one more
